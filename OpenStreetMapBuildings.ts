@@ -116,7 +116,8 @@ export default class OpenStreetMap {
                 for (let e = f.geometry.coordinates[i].length - 2; e >= 0; e--) {
 
                     const v2 = new Vector2(f.geometry.coordinates[i][e][0], f.geometry.coordinates[i][e][1]);
-                    const v2World = this.tileSet.GetPositionOnTile(v2, new Vector2(tile.tileNum.x, tile.tileNum.y));
+                    //const v2World = this.tileSet.GetPositionOnTile(v2, new Vector2(tile.tileNum.x, tile.tileNum.y));
+                    const v2World = this.tileSet.GetWorldPosition(v2);
                     //console.log("  v2world: " + v2World);
 
                     positions.push(v2World.x);
