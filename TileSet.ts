@@ -74,7 +74,6 @@ export default class TileSet {
                 const ground = MeshBuilder.CreateGround("ground", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: this.precision }, this.scene);
                 ground.position.z = this.zmin + (row + 0.5) * this.tileWidth;
                 ground.position.x = this.xmin + (col + 0.5) * this.tileWidth;
-                //TODO: could bake this transform into the mesh as optimization?
 
                 const t = new Tile();
                 t.mesh = ground;
@@ -82,8 +81,8 @@ export default class TileSet {
 
                 this.ourTiles.push(t);
 
-                //ground.bakeCurrentTransformIntoVertices(); //does this work?
-                //ground.freezeWorldMatrix();   
+                ground.bakeCurrentTransformIntoVertices(); //does this work?
+                ground.freezeWorldMatrix();   
             }
         }
 
