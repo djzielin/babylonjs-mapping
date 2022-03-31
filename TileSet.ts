@@ -185,7 +185,7 @@ export default class TileSet {
         return new Vector2(xFixed, yFixed);
     }
 
-    public async updateRaster(centerCoords: Vector2, zoom: number) {
+    public updateRaster(centerCoords: Vector2, zoom: number) {
         this.tileCorner = this.computeCornerTile(centerCoords, zoom);
         this.zoom = zoom;
 

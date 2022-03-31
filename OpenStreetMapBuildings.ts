@@ -70,7 +70,7 @@ export default class OpenStreetMap {
         this.heightScaleFixer = tileScale * exaggeration;
     }
 
-    public async generateBuildingsForTile(tile: Tile) {
+    public generateBuildingsForTile(tile: Tile) {
         if (tile.tileNum.z > 16) {
             console.error("Zoom level of: " + tile.tileNum.z + " is too large! This means that buildings won't work!");
             return;
