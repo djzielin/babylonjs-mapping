@@ -16,9 +16,9 @@ import { FloatArray, Rotate2dBlock, VertexBuffer } from "@babylonjs/core";
 import Earcut from 'earcut';
 import { fetch } from 'cross-fetch'
 import Tile from './Tile';
-import { IgnorePlugin } from "webpack";
 
 import OpenStreetMap from "./OpenStreetMap";
+import OpenStreetMapBuildings from "./OpenStreetMapBuildings";
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
@@ -26,6 +26,7 @@ import OpenStreetMap from "./OpenStreetMap";
 export default class TileSet {
 
     private totalWidthMeters: number;
+    private tileWidth: number;
 
     private xmin: number;
     private zmin: number;
@@ -33,7 +34,6 @@ export default class TileSet {
     private zmax: number;
 
     //for terrain DEM
-    private exaggeration=1;
     private globalMinHeight=Infinity;
 
     private ourTiles: Tile[]=[];
@@ -54,13 +54,14 @@ export default class TileSet {
     private rasterProvider: string;
     private accessToken: string;
 
+    private osmBuildings: OpenStreetMapBuildings;
+
     constructor(private scene: Scene, subdivisions: number, totalWidth: number) {
         this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tiles in X and Y
 
         this.totalWidthMeters = totalWidth;
 
-        const tileWidth = this.totalWidthMeters / this.subdivisions.x;
-        const tileHeight = this.totalWidthMeters / this.subdivisions.y;
+        this.tileWidth = this.totalWidthMeters / this.subdivisions.x;
 
         this.xmin = -this.totalWidthMeters / 2;
         this.zmin = -this.totalWidthMeters / 2;
@@ -70,9 +71,9 @@ export default class TileSet {
 
         for (var row = 0; row < this.subdivisions.y; row++) {
             for (var col = 0; col < this.subdivisions.x; col++) {
-                const ground = MeshBuilder.CreateGround("ground", { width: tileWidth, height: tileHeight, updatable: true, subdivisions: this.precision }, this.scene);
-                ground.position.z = this.zmin + (row + 0.5) * tileHeight;
-                ground.position.x = this.xmin + (col + 0.5) * tileWidth;
+                const ground = MeshBuilder.CreateGround("ground", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: this.precision }, this.scene);
+                ground.position.z = this.zmin + (row + 0.5) * this.tileWidth;
+                ground.position.x = this.xmin + (col + 0.5) * this.tileWidth;
                 //TODO: could bake this transform into the mesh as optimization?
 
                 const t = new Tile();
@@ -85,6 +86,8 @@ export default class TileSet {
                 //ground.freezeWorldMatrix();   
             }
         }
+
+        this.osmBuildings=new OpenStreetMapBuildings(this.scene, this);
     }
 
     public setRasterProvider(providerName: string, accessToken?: string){
@@ -165,6 +168,23 @@ export default class TileSet {
         return new Vector2(xFixed, yFixed);
     }
 
+    public GetPositionOnTile(coordinates: Vector2, tile: Vector2): Vector2 {
+        //console.log("computing world for lon: " + coordinates.x + " lat: " + coordinates.y + " zoom: " + this.zoom);
+
+        const x: number = this.lon2tileExact(coordinates.x, this.zoom);
+        const y: number = this.lat2tileExact(coordinates.y, this.zoom);
+
+        const tileCenterX=tile.x;
+        const tileCenterY=tile.y;
+
+        const xFixed: number = (x - tile.x)  * this.tileWidth - this.tileWidth / 2;
+        const yFixed: number = ((tile.y + 1) - y) * this.tileWidth - this.tileWidth / 2;
+
+        //console.log("fixed x: " + xFixed + " fixed y: " + yFixed);
+
+        return new Vector2(xFixed, yFixed);
+    }
+
     public async updateRaster(centerCoords: Vector2, zoom: number) {
         this.tileCorner = this.computeCornerTile(centerCoords, zoom);
         this.zoom = zoom;
@@ -208,4 +228,13 @@ export default class TileSet {
             }
         }
     }   
+
+    public generateBuildings(exaggeration: number)
+    {
+        this.osmBuildings.setExaggeration(this.computeTileScale(),exaggeration);
+        
+        for (const t of this.ourTiles){
+            this.osmBuildings.generateBuildingsForTile(t);
+        }
+    }
 }

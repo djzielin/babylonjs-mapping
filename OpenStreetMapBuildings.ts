@@ -70,7 +70,7 @@ export default class OpenStreetMap {
         this.heightScaleFixer = tileScale * exaggeration;
     }
 
-    public async generateBuildingForTile(tile: Tile) {
+    public async generateBuildingsForTile(tile: Tile) {
         if (tile.tileNum.z > 16) {
             console.error("Zoom level of: " + tile.tileNum.z + " is too large! This means that buildings won't work!");
             return;
@@ -91,7 +91,7 @@ export default class OpenStreetMap {
                         console.log("number of buildings in this tile: " + tileBuildings.features.length);
 
                         for (const f of tileBuildings.features) {
-                            this.generateSingleBuilding(f);
+                            this.generateSingleBuilding(f, tile);
                         }
                     });
             }
@@ -101,7 +101,7 @@ export default class OpenStreetMap {
         });
     }
 
-    public generateSingleBuilding(f: featuresJSON) {
+    private generateSingleBuilding(f: featuresJSON, tile: Tile) {
         if (f.geometry.type == "Polygon") {
             for (let i = 0; i < f.geometry.coordinates.length; i++) {
                 //var customMesh = new Mesh("custom", this.scene);
@@ -116,7 +116,7 @@ export default class OpenStreetMap {
                 for (let e = f.geometry.coordinates[i].length - 2; e >= 0; e--) {
 
                     const v2 = new Vector2(f.geometry.coordinates[i][e][0], f.geometry.coordinates[i][e][1]);
-                    const v2World = this.GetWorldPosition(v2);
+                    const v2World = this.tileSet.GetPositionOnTile(v2, new Vector2(tile.tileNum.x, tile.tileNum.y));
                     //console.log("  v2world: " + v2World);
 
                     positions.push(v2World.x);
@@ -132,8 +132,8 @@ export default class OpenStreetMap {
                     },
                     this.scene);
 
-                ourMesh.position.y = f.properties.height * this.heightScaleFixer; //TODO figure out proper scaling
-                //ourMesh.parent = this.tiledGround;
+                ourMesh.position.y = f.properties.height * this.heightScaleFixer; 
+                ourMesh.parent = tile.mesh;
                 ourMesh.material = this.buildingMaterial; //all buildings will use same material
                 ourMesh.isPickable = false;
 
