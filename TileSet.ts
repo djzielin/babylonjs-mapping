@@ -165,24 +165,7 @@ export default class TileSet {
         //console.log("fixed x: " + xFixed + " fixed y: " + yFixed);
 
         return new Vector2(xFixed, yFixed);
-    }
-
-    public GetPositionOnTile(coordinates: Vector2, tile: Vector2): Vector2 {
-        //console.log("computing world for lon: " + coordinates.x + " lat: " + coordinates.y + " zoom: " + this.zoom);
-
-        const x: number = this.lon2tileExact(coordinates.x, this.zoom);
-        const y: number = this.lat2tileExact(coordinates.y, this.zoom);
-
-        const tileCenterX=tile.x;
-        const tileCenterY=tile.y;
-
-        const xFixed: number = (x - tile.x)  * this.tileWidth - this.tileWidth / 2;
-        const yFixed: number = ((tile.y + 1) - y) * this.tileWidth - this.tileWidth / 2;
-
-        //console.log("fixed x: " + xFixed + " fixed y: " + yFixed);
-
-        return new Vector2(xFixed, yFixed);
-    }
+    }    
 
     public updateRaster(centerCoords: Vector2, zoom: number) {
         this.tileCorner = this.computeCornerTile(centerCoords, zoom);
