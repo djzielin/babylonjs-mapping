@@ -39,10 +39,7 @@ export default class TileSet {
 
     private ourTiles: Tile[]=[];
 
-    // Precision - number of subdivisions on the height and the width of each tile.
-    // more useful when using terrain
-    private precision = 20;     
-    
+    private exaggeration=3;    
 
     // Subdivisions - number of subdivisions (tiles) on the height and the width of the map.
     private subdivisions: Vector2;
@@ -56,13 +53,14 @@ export default class TileSet {
     private accessToken: string;
 
     private osmBuildings: OpenStreetMapBuildings;
+    private ourMB: MapBox;
 
-    constructor(subdivisions: number, totalWidth: number, private scene: Scene) {
-        this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tiles in X and Y
 
-        this.totalWidthMeters = totalWidth;
 
-        this.tileWidth = this.totalWidthMeters / this.subdivisions.x;
+    constructor(subdivisions: number, private totalWidth: number, public meshPrecision, private scene: Scene) {
+        this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tile numbers in X and Y
+
+        this.tileWidth = this.totalWidth / this.subdivisions.x;
 
         this.xmin = -this.totalWidthMeters / 2;
         this.zmin = -this.totalWidthMeters / 2;
@@ -72,7 +70,7 @@ export default class TileSet {
 
         for (var row = 0; row < this.subdivisions.y; row++) {
             for (var col = 0; col < this.subdivisions.x; col++) {
-                const ground = MeshBuilder.CreateGround("ground", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: this.precision }, this.scene);
+                const ground = MeshBuilder.CreateGround("ground", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: this.meshPrecision }, this.scene);
                 ground.position.z = this.zmin + (row + 0.5) * this.tileWidth;
                 ground.position.x = this.xmin + (col + 0.5) * this.tileWidth;
 
@@ -88,11 +86,13 @@ export default class TileSet {
         }
 
         this.osmBuildings=new OpenStreetMapBuildings(this, this.scene);
+        this.ourMB=new MapBox(this, this.scene);
     }
 
     public setRasterProvider(providerName: string, accessToken?: string){
         this.rasterProvider=providerName;
         this.accessToken=accessToken ?? "";
+        this.ourMB.accessToken=this.accessToken;
     }
 
     //https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
@@ -179,22 +179,21 @@ export default class TileSet {
                 t.material.dispose(true, true, false);
             }
         }
-        let index = 0;
 
-        for (let row = 0; row < this.subdivisions.y; row++) {
-            for (let col = 0; col < this.subdivisions.x; col++) {
+        for (let y = 0; y < this.subdivisions.y; y++) {
+            for (let x = 0; x < this.subdivisions.x; x++) {
 
-                const material = new StandardMaterial("material" + row + "-" + col, this.scene);
+                const material = new StandardMaterial("material" + y + "-" + x, this.scene);
               
-                const tileX = this.tileCorner.x + col;
-                const tileY = this.tileCorner.y - row;
+                const tileX = this.tileCorner.x + x;
+                const tileY = this.tileCorner.y - y;
 
                 let url:string = "";
 
                 if(this.rasterProvider=="OSM"){
                     url=OpenStreetMap.getRasterURL(new Vector2(tileX,tileY),this.zoom)
                 } else if(this.rasterProvider=="MB"){
-                    url=MapBox.getRasterURL(new Vector2(tileX,tileY),this.zoom,true,this.accessToken);
+                    url=this.ourMB.getRasterURL(new Vector2(tileX,tileY),this.zoom,true);
                 }
 
                 material.diffuseTexture = new Texture(url, this.scene);
@@ -204,22 +203,29 @@ export default class TileSet {
                 material.alpha = 1.0;
                 // material.backFaceCulling = false;
 
-                const tile=this.ourTiles[index];
+                const tileIndex=x+y*this.subdivisions.x;
+                const tile=this.ourTiles[tileIndex];
+
                 tile.mesh.material=material;
                 tile.material=material;
-                tile.tileNum=new Vector3(tileX, tileY, zoom); //store for later              
-
-                index++;
+                tile.tileCoords=new Vector3(tileX, tileY, zoom); //store for later              
             }
         }
-    }   
+    }
 
-    public generateBuildings(exaggeration: number)
-    {
-        this.osmBuildings.setExaggeration(this.computeTileScale(),exaggeration);
-        
-        for (const t of this.ourTiles){
+    public generateBuildings(exaggeration: number) {
+        this.osmBuildings.setExaggeration(this.computeTileScale(), exaggeration);
+
+        for (const t of this.ourTiles) {
             this.osmBuildings.generateBuildingsForTile(t);
+        }
+    }
+
+    public async updateTerrain(exaggeration: number) {
+        this.osmBuildings.setExaggeration(this.computeTileScale(), exaggeration);
+
+        for (let t of this.ourTiles) {
+            this.ourMB.getTileTerrain(t);
         }
     }
 }

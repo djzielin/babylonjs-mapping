@@ -71,12 +71,12 @@ export default class OpenStreetMap {
     }
 
     public generateBuildingsForTile(tile: Tile) {
-        if (tile.tileNum.z > 16) {
-            console.error("Zoom level of: " + tile.tileNum.z + " is too large! This means that buildings won't work!");
+        if (tile.tileCoords.z > 16) {
+            console.error("Zoom level of: " + tile.tileCoords.z + " is too large! This means that buildings won't work!");
             return;
         }
 
-        const url = this.osmBuildingServers[0] + tile.tileNum.z + "/" + tile.tileNum.x + "/" + tile.tileNum.y + ".json";
+        const url = this.osmBuildingServers[0] + tile.tileCoords.z + "/" + tile.tileCoords.x + "/" + tile.tileCoords.y + ".json";
 
         console.log("trying to fetch: " + url);
 

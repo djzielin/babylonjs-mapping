@@ -16,6 +16,7 @@ import { FloatArray, Rotate2dBlock, VertexBuffer } from "@babylonjs/core";
 import Earcut from 'earcut';
 import { fetch } from 'cross-fetch'
 import Tile from './Tile';
+import TileSet from "./TileSet";
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
@@ -23,49 +24,58 @@ import Tile from './Tile';
 export default class MapBox {
 
 
-    private static mbServers: string[] = ["https://api.mapbox.com/v4/"];
-    private static index = 0;
+    private mbServers: string[] = ["https://api.mapbox.com/v4/"];
+    private index = 0;
+    public accessToken: string = "";
+    private heightScaleFixer=0;
 
-    public static getRasterURL(tileCoords: Vector2, zoom: number, doResBoost: boolean, accessToken: string): string {
+    constructor(private tileSet: TileSet, private scene: Scene) {
+
+    }
+
+    public setExaggeration(tileScale: number, exaggeration: number) {
+        this.heightScaleFixer = tileScale * exaggeration;
+    }
+
+    public getRasterURL(tileCoords: Vector2, zoom: number, doResBoost: boolean): string {
         let mapType = "mapbox.satellite";
 
         const prefix = this.mbServers[this.index % this.mbServers.length];
         const boostParam = doResBoost ? "@2x" : "";
         let extension = ".jpg90"; //can do jpg70 to reduce quality & bandwidth
-        const accessParam = "?access_token=" + accessToken;
+        const accessParam = "?access_token=" + this.accessToken;
 
         let url = prefix + mapType + "/" + zoom + "/" + (tileCoords.x) + "/" + (tileCoords.y) + boostParam + extension + accessParam;
+        this.index++;
 
         return url;
     }
-}
 
-                /*if(doTerrain){
-                    mapType="mapbox.terrain-rgb";
-                    extension = ".png";
-                    url = prefix + mapType + "/" + zoom + "/" + (tileX) + "/" + (tileY) + extension + accessToken;
+    async getTileTerrain(tile: Tile) {
+        tile.dem = undefined; //to reclaim memory?
 
-                    console.log("trying to fetch: " + url);
-                    const res = await fetch(url);
-                    console.log("  fetch returned: " + res.status);
-            
-                    if (res.status != 200) {
-                        continue;
-                    }
-            
-                    const abuf = await res.arrayBuffer();
-                    const u=new Uint8Array(abuf);                  
+        const prefix = this.mbServers[this.index % this.mbServers.length];
 
-                    this.convertImageBufferToHeightArray(u,tile);
-                    
-                    //this.applyHeightArrayToTile(tileDEM,this.groundTiles[index]);
-                }
+        const mapType = "mapbox.terrain-rgb";
+        const extension = ".png";
+        const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + this.accessToken;
 
-                index++;
-            }
+        console.log("trying to fetch: " + url);
+        const res = await fetch(url);
+        console.log("  fetch returned: " + res.status);
+
+        if (res.status != 200) {
+            return;
         }
 
-        
+        const abuf = await res.arrayBuffer();
+        const u = new Uint8Array(abuf);
+
+        this.convertRGBtoDEM(u, tile);
+        this.applyHeightArrayToTile(tile);
+    }
+
+    /* 
 
         console.log("global min height: "+ this.globalMinHeight);
 
@@ -96,19 +106,11 @@ export default class MapBox {
                 }
             }
         }
-    }
+        */
 
-    private computeIndexByPercent(percent: Vector2, maxPixel: Vector2): number {
-        const pixelX = Math.floor(percent.x * (maxPixel.x-1));
-        const pixelY = Math.floor(percent.y * (maxPixel.y-1));
-        
-        const total = pixelY * maxPixel.x + pixelX;
-        //console.log("Percent: " + percent.x + " " + percent.y + " Pixel: "+ pixelX + " " + pixelY + " Total: " + total);
 
-        return total;
-    }
-
-    private fixRowSeams(tileLower: Tile, tileUpper: Tile){
+  
+    /*private fixRowSeams(tileLower: Tile, tileUpper: Tile){
         const positions1 = tileLower.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const positions2 = tileUpper.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
 
@@ -128,9 +130,9 @@ export default class MapBox {
         }
         tileLower.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
         tileUpper.mesh.updateVerticesData(VertexBuffer.PositionKind, positions2);
-    }
+    } */
 
-    private fixColSeams(tile: Tile, tileRight: Tile){
+    /*private fixColSeams(tile: Tile, tileRight: Tile){
         const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const positions2 = tileRight.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
 
@@ -151,50 +153,22 @@ export default class MapBox {
         tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
         tileRight.mesh.updateVerticesData(VertexBuffer.PositionKind, positions2);
     }
-
-
-
-    private applyHeightArrayToTile(tile: Tile) {
-        const positions = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
-        //console.log("Position length: " + positions.length);
-
-        const subdivisions = this.precision + 1;
-
-        const scaleFixer = this.computeTileScale() * this.exaggeration;
-
-        let meshIndex = 0;
-        for (let y = 0; y < subdivisions; y++) {
-            for (let x = 0; x < subdivisions; x++) {
-                const percent = new Vector2(x / (subdivisions - 1), y / (subdivisions - 1));
-                //console.log("percent: " + percent);
-                const demIndex = this.computeIndexByPercent(percent, tile.demDimensions);
-                //console.log("dem index:" + demIndex + " out of: " + tile.dem.length);
-                //console.log("dem value: " + tile.dem[demIndex]);
-                const height = (tile.dem[demIndex] - this.globalMinHeight) * scaleFixer;
-                //console.log("x: " + x + " y: " + y + " computed height: " + height);
-                positions[1 + meshIndex * 3] = height;
-                meshIndex++;
-            }
-        }
-        
-        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
-    }
+*/
 
     //https://docs.mapbox.com/data/tilesets/guides/access-elevation-data/
-    private convertImageBufferToHeightArray(ourBuff: Uint8Array, tile: Tile) {
+    private convertRGBtoDEM(ourBuff: Uint8Array, tile: Tile) {
         var heightDEM: number[] = [];
+        let maxHeight = Number.NEGATIVE_INFINITY;
+        let minHeight = Number.POSITIVE_INFINITY;
 
         console.log(`Converting Image Buffer to Height Array`);
 
-        const d: DecodedPng=decode(ourBuff);
-        const image: Uint8Array=new Uint8Array(d.data);
+        const d: DecodedPng = decode(ourBuff);
+        const image: Uint8Array = new Uint8Array(d.data);
 
         console.log("  image height: " + d.height);
         console.log("  image width: " + d.width);
-        tile.demDimensions=new Vector2(d.width,d.height);
-    
-        let minHeight = Infinity;
-        let maxHeight = -1;
+        tile.demDimensions = new Vector2(d.width, d.height);
 
         for (let i = 0; i < image.length; i += 4) {
             //documentation: height = -10000 + ((R * 256 * 256 + G * 256 + B) * 0.1)
@@ -202,7 +176,7 @@ export default class MapBox {
             const R = image[i + 0];
             const G = image[i + 1];
             const B = image[i + 2];
-            //const A = image[i + 3];
+            //const A = image[i + 3]; //unused
 
             const height = -10000.0 + ((R * 256.0 * 256.0 + G * 256.0 + B) * 0.1);
             if (height > maxHeight) {
@@ -210,18 +184,42 @@ export default class MapBox {
             }
             if (height < minHeight) {
                 minHeight = height;
-
-                if(minHeight<this.globalMinHeight){
-                    this.globalMinHeight=minHeight;
-                }
             }
 
-            heightDEM.push(height); 
+            heightDEM.push(height);
         }
         console.log("  terrain ranges from : " + minHeight.toFixed(2) + " to " + maxHeight.toFixed(2));
         console.log("  height delta: " + (maxHeight - minHeight).toFixed(2));
 
-        tile.dem=heightDEM;
-    }    
+        tile.dem = heightDEM;
+        tile.minHeight = minHeight;
+        tile.maxHeight = maxHeight;
+    }
+
+    private applyHeightArrayToTile(tile: Tile) {
+        const positions = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
+        const subdivisions = this.tileSet.meshPrecision + 1;
+
+        for (let y = 0; y < subdivisions; y++) {
+            for (let x = 0; x < subdivisions; x++) {
+                const percent = new Vector2(x / (subdivisions - 1), y / (subdivisions - 1));
+                const demIndex = this.computeIndexByPercent(percent, tile.demDimensions);
+                const height = (tile.dem[demIndex]) * this.heightScaleFixer;
+                const meshIndex = 1 + (x + y * subdivisions) * 3;
+                positions[meshIndex] = height;
+            }
+        }
+
+        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
+    }
+
+    private computeIndexByPercent(percent: Vector2, maxPixel: Vector2): number {
+        const pixelX = Math.floor(percent.x * (maxPixel.x - 1));
+        const pixelY = Math.floor(percent.y * (maxPixel.y - 1));
+
+        const total = pixelY * maxPixel.x + pixelX;
+        //console.log("Percent: " + percent.x + " " + percent.y + " Pixel: "+ pixelX + " " + pixelY + " Total: " + total);
+
+        return total;
+    }
 }
-*/

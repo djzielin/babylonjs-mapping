@@ -23,9 +23,11 @@ export default class Tile {
 
     public mesh: Mesh;
     public material: Material;
-    public tileNum: Vector3;
+    public tileCoords: Vector3;
     public colRow: Vector2;
 
     public dem: number[];
     public demDimensions: Vector2;
+    public minHeight: number;
+    public maxHeight: number;
 }
