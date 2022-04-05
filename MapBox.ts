@@ -168,7 +168,6 @@ export default class MapBox {
             dem2[pos2Index]=avg;
         }
 
-
         /*const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const positions2 = tileRight.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
 
