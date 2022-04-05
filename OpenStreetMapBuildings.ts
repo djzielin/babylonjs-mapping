@@ -60,7 +60,7 @@ export default class OpenStreetMap {
     private heightScaleFixer = 1.0;
     private buildingMaterial: StandardMaterial;
 
-    constructor(private scene: Scene, private tileSet: TileSet){
+    constructor(private tileSet: TileSet, private scene: Scene){
         this.buildingMaterial = new StandardMaterial("buildingMaterial", this.scene);
         this.buildingMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
         this.buildingMaterial.freeze();

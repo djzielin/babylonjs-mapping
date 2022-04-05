@@ -56,7 +56,7 @@ export default class TileSet {
 
     private osmBuildings: OpenStreetMapBuildings;
 
-    constructor(private scene: Scene, subdivisions: number, totalWidth: number) {
+    constructor(subdivisions: number, totalWidth: number, private scene: Scene) {
         this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tiles in X and Y
 
         this.totalWidthMeters = totalWidth;
