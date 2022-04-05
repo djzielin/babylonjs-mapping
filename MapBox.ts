@@ -58,7 +58,8 @@ export default class MapBox {
 
         const mapType = "mapbox.terrain-rgb";
         const extension = ".png";
-        const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + this.accessToken;
+        const accessParam = "?access_token=" + this.accessToken;
+        const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + accessParam;
 
         console.log("trying to fetch: " + url);
         const res = await fetch(url);
