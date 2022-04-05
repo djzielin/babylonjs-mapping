@@ -22,8 +22,6 @@ import TileSet from "./TileSet";
 //import "@babylonjs/inspector";
 
 export default class MapBox {
-
-
     private mbServers: string[] = ["https://api.mapbox.com/v4/"];
     private index = 0;
     public accessToken: string = "";
@@ -31,11 +29,7 @@ export default class MapBox {
 
     constructor(private tileSet: TileSet, private scene: Scene) {
 
-    }
-
-    public setExaggeration(tileScale: number, exaggeration: number) {
-        this.heightScaleFixer = tileScale * exaggeration;
-    }
+    }  
 
     public getRasterURL(tileCoords: Vector2, zoom: number, doResBoost: boolean): string {
         let mapType = "mapbox.satellite";
@@ -49,6 +43,14 @@ export default class MapBox {
         this.index++;
 
         return url;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    // TERRAIN
+    ///////////////////////////////////////////////////////////////////////////
+
+    public setExaggeration(tileScale: number, exaggeration: number) {
+        this.heightScaleFixer = tileScale * exaggeration;
     }
 
     async getTileTerrain(tile: Tile) {
@@ -73,7 +75,6 @@ export default class MapBox {
         const u = new Uint8Array(abuf);
 
         this.convertRGBtoDEM(u, tile);
-        this.applyHeightArrayToTile(tile);
     }
 
     /* 
@@ -197,22 +198,22 @@ export default class MapBox {
         tile.maxHeight = maxHeight;
     }
 
-    private applyHeightArrayToTile(tile: Tile) {
+    public applyHeightArrayToTile(tile: Tile, meshPrecision: number, heightAdjustment: number) {
         const positions = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
-        const subdivisions = this.tileSet.meshPrecision+1;
-        console.log("height fixer: " + this.heightScaleFixer);
-        console.log("subdivisions: " + subdivisions);
+        const subdivisions = meshPrecision+1;
+       // console.log("height fixer: " + this.heightScaleFixer);
+        //console.log("subdivisions: " + subdivisions);
 
         for (let y = 0; y < subdivisions; y++) {
             for (let x = 0; x < subdivisions; x++) {
-                console.log("---------------------------------------");
+                //console.log("---------------------------------------");
                 const percent = new Vector2(x / (subdivisions-1), y / (subdivisions-1));
                 const demIndex = this.computeIndexByPercent(percent, tile.demDimensions);
-                console.log("dem height: " + tile.dem[demIndex]);
-                const height = (tile.dem[demIndex]) * this.heightScaleFixer;
+                //console.log("dem height: " + tile.dem[demIndex]);
+                const height = (tile.dem[demIndex]+heightAdjustment) * this.heightScaleFixer;
                 const meshIndex = 1 + (x + y * subdivisions) * 3;
-                console.log("mesh index: " + meshIndex);
-                positions[meshIndex] = 5;
+                //console.log("mesh index: " + meshIndex);
+                positions[meshIndex] = height;
             }
         }
 

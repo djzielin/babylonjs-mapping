@@ -34,7 +34,7 @@ export default class TileSet {
     private zmax: number;
 
     //for terrain DEM
-    private globalMinHeight=Infinity;
+    private globalMinHeight=Number.POSITIVE_INFINITY;;
 
     private ourTiles: Tile[]=[];
 
@@ -223,10 +223,23 @@ export default class TileSet {
     public async updateTerrain(exaggeration: number) {
         this.ourMB.setExaggeration(this.computeTileScale(), exaggeration);
 
-        /*for (let t of this.ourTiles) {
+        for (let t of this.ourTiles) {
             await this.ourMB.getTileTerrain(t);
-        }*/
+        }
 
-        this.ourMB.getTileTerrain(this.ourTiles[0]); //just one for testing
+        for (let t of this.ourTiles) {
+            if(t.minHeight<this.globalMinHeight){
+                this.globalMinHeight=t.minHeight;
+            }
+        }
+        console.log("lowest point in tileset is: " + this.globalMinHeight);
+
+        //TODO fix seams here?
+
+        for (let t of this.ourTiles) {
+            this.ourMB.applyHeightArrayToTile(t,this.meshPrecision,-this.globalMinHeight);
+        }
+
+        //this.ourMB.getTileTerrain(this.ourTiles[0]); //just one for testing
     }
 }
