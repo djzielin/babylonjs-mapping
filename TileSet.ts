@@ -242,11 +242,11 @@ export default class TileSet {
                         this.ourMB.fixRightSeam(t,t2);
                     }
                 }
-                /*if ((t.tileCoords.x == t2.tileCoords.x) && (t.tileCoords.y == (t2.tileCoords.y-1))) {
+                if ((t.tileCoords.x == t2.tileCoords.x) && (t.tileCoords.y == (t2.tileCoords.y+1))) {
                     if (t.topSeamFixed == false) {
                         this.ourMB.fixTopSeam(t,t2);
                     }
-                }*/
+                }
             }
         }
 

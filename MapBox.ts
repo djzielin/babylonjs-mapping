@@ -155,17 +155,17 @@ export default class MapBox {
     }
 
     public fixRightSeam(tile: Tile, tileRight: Tile) {
-        console.log("fixing right seam!");
-        console.log("dem size: "+ tile.dem.length);
+        //console.log("fixing right seam!");
+        //console.log("dem size: "+ tile.dem.length);
         const dem1 = tile.dem;
         const dem2 = tileRight.dem;
         const dimensions = tile.demDimensions;
-        console.log("dem dimensions: " + dimensions.x + " " + dimensions.y);
+        //console.log("dem dimensions: " + dimensions.x + " " + dimensions.y);
 
         for (let y = 0; y < dimensions.y; y++) {
             const pos1Index = (dimensions.x - 1) + y * dimensions.x; //right most col
             const pos2Index = y * dimensions.x; //left most col
-            console.log("pos1: " + pos1Index + " pos2: " + pos2Index);
+            //console.log("pos1: " + pos1Index + " pos2: " + pos2Index);
             const height1 = dem1[pos1Index];
             const height2 = dem2[pos2Index];
             const avg = (height1 + height2) * 0.5;
