@@ -30,4 +30,7 @@ export default class Tile {
     public demDimensions: Vector2;
     public minHeight: number;
     public maxHeight: number;
+
+    public rightSeamFixed=false;
+    public topSeamFixed=false;
 }

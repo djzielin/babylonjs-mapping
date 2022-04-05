@@ -135,7 +135,7 @@ export default class TileSet {
     public computeTiletotalWidthMeters(coordinates: Vector2, zoom: number): number {
         const C = 40075016.686;
         const latRadians = coordinates.y * Math.PI / 180.0;
-        return Math.abs((C * Math.cos(latRadians) / Math.pow(2, zoom))); //seems to need abs?
+        return Math.abs(C * Math.cos(latRadians) / Math.pow(2, zoom)); //seems to need abs?
     }
 
     public computeTileScale(): number {
@@ -234,7 +234,21 @@ export default class TileSet {
         }
         console.log("lowest point in tileset is: " + this.globalMinHeight);
 
-        //TODO fix seams here?
+        //Fix Seams Here
+        for (let t of this.ourTiles) {
+            for (let t2 of this.ourTiles) {
+                if ((t.tileCoords.x == (t2.tileCoords.x - 1)) && (t.tileCoords.y == t2.tileCoords.y)) {
+                    if (t.rightSeamFixed == false) {
+                        this.ourMB.fixRightSeam(t,t2,this.meshPrecision);
+                    }
+                }
+                if ((t.tileCoords.x == t2.tileCoords.x) && (t.tileCoords.y == (t2.tileCoords.y-1))) {
+                    if (t.topSeamFixed == false) {
+                        this.ourMB.fixTopSeam(t,t2,this.meshPrecision);
+                    }
+                }
+            }
+        }
 
         for (let t of this.ourTiles) {
             this.ourMB.applyHeightArrayToTile(t,this.meshPrecision,-this.globalMinHeight);

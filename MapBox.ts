@@ -31,6 +31,7 @@ export default class MapBox {
 
     }  
 
+    //https://docs.mapbox.com/api/maps/raster-tiles/
     public getRasterURL(tileCoords: Vector2, zoom: number, doResBoost: boolean): string {
         let mapType = "mapbox.satellite";
 
@@ -109,14 +110,12 @@ export default class MapBox {
             }
         }
         */
-
-
   
-    /*private fixRowSeams(tileLower: Tile, tileUpper: Tile){
-        const positions1 = tileLower.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
+    public fixTopSeam(tile: Tile, tileUpper: Tile, meshPrecision: number){
+        const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const positions2 = tileUpper.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
 
-        const subdivisions = this.precision + 1;
+        const subdivisions = meshPrecision + 1;
         for (let x = 0; x < subdivisions; x++) {
 
             const pos1Index=1 + x*3;
@@ -130,15 +129,17 @@ export default class MapBox {
             positions2[pos2Index]=avg;            
 
         }
-        tileLower.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
+        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
         tileUpper.mesh.updateVerticesData(VertexBuffer.PositionKind, positions2);
-    } */
 
-    /*private fixColSeams(tile: Tile, tileRight: Tile){
+        tile.topSeamFixed=true;
+    } 
+
+    public fixRightSeam(tile: Tile, tileRight: Tile, meshPrecision: number){
         const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const positions2 = tileRight.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
 
-        const subdivisions = this.precision + 1;
+        const subdivisions = meshPrecision + 1;
         for (let y = 0; y < subdivisions; y++) {
 
             const pos1Index=(subdivisions-1)*3+1 + (y*subdivisions*3);
@@ -154,8 +155,10 @@ export default class MapBox {
         }
         tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
         tileRight.mesh.updateVerticesData(VertexBuffer.PositionKind, positions2);
+
+        tile.rightSeamFixed=true;
     }
-*/
+
 
     //https://docs.mapbox.com/data/tilesets/guides/access-elevation-data/
     private convertRGBtoDEM(ourBuff: Uint8Array, tile: Tile) {
