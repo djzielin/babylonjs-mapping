@@ -89,7 +89,7 @@ export default class TileSet {
         ground.freezeWorldMatrix();
 
         //ground.cullingStrategy=Mesh.CULLINGSTRATEGY_STANDARD; //experimenting with differnt culling
-        ground.alwaysSelectAsActiveMesh=true; //trying to eliminate mesh popping when close by
+        //ground.alwaysSelectAsActiveMesh=true; //trying to eliminate mesh popping when close by
 
         return ground;
     }
