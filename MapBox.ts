@@ -52,7 +52,7 @@ export default class MapBox {
     }
 
     async getTileTerrain(tile: Tile) {
-        tile.dem = undefined; //to reclaim memory?
+        tile.dem = []; //to reclaim memory?
 
         const prefix = this.mbServers[this.index % this.mbServers.length];
 
