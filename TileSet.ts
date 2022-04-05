@@ -87,6 +87,9 @@ export default class TileSet {
         ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
         ground.bakeCurrentTransformIntoVertices(); 
         ground.freezeWorldMatrix();
+
+        ground.cullingStrategy=Mesh.CULLINGSTRATEGY_STANDARD; //experimenting with differnt culling
+        
         return ground;
     }
 
@@ -203,6 +206,7 @@ export default class TileSet {
                 material.specularColor = new Color3(0, 0, 0);
                 material.alpha = 1.0;
                 // material.backFaceCulling = false;
+                material.freeze(); //optimization
 
                 const tileIndex=x+y*this.subdivisions.x;
                 const tile=this.ourTiles[tileIndex];
