@@ -212,7 +212,7 @@ export default class MapBox {
                 const height = (tile.dem[demIndex]) * this.heightScaleFixer;
                 const meshIndex = 1 + (x + y * subdivisions) * 3;
                 console.log("mesh index: " + meshIndex);
-                positions[meshIndex] = height;
+                positions[meshIndex] = 5;
             }
         }
 
