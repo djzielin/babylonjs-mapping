@@ -57,7 +57,7 @@ export default class TileSet {
 
 
 
-    constructor(subdivisions: number, private totalWidth: number, public meshPrecision, private scene: Scene) {
+    constructor(subdivisions: number, private totalWidth: number, public meshPrecision: number, private scene: Scene) {
         this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tile numbers in X and Y
 
         this.tileWidth = this.totalWidth / this.subdivisions.x;
