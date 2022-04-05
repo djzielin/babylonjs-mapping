@@ -208,7 +208,7 @@ export default class MapBox {
                 const demIndex = this.computeIndexByPercent(percent, tile.demDimensions);
                 const height = (tile.dem[demIndex]) * this.heightScaleFixer;
                 const meshIndex = 1 + (x + y * subdivisions) * 3;
-                console.log("mesh index: " + meshIndex);
+                //console.log("mesh index: " + meshIndex);
                 positions[meshIndex] = height;
             }
         }

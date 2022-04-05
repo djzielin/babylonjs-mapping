@@ -221,7 +221,7 @@ export default class TileSet {
     }
 
     public async updateTerrain(exaggeration: number) {
-        this.osmBuildings.setExaggeration(this.computeTileScale(), exaggeration);
+        this.ourMB.setExaggeration(this.computeTileScale(), exaggeration);
 
         for (let t of this.ourTiles) {
             this.ourMB.getTileTerrain(t);
