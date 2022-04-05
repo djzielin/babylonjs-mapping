@@ -111,8 +111,24 @@ export default class MapBox {
         }
         */
   
-    public fixTopSeam(tile: Tile, tileUpper: Tile, meshPrecision: number){
-        const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
+    public fixTopSeam(tile: Tile, tileUpper: Tile){
+        const dem1=tile.dem;
+        const dem2=tileUpper.dem;
+        const dimensions=tile.demDimensions;
+
+        for(let x=0; x<dimensions.x;x++){
+            const pos1Index=x;
+            const pos2Index=x+dimensions.x*(dimensions.y-1); //last row
+
+            const height1=dem1[pos1Index];
+            const height2=dem2[pos2Index];
+            const avg=(height1+height2)*0.5;
+
+            dem1[pos1Index]=avg; 
+            dem2[pos2Index]=avg;
+        }
+
+        /*const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const positions2 = tileUpper.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
 
         const subdivisions = meshPrecision + 1;
@@ -131,12 +147,29 @@ export default class MapBox {
         }
         tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
         tileUpper.mesh.updateVerticesData(VertexBuffer.PositionKind, positions2);
+        */
 
         tile.topSeamFixed=true;
     } 
 
-    public fixRightSeam(tile: Tile, tileRight: Tile, meshPrecision: number){
-        const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
+    public fixRightSeam(tile: Tile, tileRight: Tile){
+        const dem1=tile.dem;
+        const dem2=tileRight.dem;
+        const dimensions=tile.demDimensions;
+
+        for(let y=0; y<dimensions.y;y++){
+            const pos1Index=(dimensions.x-1)+y*dimensions.x; //right most col
+            const pos2Index=y*dimensions.x; //left most col
+            const height1=dem1[pos1Index];
+            const height2=dem2[pos2Index];
+            const avg=(height1+height2)*0.5;
+
+            dem1[pos1Index]=avg; 
+            dem2[pos2Index]=avg;
+        }
+
+
+        /*const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const positions2 = tileRight.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
 
         const subdivisions = meshPrecision + 1;
@@ -155,6 +188,7 @@ export default class MapBox {
         }
         tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
         tileRight.mesh.updateVerticesData(VertexBuffer.PositionKind, positions2);
+        */
 
         tile.rightSeamFixed=true;
     }
