@@ -268,13 +268,13 @@ export default class TileSet {
             loadMesh01.material=t.material;
 
             const lodPrecision02 = this.meshPrecision / 16;
-            const loadMesh02 = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, lodPrecision01);
-            this.ourMB.applyHeightArrayToMesh(loadMesh01,t,lodPrecision02, -this.globalMinHeight);
+            const loadMesh02 = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, lodPrecision02);
+            this.ourMB.applyHeightArrayToMesh(loadMesh02,t,lodPrecision02, -this.globalMinHeight);
             loadMesh02.material=t.material;
 
             const lodPrecision03 = this.meshPrecision / 32;
-            const loadMesh03 = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, lodPrecision01);
-            this.ourMB.applyHeightArrayToMesh(loadMesh01,t,lodPrecision03, -this.globalMinHeight);
+            const loadMesh03 = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, lodPrecision03);
+            this.ourMB.applyHeightArrayToMesh(loadMesh03,t,lodPrecision03, -this.globalMinHeight);
             loadMesh03.material=t.material;
 
             t.mesh.addLODLevel(this.totalWidthMeters, loadMesh01);
