@@ -239,7 +239,7 @@ export default class TileSet {
             for (let t2 of this.ourTiles) {
                 if ((t.tileCoords.x == (t2.tileCoords.x - 1)) && (t.tileCoords.y == t2.tileCoords.y)) {
                     if (t.rightSeamFixed == false) {
-                        this.ourMB.fixRightSeam(t,t2);
+                        this.ourMB.fixRightSeam(t2,t);
                     }
                 }
                 if ((t.tileCoords.x == t2.tileCoords.x) && (t.tileCoords.y == (t2.tileCoords.y-1))) {
