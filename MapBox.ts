@@ -124,9 +124,11 @@ export default class MapBox {
             const height2=dem2[pos2Index];
             const avg=(height1+height2)*0.5;
 
-            dem1[pos1Index]=avg; 
-            dem2[pos2Index]=avg;
+            dem1[pos1Index] = avg;
+            dem2[pos2Index] = avg;
         }
+
+        //code below was from doing this operation on the mesh
 
         /*const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const positions2 = tileUpper.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
@@ -149,25 +151,30 @@ export default class MapBox {
         tileUpper.mesh.updateVerticesData(VertexBuffer.PositionKind, positions2);
         */
 
-        tile.topSeamFixed=true;
-    } 
+        tile.topSeamFixed = true;
+    }
 
-    public fixRightSeam(tile: Tile, tileRight: Tile){
-        const dem1=tile.dem;
-        const dem2=tileRight.dem;
-        const dimensions=tile.demDimensions;
+    public fixRightSeam(tile: Tile, tileRight: Tile) {
+        console.log("fixing right seam!");
+        console.log("dem size: "+ tile.dem.length);
+        const dem1 = tile.dem;
+        const dem2 = tileRight.dem;
+        const dimensions = tile.demDimensions;
+        console.log("dem dimensions: " + dimensions.x + " " + dimensions.y);
 
-        for(let y=0; y<dimensions.y;y++){
-            const pos1Index=(dimensions.x-1)+y*dimensions.x; //right most col
-            const pos2Index=y*dimensions.x; //left most col
-            const height1=dem1[pos1Index];
-            const height2=dem2[pos2Index];
-            const avg=(height1+height2)*0.5;
+        for (let y = 0; y < dimensions.y; y++) {
+            const pos1Index = (dimensions.x - 1) + y * dimensions.x; //right most col
+            const pos2Index = y * dimensions.x; //left most col
+            console.log("pos1: " + pos1Index + " pos2: " + pos2Index);
+            const height1 = dem1[pos1Index];
+            const height2 = dem2[pos2Index];
+            const avg = (height1 + height2) * 0.5;
 
-            dem1[pos1Index]=avg; 
-            dem2[pos2Index]=avg;
+            dem1[pos1Index] = avg;
+            dem2[pos2Index] = avg;
         }
 
+        //code below was from doing this operation on the mesh
         /*const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const positions2 = tileRight.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
 
@@ -189,7 +196,7 @@ export default class MapBox {
         tileRight.mesh.updateVerticesData(VertexBuffer.PositionKind, positions2);
         */
 
-        tile.rightSeamFixed=true;
+        tile.rightSeamFixed = true;
     }
 
 
@@ -236,17 +243,17 @@ export default class MapBox {
 
     public applyHeightArrayToTile(tile: Tile, meshPrecision: number, heightAdjustment: number) {
         const positions = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
-        const subdivisions = meshPrecision+1;
-       // console.log("height fixer: " + this.heightScaleFixer);
+        const subdivisions = meshPrecision + 1;
+        // console.log("height fixer: " + this.heightScaleFixer);
         //console.log("subdivisions: " + subdivisions);
 
         for (let y = 0; y < subdivisions; y++) {
             for (let x = 0; x < subdivisions; x++) {
                 //console.log("---------------------------------------");
-                const percent = new Vector2(x / (subdivisions-1), y / (subdivisions-1));
+                const percent = new Vector2(x / (subdivisions - 1), y / (subdivisions - 1));
                 const demIndex = this.computeIndexByPercent(percent, tile.demDimensions);
                 //console.log("dem height: " + tile.dem[demIndex]);
-                const height = (tile.dem[demIndex]+heightAdjustment) * this.heightScaleFixer;
+                const height = (tile.dem[demIndex] + heightAdjustment) * this.heightScaleFixer;
                 const meshIndex = 1 + (x + y * subdivisions) * 3;
                 //console.log("mesh index: " + meshIndex);
                 positions[meshIndex] = height;
