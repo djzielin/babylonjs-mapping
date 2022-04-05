@@ -18,6 +18,7 @@ import { fetch } from 'cross-fetch'
 import Tile from './Tile';
 
 import OpenStreetMap from "./OpenStreetMap";
+import MapBox from "./MapBox";
 import OpenStreetMapBuildings from "./OpenStreetMapBuildings";
 
 //import "@babylonjs/core/Materials/standardMaterial"
@@ -192,6 +193,8 @@ export default class TileSet {
 
                 if(this.rasterProvider=="OSM"){
                     url=OpenStreetMap.getRasterURL(new Vector2(tileX,tileY),this.zoom)
+                } else if(this.rasterProvider=="MB"){
+                    url=MapBox.getRasterURL(new Vector2(tileX,tileY),this.zoom,true,this.accessToken);
                 }
 
                 material.diffuseTexture = new Texture(url, this.scene);
