@@ -86,7 +86,7 @@ export default class TileSet {
             }
         }
 
-        this.osmBuildings=new OpenStreetMapBuildings(this.scene, this);
+        this.osmBuildings=new OpenStreetMapBuildings(this, this.scene);
     }
 
     public setRasterProvider(providerName: string, accessToken?: string){
