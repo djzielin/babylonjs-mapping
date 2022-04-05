@@ -26,7 +26,6 @@ import OpenStreetMapBuildings from "./OpenStreetMapBuildings";
 
 export default class TileSet {
 
-    private totalWidthMeters: number;
     private tileWidth: number;
 
     private xmin: number;
@@ -57,10 +56,10 @@ export default class TileSet {
 
 
 
-    constructor(subdivisions: number, private totalWidth: number, public meshPrecision: number, private scene: Scene) {
+    constructor(subdivisions: number, private totalWidthMeters: number, public meshPrecision: number, private scene: Scene) {
         this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tile numbers in X and Y
 
-        this.tileWidth = this.totalWidth / this.subdivisions.x;
+        this.tileWidth = this.totalWidthMeters / this.subdivisions.x;
 
         this.xmin = -this.totalWidthMeters / 2;
         this.zmin = -this.totalWidthMeters / 2;
