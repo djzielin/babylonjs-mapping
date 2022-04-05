@@ -67,15 +67,15 @@ export default class TileSet {
         this.zmax = this.totalWidthMeters / 2;
 
 
-        for (var row = 0; row < this.subdivisions.y; row++) {
-            for (var col = 0; col < this.subdivisions.x; col++) {
+        for (let y = 0; y < this.subdivisions.y; y++) {
+            for (let x = 0; x < this.subdivisions.x; x++) {
                 const ground = MeshBuilder.CreateGround("ground", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: this.meshPrecision }, this.scene);
-                ground.position.z = this.zmin + (row + 0.5) * this.tileWidth;
-                ground.position.x = this.xmin + (col + 0.5) * this.tileWidth;
+                ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
+                ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
 
                 const t = new Tile();
                 t.mesh = ground;
-                t.colRow = new Vector2(col, row);
+                t.colRow = new Vector2(x, y);
 
                 this.ourTiles.push(t);
 
@@ -223,8 +223,10 @@ export default class TileSet {
     public async updateTerrain(exaggeration: number) {
         this.ourMB.setExaggeration(this.computeTileScale(), exaggeration);
 
-        for (let t of this.ourTiles) {
-            this.ourMB.getTileTerrain(t);
-        }
+        /*for (let t of this.ourTiles) {
+            await this.ourMB.getTileTerrain(t);
+        }*/
+
+        this.ourMB.getTileTerrain(this.ourTiles[0]); //just one for testing
     }
 }

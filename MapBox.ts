@@ -201,14 +201,17 @@ export default class MapBox {
         const positions = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const subdivisions = this.tileSet.meshPrecision;
         console.log("height fixer: " + this.heightScaleFixer);
+        console.log("subdivisions: " + subdivisions);
 
         for (let y = 0; y <= subdivisions; y++) {
             for (let x = 0; x <= subdivisions; x++) {
+                console.log("---------------------------------------");
                 const percent = new Vector2(x / (subdivisions), y / (subdivisions));
                 const demIndex = this.computeIndexByPercent(percent, tile.demDimensions);
+                console.log("dem height: " + tile.dem[demIndex]);
                 const height = (tile.dem[demIndex]) * this.heightScaleFixer;
                 const meshIndex = 1 + (x + y * subdivisions) * 3;
-                //console.log("mesh index: " + meshIndex);
+                console.log("mesh index: " + meshIndex);
                 positions[meshIndex] = height;
             }
         }
