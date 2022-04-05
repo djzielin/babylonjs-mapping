@@ -136,7 +136,7 @@ export default class TileSet {
     public computeTiletotalWidthMeters(coordinates: Vector2, zoom: number): number {
         const C = 40075016.686;
         const latRadians = coordinates.y * Math.PI / 180.0;
-        return (C * Math.cos(latRadians) / Math.pow(2, zoom));
+        return Math.abs((C * Math.cos(latRadians) / Math.pow(2, zoom))); //seems to need abs?
     }
 
     public computeTileScale(): number {
