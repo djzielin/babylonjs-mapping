@@ -88,8 +88,9 @@ export default class TileSet {
         ground.bakeCurrentTransformIntoVertices(); 
         ground.freezeWorldMatrix();
 
-        ground.cullingStrategy=Mesh.CULLINGSTRATEGY_STANDARD; //experimenting with differnt culling
-        
+        //ground.cullingStrategy=Mesh.CULLINGSTRATEGY_STANDARD; //experimenting with differnt culling
+        ground.alwaysSelectAsActiveMesh=true; //trying to eliminate mesh popping when close by
+
         return ground;
     }
 
@@ -270,10 +271,15 @@ export default class TileSet {
                 const precision = precisions[i];
                 const distance = distances[i];
 
-                const loadMesh = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, precision);
-                this.ourMB.applyHeightArrayToMesh(loadMesh, t, precision, -this.globalMinHeight);
-                loadMesh.material = t.material;
-                t.mesh.addLODLevel(distance, loadMesh);
+                if(precision>0){
+                    const loadMesh = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, precision);
+                    this.ourMB.applyHeightArrayToMesh(loadMesh, t, precision, -this.globalMinHeight);
+                    loadMesh.material = t.material;
+                    t.mesh.addLODLevel(distance, loadMesh);
+                }
+                else{
+                    t.mesh.addLODLevel(distance,null);
+                }
             }
         }
     }
