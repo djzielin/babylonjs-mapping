@@ -259,28 +259,18 @@ export default class TileSet {
         //this.ourMB.getTileTerrain(this.ourTiles[0]); //just one for testing
     }
 
-    public setupTerrainLOD() {
+    public setupTerrainLOD(precisions: number[], distances:number[]) {
         for (let t of this.ourTiles) {
-            
-            const lodPrecision01 = this.meshPrecision / 4;
-            const loadMesh01 = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, lodPrecision01);
-            this.ourMB.applyHeightArrayToMesh(loadMesh01,t,lodPrecision01, -this.globalMinHeight);
-            loadMesh01.material=t.material;
 
-            const lodPrecision02 = this.meshPrecision / 16;
-            const loadMesh02 = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, lodPrecision02);
-            this.ourMB.applyHeightArrayToMesh(loadMesh02,t,lodPrecision02, -this.globalMinHeight);
-            loadMesh02.material=t.material;
+            for (let i = 0; i < precisions.length; i++) {
+                const precision = precisions[i];
+                const distance = distances[i];
 
-            const lodPrecision03 = this.meshPrecision / 32;
-            const loadMesh03 = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, lodPrecision03);
-            this.ourMB.applyHeightArrayToMesh(loadMesh03,t,lodPrecision03, -this.globalMinHeight);
-            loadMesh03.material=t.material;
-
-            t.mesh.addLODLevel(this.totalWidthMeters, loadMesh01);
-            t.mesh.addLODLevel(this.totalWidthMeters*2.0, loadMesh02);
-            t.mesh.addLODLevel(this.totalWidthMeters*3.0, loadMesh03);
-            t.mesh.addLODLevel(this.totalWidthMeters*4.0, null);
+                const loadMesh = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, precision);
+                this.ourMB.applyHeightArrayToMesh(loadMesh, t, precision, -this.globalMinHeight);
+                loadMesh.material = t.material;
+                t.mesh.addLODLevel(distance, loadMesh);
+            }
         }
     }
 }
