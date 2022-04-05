@@ -69,23 +69,25 @@ export default class TileSet {
 
         for (let y = 0; y < this.subdivisions.y; y++) {
             for (let x = 0; x < this.subdivisions.x; x++) {
-                const ground = MeshBuilder.CreateGround("ground", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: this.meshPrecision }, this.scene);
-                ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
-                ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
-
+                const ground=this.makeSingleTileMesh(x,y,this.meshPrecision);
                 const t = new Tile();
                 t.mesh = ground;
-                t.colRow = new Vector2(x, y);
-
-                this.ourTiles.push(t);
-
-                ground.bakeCurrentTransformIntoVertices(); //does this work?
-                ground.freezeWorldMatrix();   
+                t.colRow = new Vector2(x, y);    
+                this.ourTiles.push(t);               
             }
         }
 
-        this.osmBuildings=new OpenStreetMapBuildings(this, this.scene);
-        this.ourMB=new MapBox(this, this.scene);
+        this.osmBuildings = new OpenStreetMapBuildings(this, this.scene);
+        this.ourMB = new MapBox(this, this.scene);
+    }
+
+    public makeSingleTileMesh(x: number, y: number, precision:number): Mesh {
+        const ground = MeshBuilder.CreateGround("ground", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
+        ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
+        ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
+        ground.bakeCurrentTransformIntoVertices(); 
+        ground.freezeWorldMatrix();
+        return ground;
     }
 
     public setRasterProvider(providerName: string, accessToken?: string){
@@ -251,9 +253,34 @@ export default class TileSet {
         }
 
         for (let t of this.ourTiles) {
-            this.ourMB.applyHeightArrayToTile(t,this.meshPrecision,-this.globalMinHeight);
+            this.ourMB.applyHeightArrayToMesh(t.mesh, t, this.meshPrecision, -this.globalMinHeight);
         }
 
         //this.ourMB.getTileTerrain(this.ourTiles[0]); //just one for testing
+    }
+
+    public setupTerrainLOD() {
+        for (let t of this.ourTiles) {
+            
+            const lodPrecision01 = this.meshPrecision / 4;
+            const loadMesh01 = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, lodPrecision01);
+            this.ourMB.applyHeightArrayToMesh(loadMesh01,t,lodPrecision01, -this.globalMinHeight);
+            loadMesh01.material=t.material;
+
+            const lodPrecision02 = this.meshPrecision / 16;
+            const loadMesh02 = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, lodPrecision01);
+            this.ourMB.applyHeightArrayToMesh(loadMesh01,t,lodPrecision02, -this.globalMinHeight);
+            loadMesh02.material=t.material;
+
+            const lodPrecision03 = this.meshPrecision / 32;
+            const loadMesh03 = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, lodPrecision01);
+            this.ourMB.applyHeightArrayToMesh(loadMesh01,t,lodPrecision03, -this.globalMinHeight);
+            loadMesh03.material=t.material;
+
+            t.mesh.addLODLevel(this.totalWidthMeters, loadMesh01);
+            t.mesh.addLODLevel(this.totalWidthMeters*2.0, loadMesh02);
+            t.mesh.addLODLevel(this.totalWidthMeters*3.0, loadMesh03);
+            t.mesh.addLODLevel(this.totalWidthMeters*4.0, null);
+        }
     }
 }

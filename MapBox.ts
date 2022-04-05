@@ -241,8 +241,8 @@ export default class MapBox {
         tile.maxHeight = maxHeight;
     }
 
-    public applyHeightArrayToTile(tile: Tile, meshPrecision: number, heightAdjustment: number) {
-        const positions = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
+    public applyHeightArrayToMesh(mesh: Mesh, tile: Tile, meshPrecision: number, heightAdjustment: number) {
+        const positions = mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const subdivisions = meshPrecision + 1;
         // console.log("height fixer: " + this.heightScaleFixer);
         //console.log("subdivisions: " + subdivisions);
@@ -260,7 +260,7 @@ export default class MapBox {
             }
         }
 
-        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
+        mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
     }
 
     private computeIndexByPercent(percent: Vector2, maxPixel: Vector2): number {
