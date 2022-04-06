@@ -68,9 +68,10 @@ export default class MapBox {
         //const mapType = "mapbox.terrain-rgb";
         //const mapType= "mapbox.mapbox-terrain-dem-v1";
 
-        const extension = ".png";
-        const accessParam = "?access_token=" + this.accessToken;
-        const url = prefix + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + accessParam;
+        const extension = ".pngraw";
+        const skuToken = "?sku=1234abcd"
+        const accessParam = "&access_token=" + this.accessToken;
+        const url = prefix + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + skuToken + accessParam;
 
         console.log("trying to fetch: " + url);
         const res = await fetch(url);
