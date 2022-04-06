@@ -45,6 +45,7 @@ export default class TileSet {
     
     private zoom = 0;
     private tileCorner: Vector2;
+    private centerCoords: Vector2;
     
     //private buildingMaterial: StandardMaterial;
 
@@ -147,11 +148,11 @@ export default class TileSet {
 
         const C = 40075016.686;
         const latRadians = coordinates.y * Math.PI / 180.0;
-        return Math.abs(C * Math.cos(latRadians) / Math.pow(2, zoom)); //seems to need abs?
+        return C * Math.cos(latRadians) / Math.pow(2, zoom); //seems to need abs?
     }
 
     public computeTileScale(): number {
-        const tileMeters = this.computeTiletotalWidthMeters(this.tileCorner, this.zoom);
+        const tileMeters = this.computeTiletotalWidthMeters(this.centerCoords, this.zoom);
         console.log("tile (real world) width in meters: " + tileMeters);
 
         const tileWorldMeters = this.totalWidthMeters / this.subdivisions.x;
@@ -180,6 +181,7 @@ export default class TileSet {
     }    
 
     public updateRaster(centerCoords: Vector2, zoom: number) {
+        this.centerCoords=centerCoords;
         this.tileCorner = this.computeCornerTile(centerCoords, zoom);
         this.zoom = zoom;
 
