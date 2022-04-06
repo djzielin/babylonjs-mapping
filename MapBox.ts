@@ -55,10 +55,10 @@ export default class MapBox {
         this.heightScaleFixer = tileScale * exaggeration;
     }
 
+    //https://docs.mapbox.com/data/tilesets/reference/mapbox-terrain-dem-v1/
     async getTileTerrain(tile: Tile) {
-        if(tile.tileCoords.z>15){
-            //https://docs.mapbox.com/data/tilesets/reference/mapbox-terrain-dem-v1/
-            console.log("DEM not improved beyond level 15!");
+        if(tile.tileCoords.z>15){            
+            console.log("DEM not improved beyond level 15! (or 14 if using 512x512 texture tiles)");
             return;
         }
         tile.dem = []; //to reclaim memory?
@@ -69,7 +69,7 @@ export default class MapBox {
         //const mapType= "mapbox.mapbox-terrain-dem-v1";
 
         const extension = ".pngraw";
-        const skuToken = "?sku=1234abcd"
+        const skuToken = "?sku=12345abcde"
         const accessParam = "&access_token=" + this.accessToken;
         const url = prefix + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + skuToken + accessParam;
 
