@@ -70,7 +70,7 @@ export default class MapBox {
 
     private GetAsyncTexture (url: string) : Promise<Texture> {
         return new Promise((resolve, reject) => {
-            var texture = new Texture(url, this.scene, null, null, null, function() {
+            var texture = new Texture(url, this.scene, true, false, Texture.NEAREST_SAMPLINGMODE, function() {
                 resolve(texture);
             }, function(message) {
                 reject(message);
