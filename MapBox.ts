@@ -27,9 +27,22 @@ export default class MapBox {
     private index = 0;
     public accessToken: string = "";
     private heightScaleFixer=0;
+    private skuToken: string;
 
     constructor(private tileSet: TileSet, private scene: Scene) {
+        //sku code generation from:
+        //https://github.com/mapbox/mapbox-gl-js/blob/992514ac5471c1231d8a1951bc6752a65aa9e3e6/src/util/sku_token.js
 
+        const SKU_ID = '01';
+        const TOKEN_VERSION = '1';
+        const base62chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        // sessionRandomizer is a randomized 10-digit base-62 number
+        let sessionRandomizer = '';
+        for (let i = 0; i < 10; i++) {
+            sessionRandomizer += base62chars[Math.floor(Math.random() * 62)];
+        }
+        
+        this.skuToken = [TOKEN_VERSION, SKU_ID, sessionRandomizer].join('');       
     }  
 
     //https://docs.mapbox.com/api/maps/raster-tiles/
@@ -66,12 +79,12 @@ export default class MapBox {
         const prefix = this.mbServer
 
         //const mapType = "mapbox.terrain-rgb";
-        const mapType= "mapbox.mapbox-terrain-dem-v1";
+        const mapType = "mapbox.mapbox-terrain-dem-v1";
 
         const extension = ".pngraw";
-        const skuToken = "?sku=12345abcde"
+        const skuParam = "?sku=" + this.skuToken;
         const accessParam = "&access_token=" + this.accessToken;
-        const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + skuToken+accessParam;
+        const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + skuParam + accessParam;
 
         console.log("trying to fetch: " + url);
         const res = await fetch(url);
