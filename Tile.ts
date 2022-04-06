@@ -31,6 +31,7 @@ export default class Tile {
     public minHeight: number;
     public maxHeight: number;
 
-    public rightSeamFixed=false;
-    public topSeamFixed=false;
+    public eastSeamFixed=false;
+    public northSeamFixed=false;
+    public northEastSeamFixed=false;
 }

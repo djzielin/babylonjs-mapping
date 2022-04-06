@@ -111,7 +111,7 @@ export default class MapBox {
         }
         */
   
-    public fixTopSeam(tile: Tile, tileUpper: Tile){
+    public fixNorthSeam(tile: Tile, tileUpper: Tile){
         const dem1=tile.dem;
         const dem2=tileUpper.dem;
         const dimensions=tile.demDimensions;
@@ -122,40 +122,14 @@ export default class MapBox {
 
             const height1=dem1[pos1Index];
             const height2=dem2[pos2Index];
-            //const avg=(height1+height2)*0.5;
 
-            //dem1[pos1Index] = avg;
-            //dem2[pos2Index] = avg;
             dem1[pos1Index]=height2;
-        }
+        }      
 
-        //code below was from doing this operation on the mesh
-
-        /*const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
-        const positions2 = tileUpper.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
-
-        const subdivisions = meshPrecision + 1;
-        for (let x = 0; x < subdivisions; x++) {
-
-            const pos1Index=1 + x*3;
-            const pos2Index=(1 + x*3)+(subdivisions-1)*subdivisions*3;
-            //console.log("pos1: "+ pos1Index + " pos2: " + pos2Index);
-            const height1=positions1[pos1Index];
-            const height2=positions2[pos2Index];
-            const avg=(height1+height2)*0.5;
-
-            positions1[pos1Index]=avg;
-            positions2[pos2Index]=avg;            
-
-        }
-        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
-        tileUpper.mesh.updateVerticesData(VertexBuffer.PositionKind, positions2);
-        */
-
-        tile.topSeamFixed = true;
+        tile.northSeamFixed = true;
     }
 
-    public fixRightSeam(tile: Tile, tileRight: Tile) {
+    public fixEastSeam(tile: Tile, tileRight: Tile) {
         //console.log("fixing right seam!");
         //console.log("dem size: "+ tile.dem.length);
         const dem1 = tile.dem;
@@ -166,41 +140,33 @@ export default class MapBox {
         for (let y = 0; y < dimensions.y; y++) {
             const pos1Index = (dimensions.x - 1) + y * dimensions.x; //right most col
             const pos2Index = y * dimensions.x; //left most col
-            //console.log("pos1: " + pos1Index + " pos2: " + pos2Index);
-            const height1 = dem1[pos1Index];
+
+            const height1=dem1[pos1Index];
             const height2 = dem2[pos2Index];
-            //const avg = (height1 + height2) * 0.5;
 
-            //dem1[pos1Index] = avg;
-            //dem2[pos2Index] = avg;
             dem1[pos1Index]=height2;
-        }
+        }       
 
-        //code below was from doing this operation on the mesh
-        /*const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
-        const positions2 = tileRight.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
-
-        const subdivisions = meshPrecision + 1;
-        for (let y = 0; y < subdivisions; y++) {
-
-            const pos1Index=(subdivisions-1)*3+1 + (y*subdivisions*3);
-            const pos2Index=1 + (y*subdivisions*3);
-            //console.log("pos1: "+ pos1Index + " pos2: " + pos2Index);
-            const height1=positions1[pos1Index];
-            const height2=positions2[pos2Index];
-            const avg=(height1+height2)*0.5;
-
-            positions1[pos1Index]=avg;
-            positions2[pos2Index]=avg;            
-
-        }
-        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
-        tileRight.mesh.updateVerticesData(VertexBuffer.PositionKind, positions2);
-        */
-
-        tile.rightSeamFixed = true;
+        tile.eastSeamFixed = true;
     }
 
+    public fixNorthEastSeam(tile: Tile, tileUpperRight: Tile) {
+
+        //console.log("dem size: "+ tile.dem.length);
+        const dem1 = tile.dem;
+        const dem2 = tileUpperRight.dem;
+        const dimensions = tile.demDimensions;
+
+        const pos1Index = (dimensions.x - 1); //upper right
+        const pos2Index = (dimensions.y - 1) * dimensions.x; //lower left
+
+        const height1 = dem1[pos1Index];
+        const height2 = dem2[pos2Index];
+
+        dem1[pos1Index] = height2;
+    
+        tile.northEastSeamFixed = true;
+    }
 
     //https://docs.mapbox.com/data/tilesets/guides/access-elevation-data/
     private convertRGBtoDEM(ourBuff: Uint8Array, tile: Tile) {

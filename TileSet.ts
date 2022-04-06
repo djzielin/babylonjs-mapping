@@ -245,13 +245,18 @@ export default class TileSet {
         for (let t of this.ourTiles) {
             for (let t2 of this.ourTiles) {
                 if ((t.tileCoords.x == (t2.tileCoords.x - 1)) && (t.tileCoords.y == t2.tileCoords.y)) {
-                    if (t.rightSeamFixed == false) {
-                        this.ourMB.fixRightSeam(t,t2);
+                    if (t.eastSeamFixed == false) {
+                        this.ourMB.fixEastSeam(t,t2);
                     }
                 }
                 if ((t.tileCoords.x == t2.tileCoords.x) && (t.tileCoords.y == (t2.tileCoords.y+1))) {
-                    if (t.topSeamFixed == false) {
-                        this.ourMB.fixTopSeam(t,t2);
+                    if (t.northSeamFixed == false) {
+                        this.ourMB.fixNorthSeam(t,t2);
+                    }
+                }
+                if ((t.tileCoords.x == (t2.tileCoords.x - 1)) && (t.tileCoords.y == (t2.tileCoords.y+1))) {
+                    if (t.northEastSeamFixed == false) {
+                        this.ourMB.fixNorthEastSeam(t,t2);
                     }
                 }
             }
