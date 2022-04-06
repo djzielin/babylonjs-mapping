@@ -139,8 +139,13 @@ export default class TileSet {
     //Stile = C ∙ cos(latitude) / 2^zoomlevel
 
     public computeTiletotalWidthMeters(coordinates: Vector2, zoom: number): number {
+        if(zoom==0){
+            console.log("ERROR: zoom not setup yet!");
+            return 0;
+        }
+        
         const C = 40075016.686;
-        const latRadians = coordinates.y * Math.PI / 180.0;
+        const latRadians = 0 * Math.PI / 180.0;
         return Math.abs(C * Math.cos(latRadians) / Math.pow(2, zoom)); //seems to need abs?
     }
 
