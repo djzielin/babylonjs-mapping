@@ -119,13 +119,15 @@ export default class MapBox {
         //const ourTex: Texture=new Texture(url,this.scene);
         const ourTex: Texture = await this.GetAsyncTexture(url); //wait for loading to be complete
 
-
-        if (ourTex.readPixels().buffer != null) {
-            tile.demDimensions = new Vector2(ourTex!.getSize().width, ourTex!.getSize().height);
-            const ourBuff: Uint8Array = new Uint8Array(ourTex.readPixels()!.buffer);
-            this.convertRGBtoDEM(ourBuff, tile);
+        if (ourTex) {
+            if (ourTex!.readPixels()) {
+                if (ourTex.readPixels()!.buffer) {
+                    tile.demDimensions = new Vector2(ourTex.getSize().width, ourTex.getSize().height);
+                    const ourBuff: Uint8Array = new Uint8Array(ourTex.readPixels().buffer);
+                    this.convertRGBtoDEM(ourBuff, tile);
+                }
+            }
         }
-
     }
 
     //https://docs.mapbox.com/data/tilesets/guides/access-elevation-data/
