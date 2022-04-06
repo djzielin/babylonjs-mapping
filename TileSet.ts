@@ -11,7 +11,7 @@ import { SubMesh } from "@babylonjs/core/Meshes/subMesh";
 import { MultiMaterial } from '@babylonjs/core/Materials/multiMaterial';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
-import {decode,DecodedPng} from 'fast-png';
+//import {decode,DecodedPng} from 'fast-png';
 import { FloatArray, Rotate2dBlock, VertexBuffer } from "@babylonjs/core";
 import Earcut from 'earcut';
 import { fetch } from 'cross-fetch'

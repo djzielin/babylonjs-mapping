@@ -12,7 +12,8 @@ import { MultiMaterial } from '@babylonjs/core/Materials/multiMaterial';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 //import {decode,DecodedPng} from 'fast-png';
-import { PNG } from 'pngjs/browser';
+import Jimp from 'jimp/es';
+
 import { FloatArray, Rotate2dBlock, VertexBuffer } from "@babylonjs/core";
 import Earcut from 'earcut';
 import { fetch } from 'cross-fetch'
@@ -94,7 +95,7 @@ export default class MapBox {
         const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + boostParam + extension + skuParam + accessParam;
 
         console.log("trying to fetch: " + url);
-        const res = await fetch(url);
+        /*const res = await fetch(url);
         console.log("  fetch returned: " + res.status);
 
         if (res.status != 200) {
@@ -103,42 +104,13 @@ export default class MapBox {
 
         const abuf = await res.arrayBuffer();
         const u = new Uint8Array(abuf);
-
-        this.convertRGBtoDEM(u, tile);
-    }
-
-    /* 
-
-        console.log("global min height: "+ this.globalMinHeight);
-
-        index = 0;
-        //let row=0;
-       // let col=1;
-        for (let row = 0; row < this.subdivisions.h; row++) {
-            for (let col = 0; col < this.subdivisions.w; col++) {
-                const tile=this.ourTiles[col+row*this.subdivisions.w];        
-
-                this.applyHeightArrayToTile(tile);
-      
-            }
-        }
-
-        for (let row = 0; row < this.subdivisions.h; row++) {
-            for (let col = 0; col < this.subdivisions.w; col++) {
-                const tile=this.ourTiles[col+row*this.subdivisions.w];     
-                
-                if(row<this.subdivisions.h-1){
-                const tileAbove=this.ourTiles[col+(row+1)*this.subdivisions.w];  
-                this.fixRowSeams(tile,tileAbove);     
-                }
-
-                if(col<this.subdivisions.w-1){
-                const tileRight=this.ourTiles[col+1+row*this.subdivisions.w];
-                this.fixColSeams(tile,tileRight);  
-                }
-            }
-        }
         */
+        const res=await Jimp.read('http://www.example.com/path/to/lenna.jpg');
+        tile.demDimensions=new Vector2(res.bitmap.width, res.bitmap.height);
+        const ourBuff: Uint8Array = new Uint8Array(res.bitmap.data);
+  
+        this.convertRGBtoDEM(ourBuff, tile);
+    }  
   
     public fixNorthSeam(tile: Tile, tileUpper: Tile){
         const dem1=tile.dem;
@@ -205,24 +177,18 @@ export default class MapBox {
 
         console.log(`Converting Image Buffer to Height Array`);
 
-        //const d: DecodedPng = decode(ourBuff);
-        const png = PNG.sync.read(ourBuff, {
-            filterType: 0 //no filter
-          });
-        
+        //const d: DecodedPng = decode(ourBuff);    
         //const image: Uint8Array = new Uint8Array(d.data);
-        const image: Uint8Array = new Uint8Array(png.data);
 
-        console.log("  image height: " + png.height);
-        console.log("  image width: " + png.width);
-        tile.demDimensions = new Vector2(png.width, png.height);
+        console.log("  image height: " + tile.demDimensions.y);
+        console.log("  image width: " + tile.demDimensions.x);
 
-        for (let i = 0; i < image.length; i += 4) {
+        for (let i = 0; i < ourBuff.length; i += 4) {
             //documentation: height = -10000 + ((R * 256 * 256 + G * 256 + B) * 0.1)
 
-            const R = image[i + 0];
-            const G = image[i + 1];
-            const B = image[i + 2];
+            const R = ourBuff[i + 0];
+            const G = ourBuff[i + 1];
+            const B = ourBuff[i + 2];
             //const A = image[i + 3]; //unused
 
             const height = -10000.0 + ((R * 256.0 * 256.0 + G * 256.0 + B) * 0.1);
