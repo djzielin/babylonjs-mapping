@@ -143,9 +143,10 @@ export default class TileSet {
             console.log("ERROR: zoom not setup yet!");
             return 0;
         }
-        
+        console.log("tryign to compute tile width for lat: " + coordinates.y);
+
         const C = 40075016.686;
-        const latRadians = 0 * Math.PI / 180.0;
+        const latRadians = coordinates.y * Math.PI / 180.0;
         return Math.abs(C * Math.cos(latRadians) / Math.pow(2, zoom)); //seems to need abs?
     }
 
