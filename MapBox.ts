@@ -105,7 +105,8 @@ export default class MapBox {
         const abuf = await res.arrayBuffer();
         const u = new Uint8Array(abuf);
         */
-        const res=await Jimp.read('http://www.example.com/path/to/lenna.jpg');
+        
+        const res=await Jimp.read(url);
         tile.demDimensions=new Vector2(res.bitmap.width, res.bitmap.height);
         const ourBuff: Uint8Array = new Uint8Array(res.bitmap.data);
   
