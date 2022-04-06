@@ -117,68 +117,13 @@ export default class MapBox {
         //const ourTex: Texture=new Texture(url,this.scene);
         const ourTex: Texture=await this.GetAsyncTexture(url); //wait for loading to be complete
 
+        tile.demDimensions=new Vector2(ourTex.getSize().width,ourTex.getSize().height);
+
         const arrayBuf: ArrayBufferView=ourTex.readPixels();    
         const ourBuff: Uint8Array = new Uint8Array(arrayBuf.buffer);
   
         this.convertRGBtoDEM(ourBuff, tile);
-    }  
-  
-    public fixNorthSeam(tile: Tile, tileUpper: Tile){
-        const dem1=tile.dem;
-        const dem2=tileUpper.dem;
-        const dimensions=tile.demDimensions;
-
-        for(let x=0; x<dimensions.x;x++){
-            const pos1Index=x;
-            const pos2Index=x+dimensions.x*(dimensions.y-1); //last row
-
-            const height1=dem1[pos1Index];
-            const height2=dem2[pos2Index];
-
-            dem1[pos1Index]=height2;
-        }      
-
-        tile.northSeamFixed = true;
-    }
-
-    public fixEastSeam(tile: Tile, tileRight: Tile) {
-        //console.log("fixing right seam!");
-        //console.log("dem size: "+ tile.dem.length);
-        const dem1 = tile.dem;
-        const dem2 = tileRight.dem;
-        const dimensions = tile.demDimensions;
-        //console.log("dem dimensions: " + dimensions.x + " " + dimensions.y);
-
-        for (let y = 0; y < dimensions.y; y++) {
-            const pos1Index = (dimensions.x - 1) + y * dimensions.x; //right most col
-            const pos2Index = y * dimensions.x; //left most col
-
-            const height1=dem1[pos1Index];
-            const height2 = dem2[pos2Index];
-
-            dem1[pos1Index]=height2;
-        }       
-
-        tile.eastSeamFixed = true;
-    }
-
-    public fixNorthEastSeam(tile: Tile, tileUpperRight: Tile) {
-
-        //console.log("dem size: "+ tile.dem.length);
-        const dem1 = tile.dem;
-        const dem2 = tileUpperRight.dem;
-        const dimensions = tile.demDimensions;
-
-        const pos1Index = (dimensions.x - 1); //upper right
-        const pos2Index = (dimensions.y - 1) * dimensions.x; //lower left
-
-        const height1 = dem1[pos1Index];
-        const height2 = dem2[pos2Index];
-
-        dem1[pos1Index] = height2;
-    
-        tile.northEastSeamFixed = true;
-    }
+    }      
 
     //https://docs.mapbox.com/data/tilesets/guides/access-elevation-data/
     private convertRGBtoDEM(ourBuff: Uint8Array, tile: Tile) {
@@ -250,5 +195,62 @@ export default class MapBox {
         //console.log("Percent: " + percent.x + " " + percent.y + " Pixel: "+ pixelX + " " + pixelY + " Total: " + total);
 
         return total;
+    }
+
+    public fixNorthSeam(tile: Tile, tileUpper: Tile){
+        const dem1=tile.dem;
+        const dem2=tileUpper.dem;
+        const dimensions=tile.demDimensions;
+
+        for(let x=0; x<dimensions.x;x++){
+            const pos1Index=x;
+            const pos2Index=x+dimensions.x*(dimensions.y-1); //last row
+
+            const height1=dem1[pos1Index];
+            const height2=dem2[pos2Index];
+
+            dem1[pos1Index]=height2;
+        }      
+
+        tile.northSeamFixed = true;
+    }
+
+    public fixEastSeam(tile: Tile, tileRight: Tile) {
+        //console.log("fixing right seam!");
+        //console.log("dem size: "+ tile.dem.length);
+        const dem1 = tile.dem;
+        const dem2 = tileRight.dem;
+        const dimensions = tile.demDimensions;
+        //console.log("dem dimensions: " + dimensions.x + " " + dimensions.y);
+
+        for (let y = 0; y < dimensions.y; y++) {
+            const pos1Index = (dimensions.x - 1) + y * dimensions.x; //right most col
+            const pos2Index = y * dimensions.x; //left most col
+
+            const height1=dem1[pos1Index];
+            const height2 = dem2[pos2Index];
+
+            dem1[pos1Index]=height2;
+        }       
+
+        tile.eastSeamFixed = true;
+    }
+
+    public fixNorthEastSeam(tile: Tile, tileUpperRight: Tile) {
+
+        //console.log("dem size: "+ tile.dem.length);
+        const dem1 = tile.dem;
+        const dem2 = tileUpperRight.dem;
+        const dimensions = tile.demDimensions;
+
+        const pos1Index = (dimensions.x - 1); //upper right
+        const pos2Index = (dimensions.y - 1) * dimensions.x; //lower left
+
+        const height1 = dem1[pos1Index];
+        const height2 = dem2[pos2Index];
+
+        dem1[pos1Index] = height2;
+    
+        tile.northEastSeamFixed = true;
     }
 }
