@@ -23,7 +23,7 @@ import TileSet from "./TileSet";
 
 export default class MapBox {
     private mbServer: string = "https://api.mapbox.com/v4/";
-    private terrainServer: string = "https://api.mapbox.com/raster/v1/mapbox.mapbox-terrain-dem-v1";
+
     private index = 0;
     public accessToken: string = "";
     private heightScaleFixer=0;
@@ -63,15 +63,15 @@ export default class MapBox {
         }
         tile.dem = []; //to reclaim memory?
 
-        const prefix = this.terrainServer
+        const prefix = this.mbServer
 
         //const mapType = "mapbox.terrain-rgb";
-        //const mapType= "mapbox.mapbox-terrain-dem-v1";
+        const mapType= "mapbox.mapbox-terrain-dem-v1";
 
         const extension = ".pngraw";
         const skuToken = "?sku=12345abcde"
         const accessParam = "&access_token=" + this.accessToken;
-        const url = prefix + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + skuToken + accessParam;
+        const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + accessParam;
 
         console.log("trying to fetch: " + url);
         const res = await fetch(url);
