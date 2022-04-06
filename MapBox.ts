@@ -59,7 +59,9 @@ export default class MapBox {
 
         const prefix = this.mbServers[this.index % this.mbServers.length];
 
-        const mapType = "mapbox.terrain-rgb";
+        //const mapType = "mapbox.terrain-rgb";
+        const mapType= "mapbox.mapbox-terrain-dem-v1";
+
         const extension = ".png";
         const accessParam = "?access_token=" + this.accessToken;
         const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + accessParam;
