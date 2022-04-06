@@ -123,7 +123,7 @@ export default class MapBox {
             if (ourTex!.readPixels()) {
                 if (ourTex.readPixels()!.buffer) {
                     tile.demDimensions = new Vector2(ourTex.getSize().width, ourTex.getSize().height);
-                    const ourBuff: Uint8Array = new Uint8Array(ourTex.readPixels().buffer);
+                    const ourBuff: Uint8Array = new Uint8Array(ourTex.readPixels()!.buffer);
                     this.convertRGBtoDEM(ourBuff, tile);
                 }
             }
