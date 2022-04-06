@@ -68,6 +68,8 @@ export default class MapBox {
         this.heightScaleFixer = tileScale * exaggeration;
     }
 
+    //based on code from
+    //https://www.babylonjs-playground.com/#DXARSP#30
     private GetAsyncTexture (url: string) : Promise<Texture> {
         return new Promise((resolve, reject) => {
             var texture = new Texture(url, this.scene, true, false, Texture.NEAREST_SAMPLINGMODE, function() {
@@ -116,11 +118,8 @@ export default class MapBox {
 
         //const ourTex: Texture=new Texture(url,this.scene);
         const ourTex: Texture=await this.GetAsyncTexture(url); //wait for loading to be complete
-
-        tile.demDimensions=new Vector2(ourTex.getSize().width,ourTex.getSize().height);
-
-        const arrayBuf: ArrayBufferView=ourTex.readPixels();    
-        const ourBuff: Uint8Array = new Uint8Array(arrayBuf.buffer);
+        tile.demDimensions=new Vector2(ourTex.getSize().width,ourTex.getSize().height);       
+        const ourBuff: Uint8Array = new Uint8Array(ourTex.readPixels().buffer);
   
         this.convertRGBtoDEM(ourBuff, tile);
     }      
