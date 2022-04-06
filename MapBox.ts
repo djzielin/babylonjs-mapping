@@ -69,14 +69,15 @@ export default class MapBox {
     }
 
     //https://docs.mapbox.com/data/tilesets/reference/mapbox-terrain-dem-v1/
-    async getTileTerrain(tile: Tile) {
+    async getTileTerrain(tile: Tile, doResBoost: boolean) {
         if(tile.tileCoords.z>15){            
             console.log("DEM not improved beyond level 15! (or 14 if using 512x512 texture tiles)");
             return;
         }
         tile.dem = []; //to reclaim memory?
 
-        const prefix = this.mbServer
+        const prefix = this.mbServer;
+        const boostParam = doResBoost ? "@2x" : "";
 
         //const mapType = "mapbox.terrain-rgb";
         const mapType = "mapbox.mapbox-terrain-dem-v1";
@@ -84,7 +85,7 @@ export default class MapBox {
         const extension = ".pngraw";
         const skuParam = "?sku=" + this.skuToken;
         const accessParam = "&access_token=" + this.accessToken;
-        const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + skuParam + accessParam;
+        const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + boostParam + extension + skuParam + accessParam;
 
         console.log("trying to fetch: " + url);
         const res = await fetch(url);

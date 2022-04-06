@@ -239,7 +239,7 @@ export default class TileSet {
         this.ourMB.setExaggeration(this.computeTileScale(), exaggeration);
 
         for (let t of this.ourTiles) {
-            await this.ourMB.getTileTerrain(t);
+            await this.ourMB.getTileTerrain(t,true);
         }
 
         for (let t of this.ourTiles) {
