@@ -70,10 +70,15 @@ export default class MapBox {
 
     //https://docs.mapbox.com/data/tilesets/reference/mapbox-terrain-dem-v1/
     async getTileTerrain(tile: Tile, doResBoost: boolean) {
-        if(tile.tileCoords.z>15){            
-            console.log("DEM not improved beyond level 15! (or 14 if using 512x512 texture tiles)");
+        if(tile.tileCoords.z>15 && doResBoost==false){            
+            console.log("DEM not supported beyond level 15 (if not doing res boost)");
             return;
         }
+        if(tile.tileCoords.z>14 && doResBoost==true){            
+            console.log("DEM not supported beyond 14 (is doing res boost)");
+            return;
+        }
+        
         tile.dem = []; //to reclaim memory?
 
         const prefix = this.mbServer;
