@@ -198,7 +198,7 @@ export default class TileSet {
                 if(this.rasterProvider=="OSM"){
                     url=OpenStreetMap.getRasterURL(new Vector2(tileX,tileY),this.zoom)
                 } else if(this.rasterProvider=="MB"){
-                    url=this.ourMB.getRasterURL(new Vector2(tileX,tileY),this.zoom,true);
+                    url=this.ourMB.getRasterURL(new Vector2(tileX,tileY),this.zoom,false);
                 }
 
                 material.diffuseTexture = new Texture(url, this.scene);
