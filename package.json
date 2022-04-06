@@ -11,7 +11,6 @@
     "cross-fetch": "^3.1.5",
     "csv-parse": "^5.0.4",
     "earcut": "^2.2.3",
-    "jimp": "^0.16.1",
     "papaparse": "^5.3.1"
   },
   "devDependencies": {

@@ -11,8 +11,6 @@ import { SubMesh } from "@babylonjs/core/Meshes/subMesh";
 import { MultiMaterial } from '@babylonjs/core/Materials/multiMaterial';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
-//import {decode,DecodedPng} from 'fast-png';
-import Jimp from 'jimp/es';
 
 import { FloatArray, Rotate2dBlock, VertexBuffer } from "@babylonjs/core";
 import Earcut from 'earcut';
@@ -70,6 +68,16 @@ export default class MapBox {
         this.heightScaleFixer = tileScale * exaggeration;
     }
 
+    private GetAsyncTexture (url: string) : Promise<Texture> {
+        return new Promise((resolve, reject) => {
+            var texture = new Texture(url, this.scene, null, null, null, function() {
+                resolve(texture);
+            }, function(message) {
+                reject(message);
+            });    
+        })
+    }
+
     //https://docs.mapbox.com/data/tilesets/reference/mapbox-terrain-dem-v1/
     async getTileTerrain(tile: Tile, doResBoost: boolean) {
         if(tile.tileCoords.z>15 && doResBoost==false){            
@@ -105,10 +113,12 @@ export default class MapBox {
         const abuf = await res.arrayBuffer();
         const u = new Uint8Array(abuf);
         */
-        
-        const res=await Jimp.read(url);
-        tile.demDimensions=new Vector2(res.bitmap.width, res.bitmap.height);
-        const ourBuff: Uint8Array = new Uint8Array(res.bitmap.data);
+
+        //const ourTex: Texture=new Texture(url,this.scene);
+        const ourTex: Texture=await this.GetAsyncTexture(url); //wait for loading to be complete
+
+        const arrayBuf: ArrayBufferView=ourTex.readPixels();    
+        const ourBuff: Uint8Array = new Uint8Array(arrayBuf.buffer);
   
         this.convertRGBtoDEM(ourBuff, tile);
     }  
