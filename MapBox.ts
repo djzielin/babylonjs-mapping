@@ -22,7 +22,8 @@ import TileSet from "./TileSet";
 //import "@babylonjs/inspector";
 
 export default class MapBox {
-    private mbServers: string[] = ["https://api.mapbox.com/v4/"];
+    private mbServer: string = "https://api.mapbox.com/v4/";
+    private terrainServer: string = "https://api.mapbox.com/raster/v1/mapbox.mapbox-terrain-dem-v1";
     private index = 0;
     public accessToken: string = "";
     private heightScaleFixer=0;
@@ -35,7 +36,7 @@ export default class MapBox {
     public getRasterURL(tileCoords: Vector2, zoom: number, doResBoost: boolean): string {
         let mapType = "mapbox.satellite";
 
-        const prefix = this.mbServers[this.index % this.mbServers.length];
+        const prefix = this.mbServer;
         const boostParam = doResBoost ? "@2x" : "";
         let extension = ".jpg90"; //can do jpg70 to reduce quality & bandwidth
         const accessParam = "?access_token=" + this.accessToken;
@@ -55,16 +56,21 @@ export default class MapBox {
     }
 
     async getTileTerrain(tile: Tile) {
+        if(tile.tileCoords.z>15){
+            //https://docs.mapbox.com/data/tilesets/reference/mapbox-terrain-dem-v1/
+            console.log("DEM not improved beyond level 15!");
+            return;
+        }
         tile.dem = []; //to reclaim memory?
 
-        const prefix = this.mbServers[this.index % this.mbServers.length];
+        const prefix = this.terrainServer
 
         //const mapType = "mapbox.terrain-rgb";
-        const mapType= "mapbox.mapbox-terrain-dem-v1";
+        //const mapType= "mapbox.mapbox-terrain-dem-v1";
 
         const extension = ".png";
         const accessParam = "?access_token=" + this.accessToken;
-        const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + accessParam;
+        const url = prefix + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + extension + accessParam;
 
         console.log("trying to fetch: " + url);
         const res = await fetch(url);
