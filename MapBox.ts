@@ -122,10 +122,11 @@ export default class MapBox {
 
             const height1=dem1[pos1Index];
             const height2=dem2[pos2Index];
-            const avg=(height1+height2)*0.5;
+            //const avg=(height1+height2)*0.5;
 
-            dem1[pos1Index] = avg;
-            dem2[pos2Index] = avg;
+            //dem1[pos1Index] = avg;
+            //dem2[pos2Index] = avg;
+            dem1[pos1Index]=height2;
         }
 
         //code below was from doing this operation on the mesh
@@ -168,10 +169,11 @@ export default class MapBox {
             //console.log("pos1: " + pos1Index + " pos2: " + pos2Index);
             const height1 = dem1[pos1Index];
             const height2 = dem2[pos2Index];
-            const avg = (height1 + height2) * 0.5;
+            //const avg = (height1 + height2) * 0.5;
 
-            dem1[pos1Index] = avg;
-            dem2[pos2Index] = avg;
+            //dem1[pos1Index] = avg;
+            //dem2[pos2Index] = avg;
+            dem1[pos1Index]=height2;
         }
 
         //code below was from doing this operation on the mesh
