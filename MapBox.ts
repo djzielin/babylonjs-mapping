@@ -11,7 +11,8 @@ import { SubMesh } from "@babylonjs/core/Meshes/subMesh";
 import { MultiMaterial } from '@babylonjs/core/Materials/multiMaterial';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
-import {decode,DecodedPng} from 'fast-png';
+//import {decode,DecodedPng} from 'fast-png';
+import { PNG } from 'pngjs/browser';
 import { FloatArray, Rotate2dBlock, VertexBuffer } from "@babylonjs/core";
 import Earcut from 'earcut';
 import { fetch } from 'cross-fetch'
@@ -78,7 +79,7 @@ export default class MapBox {
             console.log("DEM not supported beyond 14 (is doing res boost)");
             return;
         }
-        
+
         tile.dem = []; //to reclaim memory?
 
         const prefix = this.mbServer;
@@ -204,12 +205,17 @@ export default class MapBox {
 
         console.log(`Converting Image Buffer to Height Array`);
 
-        const d: DecodedPng = decode(ourBuff);
-        const image: Uint8Array = new Uint8Array(d.data);
+        //const d: DecodedPng = decode(ourBuff);
+        const png = PNG.sync.read(ourBuff, {
+            filterType: 0 //no filter
+          });
+        
+        //const image: Uint8Array = new Uint8Array(d.data);
+        const image: Uint8Array = new Uint8Array(png.data);
 
-        console.log("  image height: " + d.height);
-        console.log("  image width: " + d.width);
-        tile.demDimensions = new Vector2(d.width, d.height);
+        console.log("  image height: " + png.height);
+        console.log("  image width: " + png.width);
+        tile.demDimensions = new Vector2(png.width, png.height);
 
         for (let i = 0; i < image.length; i += 4) {
             //documentation: height = -10000 + ((R * 256 * 256 + G * 256 + B) * 0.1)

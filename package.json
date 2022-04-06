@@ -14,10 +14,12 @@
     "fast-png": "^6.1.0",
     "image-decode": "^1.2.2",
     "papaparse": "^5.3.1",
+    "pngjs": "^6.0.0",
     "sharp": "^0.30.3"
   },
   "devDependencies": {
     "@types/earcut": "^2.1.1",
+    "@types/pngjs": "^6.0.1",
     "@types/sharp": "^0.30.0",
     "@typescript-eslint/eslint-plugin": "^2.30.0",
     "@typescript-eslint/parser": "^2.30.0",
