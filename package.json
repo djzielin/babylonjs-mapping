@@ -2,7 +2,7 @@
   "name": "babylonjs-mapping",
   "version": "1.0.0",
   "author": "David Zielinski <djzielin@gmail.com>",
-  "license": "CC BY-NC-SA 4.0",
+  "license": "ISC",
   "description": "help work with mapping in babylonjs app",
   "main": "TileSet.ts",
   "dependencies": {
