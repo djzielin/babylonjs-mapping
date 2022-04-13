@@ -30,5 +30,12 @@
   "bugs": {
     "url": "https://github.com/djzielin/babylonjs-mapping/issues"
   },
+  "keywords": [
+    "babylonjs",
+    "mapping",
+    "openstreetmaps",
+    "OSM",
+    "mapbox"
+  ],
   "homepage": "https://github.com/djzielin/babylonjs-mapping#readme"
 }
