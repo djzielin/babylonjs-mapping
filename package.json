@@ -1,6 +1,6 @@
 {
   "name": "babylonjs-mapping",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "David Zielinski <djzielin@gmail.com>",
   "license": "ISC",
   "description": "help work with mapping in babylonjs app",
@@ -14,10 +14,6 @@
   },
   "devDependencies": {
     "@types/earcut": "^2.1.1",
-    "@typescript-eslint/eslint-plugin": "^2.30.0",
-    "@typescript-eslint/parser": "^2.30.0",
-    "eslint": "^6.8.0",
-    "ts-loader": "^8",
     "typescript": "^3.8.3"
   },
   "scripts": {
