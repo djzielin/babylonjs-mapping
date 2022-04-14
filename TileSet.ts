@@ -1,3 +1,8 @@
+//TODO: compile down to javascript as part of build process see links
+// https://dev.to/monisnap/5-min-typescript-npm-package-4ce4
+// https://itnext.io/step-by-step-building-and-publishing-an-npm-typescript-package-44fe7164964c
+
+
 //based on this example: https://www.babylonjs-playground.com/#866PVL#5
 
 import { Scene } from "@babylonjs/core/scene";
