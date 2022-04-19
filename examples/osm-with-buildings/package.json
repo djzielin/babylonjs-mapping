@@ -8,7 +8,7 @@
         "@babylonjs/inspector": "^4.2",
         "@babylonjs/materials": "^4.2",
         "@types/papaparse": "^5.3.1",
-        "babylonjs-mapping": "file:../",
+        "babylonjs-mapping": "file:../../",
         "cross-fetch": "^3.1.5",
         "csv-parse": "^5.0.4",
         "earcut": "^2.2.3",
