@@ -1,12 +1,24 @@
 {
   "compilerOptions": {
+    "module": "esNext",
     "target": "es5",
-    "module": "commonjs",
-    "declaration": true,
+    "moduleResolution": "node",
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "skipLibCheck": true,
+    "preserveConstEnums": true,
+    "sourceMap": true,
+    "watch": false,
+    "lib": ["es2015", "dom"],
     "strictPropertyInitialization": false,
-    "outDir": "./lib",
-    "strict": true
+    "allowSyntheticDefaultImports": true,
+    "outDir": "./lib"
   },
-  "include": ["src"],
+  "include": [
+    "src"],
   "exclude": ["node_modules", "**/__tests__/*"]
 }

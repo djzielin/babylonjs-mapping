@@ -10,7 +10,8 @@
     "@babylonjs/inspector": "^4.2",
     "@babylonjs/materials": "^4.2",
     "cross-fetch": "^3.1.5",
-    "earcut": "^2.2.3"
+    "earcut": "^2.2.3",
+    "rimraf": "^3.0.2"
   },
   "devDependencies": {
     "@types/earcut": "^2.1.1",
@@ -18,7 +19,8 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc"
+    "build": "tsc",
+    "clean": "rimraf ./lib"
   },
   "repository": {
     "type": "git",
