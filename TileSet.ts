@@ -92,10 +92,9 @@ export default class TileSet {
         ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
         ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
         ground.bakeCurrentTransformIntoVertices(); 
-        ground.freezeWorldMatrix();
 
+        //ground.freezeWorldMatrix(); //optimization
         //ground.cullingStrategy=Mesh.CULLINGSTRATEGY_STANDARD; //experimenting with differnt culling
-        //ground.alwaysSelectAsActiveMesh=true; //trying to eliminate mesh popping when close by
 
         return ground;
     }
@@ -186,7 +185,7 @@ export default class TileSet {
     }    
 
     public updateRaster(centerCoords: Vector2, zoom: number) {
-        this.centerCoords=centerCoords;
+        this.centerCoords = centerCoords;
         this.tileCorner = this.computeCornerTile(centerCoords, zoom);
         this.zoom = zoom;
 
@@ -198,38 +197,40 @@ export default class TileSet {
             }
         }
 
+        let tileIndex = 0;
         for (let y = 0; y < this.subdivisions.y; y++) {
             for (let x = 0; x < this.subdivisions.x; x++) {
-
-                const material = new StandardMaterial("material" + y + "-" + x, this.scene);
-              
                 const tileX = this.tileCorner.x + x;
                 const tileY = this.tileCorner.y - y;
-
-                let url:string = "";
-
-                if(this.rasterProvider=="OSM"){
-                    url=OpenStreetMap.getRasterURL(new Vector2(tileX,tileY),this.zoom)
-                } else if(this.rasterProvider=="MB"){
-                    url=this.ourMB.getRasterURL(new Vector2(tileX,tileY),this.zoom,true);
-                }
-
-                material.diffuseTexture = new Texture(url, this.scene);
-                material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
-                material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
-                material.specularColor = new Color3(0, 0, 0);
-                material.alpha = 1.0;
-                // material.backFaceCulling = false;
-                material.freeze(); //optimization
-
-                const tileIndex=x+y*this.subdivisions.x;
                 const tile=this.ourTiles[tileIndex];
-
-                tile.mesh.material=material;
-                tile.material=material;
-                tile.tileCoords=new Vector3(tileX, tileY, zoom); //store for later              
+                this.updateSingleRasterTile(tileX,tileY,tile);
+                tileIndex++;
             }
         }
+    }
+
+    public updateSingleRasterTile(tileX: number, tileY: number, tile: Tile) {
+        const material = new StandardMaterial("material" + y + "-" + x, this.scene);
+
+        let url: string = "";
+
+        if (this.rasterProvider == "OSM") {
+            url = OpenStreetMap.getRasterURL(new Vector2(tileX, tileY), this.zoom)
+        } else if (this.rasterProvider == "MB") {
+            url = this.ourMB.getRasterURL(new Vector2(tileX, tileY), this.zoom, true);
+        }
+
+        material.diffuseTexture = new Texture(url, this.scene);
+        material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
+        material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
+        material.specularColor = new Color3(0, 0, 0);
+        material.alpha = 1.0;
+        // material.backFaceCulling = false;
+        material.freeze(); //optimization
+
+        tile.mesh.material = material;
+        tile.material = material;
+        tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later         
     }
 
     public generateBuildings(exaggeration: number) {
