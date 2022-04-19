@@ -1,25 +1,19 @@
 {
   "name": "babylonjs-mapping",
-  "version": "1.0.0",
+  "version": "1.0.2",
+  "author": "David Zielinski <djzielin@gmail.com>",
+  "license": "ISC",
   "description": "help work with mapping in babylonjs app",
   "main": "TileSet.ts",
   "dependencies": {
     "@babylonjs/core": "^4.2",
     "@babylonjs/inspector": "^4.2",
     "@babylonjs/materials": "^4.2",
-    "@types/papaparse": "^5.3.1",
     "cross-fetch": "^3.1.5",
-    "csv-parse": "^5.0.4",
-    "earcut": "^2.2.3",
-    "papaparse": "^5.3.1"
+    "earcut": "^2.2.3"
   },
   "devDependencies": {
     "@types/earcut": "^2.1.1",
-    "@typescript-eslint/eslint-plugin": "^2.30.0",
-    "@typescript-eslint/parser": "^2.30.0",
-    "eslint": "^6.8.0",
-    "source-map-loader": "^0.2.4",
-    "ts-loader": "^8",
     "typescript": "^3.8.3"
   },
   "scripts": {
@@ -29,10 +23,15 @@
     "type": "git",
     "url": "git+https://github.com/djzielin/babylonjs-mapping.git"
   },
-  "author": "",
-  "license": "ISC",
   "bugs": {
     "url": "https://github.com/djzielin/babylonjs-mapping/issues"
   },
+  "keywords": [
+    "babylonjs",
+    "mapping",
+    "openstreetmaps",
+    "OSM",
+    "mapbox"
+  ],
   "homepage": "https://github.com/djzielin/babylonjs-mapping#readme"
 }
