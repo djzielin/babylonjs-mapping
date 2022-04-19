@@ -31,8 +31,6 @@ import OpenStreetMapBuildings from "./OpenStreetMapBuildings";
 
 export default class TileSet {
 
-    private tileWidth: number;
-
     private xmin: number;
     private zmin: number;
     private xmax: number; 
@@ -59,13 +57,14 @@ export default class TileSet {
 
     private osmBuildings: OpenStreetMapBuildings;
     private ourMB: MapBox;
+    private totalWidthMeters: number;
 
 
-
-    constructor(subdivisions: number, private totalWidthMeters: number, public meshPrecision: number, private scene: Scene) {
+    constructor(subdivisions: number, private tileWidth: number, public meshPrecision: number, private scene: Scene) {
         this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tile numbers in X and Y
+        this.totalWidthMeters=tileWidth*subdivisions;
 
-        this.tileWidth = this.totalWidthMeters / this.subdivisions.x;
+        //this.tileWidth = this.totalWidthMeters / this.subdivisions.x;
 
         this.xmin = -this.totalWidthMeters / 2;
         this.zmin = -this.totalWidthMeters / 2;
@@ -91,7 +90,7 @@ export default class TileSet {
         const ground = MeshBuilder.CreateGround("ground", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
         ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
         ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
-        ground.bakeCurrentTransformIntoVertices(); 
+        //ground.bakeCurrentTransformIntoVertices(); 
 
         //ground.freezeWorldMatrix(); //optimization
         //ground.cullingStrategy=Mesh.CULLINGSTRATEGY_STANDARD; //experimenting with differnt culling
@@ -192,9 +191,7 @@ export default class TileSet {
         console.log("Tile Base: " + this.tileCorner);
 
         for (let t of this.ourTiles) {
-            if (t.material) {
-                t.material.dispose(true, true, false);
-            }
+           
         }
 
         let tileIndex = 0;
@@ -210,7 +207,22 @@ export default class TileSet {
     }
 
     public updateSingleRasterTile(tileX: number, tileY: number, tile: Tile) {
-        const material = new StandardMaterial("material" + y + "-" + x, this.scene);
+        let material: StandardMaterial;
+
+        if (tile.material) {
+            material = tile.material;
+            const text = material.diffuseTexture;
+            if (text) {
+                text.dispose(); //get rid of texture if it already exists  
+            }
+            material.unfreeze();
+        }
+        else {
+            material = new StandardMaterial("material" + tileX + "-" + tileY, this.scene);
+            material!.specularColor = new Color3(0, 0, 0);
+            material.alpha = 1.0;
+            // material.backFaceCulling = false;
+        }
 
         let url: string = "";
 
@@ -220,17 +232,48 @@ export default class TileSet {
             url = this.ourMB.getRasterURL(new Vector2(tileX, tileY), this.zoom, true);
         }
 
-        material.diffuseTexture = new Texture(url, this.scene);
+        material.diffuseTexture = new Texture(url, this.scene);    
         material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
         material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
-        material.specularColor = new Color3(0, 0, 0);
-        material.alpha = 1.0;
-        // material.backFaceCulling = false;
+
         material.freeze(); //optimization
 
         tile.mesh.material = material;
         tile.material = material;
         tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later         
+    }
+
+    public moveAllTiles(movX: number, movZ: number){
+        for (const t of this.ourTiles) {
+            t.mesh.position.x+=movX;
+            t.mesh.position.z+=movZ;
+        }
+
+        //check here to see if tiles are too far away
+        //move those tiles to the opposite side of the tileset
+
+        for (const t of this.ourTiles) {
+            if(t.mesh.position.x<this.xmin){
+                console.log("Tile: " + t.tileCoords + " is below xMin");
+                t.mesh.position.x+=this.totalWidthMeters;
+                this.updateSingleRasterTile(t.tileCoords.x+this.subdivisions.x,t.tileCoords.y,t);                
+            }
+            if(t.mesh.position.x>this.xmax){
+                console.log("Tile: " + t.tileCoords + " is above xMax");
+                t.mesh.position.x-=this.totalWidthMeters;
+                this.updateSingleRasterTile(t.tileCoords.x-this.subdivisions.x,t.tileCoords.y,t);                
+            }
+            if(t.mesh.position.z<this.zmin){
+                console.log("Tile: " + t.tileCoords + " is below zmin");
+                t.mesh.position.z+=this.totalWidthMeters;
+                this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y-this.subdivisions.y,t);                
+            }
+            if(t.mesh.position.z>this.zmax){
+                console.log("Tile: " + t.tileCoords + " is above zmax");
+                t.mesh.position.z-=this.totalWidthMeters;
+                this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y+this.subdivisions.y,t);               
+            }           
+        }        
     }
 
     public generateBuildings(exaggeration: number) {
