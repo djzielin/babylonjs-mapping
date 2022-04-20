@@ -138,8 +138,8 @@ export default class OpenStreetMap {
                 ourMesh.material = this.buildingMaterial; //all buildings will use same material
                 ourMesh.isPickable = false;
 
-                ourMesh.bakeCurrentTransformIntoVertices();
-                ourMesh.freezeWorldMatrix();
+                //ourMesh.bakeCurrentTransformIntoVertices();
+                //ourMesh.freezeWorldMatrix();
             }
         }
         else {

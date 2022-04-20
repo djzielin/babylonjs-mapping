@@ -51,6 +51,8 @@ class Game {
     private keyUp: boolean;
     private keyDown: boolean;
 
+    private camera: UniversalCamera;
+
     constructor() {
         // Get the canvas element 
         this.canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
@@ -93,14 +95,14 @@ class Game {
         skybox.material = skyboxMaterial;
         */
 
-        var camera = new UniversalCamera("camera1", new Vector3(0, 40, -80), this.scene);
+        this.camera = new UniversalCamera("camera1", new Vector3(0, 40, -80), this.scene);
         //var camera = new UniversalCamera("camera1", new Vector3(90, 45, 0), this.scene); //grand canyon
 
-        camera.setTarget(Vector3.Zero());
-        camera.attachControl(this.canvas, true);
+        this.camera.setTarget(Vector3.Zero());
+        this.camera.attachControl(this.canvas, true);
 
-        camera.speed=0.0;
-        camera.angularSensibility=8000;
+        this.camera.speed=0.0;
+        this.camera.angularSensibility=8000;
         
 
         var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
@@ -112,7 +114,7 @@ class Game {
         this.ourCSV = new CsvData();
         await this.ourCSV.processURL(window.location.href + "JCSU.csv");
 
-        this.ourTS = new TileSet(20, 25, 2, this.scene,);
+        this.ourTS = new TileSet(4, 25, 2, this.scene,);
         this.ourTS.setRasterProvider("OSM");
 
         const centerCoords = new Vector2(-80.8400777, 35.2258461); //charlotte
@@ -120,7 +122,7 @@ class Game {
         //const centerCoords = new Vector2(31.254708, 29.852183); //egypt
 
         this.ourTS.updateRaster(centerCoords, 16);
-        //this.ourTS.generateBuildings(3); //get working later
+        this.ourTS.generateBuildings(3); 
 
         //get working later
         /*var myMaterial = new StandardMaterial("infoSpotMaterial", this.scene);
@@ -214,8 +216,6 @@ class Game {
         this.scene.debugLayer.show();
 
         this.scene.onKeyboardObservable.add((e: KeyboardInfo) => {
-            //.log(e);
-
             if (e.type == KeyboardEventTypes.KEYDOWN) {
                 if(e.event.key=="d"){
                     this.keyRight=true;
@@ -252,25 +252,30 @@ class Game {
     // The main update loop will be executed once per frame before the scene is rendered
     // modify camera flythrough?
     private update(): void {
+        const ray=this.camera.getForwardRay();        
+        const forward=ray.direction;
+
         const deltaTimeSeconds=this.engine.getDeltaTime()*0.001;
 
-        let xMov=0;
-        let zMov=0;
-
-        if(this.keyLeft){
-            xMov+=10*deltaTimeSeconds;
+        let movVec: Vector3=Vector3.Zero();
+        let forwardAmount=0;
+        //let rightAmount=0;
+        
+        /*if(this.keyLeft){
+            rightAmount+=10*deltaTimeSeconds;
         }
         if(this.keyRight){
-            xMov+=-10*deltaTimeSeconds;
-        }
+            rightAmount+=-10*deltaTimeSeconds;
+        }*/
         if(this.keyUp){
-            zMov+=-10*deltaTimeSeconds;
+            forwardAmount+=-10*deltaTimeSeconds; 
         }
         if(this.keyDown){
-            zMov+=10*deltaTimeSeconds;
+            forwardAmount+=10*deltaTimeSeconds;
         }
-        
-        this.ourTS.moveAllTiles(xMov, zMov);
+
+        movVec=movVec.add(forward.multiplyByFloats(forwardAmount,forwardAmount,forwardAmount));
+        //this.ourTS.moveAllTiles(movVec.x, movVec.z, true);
     }
 
 }

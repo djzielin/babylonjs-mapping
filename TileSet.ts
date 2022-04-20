@@ -243,37 +243,74 @@ export default class TileSet {
         tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later         
     }
 
-    public moveAllTiles(movX: number, movZ: number){
+    /**
+    * moves all the tiles in the set. when a tile reaches the edge, it is moved
+    * to the opposite side of the tileset, e.g. a tile comes off the right 
+    * edge and moves to the left edge. useful for trying to achieve an endless
+    * scrolling type effect, where the user doesn't move but the ground 
+    * underneath does
+    * @param movX x, ie left-right amount to move
+    * @param movZ z, ie forward-back amount to move 
+    * @param oneReloadPerFrame should we only allow one tile wrap around and 
+    * reload? this is useful when trying to limit how much activity we are 
+    * doing per frame, assuming we are calling this function every frame
+    */
+    public moveAllTiles(movX: number, movZ: number, oneReloadPerFrame: boolean) {
         for (const t of this.ourTiles) {
-            t.mesh.position.x+=movX;
-            t.mesh.position.z+=movZ;
+            t.mesh.position.x += movX;
+            t.mesh.position.z += movZ;
         }
 
-        //check here to see if tiles are too far away
-        //move those tiles to the opposite side of the tileset
-
         for (const t of this.ourTiles) {
-            if(t.mesh.position.x<this.xmin){
+            if (t.mesh.position.x<this.xmin){
                 console.log("Tile: " + t.tileCoords + " is below xMin");
                 t.mesh.position.x+=this.totalWidthMeters;
-                this.updateSingleRasterTile(t.tileCoords.x+this.subdivisions.x,t.tileCoords.y,t);                
+                this.updateSingleRasterTile(t.tileCoords.x+this.subdivisions.x,t.tileCoords.y,t);  
+                
+                this.deleteTileChildren(t);
+                if(oneReloadPerFrame){ //limit how many reload we try to do in a single frame
+                    return;         
+                }    
             }
             if(t.mesh.position.x>this.xmax){
                 console.log("Tile: " + t.tileCoords + " is above xMax");
                 t.mesh.position.x-=this.totalWidthMeters;
-                this.updateSingleRasterTile(t.tileCoords.x-this.subdivisions.x,t.tileCoords.y,t);                
+                this.updateSingleRasterTile(t.tileCoords.x-this.subdivisions.x,t.tileCoords.y,t);   
+
+                this.deleteTileChildren(t);
+                if(oneReloadPerFrame){
+                    return;         
+                }                
             }
             if(t.mesh.position.z<this.zmin){
                 console.log("Tile: " + t.tileCoords + " is below zmin");
                 t.mesh.position.z+=this.totalWidthMeters;
-                this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y-this.subdivisions.y,t);                
+                this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y-this.subdivisions.y,t);   
+
+                this.deleteTileChildren(t);
+                if(oneReloadPerFrame){
+                    return;         
+                }                
             }
             if(t.mesh.position.z>this.zmax){
                 console.log("Tile: " + t.tileCoords + " is above zmax");
                 t.mesh.position.z-=this.totalWidthMeters;
-                this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y+this.subdivisions.y,t);               
+                this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y+this.subdivisions.y,t);   
+
+                this.deleteTileChildren(t);
+                if(oneReloadPerFrame){
+                    return;         
+                }               
             }           
         }        
+    }
+
+    private deleteTileChildren(t: Tile){
+        const children=t.mesh.getChildren();
+        for(let n of children){
+            const m=n as Mesh;
+            m.dispose();
+        }
     }
 
     public generateBuildings(exaggeration: number) {
