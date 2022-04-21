@@ -114,7 +114,7 @@ class Game {
         this.ourCSV = new CsvData();
         await this.ourCSV.processURL(window.location.href + "JCSU.csv");
 
-        this.ourTS = new TileSet(10, 25, 2, this.scene,);
+        this.ourTS = new TileSet(2, 25, 2, this.scene,);
         this.ourTS.setRasterProvider("OSM");
  
         const centerCoords = new Vector2(-80.8400777, 35.21); //charlotte
@@ -201,8 +201,12 @@ class Game {
             forwardAmount+=10*deltaTimeSeconds;
         }
 
-        movVec=movVec.add(forward.multiplyByFloats(forwardAmount,forwardAmount,forwardAmount));
-        this.ourTS.moveAllTiles(movVec.x, movVec.z, true, true, true);
+        if(Math.abs(forwardAmount)>0.0){
+            movVec=movVec.add(forward.multiplyByFloats(forwardAmount,forwardAmount,forwardAmount));
+            this.ourTS.moveAllTiles(movVec.x, movVec.z, true, true, true);
+        }
+
+        this.ourTS.osmBuildings.processBuildingRequests();
     }
 
 }

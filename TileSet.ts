@@ -55,7 +55,7 @@ export default class TileSet {
     private rasterProvider: string;
     private accessToken: string;
 
-    private osmBuildings: OpenStreetMapBuildings;
+    public osmBuildings: OpenStreetMapBuildings;
     private ourMB: MapBox;
     private totalWidthMeters: number;
 
@@ -200,10 +200,6 @@ export default class TileSet {
 
         //console.log("Tile Base: " + this.tileCorner);
 
-        for (let t of this.ourTiles) {
-           
-        }
-
         let tileIndex = 0;
         for (let y = 0; y < this.subdivisions.y; y++) {
             for (let x = 0; x < this.subdivisions.x; x++) {
@@ -279,7 +275,7 @@ export default class TileSet {
                 
                 if(doBuildings){
                     this.deleteTileChildren(t);
-                    this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                    //this.osmBuildings.generateBuildingsForTile(t,doMerge);
                 }
                 if(oneReloadPerFrame){ //limit how many reload we try to do in a single frame
                     return;         
@@ -292,7 +288,7 @@ export default class TileSet {
 
                 if(doBuildings){
                     this.deleteTileChildren(t);
-                    this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                    //this.osmBuildings.generateBuildingsForTile(t,doMerge);
                 }
                 if(oneReloadPerFrame){
                     return;         
@@ -305,7 +301,7 @@ export default class TileSet {
 
                 if(doBuildings){
                     this.deleteTileChildren(t);
-                    this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                    //this.osmBuildings.generateBuildingsForTile(t,doMerge);
                 }
                 if(oneReloadPerFrame){
                     return;         
@@ -318,7 +314,7 @@ export default class TileSet {
 
                 if(doBuildings){
                     this.deleteTileChildren(t);
-                    this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                    //this.osmBuildings.generateBuildingsForTile(t,doMerge);
                 }
                 if(oneReloadPerFrame){
                     return;         
@@ -339,7 +335,8 @@ export default class TileSet {
         this.osmBuildings.setExaggeration(this.computeTileScale(), exaggeration);
 
         for (const t of this.ourTiles) {
-            this.osmBuildings.generateBuildingsForTile(t,doMerge);
+            //this.osmBuildings.generateBuildingsForTile(t,doMerge);
+            this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
         }
     }
 
