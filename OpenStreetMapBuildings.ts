@@ -28,6 +28,7 @@ interface geometryJSON {
 }
 
 interface featurePropertiesJSON {
+    "name": string;
     "type": string;
     "height": number;
     "levels": number;
@@ -70,7 +71,9 @@ export default class OpenStreetMap {
         this.heightScaleFixer = tileScale * exaggeration;
     }
 
-    public generateBuildingsForTile(tile: Tile) {
+    
+
+    public generateBuildingsForTile(tile: Tile, doMerge: boolean) {
         if (tile.tileCoords.z > 16) {
             console.error("Zoom level of: " + tile.tileCoords.z + " is too large! This means that buildings won't work!");
             return;
@@ -86,12 +89,32 @@ export default class OpenStreetMap {
             if (res.status == 200) {
                 res.text().then(
                     (text) => {
-
+                        console.log("about to json parse for tile: " + tile.tileCoords);
+                        if (text.length == 0) {
+                            console.log("no buildings in this tile!");
+                            return;
+                        }
                         const tileBuildings: BuildingsJSON = JSON.parse(text);
                         console.log("number of buildings in this tile: " + tileBuildings.features.length);
 
+                        let index = 0;
+                        const meshArray: Mesh[] = [];
                         for (const f of tileBuildings.features) {
-                            this.generateSingleBuilding(f, tile);
+                            const ourMesh = this.generateSingleBuilding(f, tile);
+
+                            if (doMerge) {
+                                if (ourMesh) {
+                                    meshArray.push(ourMesh);
+                                }
+                            } else {
+                                ourMesh?.setParent(tile.mesh);
+                            }
+                        }
+                        if (doMerge) {
+                            const merged = Mesh.MergeMeshes(meshArray);
+                            if (merged) {
+                                merged.setParent(tile.mesh);
+                            }
                         }
                     });
             }
@@ -102,6 +125,8 @@ export default class OpenStreetMap {
     }
 
     private generateSingleBuilding(f: featuresJSON, tile: Tile) {
+        const meshArray: Mesh[] = [];
+
         if (f.geometry.type == "Polygon") {
             for (let i = 0; i < f.geometry.coordinates.length; i++) {
                 //var customMesh = new Mesh("custom", this.scene);
@@ -126,25 +151,34 @@ export default class OpenStreetMap {
                     positions3D.push(new Vector3(v2World.x, 0.0, v2World.y));
                 }
                 (window as any).earcut = Earcut;
-                var ourMesh = MeshBuilder.ExtrudePolygon("building",
+                let name = "Building";
+                if (f.properties.name !== undefined) {
+                    name = f.properties.name;
+                }
+
+                var ourMesh = MeshBuilder.ExtrudePolygon(name,
                     {
                         shape: positions3D,
                         depth: f.properties.height * this.heightScaleFixer
                     },
                     this.scene);
 
-                ourMesh.position.y = f.properties.height * this.heightScaleFixer; 
-                ourMesh.parent = tile.mesh;
+                ourMesh.position.y = f.properties.height * this.heightScaleFixer;
+                ourMesh.bakeCurrentTransformIntoVertices(); //optimizations
                 ourMesh.material = this.buildingMaterial; //all buildings will use same material
                 ourMesh.isPickable = false;
-
-                //ourMesh.bakeCurrentTransformIntoVertices();
                 //ourMesh.freezeWorldMatrix();
+
+                meshArray.push(ourMesh);
             }
         }
         else {
             //TODO: support other geometry types?
             console.error("unknown building geometry type: " + f.geometry.type);
         }
+        //https://stackoverflow.com/questions/37764665/how-to-implement-sleep-function-in-typescript
+        //await new Promise(f => setTimeout(f, 1000));
+
+        return Mesh.MergeMeshes(meshArray);
     } 
 }

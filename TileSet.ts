@@ -170,15 +170,25 @@ export default class TileSet {
     public GetWorldPosition(coordinates: Vector2): Vector2 {
         //console.log("computing world for lon: " + coordinates.x + " lat: " + coordinates.y + " zoom: " + this.zoom);
 
-        const x: number = this.lon2tileExact(coordinates.x, this.zoom);
+        const x: number = this.lon2tileExact(coordinates.x, this.zoom); //this gets things in terms of tile coordinates
         const y: number = this.lat2tileExact(coordinates.y, this.zoom);
 
-        //console.log("raw x: " + x + " raw y: " + y);
+        const t = this.ourTiles[0]; //just grab the first tile
 
-        const xFixed: number = (x - this.tileCorner.x) / this.subdivisions.x * this.totalWidthMeters - this.totalWidthMeters / 2;
-        const yFixed: number = ((this.tileCorner.y + 1) - y) / this.subdivisions.y * this.totalWidthMeters - this.totalWidthMeters / 2;
+        const tileDiffX = x - t.tileCoords.x;
+        const tileDiffY = y - t.tileCoords.y;
 
-        //console.log("fixed x: " + xFixed + " fixed y: " + yFixed);
+        //console.log("tile diff: " + tileDiffX + " " + tileDiffY);
+
+        const upperLeftCornerX = t.mesh.position.x - this.tileWidth * 0.5;
+        const upperLeftCornerY = t.mesh.position.z + this.tileWidth * 0.5;
+
+        //console.log("lower left corner: " + upperLeftCornerX + " " + upperLeftCornerY);
+
+        const xFixed = upperLeftCornerX + tileDiffX * this.tileWidth;
+        const yFixed = upperLeftCornerY - tileDiffY * this.tileWidth;
+
+        //console.log("world position: " + xFixed +" " + yFixed);       
 
         return new Vector2(xFixed, yFixed);
     }    
@@ -188,7 +198,7 @@ export default class TileSet {
         this.tileCorner = this.computeCornerTile(centerCoords, zoom);
         this.zoom = zoom;
 
-        console.log("Tile Base: " + this.tileCorner);
+        //console.log("Tile Base: " + this.tileCorner);
 
         for (let t of this.ourTiles) {
            
@@ -255,7 +265,7 @@ export default class TileSet {
     * reload? this is useful when trying to limit how much activity we are 
     * doing per frame, assuming we are calling this function every frame
     */
-    public moveAllTiles(movX: number, movZ: number, oneReloadPerFrame: boolean) {
+    public moveAllTiles(movX: number, movZ: number, oneReloadPerFrame: boolean, doBuildings: boolean, doMerge: boolean) {
         for (const t of this.ourTiles) {
             t.mesh.position.x += movX;
             t.mesh.position.z += movZ;
@@ -267,7 +277,10 @@ export default class TileSet {
                 t.mesh.position.x+=this.totalWidthMeters;
                 this.updateSingleRasterTile(t.tileCoords.x+this.subdivisions.x,t.tileCoords.y,t);  
                 
-                this.deleteTileChildren(t);
+                if(doBuildings){
+                    this.deleteTileChildren(t);
+                    this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                }
                 if(oneReloadPerFrame){ //limit how many reload we try to do in a single frame
                     return;         
                 }    
@@ -277,7 +290,10 @@ export default class TileSet {
                 t.mesh.position.x-=this.totalWidthMeters;
                 this.updateSingleRasterTile(t.tileCoords.x-this.subdivisions.x,t.tileCoords.y,t);   
 
-                this.deleteTileChildren(t);
+                if(doBuildings){
+                    this.deleteTileChildren(t);
+                    this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                }
                 if(oneReloadPerFrame){
                     return;         
                 }                
@@ -287,7 +303,10 @@ export default class TileSet {
                 t.mesh.position.z+=this.totalWidthMeters;
                 this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y-this.subdivisions.y,t);   
 
-                this.deleteTileChildren(t);
+                if(doBuildings){
+                    this.deleteTileChildren(t);
+                    this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                }
                 if(oneReloadPerFrame){
                     return;         
                 }                
@@ -297,7 +316,10 @@ export default class TileSet {
                 t.mesh.position.z-=this.totalWidthMeters;
                 this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y+this.subdivisions.y,t);   
 
-                this.deleteTileChildren(t);
+                if(doBuildings){
+                    this.deleteTileChildren(t);
+                    this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                }
                 if(oneReloadPerFrame){
                     return;         
                 }               
@@ -313,11 +335,11 @@ export default class TileSet {
         }
     }
 
-    public generateBuildings(exaggeration: number) {
+    public generateBuildings(exaggeration: number, doMerge: boolean) {
         this.osmBuildings.setExaggeration(this.computeTileScale(), exaggeration);
 
         for (const t of this.ourTiles) {
-            this.osmBuildings.generateBuildingsForTile(t);
+            this.osmBuildings.generateBuildingsForTile(t,doMerge);
         }
     }
 

@@ -95,18 +95,18 @@ class Game {
         skybox.material = skyboxMaterial;
         */
 
-        this.camera = new UniversalCamera("camera1", new Vector3(0, 40, -80), this.scene);
+        this.camera = new UniversalCamera("camera1", new Vector3(0, 10, 0), this.scene);
         //var camera = new UniversalCamera("camera1", new Vector3(90, 45, 0), this.scene); //grand canyon
 
-        this.camera.setTarget(Vector3.Zero());
+        //this.camera.setTarget(new Vector3(0,0,1));
         this.camera.attachControl(this.canvas, true);
 
         this.camera.speed=0.0;
-        this.camera.angularSensibility=8000;
+        this.camera.angularSensibility=8000;  
         
 
         var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
-        light.intensity = 0.5;
+        light.intensity = 0.5; 
 
         var light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         light2.intensity=0.5;
@@ -114,106 +114,33 @@ class Game {
         this.ourCSV = new CsvData();
         await this.ourCSV.processURL(window.location.href + "JCSU.csv");
 
-        this.ourTS = new TileSet(4, 25, 2, this.scene,);
+        this.ourTS = new TileSet(10, 25, 2, this.scene,);
         this.ourTS.setRasterProvider("OSM");
-
-        const centerCoords = new Vector2(-80.8400777, 35.2258461); //charlotte
+ 
+        const centerCoords = new Vector2(-80.8400777, 35.21); //charlotte
         //const centerCoords = new Vector2(-112.11265952053303, 36.10054279295824); //grand canyon
         //const centerCoords = new Vector2(31.254708, 29.852183); //egypt
 
         this.ourTS.updateRaster(centerCoords, 16);
-        this.ourTS.generateBuildings(3); 
 
-        //get working later
+        //for troubleshooting Lat/Lon to world coordinates calculations
         /*var myMaterial = new StandardMaterial("infoSpotMaterial", this.scene);
-        myMaterial.diffuseColor = new Color3(1, 1, 0.25);
-        myMaterial.freeze();
+        myMaterial.diffuseColor = new Color3(1, 0, 0.25);
+        const convertedPos=this.ourTS.GetWorldPosition(new Vector2(-80.842656,35.2182254));
+        
+        const sphere = MeshBuilder.CreateSphere("test", { diameter: 1.0, segments: 4 }, this.scene);
+        sphere.position.y = 0;
+        sphere.position.x = convertedPos.x;
+        sphere.position.z = convertedPos.y;
+        sphere.material=myMaterial;
+        */
 
-        var myMaterialHighlight = new StandardMaterial("infoSpotMaterialHighlight", this.scene);
-        myMaterialHighlight.diffuseColor = new Color3(0.25, 1, 0.25);
-        myMaterialHighlight.freeze();
-
-        var advancedTexture = GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
-
-        for (let i = 0; i < this.ourCSV.numRows(); i++) {
-
-            const ourPos = this.ourCSV.getCoordinates(i);
-            const convertedPos = this.ourTS.GetWorldPosition(ourPos)
-            const sphere = MeshBuilder.CreateSphere(this.ourCSV.getRow(i)[2], { diameter: 1.0, segments: 4 }, this.scene);
-
-            sphere.position.y = 0;
-            sphere.position.x = convertedPos.x;
-            sphere.position.z = convertedPos.y;
-            sphere.isVisible = true;
-            sphere.material = myMaterial;
-
-            //make sure we arent overlapping with existing sphere
-            for(let v of this.spherePositions){
-                const d=Vector3.Distance(v,sphere.position);
-
-                if(d<1.0){
-                    console.log("overlap detected on: " + sphere.name);
-                    sphere.position.x+=Math.random()*2-1.0;
-                    sphere.position.z+=Math.random()*2-1.0;
-                    break;
-                }
-            }
-            this.spherePositions.push(sphere.position.clone());
-
-            sphere.actionManager = new ActionManager(this.scene);
-            sphere.actionManager.registerAction(
-                new ExecuteCodeAction(
-                    {
-                        trigger: ActionManager.OnPickTrigger //OnPointerOverTrigger
-                    },
-                    () => {
-                        console.log("over item: " + sphere.name);
-                        sphere.material = myMaterialHighlight;
-
-                        if(this.lastSelectedSphereIndex==i){
-                            console.log("user clicked object that is already selected!");
-                            return;
-                        }
-
-
-                        if (this.lastSelectedSphereIndex >= 0) {
-                            this.lastSelectedSphere.material = myMaterial;
-                            advancedTexture.removeControl(this.previousButton);
-                            this.previousButton.dispose();
-                        }                     
-
-                        const text="Name: " + sphere.name + "\n\n" + "Description: " + this.ourCSV.getRow(i)[3];
-
-                        const button: GUI.Button = GUI.Button.CreateSimpleButton("but", text);
-                        button.width = 0.5;
-                        button.height = 0.25;
-                        button.color = "white";
-                        button.background = "black";
-
-                        advancedTexture.addControl(button);    
-
-                        button.onPointerClickObservable.add( ()=>{
-                            console.log("user clicked on button");
-                            sphere.material = myMaterial;
-                            this.lastSelectedSphereIndex=-1;
-                            advancedTexture.removeControl(button);
-                            button.dispose();
-                        });
-
-                        this.lastSelectedSphereIndex = i;
-                        this.lastSelectedSphere = sphere;
-                        this.previousButton = button;
-                    }
-                )
-            );
-
-            sphere.bakeCurrentTransformIntoVertices();
-            sphere.freezeWorldMatrix();            
-        }*/
+        this.ourTS.generateBuildings(3,true);        
 
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program
-        this.scene.debugLayer.show();
+        this.scene.debugLayer.show(); 
+
 
         this.scene.onKeyboardObservable.add((e: KeyboardInfo) => {
             if (e.type == KeyboardEventTypes.KEYDOWN) {
@@ -275,7 +202,7 @@ class Game {
         }
 
         movVec=movVec.add(forward.multiplyByFloats(forwardAmount,forwardAmount,forwardAmount));
-        //this.ourTS.moveAllTiles(movVec.x, movVec.z, true);
+        this.ourTS.moveAllTiles(movVec.x, movVec.z, true, true, true);
     }
 
 }
