@@ -121,11 +121,11 @@ export default class MapBox {
 
         if (ourTex) {
             if (ourTex!.readPixels()) {
-                if (ourTex.readPixels()!.buffer) {
+                /*if (ourTex.readPixels()!.buffer) { //TODO: something is broken with using buffer
                     tile.demDimensions = new Vector2(ourTex.getSize().width, ourTex.getSize().height);
                     const ourBuff: Uint8Array = new Uint8Array(ourTex.readPixels()!.buffer);
                     this.convertRGBtoDEM(ourBuff, tile);
-                }
+                }*/ 
             }
         }
     }

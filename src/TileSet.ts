@@ -1,3 +1,8 @@
+//TODO: compile down to javascript as part of build process see links
+// https://dev.to/monisnap/5-min-typescript-npm-package-4ce4
+// https://itnext.io/step-by-step-building-and-publishing-an-npm-typescript-package-44fe7164964c
+
+
 //based on this example: https://www.babylonjs-playground.com/#866PVL#5
 
 import { Scene } from "@babylonjs/core/scene";
@@ -26,8 +31,6 @@ import OpenStreetMapBuildings from "./OpenStreetMapBuildings";
 
 export default class TileSet {
 
-    private tileWidth: number;
-
     private xmin: number;
     private zmin: number;
     private xmax: number; 
@@ -52,15 +55,16 @@ export default class TileSet {
     private rasterProvider: string;
     private accessToken: string;
 
-    private osmBuildings: OpenStreetMapBuildings;
+    public osmBuildings: OpenStreetMapBuildings;
     private ourMB: MapBox;
+    private totalWidthMeters: number;
 
 
-
-    constructor(subdivisions: number, private totalWidthMeters: number, public meshPrecision: number, private scene: Scene) {
+    constructor(subdivisions: number, private tileWidth: number, public meshPrecision: number, private scene: Scene) {
         this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tile numbers in X and Y
+        this.totalWidthMeters=tileWidth*subdivisions;
 
-        this.tileWidth = this.totalWidthMeters / this.subdivisions.x;
+        //this.tileWidth = this.totalWidthMeters / this.subdivisions.x;
 
         this.xmin = -this.totalWidthMeters / 2;
         this.zmin = -this.totalWidthMeters / 2;
@@ -86,11 +90,10 @@ export default class TileSet {
         const ground = MeshBuilder.CreateGround("ground", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
         ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
         ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
-        ground.bakeCurrentTransformIntoVertices(); 
-        ground.freezeWorldMatrix();
+        //ground.bakeCurrentTransformIntoVertices(); 
 
+        //ground.freezeWorldMatrix(); //optimization
         //ground.cullingStrategy=Mesh.CULLINGSTRATEGY_STANDARD; //experimenting with differnt culling
-        //ground.alwaysSelectAsActiveMesh=true; //trying to eliminate mesh popping when close by
 
         return ground;
     }
@@ -167,71 +170,173 @@ export default class TileSet {
     public GetWorldPosition(coordinates: Vector2): Vector2 {
         //console.log("computing world for lon: " + coordinates.x + " lat: " + coordinates.y + " zoom: " + this.zoom);
 
-        const x: number = this.lon2tileExact(coordinates.x, this.zoom);
+        const x: number = this.lon2tileExact(coordinates.x, this.zoom); //this gets things in terms of tile coordinates
         const y: number = this.lat2tileExact(coordinates.y, this.zoom);
 
-        //console.log("raw x: " + x + " raw y: " + y);
+        const t = this.ourTiles[0]; //just grab the first tile
 
-        const xFixed: number = (x - this.tileCorner.x) / this.subdivisions.x * this.totalWidthMeters - this.totalWidthMeters / 2;
-        const yFixed: number = ((this.tileCorner.y + 1) - y) / this.subdivisions.y * this.totalWidthMeters - this.totalWidthMeters / 2;
+        const tileDiffX = x - t.tileCoords.x;
+        const tileDiffY = y - t.tileCoords.y;
 
-        //console.log("fixed x: " + xFixed + " fixed y: " + yFixed);
+        //console.log("tile diff: " + tileDiffX + " " + tileDiffY);
+
+        const upperLeftCornerX = t.mesh.position.x - this.tileWidth * 0.5;
+        const upperLeftCornerY = t.mesh.position.z + this.tileWidth * 0.5;
+
+        //console.log("lower left corner: " + upperLeftCornerX + " " + upperLeftCornerY);
+
+        const xFixed = upperLeftCornerX + tileDiffX * this.tileWidth;
+        const yFixed = upperLeftCornerY - tileDiffY * this.tileWidth;
+
+        //console.log("world position: " + xFixed +" " + yFixed);       
 
         return new Vector2(xFixed, yFixed);
     }    
 
     public updateRaster(centerCoords: Vector2, zoom: number) {
-        this.centerCoords=centerCoords;
+        this.centerCoords = centerCoords;
         this.tileCorner = this.computeCornerTile(centerCoords, zoom);
         this.zoom = zoom;
 
-        console.log("Tile Base: " + this.tileCorner);
+        //console.log("Tile Base: " + this.tileCorner);
 
-        for (let t of this.ourTiles) {
-            if (t.material) {
-                t.material.dispose(true, true, false);
-            }
-        }
-
+        let tileIndex = 0;
         for (let y = 0; y < this.subdivisions.y; y++) {
             for (let x = 0; x < this.subdivisions.x; x++) {
-
-                const material = new StandardMaterial("material" + y + "-" + x, this.scene);
-              
                 const tileX = this.tileCorner.x + x;
                 const tileY = this.tileCorner.y - y;
-
-                let url:string = "";
-
-                if(this.rasterProvider=="OSM"){
-                    url=OpenStreetMap.getRasterURL(new Vector2(tileX,tileY),this.zoom)
-                } else if(this.rasterProvider=="MB"){
-                    url=this.ourMB.getRasterURL(new Vector2(tileX,tileY),this.zoom,true);
-                }
-
-                material.diffuseTexture = new Texture(url, this.scene);
-                material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
-                material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
-                material.specularColor = new Color3(0, 0, 0);
-                material.alpha = 1.0;
-                // material.backFaceCulling = false;
-                material.freeze(); //optimization
-
-                const tileIndex=x+y*this.subdivisions.x;
                 const tile=this.ourTiles[tileIndex];
-
-                tile.mesh.material=material;
-                tile.material=material;
-                tile.tileCoords=new Vector3(tileX, tileY, zoom); //store for later              
+                this.updateSingleRasterTile(tileX,tileY,tile);
+                tileIndex++;
             }
         }
     }
 
-    public generateBuildings(exaggeration: number) {
+    public updateSingleRasterTile(tileX: number, tileY: number, tile: Tile) {
+        let material: StandardMaterial;
+
+        if (tile.material) {
+            material = tile.material;
+            const text = material.diffuseTexture;
+            if (text) {
+                text.dispose(); //get rid of texture if it already exists  
+            }
+            material.unfreeze();
+        }
+        else {
+            material = new StandardMaterial("material" + tileX + "-" + tileY, this.scene);
+            material!.specularColor = new Color3(0, 0, 0);
+            material.alpha = 1.0;
+            // material.backFaceCulling = false;
+        }
+
+        let url: string = "";
+
+        if (this.rasterProvider == "OSM") {
+            url = OpenStreetMap.getRasterURL(new Vector2(tileX, tileY), this.zoom)
+        } else if (this.rasterProvider == "MB") {
+            url = this.ourMB.getRasterURL(new Vector2(tileX, tileY), this.zoom, true);
+        }
+
+        material.diffuseTexture = new Texture(url, this.scene);    
+        material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
+        material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
+
+        material.freeze(); //optimization
+
+        tile.mesh.material = material;
+        tile.material = material;
+        tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later         
+    }
+
+    /**
+    * moves all the tiles in the set. when a tile reaches the edge, it is moved
+    * to the opposite side of the tileset, e.g. a tile comes off the right 
+    * edge and moves to the left edge. useful for trying to achieve an endless
+    * scrolling type effect, where the user doesn't move but the ground 
+    * underneath does
+    * @param movX x, ie left-right amount to move
+    * @param movZ z, ie forward-back amount to move 
+    * @param oneReloadPerFrame should we only allow one tile wrap around and 
+    * reload? this is useful when trying to limit how much activity we are 
+    * doing per frame, assuming we are calling this function every frame
+    */
+    public moveAllTiles(movX: number, movZ: number, oneReloadPerFrame: boolean, doBuildings: boolean, doMerge: boolean) {
+        for (const t of this.ourTiles) {
+            t.mesh.position.x += movX;
+            t.mesh.position.z += movZ;
+        }
+
+        for (const t of this.ourTiles) {
+            if (t.mesh.position.x<this.xmin){
+                console.log("Tile: " + t.tileCoords + " is below xMin");
+                t.mesh.position.x+=this.totalWidthMeters;
+                this.updateSingleRasterTile(t.tileCoords.x+this.subdivisions.x,t.tileCoords.y,t);  
+                
+                if(doBuildings){
+                    this.deleteTileChildren(t);
+                    //this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                }
+                if(oneReloadPerFrame){ //limit how many reload we try to do in a single frame
+                    return;         
+                }    
+            }
+            if(t.mesh.position.x>this.xmax){
+                console.log("Tile: " + t.tileCoords + " is above xMax");
+                t.mesh.position.x-=this.totalWidthMeters;
+                this.updateSingleRasterTile(t.tileCoords.x-this.subdivisions.x,t.tileCoords.y,t);   
+
+                if(doBuildings){
+                    this.deleteTileChildren(t);
+                    //this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                }
+                if(oneReloadPerFrame){
+                    return;         
+                }                
+            }
+            if(t.mesh.position.z<this.zmin){
+                console.log("Tile: " + t.tileCoords + " is below zmin");
+                t.mesh.position.z+=this.totalWidthMeters;
+                this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y-this.subdivisions.y,t);   
+
+                if(doBuildings){
+                    this.deleteTileChildren(t);
+                    //this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                }
+                if(oneReloadPerFrame){
+                    return;         
+                }                
+            }
+            if(t.mesh.position.z>this.zmax){
+                console.log("Tile: " + t.tileCoords + " is above zmax");
+                t.mesh.position.z-=this.totalWidthMeters;
+                this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y+this.subdivisions.y,t);   
+
+                if(doBuildings){
+                    this.deleteTileChildren(t);
+                    //this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                }
+                if(oneReloadPerFrame){
+                    return;         
+                }               
+            }           
+        }        
+    }
+
+    private deleteTileChildren(t: Tile){
+        const children=t.mesh.getChildren();
+        for(let n of children){
+            const m=n as Mesh;
+            m.dispose();
+        }
+    }
+
+    public generateBuildings(exaggeration: number, doMerge: boolean) {
         this.osmBuildings.setExaggeration(this.computeTileScale(), exaggeration);
 
         for (const t of this.ourTiles) {
-            this.osmBuildings.generateBuildingsForTile(t);
+            //this.osmBuildings.generateBuildingsForTile(t,doMerge);
+            this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
         }
     }
 

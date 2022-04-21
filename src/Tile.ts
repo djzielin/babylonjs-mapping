@@ -22,10 +22,11 @@ import { fetch } from 'cross-fetch'
 export default class Tile {
 
     public mesh: Mesh;
-    public material: Material;
+    public material: StandardMaterial;
     public tileCoords: Vector3;
     public colRow: Vector2;
 
+    public buildings: Mesh[]=[];
     public dem: number[];
     public demDimensions: Vector2;
     public minHeight: number;
