@@ -169,6 +169,12 @@ export default class OpenStreetMap {
                 console.log("processing merge request for tile: " + request.tileCoords);
                 console.log("  number of buildings in merge: " + request.tile.buildings.length);
                 if (request.tile.buildings.length > 1) {
+                    for(let m of request.tile.buildings){
+                        if(m.isReady()==false){
+                            console.error("Mesh not reading!");
+                        }
+                    }
+                    console.log("about to do big merge");
                     const merged = Mesh.MergeMeshes(request.tile.buildings);
                     if (merged) {
                         merged.setParent(request.tile.mesh);
@@ -239,6 +245,7 @@ export default class OpenStreetMap {
         }
 
         if (meshArray.length > 1) {
+            console.log("about to do small merge");
             const merge = Mesh.MergeMeshes(meshArray,true);
             if (merge) {
                 console.log("had multiple meshes: " + meshArray.length + " so we are merging!");

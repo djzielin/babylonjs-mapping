@@ -213,6 +213,8 @@ export default class TileSet {
     }
 
     public updateSingleRasterTile(tileX: number, tileY: number, tile: Tile) {
+        tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later     
+
         let material: StandardMaterial;
 
         if (tile.material) {
@@ -245,8 +247,7 @@ export default class TileSet {
         material.freeze(); //optimization
 
         tile.mesh.material = material;
-        tile.material = material;
-        tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later         
+        tile.material = material;    
     }
 
     /**
@@ -270,12 +271,14 @@ export default class TileSet {
         for (const t of this.ourTiles) {
             if (t.mesh.position.x<this.xmin){
                 console.log("Tile: " + t.tileCoords + " is below xMin");
+                if(doBuildings){
+                    this.deleteBuildings(t);
+                }
                 t.mesh.position.x+=this.totalWidthMeters;
                 this.updateSingleRasterTile(t.tileCoords.x+this.subdivisions.x,t.tileCoords.y,t);  
                 
                 if(doBuildings){
-                    this.deleteTileChildren(t);
-                    //this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                    this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
                 }
                 if(oneReloadPerFrame){ //limit how many reload we try to do in a single frame
                     return;         
@@ -283,12 +286,14 @@ export default class TileSet {
             }
             if(t.mesh.position.x>this.xmax){
                 console.log("Tile: " + t.tileCoords + " is above xMax");
+                if(doBuildings){
+                    this.deleteBuildings(t);
+                }
                 t.mesh.position.x-=this.totalWidthMeters;
                 this.updateSingleRasterTile(t.tileCoords.x-this.subdivisions.x,t.tileCoords.y,t);   
 
                 if(doBuildings){
-                    this.deleteTileChildren(t);
-                    //this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                    this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
                 }
                 if(oneReloadPerFrame){
                     return;         
@@ -296,12 +301,14 @@ export default class TileSet {
             }
             if(t.mesh.position.z<this.zmin){
                 console.log("Tile: " + t.tileCoords + " is below zmin");
+                if(doBuildings){
+                    this.deleteBuildings(t);
+                }
                 t.mesh.position.z+=this.totalWidthMeters;
                 this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y-this.subdivisions.y,t);   
 
                 if(doBuildings){
-                    this.deleteTileChildren(t);
-                    //this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                    this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
                 }
                 if(oneReloadPerFrame){
                     return;         
@@ -309,12 +316,14 @@ export default class TileSet {
             }
             if(t.mesh.position.z>this.zmax){
                 console.log("Tile: " + t.tileCoords + " is above zmax");
+                if(doBuildings){
+                    this.deleteBuildings(t);
+                }
                 t.mesh.position.z-=this.totalWidthMeters;
                 this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y+this.subdivisions.y,t);   
 
                 if(doBuildings){
-                    this.deleteTileChildren(t);
-                    //this.osmBuildings.generateBuildingsForTile(t,doMerge);
+                    this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
                 }
                 if(oneReloadPerFrame){
                     return;         
@@ -323,12 +332,11 @@ export default class TileSet {
         }        
     }
 
-    private deleteTileChildren(t: Tile){
-        const children=t.mesh.getChildren();
-        for(let n of children){
-            const m=n as Mesh;
+    private deleteBuildings(t: Tile){
+        for(let m of t.buildings){
             m.dispose();
         }
+        t.buildings=[];
     }
 
     public processBuildingRequests(){
