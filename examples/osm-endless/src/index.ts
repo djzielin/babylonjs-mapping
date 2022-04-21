@@ -42,7 +42,7 @@ class Game {
 
     private lastSelectedSphereIndex: number=-1;
     private lastSelectedSphere: Mesh;
-    private previousButton: GUI.Button;
+    //private previousButton: GUI.Button;
 
     private spherePositions: Vector3[]=[];
 
@@ -206,7 +206,7 @@ class Game {
             this.ourTS.moveAllTiles(movVec.x, movVec.z, true, true, true);
         }
 
-        this.ourTS.osmBuildings.processBuildingRequests();
+        this.ourTS.processBuildingRequests();
     }
 
 }

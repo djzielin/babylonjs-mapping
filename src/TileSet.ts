@@ -55,7 +55,7 @@ export default class TileSet {
     private rasterProvider: string;
     private accessToken: string;
 
-    public osmBuildings: OpenStreetMapBuildings;
+    private osmBuildings: OpenStreetMapBuildings;
     private ourMB: MapBox;
     private totalWidthMeters: number;
 
@@ -329,6 +329,10 @@ export default class TileSet {
             const m=n as Mesh;
             m.dispose();
         }
+    }
+
+    public processBuildingRequests(){
+        this.osmBuildings.processBuildingRequests();
     }
 
     public generateBuildings(exaggeration: number, doMerge: boolean) {
