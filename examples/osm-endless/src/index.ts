@@ -114,7 +114,7 @@ class Game {
         this.ourCSV = new CsvData();
         await this.ourCSV.processURL(window.location.href + "JCSU.csv");
 
-        this.ourTS = new TileSet(8, 25, 2, this.scene,);
+        this.ourTS = new TileSet(16, 25, 2, this.scene,);
         this.ourTS.setRasterProvider("OSM");
  
         const centerCoords = new Vector2(-80.8400777, 35.21); //charlotte
@@ -179,21 +179,21 @@ class Game {
     // The main update loop will be executed once per frame before the scene is rendered
     // modify camera flythrough?
     private update(): void {
-        const ray=this.camera.getForwardRay();        
-        const forward=ray.direction;
-
+        const fVec=Vector3.TransformCoordinates(Vector3.Forward(), this.camera.getWorldMatrix());
+        const rVec=Vector3.TransformCoordinates(Vector3.Right(), this.camera.getWorldMatrix());
+      
         const deltaTimeSeconds=this.engine.getDeltaTime()*0.001;
 
         let movVec: Vector3=Vector3.Zero();
         let forwardAmount=0;
-        //let rightAmount=0;
+        let rightAmount=0;
         
-        /*if(this.keyLeft){
+        if(this.keyLeft){
             rightAmount+=10*deltaTimeSeconds;
         }
         if(this.keyRight){
             rightAmount+=-10*deltaTimeSeconds;
-        }*/
+        }
         if(this.keyUp){
             forwardAmount+=-10*deltaTimeSeconds; 
         }
@@ -201,8 +201,9 @@ class Game {
             forwardAmount+=10*deltaTimeSeconds;
         }
 
-        if(Math.abs(forwardAmount)>0.0){
-            movVec=movVec.add(forward.multiplyByFloats(forwardAmount,forwardAmount,forwardAmount));
+        if(Math.abs(forwardAmount)>0.0 || Math.abs(rightAmount)>0.0){
+            movVec=movVec.add(fVec.multiplyByFloats(forwardAmount,forwardAmount,forwardAmount));
+            movVec=movVec.add(rVec.multiplyByFloats(rightAmount,rightAmount,rightAmount));
             this.ourTS.moveAllTiles(movVec.x, movVec.z, true, true, true);
         }
 

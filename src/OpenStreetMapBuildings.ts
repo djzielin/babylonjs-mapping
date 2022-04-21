@@ -96,13 +96,13 @@ export default class OpenStreetMap {
             if (res.status == 200) {
                 res.text().then(
                     (text) => {
-                        console.log("about to json parse for tile: " + tile.tileCoords);
+                        //console.log("about to json parse for tile: " + tile.tileCoords);
                         if (text.length == 0) {
-                            console.log("no buildings in this tile!");
+                            //console.log("no buildings in this tile!");
                             return;
                         }
                         const tileBuildings: BuildingsJSON = JSON.parse(text);
-                        console.log("number of buildings in this tile: " + tileBuildings.features.length);
+                        //console.log("number of buildings in this tile: " + tileBuildings.features.length);
 
                         let index = 0;
                         const meshArray: Mesh[] = [];
@@ -117,7 +117,7 @@ export default class OpenStreetMap {
                         }
 
                         if (doMerge) {
-                            console.log("queueing up merge request for tile: " + tile.tileCoords);
+                            //console.log("queueing up merge request for tile: " + tile.tileCoords);
                             const request: GenerateBuildingRequest = {
                                 requestType: 1, //request a merge
                                 tile: tile,
@@ -148,7 +148,7 @@ export default class OpenStreetMap {
             return;
         }
 
-        for (let i = 0; i < 20; i++) { //process 10 requests per frame?
+        for (let i = 0; i < 10; i++) { //process 10 requests per frame?
             const request = this.buildingRequests.shift();
             if (request === undefined) return;
 
@@ -167,14 +167,14 @@ export default class OpenStreetMap {
 
             if (request.requestType == 1) { //merge all buildings on this tile
                 console.log("processing merge request for tile: " + request.tileCoords);
-                console.log("  number of buildings in merge: " + request.tile.buildings.length);
+                //console.log("  number of buildings in merge: " + request.tile.buildings.length);
                 if (request.tile.buildings.length > 1) {
                     for(let m of request.tile.buildings){
                         if(m.isReady()==false){
                             console.error("Mesh not reading!");
                         }
                     }
-                    console.log("about to do big merge");
+                    //console.log("about to do big merge");
                     const merged = Mesh.MergeMeshes(request.tile.buildings);
                     if (merged) {
                         merged.setParent(request.tile.mesh);
@@ -245,10 +245,10 @@ export default class OpenStreetMap {
         }
 
         if (meshArray.length > 1) {
-            console.log("about to do small merge");
+            //console.log("about to do small merge");
             const merge = Mesh.MergeMeshes(meshArray,true);
             if (merge) {
-                console.log("had multiple meshes: " + meshArray.length + " so we are merging!");
+                //console.log("had multiple meshes: " + meshArray.length + " so we are merging!");
                 merge.setParent(tile.mesh);
                 return merge;
             } else{

@@ -6,6 +6,7 @@
 //based on this example: https://www.babylonjs-playground.com/#866PVL#5
 
 import { Scene } from "@babylonjs/core/scene";
+import { Tools } from "@babylonjs/core";
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Color3 } from "@babylonjs/core/Maths/math";
@@ -239,6 +240,8 @@ export default class TileSet {
         } else if (this.rasterProvider == "MB") {
             url = this.ourMB.getRasterURL(new Vector2(tileX, tileY), this.zoom, true);
         }
+
+        //Tools.UseFallbackTexture = false;
 
         material.diffuseTexture = new Texture(url, this.scene);    
         material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
