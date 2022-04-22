@@ -1,6 +1,6 @@
 {
   "name": "babylonjs-mapping",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "author": "David Zielinski <djzielin@gmail.com>",
   "license": "ISC",
   "description": "help work with mapping in babylonjs app",
@@ -38,5 +38,5 @@
     "mapbox"
   ],
   "homepage": "https://github.com/djzielin/babylonjs-mapping#readme",
-  "files": ["lib/**/*"]
+  "files": ["lib/**/*","src/**/*"]
 }
