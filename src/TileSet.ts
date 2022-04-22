@@ -143,7 +143,7 @@ export default class TileSet {
     //https://wiki.openstreetmap.org/wiki/Zoom_levels
     //Stile = C ∙ cos(latitude) / 2^zoomlevel
 
-    public computeTiletotalWidthMeters(coordinates: Vector2, zoom: number): number {
+    public computeTileRealWidthMeters(coordinates: Vector2, zoom: number): number {
         if(zoom==0){
             console.log("ERROR: zoom not setup yet!");
             return 0;
@@ -156,7 +156,7 @@ export default class TileSet {
     }
 
     public computeTileScale(): number {
-        const tileMeters = this.computeTiletotalWidthMeters(this.centerCoords, this.zoom);
+        const tileMeters = this.computeTileRealWidthMeters(this.centerCoords, this.zoom);
         console.log("tile (real world) width in meters: " + tileMeters);
 
         const tileWorldMeters = this.totalWidthMeters / this.subdivisions.x;

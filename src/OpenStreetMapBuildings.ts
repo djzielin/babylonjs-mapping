@@ -86,6 +86,8 @@ export default class OpenStreetMap {
             return;
         }
 
+        const storedCoords=tile.tileCoords.clone();
+
         const url = this.osmBuildingServers[0] + tile.tileCoords.z + "/" + tile.tileCoords.x + "/" + tile.tileCoords.y + ".json";
 
         console.log("trying to fetch: " + url);
@@ -103,6 +105,11 @@ export default class OpenStreetMap {
                         }
                         const tileBuildings: BuildingsJSON = JSON.parse(text);
                         //console.log("number of buildings in this tile: " + tileBuildings.features.length);
+
+                        if(tile.tileCoords.equals(storedCoords)==false){
+                            console.warn("tile coords have changed while we were loading, not adding buildings to queue!");
+                            return;
+                        }
 
                         let index = 0;
                         const meshArray: Mesh[] = [];
