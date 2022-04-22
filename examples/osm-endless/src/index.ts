@@ -10,6 +10,7 @@ import { Scene } from "@babylonjs/core/scene";
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Color3 } from "@babylonjs/core/Maths/math";
+import { Color4 } from "@babylonjs/core/Maths/math";
 import { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
@@ -94,6 +95,7 @@ class Game {
         skyboxMaterial.specularColor = new Color3(0, 0, 0);
         skybox.material = skyboxMaterial;
         */
+        this.scene.clearColor = new Color4(135/255,206/255,235/255, 1.0);
 
         this.camera = new UniversalCamera("camera1", new Vector3(0, 10, 0), this.scene);
         //var camera = new UniversalCamera("camera1", new Vector3(90, 45, 0), this.scene); //grand canyon
