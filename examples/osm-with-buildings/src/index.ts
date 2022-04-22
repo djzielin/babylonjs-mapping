@@ -10,6 +10,7 @@ import { Scene } from "@babylonjs/core/scene";
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Color3 } from "@babylonjs/core/Maths/math";
+import { Color4 } from "@babylonjs/core/Maths/math";
 import { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
@@ -72,6 +73,8 @@ class Game {
    }
    
     private async createScene() {
+        this.scene.clearColor = new Color4(135/255,206/255,235/255, 1.0);
+
         var camera = new UniversalCamera("camera1", new Vector3(0, 40, -80), this.scene);
         //var camera = new UniversalCamera("camera1", new Vector3(90, 45, 0), this.scene); //grand canyon
         
@@ -91,7 +94,7 @@ class Game {
         this.ourCSV = new CsvData();
         await this.ourCSV.processURL(window.location.href + "JCSU.csv");
 
-        this.ourTS = new TileSet(4, 100, 4, this.scene,);
+        this.ourTS = new TileSet(4, 25, 2, this.scene,);
         this.ourTS.setRasterProvider("OSM");
 
         const centerCoords = new Vector2(-80.8400777, 35.2258461); //charlotte
@@ -99,14 +102,14 @@ class Game {
         //const centerCoords = new Vector2(31.254708, 29.852183); //egypt
 
         this.ourTS.updateRaster(centerCoords, 16);
-        this.ourTS.generateBuildings(3);
+        this.ourTS.generateBuildings(3, true);
 
         var myMaterial = new StandardMaterial("infoSpotMaterial", this.scene);
-        myMaterial.diffuseColor = new Color3(1, 1, 0.25);
+        myMaterial.diffuseColor = new Color3(0, 1, 0.25);
         myMaterial.freeze();
 
         var myMaterialHighlight = new StandardMaterial("infoSpotMaterialHighlight", this.scene);
-        myMaterialHighlight.diffuseColor = new Color3(0.25, 1, 0.25);
+        myMaterialHighlight.diffuseColor = new Color3(1, 1, 0.25);
         myMaterialHighlight.freeze();
 
         var advancedTexture = GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
@@ -195,6 +198,7 @@ class Game {
     // The main update loop will be executed once per frame before the scene is rendered
     // modify camera flythrough?
     private update(): void {
+        this.ourTS.processBuildingRequests();
 
     }
 
