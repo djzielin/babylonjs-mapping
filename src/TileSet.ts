@@ -215,7 +215,7 @@ export default class TileSet {
 
     public updateSingleRasterTile(tileX: number, tileY: number, tile: Tile) {
         tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later     
-
+        tile.mesh.setEnabled(false);
         let material: StandardMaterial;
 
         if (tile.material) {
@@ -241,9 +241,13 @@ export default class TileSet {
             url = this.ourMB.getRasterURL(new Vector2(tileX, tileY), this.zoom, true);
         }
 
-        //Tools.UseFallbackTexture = false;
+        const texture=new Texture(url, this.scene); 
+        texture.onLoadObservable.addOnce((tx)=>{ 
+            tile.mesh.setEnabled(true); //show it!
+        });
 
-        material.diffuseTexture = new Texture(url, this.scene);    
+        material.diffuseTexture = texture; 
+          
         material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
         material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
 
