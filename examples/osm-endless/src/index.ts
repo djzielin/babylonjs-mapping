@@ -110,6 +110,7 @@ class Game {
 
         var light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         light2.intensity=0.5;
+        light2.parent=this.camera;
 
         this.ourCSV = new CsvData();
         await this.ourCSV.processURL(window.location.href + "JCSU.csv");
@@ -122,25 +123,11 @@ class Game {
         //const centerCoords = new Vector2(31.254708, 29.852183); //egypt
 
         this.ourTS.updateRaster(centerCoords, 16);
-
-        //for troubleshooting Lat/Lon to world coordinates calculations
-        /*var myMaterial = new StandardMaterial("infoSpotMaterial", this.scene);
-        myMaterial.diffuseColor = new Color3(1, 0, 0.25);
-        const convertedPos=this.ourTS.GetWorldPosition(new Vector2(-80.842656,35.2182254));
-        
-        const sphere = MeshBuilder.CreateSphere("test", { diameter: 1.0, segments: 4 }, this.scene);
-        sphere.position.y = 0;
-        sphere.position.x = convertedPos.x;
-        sphere.position.z = convertedPos.y;
-        sphere.material=myMaterial;
-        */
-
         this.ourTS.generateBuildings(3,true);        
 
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program
         this.scene.debugLayer.show(); 
-
 
         this.scene.onKeyboardObservable.add((e: KeyboardInfo) => {
             if (e.type == KeyboardEventTypes.KEYDOWN) {
