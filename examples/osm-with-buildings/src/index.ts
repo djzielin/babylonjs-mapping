@@ -19,7 +19,8 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { ActionManager } from "@babylonjs/core";
 import { ExecuteCodeAction } from "@babylonjs/core";
-import * as GUI from "@babylonjs/gui/";
+import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
+import { Button } from "@babylonjs/gui/2D/controls/button";
 
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
@@ -40,7 +41,7 @@ class Game {
 
     private lastSelectedSphereIndex: number=-1;
     private lastSelectedSphere: Mesh;
-    private previousButton: GUI.Button;
+    private previousButton: Button;
 
     private spherePositions: Vector3[]=[];
 
@@ -112,7 +113,7 @@ class Game {
         myMaterialHighlight.diffuseColor = new Color3(1, 1, 0.25);
         myMaterialHighlight.freeze();
 
-        var advancedTexture = GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+        var advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
         for (let i = 0; i < this.ourCSV.numRows(); i++) {
 
@@ -163,7 +164,7 @@ class Game {
 
                         const text="Name: " + sphere.name + "\n\n" + "Description: " + this.ourCSV.getRow(i)[3];
 
-                        const button: GUI.Button = GUI.Button.CreateSimpleButton("but", text);
+                        const button: Button = Button.CreateSimpleButton("but", text);
                         button.width = 0.5;
                         button.height = 0.25;
                         button.color = "white";
