@@ -62,6 +62,11 @@ export default class TileSet {
 
 
     constructor(subdivisions: number, private tileWidth: number, public meshPrecision: number, private scene: Scene) {
+        if(subdivisions%2==1){
+            console.error("we don't yet support non-even number of tiles");
+            return;
+        }
+        
         this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tile numbers in X and Y
         this.totalWidthMeters=tileWidth*subdivisions;
 
