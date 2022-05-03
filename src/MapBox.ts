@@ -1,5 +1,3 @@
-//based on this example: https://www.babylonjs-playground.com/#866PVL#5
-
 import { Scene } from "@babylonjs/core/scene";
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
@@ -7,8 +5,6 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { FloatArray, Observable, ThinEngine, VertexBuffer } from "@babylonjs/core";
 import Tile from './Tile';
 import TileSet from "./TileSet";
-import { gpuUpdateParticlesComputeShader } from "@babylonjs/core/ShadersWGSL/gpuUpdateParticles.compute";
-
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";

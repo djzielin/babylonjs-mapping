@@ -3,32 +3,28 @@
 // https://itnext.io/step-by-step-building-and-publishing-an-npm-typescript-package-44fe7164964c
 
 
-//based on this example: https://www.babylonjs-playground.com/#866PVL#5
-
 import { Scene } from "@babylonjs/core/scene";
-import { Tools } from "@babylonjs/core";
+import { Engine, EngineStore, Tools } from "@babylonjs/core";
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Color3 } from "@babylonjs/core/Maths/math";
 import { Color4 } from "@babylonjs/core/Maths/math";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
-import { SubMesh } from "@babylonjs/core/Meshes/subMesh";
-import { MultiMaterial } from '@babylonjs/core/Materials/multiMaterial';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
-//import {decode,DecodedPng} from 'fast-png';
-import { FloatArray, Rotate2dBlock, VertexBuffer } from "@babylonjs/core";
-import Earcut from 'earcut';
-import { fetch } from 'cross-fetch'
-import Tile from './Tile';
+import * as GUI from "@babylonjs/gui/";
 
+import Tile from './Tile';
 import OpenStreetMap from "./OpenStreetMap";
 import MapBox from "./MapBox";
 import OpenStreetMapBuildings from "./OpenStreetMapBuildings";
+import Attribution from "./Attribution";
+import { AdvancedDynamicTexture, Button, Control} from "@babylonjs/gui/2D";
 
-//import "@babylonjs/core/Materials/standardMaterial"
-//import "@babylonjs/inspector";
+import "@babylonjs/core/Materials/standardMaterial"
+import "@babylonjs/inspector";
+import '@babylonjs/core/Debug/debugLayer';
 
 export default class TileSet {
 
@@ -58,13 +54,18 @@ export default class TileSet {
     private osmBuildings: OpenStreetMapBuildings;
     private ourMB: MapBox;
     private totalWidthMeters: number;
+    private ourAttribution: Attribution;
 
 
-    constructor(subdivisions: number, private tileWidth: number, public meshPrecision: number, private scene: Scene) {
+    constructor(subdivisions: number, private tileWidth: number, public meshPrecision: number, private scene: Scene, private engine: Engine) {
         if(subdivisions%2==1){
             console.error("we don't yet support non-even number of tiles");
             return;
         }
+
+        EngineStore._LastCreatedScene=this.scene;
+        EngineStore.Instances.push(this.engine);
+
         
         this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tile numbers in X and Y
         this.totalWidthMeters=tileWidth*subdivisions;
@@ -87,19 +88,17 @@ export default class TileSet {
         }
 
         this.osmBuildings = new OpenStreetMapBuildings(this, this.scene);
-        this.ourMB = new MapBox(this, this.scene);
-    }
+        this.ourMB = new MapBox(this, this.scene);      
+        this.ourAttribution = new Attribution(this.scene);
+    }   
 
-    public makeSingleTileMesh(x: number, y: number, precision:number): Mesh {
+    public makeSingleTileMesh(x: number, y: number, precision: number): Mesh {
         const ground = MeshBuilder.CreateGround("ground", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
         ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
         ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
-        //ground.bakeCurrentTransformIntoVertices(); 
-
+       
+        //ground.bakeCurrentTransformIntoVertices(); //optimization
         //ground.freezeWorldMatrix(); //optimization
-
-        //ground.cullingStrategy=Mesh.CULLINGSTRATEGY_STANDARD; //experimenting with differnt culling
-        //ground.cullingStrategy=Mesh.CULLINGSTRATEGY_OPTIMISTIC_INCLUSION_THEN_BSPHERE_ONLY;
 
         return ground;
     }
@@ -114,6 +113,8 @@ export default class TileSet {
         this.rasterProvider=providerName;
         this.accessToken=accessToken ?? "";
         this.ourMB.accessToken=this.accessToken;
+
+        this.ourAttribution.showAttribution(providerName);
     }
 
     //https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames

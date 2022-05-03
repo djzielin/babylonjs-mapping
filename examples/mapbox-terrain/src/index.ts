@@ -7,6 +7,7 @@
 
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
+import { EngineStore } from "@babylonjs/core";
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Color3 } from "@babylonjs/core/Maths/math";
@@ -18,10 +19,10 @@ import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
-
+//import { AdvancedDynamicTexture } from "@babylonjs/gui/2D";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
-
+import '@babylonjs/core/Debug/debugLayer';
 
 import TileSet from "babylonjs-mapping";
 
@@ -51,6 +52,7 @@ class Game {
        this.createScene().then(() => {
 
            // Register a render loop to repeatedly render the scene
+           
            this.engine.runRenderLoop(() => { 
                this.update();
                this.scene.render();
@@ -78,7 +80,6 @@ class Game {
         this.mapboxKey=text;
     }
 
-
     private async createScene() {
         this.scene.clearColor = new Color4(135 / 255, 206 / 255, 235 / 255, 1.0);
 
@@ -91,7 +92,7 @@ class Game {
         camera.angularSensibility = 8000;
         
         //from https://doc.babylonjs.com/divingDeeper/environment/skybox
-        var skybox = MeshBuilder.CreateBox("skyBox", { size: 1000.0 }, this.scene);
+      /*  var skybox = MeshBuilder.CreateBox("skyBox", { size: 1000.0 }, this.scene);
         var skyboxMaterial = new StandardMaterial("skyBox", this.scene);
         skyboxMaterial.backFaceCulling = false;
         skyboxMaterial.reflectionTexture = new CubeTexture("textures/TropicalSunnyDay", this.scene);
@@ -100,17 +101,17 @@ class Game {
         skyboxMaterial.diffuseColor = new Color3(0, 0, 0);
         skyboxMaterial.specularColor = new Color3(0, 0, 0);
         skybox.material = skyboxMaterial;
-                
+                */
         var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.5;
 
         var light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         light2.intensity=0.5;        
 
-        this.ourTS = new TileSet(4,50,this.maxPrecision,this.scene);
+        this.ourTS = new TileSet(4,50,this.maxPrecision,this.scene, this.engine);
         await this.getMapboxKey("mapbox-key.txt");
         this.ourTS.setRasterProvider("MB",this.mapboxKey);
- 
+
         const centerCoords = new Vector2(-112.11265952053303, 36.10054279295824); //grand canyon
         
         const zoom = 14; 
