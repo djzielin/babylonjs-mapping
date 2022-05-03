@@ -11,8 +11,8 @@ module.exports = merge(common, {
     devtool: 'inline-source-map',
 
     devServer: {
-        contentBase: path.resolve(appDirectory),
-        publicPath: '/',
+        contentBase: path.resolve(appDirectory+"/dist"),
+        publicPath: '/',    
         compress: true,
         hot: true,
         open: "Chrome",
