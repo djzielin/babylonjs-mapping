@@ -1,3 +1,7 @@
+# Mapbox-Terrain
+Do get this working you will need a mapbox-key.txt file in your /assets directory.
+This contains the access token you can get when registering with mapbox.
+
 # IEEE VR 2021 Web-Based VR Tutorial
 
 This is a simple example of a Babylon.js project.
