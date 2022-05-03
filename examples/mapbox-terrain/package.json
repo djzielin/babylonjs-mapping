@@ -1,7 +1,7 @@
 {
-    "name": "Web-Based-VR-Tutorial",
+    "name": "Mapbox-Terrain",
     "version": "1.0.0",
-    "description": "IEEE VR 2021 Web-Based VR Tutorial",
+    "description": "example showing how to use bablyonjs-mapping to show part of the grand canyon",
     "main": "index.ts",
     "dependencies": {
         "@babylonjs/core": "^5.3.0",
@@ -32,6 +32,6 @@
         "build": "npx webpack --config webpack.config-prod.js",
         "lint": "npx eslint . --ext .ts,.tsx"
     },
-    "author": "original template by Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>",
+    "author": "original template by Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>, additions by David J. Zielinski <djzielin@gmail.com>",
     "license": "CC BY-NC-SA 4.0"
 }
