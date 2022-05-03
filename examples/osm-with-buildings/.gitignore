@@ -108,3 +108,5 @@ dist
 package-lock.json
 npm-debug.log
 dist
+
+mapbox-key.txt

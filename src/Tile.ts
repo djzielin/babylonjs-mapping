@@ -24,15 +24,22 @@ export default class Tile {
     public mesh: Mesh;
     public material: StandardMaterial;
     public tileCoords: Vector3;
-    public colRow: Vector2;
-
+    
+    //////////////////////////////////
+    // BUILDINGS
+    //////////////////////////////////
     public buildings: Mesh[]=[];
+
+    //////////////////////////////////
+    // TERRAIN 
+    //////////////////////////////////
     public dem: number[];
     public demDimensions: Vector2;
     public minHeight: number;
     public maxHeight: number;
+    public terrainLoaded=false;
 
     public eastSeamFixed=false;
     public northSeamFixed=false;
-    public northEastSeamFixed=false;
+    public northEastSeamFixed=false;    
 }

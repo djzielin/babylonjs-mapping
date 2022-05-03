@@ -37,12 +37,11 @@ export default class TileSet {
     private xmax: number; 
     private zmax: number;
 
-    //for terrain DEM
-    private globalMinHeight=Number.POSITIVE_INFINITY;;
+    public ourTiles: Tile[]=[];
+    public ourTilesMap: Map<string,Tile>=new Map();
 
-    private ourTiles: Tile[]=[];
-
-    private exaggeration=3;    
+    public doRasterResBoost=true;
+    public doTerrainResBoost=false;
 
     // Subdivisions - number of subdivisions (tiles) on the height and the width of the map.
     private subdivisions: Vector2;
@@ -83,7 +82,6 @@ export default class TileSet {
                 const ground=this.makeSingleTileMesh(x,y,this.meshPrecision);
                 const t = new Tile();
                 t.mesh = ground;
-                t.colRow = new Vector2(x, y);    
                 this.ourTiles.push(t);               
             }
         }
@@ -99,9 +97,17 @@ export default class TileSet {
         //ground.bakeCurrentTransformIntoVertices(); 
 
         //ground.freezeWorldMatrix(); //optimization
+
         //ground.cullingStrategy=Mesh.CULLINGSTRATEGY_STANDARD; //experimenting with differnt culling
+        //ground.cullingStrategy=Mesh.CULLINGSTRATEGY_OPTIMISTIC_INCLUSION_THEN_BSPHERE_ONLY;
 
         return ground;
+    }
+
+    public disableGroundCulling(){
+        for(let t of this.ourTiles){
+            t.mesh.alwaysSelectAsActiveMesh = true;
+        }
     }
 
     public setRasterProvider(providerName: string, accessToken?: string){
@@ -199,6 +205,11 @@ export default class TileSet {
         return new Vector2(xFixed, yFixed);
     }    
 
+    /**
+    * update all the tiles in the tileset
+    * @param centerCoords coords in [lon, lat] format (technically order reversed from regular [lat, lon])
+    * @param zoom standard tile mapping zoom levels 0 (whole earth) - 20 (building)
+    */
     public updateRaster(centerCoords: Vector2, zoom: number) {
         this.centerCoords = centerCoords;
         this.tileCorner = this.computeCornerTile(centerCoords, zoom);
@@ -218,8 +229,10 @@ export default class TileSet {
         }
     }
 
-    public updateSingleRasterTile(tileX: number, tileY: number, tile: Tile) {
+    private updateSingleRasterTile(tileX: number, tileY: number, tile: Tile) {
         tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later     
+        this.ourTilesMap.set(tile.tileCoords.toString(),tile);
+
         tile.mesh.setEnabled(false);
         let material: StandardMaterial;
 
@@ -243,7 +256,7 @@ export default class TileSet {
         if (this.rasterProvider == "OSM") {
             url = OpenStreetMap.getRasterURL(new Vector2(tileX, tileY), this.zoom)
         } else if (this.rasterProvider == "MB") {
-            url = this.ourMB.getRasterURL(new Vector2(tileX, tileY), this.zoom, true);
+            url = this.ourMB.getRasterURL(new Vector2(tileX, tileY), this.zoom, this.doRasterResBoost);
         }
 
         const texture=new Texture(url, this.scene); 
@@ -287,6 +300,7 @@ export default class TileSet {
                     this.deleteBuildings(t);
                 }
                 t.mesh.position.x+=this.totalWidthMeters;
+                this.ourTilesMap.delete(t.tileCoords.toString());
                 this.updateSingleRasterTile(t.tileCoords.x+this.subdivisions.x,t.tileCoords.y,t);  
                 
                 if(doBuildings){
@@ -364,65 +378,11 @@ export default class TileSet {
         }
     }
 
-    public async updateTerrain(exaggeration: number) {
-        this.ourMB.setExaggeration(this.computeTileScale(), exaggeration);
+    public async generateTerrain(exaggeration: number){
+        await this.ourMB.updateAllTerrainTiles(exaggeration);
+    }   
 
-        for (let t of this.ourTiles) {
-            await this.ourMB.getTileTerrain(t,true);
-        }
-
-        for (let t of this.ourTiles) {
-            if(t.minHeight<this.globalMinHeight){
-                this.globalMinHeight=t.minHeight;
-            }
-        }
-        console.log("lowest point in tileset is: " + this.globalMinHeight);
-
-        //Fix Seams Here
-        for (let t of this.ourTiles) {
-            for (let t2 of this.ourTiles) {
-                if ((t.tileCoords.x == (t2.tileCoords.x - 1)) && (t.tileCoords.y == t2.tileCoords.y)) {
-                    if (t.eastSeamFixed == false) {
-                        this.ourMB.fixEastSeam(t,t2);
-                    }
-                }
-                if ((t.tileCoords.x == t2.tileCoords.x) && (t.tileCoords.y == (t2.tileCoords.y+1))) {
-                    if (t.northSeamFixed == false) {
-                        this.ourMB.fixNorthSeam(t,t2);
-                    }
-                }
-                if ((t.tileCoords.x == (t2.tileCoords.x - 1)) && (t.tileCoords.y == (t2.tileCoords.y+1))) {
-                    if (t.northEastSeamFixed == false) {
-                        this.ourMB.fixNorthEastSeam(t,t2);
-                    }
-                }
-            }
-        }
-
-        for (let t of this.ourTiles) {
-            this.ourMB.applyHeightArrayToMesh(t.mesh, t, this.meshPrecision, -this.globalMinHeight);
-        }
-
-        //this.ourMB.getTileTerrain(this.ourTiles[0]); //just one for testing
-    }
-
-    public setupTerrainLOD(precisions: number[], distances:number[]) {
-        for (let t of this.ourTiles) {
-
-            for (let i = 0; i < precisions.length; i++) {
-                const precision = precisions[i];
-                const distance = distances[i];
-
-                if(precision>0){
-                    const loadMesh = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, precision);
-                    this.ourMB.applyHeightArrayToMesh(loadMesh, t, precision, -this.globalMinHeight);
-                    loadMesh.material = t.material;
-                    t.mesh.addLODLevel(distance, loadMesh);
-                }
-                else{
-                    t.mesh.addLODLevel(distance,null);
-                }
-            }
-        }
+    public getTerrainLowestY(): number{
+        return this.ourMB.globalMinHeight;
     }
 }
