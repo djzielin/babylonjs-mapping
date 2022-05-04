@@ -95,7 +95,7 @@ class Game {
         this.ourCSV = new CsvData();
         await this.ourCSV.processURL(window.location.href + "JCSU.csv");
 
-        this.ourTS = new TileSet(4, 25, 2, this.scene,);
+        this.ourTS = new TileSet(4, 25, 2, this.scene,this.engine);
         this.ourTS.setRasterProvider("OSM");
 
         const centerCoords = new Vector2(-80.8400777, 35.2258461); //charlotte

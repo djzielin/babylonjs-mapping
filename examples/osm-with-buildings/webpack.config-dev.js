@@ -15,7 +15,7 @@ module.exports = merge(common, {
         publicPath: '/',
         compress: true,
         hot: true,
-        open: true,
+        open: "chrome",
         disableHostCheck: true,
 
         // enable to access from other devices on the network
