@@ -1,9 +1,9 @@
 {
   "name": "babylonjs-mapping",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "author": "David Zielinski <djzielin@gmail.com>",
   "license": "MIT",
-  "description": "help work with mapping in babylonjs app",
+  "description": "module to help display map content from OpenStreetMaps and Mapbox natively in Babylon.js",
   "main": "lib/TileSet.js",
   "types": "lib/TileSet.d.ts",
   "dependencies": {
