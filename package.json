@@ -1,8 +1,8 @@
 {
   "name": "babylonjs-mapping",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "author": "David Zielinski <djzielin@gmail.com>",
-  "license": "ISC",
+  "license": "MIT",
   "description": "help work with mapping in babylonjs app",
   "main": "lib/TileSet.js",
   "types": "lib/TileSet.d.ts",
