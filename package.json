@@ -1,6 +1,6 @@
 {
   "name": "babylonjs-mapping",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "author": "David Zielinski <djzielin@gmail.com>",
   "license": "MIT",
   "description": "help work with mapping in babylonjs app",
