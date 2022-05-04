@@ -92,7 +92,7 @@ class Game {
         camera.angularSensibility = 8000;
         
         //from https://doc.babylonjs.com/divingDeeper/environment/skybox
-      /*  var skybox = MeshBuilder.CreateBox("skyBox", { size: 1000.0 }, this.scene);
+        var skybox = MeshBuilder.CreateBox("skyBox", { size: 1000.0 }, this.scene);
         var skyboxMaterial = new StandardMaterial("skyBox", this.scene);
         skyboxMaterial.backFaceCulling = false;
         skyboxMaterial.reflectionTexture = new CubeTexture("textures/TropicalSunnyDay", this.scene);
@@ -101,7 +101,7 @@ class Game {
         skyboxMaterial.diffuseColor = new Color3(0, 0, 0);
         skyboxMaterial.specularColor = new Color3(0, 0, 0);
         skybox.material = skyboxMaterial;
-                */
+                
         var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.5;
 
