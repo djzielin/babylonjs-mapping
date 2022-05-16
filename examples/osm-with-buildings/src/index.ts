@@ -98,11 +98,7 @@ class Game {
         this.ourTS = new TileSet(4, 25, 2, this.scene,this.engine);
         this.ourTS.setRasterProvider("OSM");
 
-        const centerCoords = new Vector2(-80.8400777, 35.2258461); //charlotte
-        //const centerCoords = new Vector2(-112.11265952053303, 36.10054279295824); //grand canyon
-        //const centerCoords = new Vector2(31.254708, 29.852183); //egypt
-
-        this.ourTS.updateRaster(centerCoords, 16);
+        this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //charlotte
         this.ourTS.generateBuildings(3, true);
 
         var myMaterial = new StandardMaterial("infoSpotMaterial", this.scene);
@@ -118,7 +114,7 @@ class Game {
         for (let i = 0; i < this.ourCSV.numRows(); i++) {
 
             const ourPos = this.ourCSV.getCoordinates(i);
-            const convertedPos = this.ourTS.GetWorldPosition(ourPos)
+            const convertedPos = this.ourTS.GetWorldPosition(ourPos.y, ourPos.x);
             const sphere = MeshBuilder.CreateSphere(this.ourCSV.getRow(i)[2], { diameter: 1.0, segments: 4 }, this.scene);
 
             sphere.position.y = 0;
