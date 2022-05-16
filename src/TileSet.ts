@@ -55,12 +55,12 @@ export default class TileSet {
 
 
     constructor(subdivisions: number, private tileWidth: number, public meshPrecision: number, private scene: Scene, private engine: Engine) {
-        if(subdivisions%2==1){
+        /*if(subdivisions%2==1){
             console.error("we don't yet support non-even number of tiles");
             return;
-        }
+        }*/
 
-        EngineStore._LastCreatedScene=this.scene;
+        EngineStore._LastCreatedScene=this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
         EngineStore.Instances.push(this.engine);
 
         
@@ -122,27 +122,27 @@ export default class TileSet {
     public lon2tileExact(lon: number, zoom: number): number { return (((lon + 180) / 360 * Math.pow(2, zoom))); }
     public lat2tileExact(lat: number, zoom: number): number { return (((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom))); }
 
-    public getTileFromLatLon(coordinates: Vector2, zoom: number) {
+    public getTileFromLatLon(lat: number, lon: number, zoom: number) {
 
-        console.log("computing for lon: " + coordinates.x + " lat: " + coordinates.y + " zoom: " + zoom);
+        console.log("computing for lon: " + lon + " lat: " + lat + " zoom: " + zoom);
 
-        const x = this.lon2tile(coordinates.x, zoom);
+        const x = this.lon2tile(lon, zoom);
         console.log("tile x: " + x);
 
-        const y = this.lat2tile(coordinates.y, zoom);
+        const y = this.lat2tile(lat, zoom);
         console.log("tile y: " + y);
 
         return new Vector2(x, y);
     }
 
-    public computeCornerTile(coordinates: Vector2, zoom: number): Vector2 {
-        console.log("computing corner tile: " + coordinates);
+    public computeCornerTile(lat: number, lon: number, zoom: number): Vector2 {
+        console.log("computing corner tile for lat: " + lat + " lon: " + lon);
 
-        const cornerTile = this.getTileFromLatLon(coordinates, zoom);
+        const cornerTile = this.getTileFromLatLon(lat, lon, zoom);
         console.log("center tile: " + cornerTile);
 
-        cornerTile.x -= this.subdivisions.x / 2;
-        cornerTile.y += this.subdivisions.y / 2;
+        cornerTile.x -= Math.floor(this.subdivisions.x / 2); //use floor to handle odd tileset sizes
+        cornerTile.y += Math.floor(this.subdivisions.y / 2);
 
         console.log("corner tile: " + cornerTile);
 
@@ -152,20 +152,20 @@ export default class TileSet {
     //https://wiki.openstreetmap.org/wiki/Zoom_levels
     //Stile = C ∙ cos(latitude) / 2^zoomlevel
 
-    public computeTileRealWidthMeters(coordinates: Vector2, zoom: number): number {
+    public computeTileRealWidthMeters(lat: number, zoom: number): number {
         if(zoom==0){
             console.log("ERROR: zoom not setup yet!");
             return 0;
         }
-        console.log("tryign to compute tile width for lat: " + coordinates.y);
+        console.log("tryign to compute tile width for lat: " + lat);
 
         const C = 40075016.686;
-        const latRadians = coordinates.y * Math.PI / 180.0;
+        const latRadians = lat * Math.PI / 180.0;
         return C * Math.cos(latRadians) / Math.pow(2, zoom); //seems to need abs?
     }
 
     public computeTileScale(): number {
-        const tileMeters = this.computeTileRealWidthMeters(this.centerCoords, this.zoom);
+        const tileMeters = this.computeTileRealWidthMeters(this.centerCoords.y, this.zoom);
         console.log("tile (real world) width in meters: " + tileMeters);
 
         const tileWorldMeters = this.totalWidthMeters / this.subdivisions.x;
@@ -212,7 +212,7 @@ export default class TileSet {
     */
     public updateRaster(lat: number, lon: number, zoom: number) {
         this.centerCoords = new Vector2(lon, lat); 
-        this.tileCorner = this.computeCornerTile(this.centerCoords, zoom);
+        this.tileCorner = this.computeCornerTile(lat,lon, zoom);
         this.zoom = zoom;
 
         //console.log("Tile Base: " + this.tileCorner);

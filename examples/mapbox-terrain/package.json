@@ -4,10 +4,10 @@
     "description": "example showing how to use bablyonjs-mapping to show part of the grand canyon",
     "main": "index.ts",
     "dependencies": {
-        "@babylonjs/core": "^5.4.0",
-        "@babylonjs/gui": "^5.4.0",
-        "@babylonjs/inspector": "^5.4.0",
-        "@babylonjs/materials": "^5.4.0",
+        "@babylonjs/core": "^5.6.0",
+        "@babylonjs/gui": "^5.6.0",
+        "@babylonjs/inspector": "^5.6.0",
+        "@babylonjs/materials": "^5.6.0",
         "babylonjs-mapping": "^1.0.5",
         "cross-fetch": "^3.1.5"
     },
