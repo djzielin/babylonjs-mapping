@@ -111,13 +111,11 @@ class Game {
         this.ourTS = new TileSet(4,50,this.maxPrecision,this.scene, this.engine);
         await this.getMapboxKey("mapbox-key.txt");
         this.ourTS.setRasterProvider("MB",this.mapboxKey);
-
-        const centerCoords = new Vector2(-112.11265952053303, 36.10054279295824); //grand canyon
-        
+       
         const zoom = 14; 
 
-        this.ourTS.updateRaster(centerCoords, zoom);
-        //this.ourTS.disableGroundCulling(); //the babylonjs culling doesn't seem to work so great on terrains. 
+        this.ourTS.updateRaster(36.10054279295824, -112.11265952053303, zoom); //grand canyon
+
         this.ourTS.generateTerrain(1.0).then(() => {
             console.log("all terrain ready!");
         });
