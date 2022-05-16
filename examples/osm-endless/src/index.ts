@@ -120,11 +120,7 @@ class Game {
         this.ourTS = new TileSet(16, 25, 2, this.scene, this.engine);
         this.ourTS.setRasterProvider("OSM");
  
-        const centerCoords = new Vector2(-80.8400777, 35.21); //charlotte
-        //const centerCoords = new Vector2(-112.11265952053303, 36.10054279295824); //grand canyon
-        //const centerCoords = new Vector2(31.254708, 29.852183); //egypt
-
-        this.ourTS.updateRaster(centerCoords, 16);
+        this.ourTS.updateRaster(35.21, -80.8400777, 16); //charlotte
         this.ourTS.generateBuildings(3,true);        
 
         // Show the debug scene explorer and object inspector
