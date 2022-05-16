@@ -2,7 +2,6 @@
 // https://dev.to/monisnap/5-min-typescript-npm-package-4ce4
 // https://itnext.io/step-by-step-building-and-publishing-an-npm-typescript-package-44fe7164964c
 
-
 import { Scene } from "@babylonjs/core/scene";
 import { Engine, EngineStore, Tools } from "@babylonjs/core";
 import { Vector2 } from "@babylonjs/core/Maths/math";
@@ -13,14 +12,12 @@ import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
-import * as GUI from "@babylonjs/gui/";
 
 import Tile from './Tile';
 import OpenStreetMap from "./OpenStreetMap";
 import MapBox from "./MapBox";
 import OpenStreetMapBuildings from "./OpenStreetMapBuildings";
 import Attribution from "./Attribution";
-import { AdvancedDynamicTexture, Button, Control} from "@babylonjs/gui/2D";
 
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
@@ -180,11 +177,12 @@ export default class TileSet {
         return result;
     }
 
-    public GetWorldPosition(coordinates: Vector2): Vector2 {
-        //console.log("computing world for lon: " + coordinates.x + " lat: " + coordinates.y + " zoom: " + this.zoom);
+    public GetWorldPosition(lat: number, lon: number): Vector2 {
+       
+        //console.log("computing world for lon: " + lon + " lat: " + lat + " zoom: " + this.zoom);
 
-        const x: number = this.lon2tileExact(coordinates.x, this.zoom); //this gets things in terms of tile coordinates
-        const y: number = this.lat2tileExact(coordinates.y, this.zoom);
+        const x: number = this.lon2tileExact(lon, this.zoom); //this gets things in terms of tile coordinates
+        const y: number = this.lat2tileExact(lat, this.zoom);
 
         const t = this.ourTiles[0]; //just grab the first tile
 
@@ -208,12 +206,13 @@ export default class TileSet {
 
     /**
     * update all the tiles in the tileset
-    * @param centerCoords coords in [lon, lat] format (technically order reversed from regular [lat, lon])
+    * @param lat latitude. conceptually the y position in decimal
+    * @param lon longitude. conceptually the x position in decimal
     * @param zoom standard tile mapping zoom levels 0 (whole earth) - 20 (building)
     */
-    public updateRaster(centerCoords: Vector2, zoom: number) {
-        this.centerCoords = centerCoords;
-        this.tileCorner = this.computeCornerTile(centerCoords, zoom);
+    public updateRaster(lat: number, lon: number, zoom: number) {
+        this.centerCoords = new Vector2(lon, lat); 
+        this.tileCorner = this.computeCornerTile(this.centerCoords, zoom);
         this.zoom = zoom;
 
         //console.log("Tile Base: " + this.tileCorner);
