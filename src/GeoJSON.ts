@@ -22,6 +22,7 @@ export interface geometry {
     "coordinates": unknown;
 }
 
+export interface multiPolygonSet extends Array<polygonSet> { } 
 export interface polygonSet extends Array<coordinateSet> { }
 export interface coordinateSet extends Array<coordinatePair> { }
 export interface coordinatePair extends Array<number> { }

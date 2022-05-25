@@ -13,12 +13,12 @@ import * as GeoJSON from './GeoJSON';
 import Earcut from 'earcut';
 import { fetch } from 'cross-fetch'
 
+import { ProjectionType } from "./TileSet";
 import Tile from "./Tile";
 import TileSet from "./TileSet";
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
-
 
 
 interface GenerateBuildingRequest {
@@ -28,7 +28,7 @@ interface GenerateBuildingRequest {
      features?: GeoJSON.features;
 }
 
-export default class OpenStreetMap {
+export default class OpenStreetMapBuildings {
     private buildingRequests: GenerateBuildingRequest[]=[];
     private previousRequestSize=0;
 
@@ -42,6 +42,7 @@ export default class OpenStreetMap {
 
     private heightScaleFixer = 1.0;
     private buildingMaterial: StandardMaterial;
+    private defaultBuildingHeight=10.0;
 
     constructor(private tileSet: TileSet, private scene: Scene) {
         this.buildingMaterial = new StandardMaterial("buildingMaterial", this.scene);
@@ -51,11 +52,45 @@ export default class OpenStreetMap {
 
     }
 
+    public setDefaultBuildingHeight(height: number){
+        this.defaultBuildingHeight=height;
+    }
+
     public setExaggeration(tileScale: number, exaggeration: number) {
         this.heightScaleFixer = tileScale * exaggeration;
     } 
 
-    public populateBuildingGenerationRequestsForTile(tile: Tile, doMerge: boolean) {
+    //for pulling in buildings from our geoserver
+    //TODO: might want to use building request system so we don't do it all in one frame?
+    public populateFromCustomServer(url: string, projection: ProjectionType, doMerge = true) {
+        console.log("trying to fetch: " + url);
+
+        fetch(url).then((res) => {
+            //console.log("  fetch returned: " + res.status);
+
+            if (res.status == 200) {
+                res.text().then(
+                    (text) => {
+                        //console.log("about to json parse for tile: " + tile.tileCoords);
+                        if (text.length == 0) {
+                            //console.log("no buildings in this tile!");
+                            return;
+                        }
+                        const tileBuildings: GeoJSON.topLevel = JSON.parse(text);
+                        //console.log("number of buildings in this tile: " + tileBuildings.features.length);
+
+                        for (const f of tileBuildings.features) {
+                            const building = this.generateSingleBuilding(f, projection);
+                        }
+                    });
+            }
+            else {
+                console.error("unable to fetch: " + url);
+            }
+        });
+    }
+
+    public populateBuildingGenerationRequestsForTile(tile: Tile, doMerge=true) {
         if (tile.tileCoords.z > 16) {
             console.error("Zoom level of: " + tile.tileCoords.z + " is too large! This means that buildings won't work!");
             return;
@@ -142,7 +177,8 @@ export default class OpenStreetMap {
             if (request.requestType == 0) { //generate single building
                 if (request.features !== undefined) {
                     //console.log("generating single building for tile: " + request.tileCoords);
-                    const building = this.generateSingleBuilding(request.features, request.tile);
+                    const building = this.generateSingleBuilding(request.features,ProjectionType.EPSG_4326);
+                    building.setParent(request.tile.mesh);
                     request.tile.buildings.push(building);
                 }
             }
@@ -174,12 +210,63 @@ export default class OpenStreetMap {
         this.previousRequestSize = this.buildingRequests.length;
     }
 
-    private generateSingleBuilding(f: GeoJSON.features, tile: Tile): Mesh {
-        const holeArray: Vector3[][] = [];
-        const positions3D: Vector3[] = [];
+    private generateSingleBuilding(f: GeoJSON.features, projection: ProjectionType): Mesh {
+        let name = "Building"; 
+
+        if(f.id!== undefined){
+            name=f.id;
+        }
+        if (f.properties.name !== undefined) {
+            name = f.properties.name;
+        }
+
+        let height=this.defaultBuildingHeight;
+        if(f.properties.height !== undefined){
+            height=f.properties.height;
+        }
 
         if (f.geometry.type == "Polygon") {
             const ps: GeoJSON.polygonSet = f.geometry.coordinates as GeoJSON.polygonSet;
+            return this.processSinglePolygon(ps, projection, name, height);
+        }
+        else if (f.geometry.type == "MultiPolygon") {
+            const mp: GeoJSON.multiPolygonSet = f.geometry.coordinates as GeoJSON.multiPolygonSet;
+
+            const allMeshes: Mesh[] = [];
+
+            for (let i = 0; i < mp.length; i++) {
+                const singleMesh = this.processSinglePolygon(mp[i], projection, name, height);
+                allMeshes.push(singleMesh);
+            }
+
+            if (allMeshes.length == 0) {
+                console.error("found 0 meshes for MultiPolygon, something went wrong in JSON parsing!");
+            }
+            else if (allMeshes.length == 1) {
+                return allMeshes[0];
+            } else {
+                const merged = Mesh.MergeMeshes(allMeshes);
+                if (merged) {
+                    merged.name = name;
+                    return merged;
+                } else {
+                    console.error("unable to merge meshes!");
+                }
+            }
+        }
+        else {
+            //TODO: support other geometry types? 
+            console.error("unknown building geometry type: " + f.geometry.type);
+        }
+
+        const finalMesh = new Mesh("empty mesh", this.scene); //make sure we return something
+        return finalMesh;
+    }
+
+    private processSinglePolygon(ps: GeoJSON.polygonSet, projection: ProjectionType, name: string, height: number ): Mesh{
+        const holeArray: Vector3[][] = [];
+            const positions3D: Vector3[] = [];
+
             for (let i = 0; i < ps.length; i++) {
                 const hole: Vector3[] = [];
 
@@ -188,7 +275,15 @@ export default class OpenStreetMap {
                 for (let e = ps[i].length - 2; e >= 0; e--) {
 
                     const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
-                    const v2World = this.tileSet.GetWorldPosition(v2.y, v2.x); //lat lon
+
+                    let v2World: Vector2=new Vector2();
+                    
+                    if(projection==ProjectionType.EPSG_4326){
+                        v2World= this.tileSet.GetWorldPosition(v2.y, v2.x); //lat lon
+                    } 
+                    if(projection==ProjectionType.EPSG_3857){
+                        v2World=this.tileSet.GetWorldPositionFrom3857(v2.x,v2.y);
+                    }
                     const coord = new Vector3(v2World.x, 0.0, v2World.y);
 
                     if (i == 0) {
@@ -198,7 +293,8 @@ export default class OpenStreetMap {
                     }
                 }
 
-                //we were previous doing this incorrectly, actully the second polygon is not to be "merged", 
+                //we were previous doing this incorrectly,
+                //actully the second polygon is not to be "merged", 
                 //but actually specifies additional holes
                 //see: https://datatracker.ietf.org/doc/html/rfc7946#page-25
                 if (i > 0) {
@@ -206,43 +302,28 @@ export default class OpenStreetMap {
                 }
             }
 
-
             (window as any).earcut = Earcut;
-            let name = "Building";
-            if (f.properties.name !== undefined) {
-                name = f.properties.name;
-            }
-
+            
             var orientation=Mesh.DEFAULTSIDE;
             if(holeArray.length>0){
-                orientation=Mesh.DOUBLESIDE;
+                orientation=Mesh.DOUBLESIDE; //otherwise we see inside the holes
             }
 
             const ourMesh: Mesh = MeshBuilder.ExtrudePolygon(name,
                 {
                     shape: positions3D,
-                    depth: f.properties.height * this.heightScaleFixer,
+                    depth: height * this.heightScaleFixer,
                     holes: holeArray,
                     sideOrientation: orientation
                 },
                 this.scene);
 
-            ourMesh.position.y = f.properties.height * this.heightScaleFixer;
+            ourMesh.position.y = height * this.heightScaleFixer;
             ourMesh.bakeCurrentTransformIntoVertices(); //optimizations
             ourMesh.material = this.buildingMaterial; //all buildings will use same material
             ourMesh.isPickable = false;
-
-            ourMesh.setParent(tile.mesh);
+           
             return ourMesh;
-        }
-        else {
-            //TODO: support other geometry types? //TODO: need MULTIMESH for Charlotte data!
-            console.error("unknown building geometry type: " + f.geometry.type);
-        }
-
-        const finalMesh = new Mesh("empty mesh", this.scene); //make sure we return something
-        finalMesh.setParent(tile.mesh);
-        return finalMesh;
     }
 }
 

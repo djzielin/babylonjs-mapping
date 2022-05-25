@@ -23,6 +23,11 @@ import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 import '@babylonjs/core/Debug/debugLayer';
 
+export enum ProjectionType{
+    EPSG_3857,
+    EPSG_4326
+}
+
 export default class TileSet {
 
     private xmin: number;
@@ -184,6 +189,28 @@ export default class TileSet {
         const x: number = this.lon2tileExact(lon, this.zoom); //this gets things in terms of tile coordinates
         const y: number = this.lat2tileExact(lat, this.zoom);
 
+        return this.GetWorldPositionFromTile(x,y);
+    } 
+    
+    //see https://stackoverflow.com/questions/37523872/converting-coordinates-from-epsg-3857-to-4326
+    public GetWorldPositionFrom3857(x: number, y: number): Vector2{
+        console.log("trying to compute world position for: " + x + " " + y);
+        const max = 20037508.34;
+        
+        const xAdjusted=x/max;
+        const yAdjusted=y/max;
+
+        const xShifted=0.5*xAdjusted+0.5;
+        const yShifted=0.5-0.5*yAdjusted;
+
+        const n=Math.pow(2,this.zoom);
+
+        const worldPos=this.GetWorldPositionFromTile(n*xShifted,n*yShifted);
+        console.log("world pos is: " + worldPos);
+        return worldPos;
+    }
+
+    private GetWorldPositionFromTile(x: number, y:number): Vector2{
         const t = this.ourTiles[0]; //just grab the first tile
 
         const tileDiffX = x - t.tileCoords.x;
@@ -202,7 +229,7 @@ export default class TileSet {
         //console.log("world position: " + xFixed +" " + yFixed);       
 
         return new Vector2(xFixed, yFixed);
-    }    
+    }
 
     /**
     * update all the tiles in the tileset
@@ -369,13 +396,18 @@ export default class TileSet {
         this.osmBuildings.processBuildingRequests();
     }
 
-    public generateBuildings(exaggeration: number, doMerge: boolean) {
+    public generateBuildings(exaggeration: number, doMerge=true) {
         this.osmBuildings.setExaggeration(this.computeTileScale(), exaggeration);
 
         for (const t of this.ourTiles) {
             //this.osmBuildings.generateBuildingsForTile(t,doMerge);
             this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
         }
+    }
+    public generateBuildingsCustom(url: string, projection: ProjectionType, exaggeration: number, doMerge=true) {
+        this.osmBuildings.setExaggeration(this.computeTileScale(), exaggeration);
+
+        this.osmBuildings.populateFromCustomServer(url, projection, doMerge);        
     }
 
     public async generateTerrain(exaggeration: number){
