@@ -9,7 +9,7 @@ import { SubMesh } from "@babylonjs/core/Meshes/subMesh";
 import { MultiMaterial } from '@babylonjs/core/Materials/multiMaterial';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
-
+import * as GeoJSON from './GeoJSON';
 import Earcut from 'earcut';
 import { fetch } from 'cross-fetch'
 
@@ -19,38 +19,13 @@ import TileSet from "./TileSet";
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
 
-interface coordinatePair extends Array<number> { }
-interface coordinateSet extends Array<coordinatePair> { }
 
-interface geometryJSON {
-    "type": string;
-    "coordinates": coordinateSet[];
-}
-
-interface featurePropertiesJSON {
-    "name": string;
-    "type": string;
-    "height": number;
-    "levels": number;
-}
-
-interface featuresJSON {
-    "id": string;
-    "type": string;
-    "properties": featurePropertiesJSON;
-    "geometry": geometryJSON;
-}
-
-interface BuildingsJSON {
-    "type": string;
-    "features": featuresJSON[];
-}
 
 interface GenerateBuildingRequest {
      requestType: number;  //TODO: replace this with enum
      tile: Tile;
      tileCoords: Vector3;
-     features?: featuresJSON;
+     features?: GeoJSON.features;
 }
 
 export default class OpenStreetMap {
@@ -103,7 +78,7 @@ export default class OpenStreetMap {
                             //console.log("no buildings in this tile!");
                             return;
                         }
-                        const tileBuildings: BuildingsJSON = JSON.parse(text);
+                        const tileBuildings: GeoJSON.topLevel = JSON.parse(text);
                         //console.log("number of buildings in this tile: " + tileBuildings.features.length);
 
                         if(tile.tileCoords.equals(storedCoords)==false){
@@ -199,76 +174,75 @@ export default class OpenStreetMap {
         this.previousRequestSize = this.buildingRequests.length;
     }
 
-    private generateSingleBuilding(f: featuresJSON, tile: Tile): Mesh {
-        const meshArray: Mesh[] = [];
+    private generateSingleBuilding(f: GeoJSON.features, tile: Tile): Mesh {
+        const holeArray: Vector3[][] = [];
+        const positions3D: Vector3[] = [];
 
         if (f.geometry.type == "Polygon") {
-            for (let i = 0; i < f.geometry.coordinates.length; i++) {
-                //var customMesh = new Mesh("custom", this.scene);
-
-                const numPoints = f.geometry.coordinates[i].length;
-
-                const positions: number[] = [];
-                const positions3D: Vector3[] = [];
+            const ps: GeoJSON.polygonSet = f.geometry.coordinates as GeoJSON.polygonSet;
+            for (let i = 0; i < ps.length; i++) {
+                const hole: Vector3[] = [];
 
                 //skip final coord (as it seems to duplicate the first)
                 //also need to do this backwards to get normals / winding correct
-                for (let e = f.geometry.coordinates[i].length - 2; e >= 0; e--) {
+                for (let e = ps[i].length - 2; e >= 0; e--) {
 
-                    const v2 = new Vector2(f.geometry.coordinates[i][e][0], f.geometry.coordinates[i][e][1]);
+                    const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
                     const v2World = this.tileSet.GetWorldPosition(v2.y, v2.x); //lat lon
-                    //console.log("  v2world: " + v2World);
+                    const coord = new Vector3(v2World.x, 0.0, v2World.y);
 
-                    positions.push(v2World.x);
-                    positions.push(v2World.y);
-
-                    positions3D.push(new Vector3(v2World.x, 0.0, v2World.y));
-                }
-                (window as any).earcut = Earcut;
-                let name = "Building";
-                if (f.properties.name !== undefined) {
-                    name = f.properties.name;
+                    if (i == 0) {
+                        positions3D.push(coord);
+                    } else {
+                        hole.push(coord);
+                    }
                 }
 
-                var ourMesh = MeshBuilder.ExtrudePolygon(name,
-                    {
-                        shape: positions3D,
-                        depth: f.properties.height * this.heightScaleFixer
-                    },
-                    this.scene);
-
-                ourMesh.position.y = f.properties.height * this.heightScaleFixer;
-                ourMesh.bakeCurrentTransformIntoVertices(); //optimizations
-                ourMesh.material = this.buildingMaterial; //all buildings will use same material
-                ourMesh.isPickable = false;
-                
-                meshArray.push(ourMesh);
+                //we were previous doing this incorrectly, actully the second polygon is not to be "merged", 
+                //but actually specifies additional holes
+                //see: https://datatracker.ietf.org/doc/html/rfc7946#page-25
+                if (i > 0) {
+                    holeArray.push(hole);
+                }
             }
+
+
+            (window as any).earcut = Earcut;
+            let name = "Building";
+            if (f.properties.name !== undefined) {
+                name = f.properties.name;
+            }
+
+            var orientation=Mesh.DEFAULTSIDE;
+            if(holeArray.length>0){
+                orientation=Mesh.DOUBLESIDE;
+            }
+
+            const ourMesh: Mesh = MeshBuilder.ExtrudePolygon(name,
+                {
+                    shape: positions3D,
+                    depth: f.properties.height * this.heightScaleFixer,
+                    holes: holeArray,
+                    sideOrientation: orientation
+                },
+                this.scene);
+
+            ourMesh.position.y = f.properties.height * this.heightScaleFixer;
+            ourMesh.bakeCurrentTransformIntoVertices(); //optimizations
+            ourMesh.material = this.buildingMaterial; //all buildings will use same material
+            ourMesh.isPickable = false;
+
+            ourMesh.setParent(tile.mesh);
+            return ourMesh;
         }
         else {
-            //TODO: support other geometry types?
+            //TODO: support other geometry types? //TODO: need MULTIMESH for Charlotte data!
             console.error("unknown building geometry type: " + f.geometry.type);
         }
 
-        if (meshArray.length > 1) {
-            //console.log("about to do small merge");
-            const merge = Mesh.MergeMeshes(meshArray,true);
-            if (merge) {
-                //console.log("had multiple meshes: " + meshArray.length + " so we are merging!");
-                merge.setParent(tile.mesh);
-                return merge;
-            } else{
-                console.error("failed to merge mesh on tile: " + tile.tileCoords);
-            }
-        } else if (meshArray.length == 1) {
-            meshArray[0].setParent(tile.mesh);
-            return meshArray[0];
-        }
-
-        const finalMesh = new Mesh("empty mesh", this.scene);
+        const finalMesh = new Mesh("empty mesh", this.scene); //make sure we return something
         finalMesh.setParent(tile.mesh);
-        
         return finalMesh;
-
     }
 }
+
