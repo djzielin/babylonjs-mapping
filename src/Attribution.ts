@@ -13,7 +13,7 @@ export default class Attribution {
     private buttonImprov: Button;
 
     constructor(private scene: Scene) {
-
+        this.advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI");
     }
 
     public showAttribution(provider: string) {
@@ -31,11 +31,7 @@ export default class Attribution {
         }
 
         console.log("scene is ready, so lets setup the attribution!");
-        
-        if (this.currentProvider == "") { //first time, so we need to get our UI setup           
-            this.advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI");
-        }
-
+      
         if (provider == "MB") {
             this.showAttributionMapbox();
         }

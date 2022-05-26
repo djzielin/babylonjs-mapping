@@ -22,6 +22,7 @@ import Attribution from "./Attribution";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 import '@babylonjs/core/Debug/debugLayer';
+import { AdvancedDynamicTexture } from "@babylonjs/gui";
 
 export enum ProjectionType{
     EPSG_3857,
@@ -93,6 +94,10 @@ export default class TileSet {
         this.ourMB = new MapBox(this, this.scene);      
         this.ourAttribution = new Attribution(this.scene);
     }   
+
+    public getAdvancedDynamicTexture(): AdvancedDynamicTexture{
+        return this.ourAttribution.advancedTexture;
+    }
 
     public makeSingleTileMesh(x: number, y: number, precision: number): Mesh {
         const ground = MeshBuilder.CreateGround("ground", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
