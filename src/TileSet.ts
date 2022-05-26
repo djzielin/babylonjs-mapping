@@ -412,7 +412,7 @@ export default class TileSet {
     public generateBuildingsCustom(url: string, projection: ProjectionType, exaggeration: number, doMerge=true) {
         this.osmBuildings.setExaggeration(this.computeTileScale(), exaggeration);
 
-        this.osmBuildings.populateFromCustomServer(url, projection, doMerge);        
+        this.osmBuildings.populateFromCustomServer(url, projection, doMerge);   
     }
 
     public async generateTerrain(exaggeration: number){

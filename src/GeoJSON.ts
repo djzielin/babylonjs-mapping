@@ -7,16 +7,17 @@ export interface topLevel {
 export interface features {
     "id": string;
     "type": string;
-    "properties": properties;
+    "properties": any;
     "geometry": geometry;
 }
 
-export interface properties {
+export interface propertiesOSM {
     "name": string;
     "type": string;
     "height": number;
     "levels": number;
 }
+
 export interface geometry {
     "type": string;
     "coordinates": unknown;

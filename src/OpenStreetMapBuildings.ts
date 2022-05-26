@@ -212,6 +212,7 @@ export default class OpenStreetMapBuildings {
 
     private generateSingleBuilding(f: GeoJSON.features, projection: ProjectionType): Mesh {
         let name = "Building"; 
+        let finalMesh = new Mesh("empty mesh", this.scene); 
 
         if(f.id!== undefined){
             name=f.id;
@@ -227,7 +228,9 @@ export default class OpenStreetMapBuildings {
 
         if (f.geometry.type == "Polygon") {
             const ps: GeoJSON.polygonSet = f.geometry.coordinates as GeoJSON.polygonSet;
-            return this.processSinglePolygon(ps, projection, name, height);
+            finalMesh.dispose();
+            finalMesh=this.processSinglePolygon(ps, projection, name, height);
+
         }
         else if (f.geometry.type == "MultiPolygon") {
             const mp: GeoJSON.multiPolygonSet = f.geometry.coordinates as GeoJSON.multiPolygonSet;
@@ -243,12 +246,14 @@ export default class OpenStreetMapBuildings {
                 console.error("found 0 meshes for MultiPolygon, something went wrong in JSON parsing!");
             }
             else if (allMeshes.length == 1) {
-                return allMeshes[0];
+                finalMesh.dispose();
+                finalMesh=allMeshes[0];
             } else {
                 const merged = Mesh.MergeMeshes(allMeshes);
                 if (merged) {
                     merged.name = name;
-                    return merged;
+                    finalMesh.dispose();
+                    finalMesh=merged;
                 } else {
                     console.error("unable to merge meshes!");
                 }
@@ -259,7 +264,10 @@ export default class OpenStreetMapBuildings {
             console.error("unknown building geometry type: " + f.geometry.type);
         }
 
-        const finalMesh = new Mesh("empty mesh", this.scene); //make sure we return something
+        if(f.properties!==undefined){
+            finalMesh.metadata=f.properties; //store for user to use later!
+        }
+
         return finalMesh;
     }
 
