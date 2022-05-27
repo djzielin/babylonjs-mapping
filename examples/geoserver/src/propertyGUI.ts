@@ -16,9 +16,10 @@ import TileSet from "../../../lib/TileSet";
 export default class PropertyGUI {
     private valuesFound: string[] = [];
     private ourMaterials: StandardMaterial[]=[];
-    private checkBoxStatus: boolean[]=[];
+    private visibilityStatus: boolean[]=[];
     private valueLine: StackPanel[]=[];
-    private ourCheckBoxes: Checkbox[]=[];
+    private colorPreviews: Button[]=[];
+    private visibilityToggle: Button[]=[];
 
     private colorPicker: ColorPicker | null=null;
     private ourPanel: StackPanel;
@@ -37,7 +38,7 @@ export default class PropertyGUI {
                 if (this.valuesFound.indexOf(value) == -1) {
 
                     this.valuesFound.push(value);
-                    this.checkBoxStatus.push(true);
+                    this.visibilityStatus.push(true);
 
                     const buildingMaterial = new StandardMaterial("buildingMaterial" + i, this.game.scene);
                     buildingMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
@@ -49,11 +50,16 @@ export default class PropertyGUI {
 
     public generateGUI(panel: StackPanel) {
         this.ourPanel=panel;
-        const propText = Button.CreateSimpleButton("but", this.property);
+        const propText = Button.CreateSimpleButton("button for " + this.property, this.property);
         propText.height = "30px"
         propText.width = "200px";
-        //header.marginLeft = "5px";
+        
+        propText.paddingTopInPixels=3;
         propText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        if(propText.textBlock){
+            propText.textBlock.textHorizontalAlignment=Control.HORIZONTAL_ALIGNMENT_LEFT;
+            propText.textBlock.paddingLeftInPixels=5;
+        }
         propText.color = "white";
         propText.background = "black";
         this.ourPanel.addControl(propText);
@@ -69,47 +75,48 @@ export default class PropertyGUI {
             const s = this.valuesFound[i];
             console.log("data: " + s);
 
-            var subpanel = new StackPanel();
+            ////////////////////////////////////////////
+            // PANEL
+            ////////////////////////////////////////////
+            var subpanel = new StackPanel("line for " + s);
             subpanel.height = "30px";
             subpanel.width = "300px";
             subpanel.isVertical = false;
+            subpanel.paddingTopInPixels=3;
             subpanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             subpanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-            this.ourPanel.addControl(subpanel);
             this.valueLine.push(subpanel);
-        
-            var checkbox = new Checkbox("test");
-            checkbox.width = "20px";
-            checkbox.height = "20px";
-            checkbox.isChecked = true;
-            checkbox.color = "black";
-            checkbox.background="white";
-            checkbox.onIsCheckedChangedObservable.add((value) => {
-               this.checkBoxStatus[i]=value;
+            this.ourPanel.addControl(subpanel);
+
+            ////////////////////////////////////////////        
+            // VISIBILITY 
+            ////////////////////////////////////////////
+            var visibility = Button.CreateImageOnlyButton("visibility toggle for " + s, "textures/120px-Downyu.png");
+            visibility.width = "30px";
+            visibility.height = "30px";
+            visibility.color = "white";
+            visibility.paddingLeftInPixels=5;
+            
+            visibility.background="white";
+            visibility.onPointerClickObservable.add(() => {
+               this.visibilityStatus[i]=!this.visibilityStatus[i]; //toggle
                this.applyFilters();
             });
-            this.ourCheckBoxes.push(checkbox);
-            subpanel.addControl(checkbox);
+            this.visibilityToggle.push(visibility);
+            subpanel.addControl(visibility);
 
-          
-            let checkText=s;
-            if(checkText==""){
-                checkText="<no value>";
-            }
-            var header = Button.CreateSimpleButton("but", checkText);
-
-            header.height="30px"
-            header.width="200px";
-            header.thickness=0;            
-            header.background="";
+            ////////////////////////////////////////////
+            // COLOR
+            ////////////////////////////////////////////     
+            const colorPreview = Button.CreateSimpleButton("color swatch for " + this.property,"");
+            colorPreview.height = "30px"
+            colorPreview.width = "35px";
             //header.marginLeft = "5px";
-            //header.HorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            if (header.textBlock) {
-                header.textBlock.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            }
-            header.color = "black";
-
-            header.onPointerClickObservable.add(() => {
+            colorPreview.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            colorPreview.color = "white";   
+            colorPreview.paddingLeftInPixels=5;
+    
+            colorPreview.onPointerClickObservable.add(() => {
                 if (this.areButtonsActive) {
                     this.removeColorPicker();
 
@@ -120,24 +127,43 @@ export default class PropertyGUI {
                     picker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
                     picker.onValueChangedObservable.add((value: Color3) => {  // value is a color3
                         this.ourMaterials[i].diffuseColor.copyFrom(value);
-                        this.valueLine[i].background = this.ourMaterials[i].diffuseColor.toHexString();
+                        this.colorPreviews[i].background = this.ourMaterials[i].diffuseColor.toHexString();
                     });
                     this.ourPanel.addControl(picker);
                     this.colorPicker = picker;
-                }
+                }      
             });
 
+            this.colorPreviews.push(colorPreview);
+            subpanel.addControl(colorPreview);
 
-            subpanel.addControl(header);
+            ////////////////////////////////////////////
+            // TEXT
+            ////////////////////////////////////////////
+            let checkText=s;
+            if(checkText==""){
+                checkText="<no value>";
+            }
+            var textBlock = new TextBlock("text block for " + s, checkText);
+
+            textBlock.height="30px"
+            textBlock.width="200px";      
+            textBlock.paddingLeftInPixels=5;      
+            //textBlock.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            textBlock.color = "black";           
+
+            textBlock.textHorizontalAlignment=Control.HORIZONTAL_ALIGNMENT_LEFT;
+
+            subpanel.addControl(textBlock);
         }
 
-        var subpanel = new StackPanel(); //functions as a spacer
-            subpanel.height = "30px";
-            subpanel.width = "300px";
-            subpanel.isVertical = false;
-            subpanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-            subpanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-            this.ourPanel.addControl(subpanel);
+        var spacer = new StackPanel("spacer"); //functions as a spacer
+            spacer.height = "30px";
+            spacer.width = "300px";
+            spacer.isVertical = false;
+            spacer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            spacer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            subpanel.addControl(spacer);
  
         this.hideModifiers();
     }
@@ -155,7 +181,14 @@ export default class PropertyGUI {
 
             for (let i = 0; i < this.valuesFound.length; i++) {
                 const valueFound = this.valuesFound[i];
-                const checkboxValue = this.checkBoxStatus[i];
+                const checkboxValue = this.visibilityStatus[i];
+
+                if(this.visibilityStatus[i]){
+                    this.visibilityToggle[i].image.source="textures/120px-Downyu.png";
+                }
+                else{
+                    this.visibilityToggle[i].image.source="textures/120px-Downyu-gray.png";
+                }
 
                 const propValue = prop.get(this.property);
                 if (propValue !== undefined) {
@@ -185,11 +218,15 @@ export default class PropertyGUI {
         }
 
         for (let i = 0; i < this.valuesFound.length; i++) {
-            this.valueLine[i].background = this.ourMaterials[i].diffuseColor.toHexString();
+            //this.valueLine[i].background = this.ourMaterials[i].diffuseColor.toHexString();
+            this.colorPreviews[i].background=this.ourMaterials[i].diffuseColor.toHexString();
         }
 
-        for (let cb of this.ourCheckBoxes) {
+        /*for (let cb of this.visibilityToggle) {
             cb.isVisible=true;
+        }*/
+        for (let vl of this.valueLine) {
+            vl.isVisible=true;
         }
 
         this.applyFilters();
@@ -197,11 +234,14 @@ export default class PropertyGUI {
     }
 
     private hideModifiers() {
-        for (let cb of this.ourCheckBoxes) {
+        /*for (let cb of this.visibilityToggle) {
             cb.isVisible=false;
-        }
+        }*/
         for (let vl of this.valueLine) {
-            vl.background="white";
+            vl.isVisible=false;
+        }
+        for (let cp of this.colorPreviews) {
+            cp.background="white";
         }
 
         this.removeColorPicker();

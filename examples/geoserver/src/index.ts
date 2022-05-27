@@ -22,7 +22,7 @@ import { ExecuteCodeAction } from "@babylonjs/core";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
 import { Button } from "@babylonjs/gui/2D/controls/button";
 import { Control, Checkbox } from "@babylonjs/gui/2D/controls"; 
-import { StackPanel, Rectangle, TextBlock } from "@babylonjs/gui/2D/controls"; 
+import { StackPanel, Rectangle, TextBlock, Image} from "@babylonjs/gui/2D/controls"; 
 
 
 import "@babylonjs/core/Materials/standardMaterial"
