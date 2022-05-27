@@ -21,6 +21,9 @@ import { ActionManager } from "@babylonjs/core";
 import { ExecuteCodeAction } from "@babylonjs/core";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
 import { Button } from "@babylonjs/gui/2D/controls/button";
+import { Control, Checkbox } from "@babylonjs/gui/2D/controls"; 
+import { StackPanel, Rectangle, TextBlock } from "@babylonjs/gui/2D/controls"; 
+
 
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
@@ -30,21 +33,37 @@ import CsvData from "./CsvData";
 //import MapBox from "./babylonjs-mapping/MapBox";
 
 import TileSet from "babylonjs-mapping";
-import {ProjectionType} from "babylonjs-mapping";
+import PropertyGUI from "./propertyGUI";
+import { ProjectionType } from "babylonjs-mapping";
 
-class Game {
+export interface propertiesCharlotte {
+    "Shape_Leng": number;
+    "Shape_Area": number;
+    "Block_numb": string;
+    "Drawing_nu": string;
+    "Plot_numbe": string;
+    "Land_type": string;
+    "Housing_co": string;
+    "Church": string;
+}
+
+export class Game {
     private canvas: HTMLCanvasElement;
     private engine: Engine;
-    private scene: Scene;
+    public scene: Scene;
 
     private ourCSV: CsvData;
     private ourTS: TileSet;
 
-    private lastSelectedSphereIndex: number=-1;
-    private lastSelectedSphere: Mesh;
+    private lastSelectedBuildingIndex: number=-1;
+    private lastSelectedBuilding: Mesh;
     private previousButton: Button;
 
-    private spherePositions: Vector3[]=[];
+    public allBuildings: Mesh[] = [];
+
+    public advancedTexture: AdvancedDynamicTexture;
+
+    public propertyGUIs: PropertyGUI[]=[];
 
     constructor() {
         // Get the canvas element 
@@ -72,15 +91,16 @@ class Game {
                this.engine.resize();
            });
        });
-   }
-   
+    }    
+
     private async createScene() {
         this.scene.clearColor = new Color4(135/255,206/255,235/255, 1.0);
 
-        var camera = new UniversalCamera("camera1", new Vector3(0, 40, -80), this.scene);
+        var camera = new UniversalCamera("camera1", new Vector3(10, 10, -50), this.scene);
+    
         //var camera = new UniversalCamera("camera1", new Vector3(90, 45, 0), this.scene); //grand canyon
         
-        camera.setTarget(Vector3.Zero());
+        camera.setTarget(new Vector3(15,-15,30));
         camera.attachControl(this.canvas, true);
 
         camera.speed=0.5;
@@ -101,95 +121,139 @@ class Game {
 
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //charlotte
         //this.ourTS.generateBuildings(3, true);
-        this.ourTS.generateBuildingsCustom("https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3AFootprint_Test&outputFormat=application%2Fjson",ProjectionType.EPSG_3857,2);
+        this.ourTS.generateBuildingsCustom("https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3AFootprint_Test&outputFormat=application%2Fjson",ProjectionType.EPSG_3857,2,false);
 
 
-        var myMaterial = new StandardMaterial("infoSpotMaterial", this.scene);
+        /*var myMaterial = new StandardMaterial("infoSpotMaterial", this.scene);
         myMaterial.diffuseColor = new Color3(0, 1, 0.25);
-        myMaterial.freeze();
+        myMaterial.freeze();*/
 
         var myMaterialHighlight = new StandardMaterial("infoSpotMaterialHighlight", this.scene);
-        myMaterialHighlight.diffuseColor = new Color3(1, 1, 0.25);
+        myMaterialHighlight.diffuseColor = new Color3(1, 1, 1);
         myMaterialHighlight.freeze();
 
-        var advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI");
+        this.advancedTexture = this.ourTS.getAdvancedDynamicTexture();
 
-       /* for (let i = 0; i < this.ourCSV.numRows(); i++) {
-
-            const ourPos = this.ourCSV.getCoordinates(i);
-            const convertedPos = this.ourTS.GetWorldPosition(ourPos.y, ourPos.x);
-            const sphere = MeshBuilder.CreateSphere(this.ourCSV.getRow(i)[2], { diameter: 1.0, segments: 4 }, this.scene);
-
-            sphere.position.y = 0;
-            sphere.position.x = convertedPos.x;
-            sphere.position.z = convertedPos.y;
-            sphere.isVisible = true;
-            sphere.material = myMaterial;
-
-            //make sure we arent overlapping with existing sphere
-            for(let v of this.spherePositions){
-                const d=Vector3.Distance(v,sphere.position);
-
-                if(d<1.0){
-                    console.log("overlap detected on: " + sphere.name);
-                    sphere.position.x+=Math.random()*2-1.0;
-                    sphere.position.z+=Math.random()*2-1.0;
-                    break;
+        this.ourTS.osmBuildings.onCustomLoaded.add(() => {
+           
+            for (let t of this.ourTS.ourTiles) {
+                //console.log("tile: " + t.mesh.name + " contains buildings: " + t.buildings.length);
+                for (let b of t.buildings) {
+                    this.allBuildings.push(b);
                 }
             }
-            this.spherePositions.push(sphere.position.clone());
+            console.log("buildings found: " + this.allBuildings.length);
 
-            sphere.actionManager = new ActionManager(this.scene);
-            sphere.actionManager.registerAction(
-                new ExecuteCodeAction(
-                    {
-                        trigger: ActionManager.OnPickTrigger //OnPointerOverTrigger
-                    },
-                    () => {
-                        console.log("over item: " + sphere.name);
-                        sphere.material = myMaterialHighlight;
+            for (let i = 0; i < this.allBuildings.length; i++) {
+                const b = this.allBuildings[i];
+                const props = b.metadata as propertiesCharlotte;
+                const ourMap: Map<string,string>=new Map<string,string>();          
+                
+                ourMap.set("Shape_Leng",props.Shape_Leng.toString());
+                ourMap.set("Shape_Area",props.Shape_Area.toString());
+                ourMap.set("Block_numb", props.Block_numb);
+                ourMap.set("Drawing_nu", props.Drawing_nu);
+                ourMap.set("Plot_numbe", props.Plot_numbe);
+                ourMap.set("Land_type", props.Land_type);
+                ourMap.set("Housing_co", props.Housing_co);
+                ourMap.set("Church", props.Church);
 
-                        if(this.lastSelectedSphereIndex==i){
-                            console.log("user clicked object that is already selected!");
-                            return;
+                b.metadata=ourMap; //replace interface data with our new map!
+            }
+
+            var panel = new StackPanel();   
+            panel.width = "200px";
+            panel.height = 1.0;
+            panel.isVertical = true;
+            panel.background = "white";
+            panel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            panel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    
+            this.advancedTexture.addControl(panel);
+
+            const pgui=new PropertyGUI("Land_type", this);
+            pgui.generateGUI(panel);
+            this.propertyGUIs.push(pgui);
+
+            const pgui1=new PropertyGUI("Housing_co", this);
+            pgui1.generateGUI(panel);
+            this.propertyGUIs.push(pgui1);
+
+            const pgui2=new PropertyGUI("Church", this);
+            pgui2.generateGUI(panel);
+            this.propertyGUIs.push(pgui2);            
+
+            for (let i = 0; i < this.allBuildings.length; i++) {
+                const b = this.allBuildings[i];
+                b.isPickable=true;
+                //console.log("setting up building: " + b.name);
+                b.actionManager = new ActionManager(this.scene);
+                b.actionManager.registerAction(
+                    new ExecuteCodeAction(
+                        {
+                            trigger: ActionManager.OnPickTrigger //OnPointerOverTrigger
+                        },
+                        () => {
+                            console.log("user clicked on building: " + b.name);
+
+                            const originalMaterial=b.material;
+                            b.material = myMaterialHighlight;
+    
+                            if(this.lastSelectedBuildingIndex==i){
+                                console.log("user clicked object that is already selected!");
+                                return;
+                            }
+
+
+                            if (this.lastSelectedBuildingIndex >= 0) {
+                                this.lastSelectedBuilding.material = originalMaterial;
+                                this.advancedTexture.removeControl(this.previousButton);
+                                this.previousButton.dispose();
+                            }
+
+                            const props = b.metadata as Map<string, string>;
+
+                            let popupText: string = "";
+                            popupText += "id: " + b.name + "\n";
+                            popupText += "Block_numb: " + props.get("Block_numb") + "\n";
+                            popupText += "Drawing_nu: " + props.get("Drawing_nu") + "\n";
+                            popupText += "Plot_numbe: " + props.get("Plot_numbe") + "\n";
+                            popupText += "Land_type: " + props.get("Land_type") + "\n";
+                            popupText += "Housing_co: " + props.get("Housing_co") + "\n";
+                            popupText += "Church: " + props.get("Church") + "\n";
+
+                            const button: Button = Button.CreateSimpleButton("but", popupText);
+                            button.width = "300px";
+                            button.height = "200px";
+                            button.color = "white";
+
+                            button.background = "black";
+                            button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+                            button.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+
+                            if (button.textBlock) {
+                                button.textBlock.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                            }
+                            this.advancedTexture.addControl(button);
+
+                            button.onPointerClickObservable.add(() => {
+                                console.log("user clicked on button");
+                                b.material = originalMaterial;
+                                this.lastSelectedBuildingIndex = -1;
+                                this.advancedTexture.removeControl(button);
+                                button.dispose();
+                            });
+
+                            this.lastSelectedBuildingIndex = i;
+                            this.lastSelectedBuilding = b;
+                            this.previousButton = button;
+
                         }
+                    )
+                );
+            }
+        });
 
-
-                        if (this.lastSelectedSphereIndex >= 0) {
-                            this.lastSelectedSphere.material = myMaterial;
-                            advancedTexture.removeControl(this.previousButton);
-                            this.previousButton.dispose();
-                        }                     
-
-                        const text="Name: " + sphere.name + "\n\n" + "Description: " + this.ourCSV.getRow(i)[3];
-
-                        const button: Button = Button.CreateSimpleButton("but", text);
-                        button.width = 0.5;
-                        button.height = 0.25;
-                        button.color = "white";
-                        button.background = "black";
-
-                        advancedTexture.addControl(button);    
-
-                        button.onPointerClickObservable.add( ()=>{
-                            console.log("user clicked on button");
-                            sphere.material = myMaterial;
-                            this.lastSelectedSphereIndex=-1;
-                            advancedTexture.removeControl(button);
-                            button.dispose();
-                        });
-                    
-                        this.lastSelectedSphereIndex = i;
-                        this.lastSelectedSphere = sphere;
-                        this.previousButton=button;
-                    }
-                )
-            );
-
-            sphere.bakeCurrentTransformIntoVertices();
-            sphere.freezeWorldMatrix();            
-        }
-*/
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program 
         this.scene.debugLayer.show();
@@ -199,7 +263,6 @@ class Game {
     // modify camera flythrough?
     private update(): void {
         this.ourTS.processBuildingRequests();
-
     }
 
 }

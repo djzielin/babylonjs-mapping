@@ -3,11 +3,9 @@
 // https://itnext.io/step-by-step-building-and-publishing-an-npm-typescript-package-44fe7164964c
 
 import { Scene } from "@babylonjs/core/scene";
-import { Engine, EngineStore, Tools } from "@babylonjs/core";
-import { Vector2 } from "@babylonjs/core/Maths/math";
-import { Vector3 } from "@babylonjs/core/Maths/math";
-import { Color3 } from "@babylonjs/core/Maths/math";
-import { Color4 } from "@babylonjs/core/Maths/math";
+import { Engine, EngineStore, BoundingBox } from "@babylonjs/core";
+import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math";
+
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
@@ -54,7 +52,7 @@ export default class TileSet {
     private rasterProvider: string;
     private accessToken: string;
 
-    private osmBuildings: OpenStreetMapBuildings;
+    public osmBuildings: OpenStreetMapBuildings; //should make this private again?
     private ourMB: MapBox;
     private totalWidthMeters: number;
     private ourAttribution: Attribution;
@@ -100,7 +98,7 @@ export default class TileSet {
     }
 
     public makeSingleTileMesh(x: number, y: number, precision: number): Mesh {
-        const ground = MeshBuilder.CreateGround("ground", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
+        const ground = MeshBuilder.CreateGround("tile", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
         ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
         ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
        
@@ -199,7 +197,7 @@ export default class TileSet {
     
     //see https://stackoverflow.com/questions/37523872/converting-coordinates-from-epsg-3857-to-4326
     public GetWorldPositionFrom3857(x: number, y: number): Vector2{
-        console.log("trying to compute world position for: " + x + " " + y);
+        //console.log("trying to compute world position for: " + x + " " + y);
         const max = 20037508.34;
         
         const xAdjusted=x/max;
@@ -211,7 +209,7 @@ export default class TileSet {
         const n=Math.pow(2,this.zoom);
 
         const worldPos=this.GetWorldPositionFromTile(n*xShifted,n*yShifted);
-        console.log("world pos is: " + worldPos);
+        //console.log("world pos is: " + worldPos);
         return worldPos;
     }
 
@@ -305,6 +303,8 @@ export default class TileSet {
 
         tile.mesh.material = material;
         tile.material = material;    
+
+        tile.mesh.name="Tile_"+tileX + "_"+tileY;
     }
 
     /**
@@ -409,10 +409,41 @@ export default class TileSet {
             this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
         }
     }
+
+    public findBestTile(position: Vector3): Tile{
+        const tileHalfWidth=this.tileWidth*0.500001; //make bounding box just a bit bigger, in the off chance something lands right on the line
+        const addMax=new Vector3(this.tileWidth*0.5,0,this.tileWidth*0.5);
+        const addMin=new Vector3(-this.tileWidth*0.5,0,-this.tileWidth*0.5);
+
+        let closestTileDistance=Number.POSITIVE_INFINITY;
+        let closestTile=this.ourTiles[0];
+
+        for (const t of this.ourTiles) {
+            const tp=t.mesh.position;
+            const tMax=tp.add(addMax);
+            const tMin=tp.add(addMin);
+            const tileBox: BoundingBox=new BoundingBox(tMin,tMax);   
+            //console.log("box: " + tileBox.center + " " + tileBox.centerWorld);   
+
+            if(tileBox.intersectsPoint(position)){
+                //console.log("found a tile that can contain this building!");
+                return t;
+            }
+
+            const dist=Vector3.Distance(tp,position);
+            if(dist<closestTileDistance){
+                closestTile=t;
+            }
+        }
+
+        console.log("couldn't find a tile for this building. choosing closest tile");
+        return closestTile; //position wasn't inside tile, so we will send back the closest tile
+    }
+
     public generateBuildingsCustom(url: string, projection: ProjectionType, exaggeration: number, doMerge=true) {
         this.osmBuildings.setExaggeration(this.computeTileScale(), exaggeration);
 
-        this.osmBuildings.populateFromCustomServer(url, projection, doMerge);   
+        this.osmBuildings.populateFromCustomServer(url, projection, doMerge); 
     }
 
     public async generateTerrain(exaggeration: number){

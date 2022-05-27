@@ -12,6 +12,7 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import * as GeoJSON from './GeoJSON';
 import Earcut from 'earcut';
 import { fetch } from 'cross-fetch'
+import { Observable } from "@babylonjs/core";
 
 import { ProjectionType } from "./TileSet";
 import Tile from "./Tile";
@@ -31,6 +32,8 @@ interface GenerateBuildingRequest {
 export default class OpenStreetMapBuildings {
     private buildingRequests: GenerateBuildingRequest[]=[];
     private previousRequestSize=0;
+
+    public onCustomLoaded: Observable<boolean> = new Observable();
 
     //https://osmbuildings.org/documentation/data/
     //GET http(s)://({abcd}.)data.osmbuildings.org/0.2/anonymous/tile/15/{x}/{y}.json
@@ -78,10 +81,21 @@ export default class OpenStreetMapBuildings {
                         }
                         const tileBuildings: GeoJSON.topLevel = JSON.parse(text);
                         //console.log("number of buildings in this tile: " + tileBuildings.features.length);
-
+                        const allBuildings: Mesh[]=[];
                         for (const f of tileBuildings.features) {
-                            const building = this.generateSingleBuilding(f, projection);
+                            const building = this.generateSingleBuilding(f, projection, null);
+                            allBuildings.push(building);                         
                         }
+                        if(doMerge){
+                            const merged = Mesh.MergeMeshes(allBuildings);
+                            if (merged) {
+                                merged.name = "merged_buildings";                               
+                            } else {
+                                console.error("unable to merge all building meshes!");
+                            }
+                        }
+
+                        this.onCustomLoaded.notifyObservers(true);  
                     });
             }
             else {
@@ -177,9 +191,7 @@ export default class OpenStreetMapBuildings {
             if (request.requestType == 0) { //generate single building
                 if (request.features !== undefined) {
                     //console.log("generating single building for tile: " + request.tileCoords);
-                    const building = this.generateSingleBuilding(request.features,ProjectionType.EPSG_4326);
-                    building.setParent(request.tile.mesh);
-                    request.tile.buildings.push(building);
+                    const building = this.generateSingleBuilding(request.features,ProjectionType.EPSG_4326,request.tile);
                 }
             }
 
@@ -210,26 +222,59 @@ export default class OpenStreetMapBuildings {
         this.previousRequestSize = this.buildingRequests.length;
     }
 
-    private generateSingleBuilding(f: GeoJSON.features, projection: ProjectionType): Mesh {
-        let name = "Building"; 
-        let finalMesh = new Mesh("empty mesh", this.scene); 
+    private getFirstCoordinate(f: GeoJSON.features, projection: ProjectionType): Vector3 {
+        if (f.geometry.type == "Polygon") {
+            const ps: GeoJSON.polygonSet = f.geometry.coordinates as GeoJSON.polygonSet;
+            return this.getFirstCoordinateFromPolygonSet(ps, projection);
+        }
+        else if (f.geometry.type == "MultiPolygon") {
+            const mp: GeoJSON.multiPolygonSet = f.geometry.coordinates as GeoJSON.multiPolygonSet;
+            return this.getFirstCoordinateFromPolygonSet(mp[0], projection);
+        }
+        else {
+            console.error("unknown geometry type: " + f.geometry.type);
+        }
 
-        if(f.id!== undefined){
-            name=f.id;
+        return new Vector3();
+    }
+
+    private getFirstCoordinateFromPolygonSet(ps: GeoJSON.polygonSet, projection: ProjectionType): Vector3 {
+
+        const v2 = new Vector2(ps[0][0][0], ps[0][0][1]);
+
+        let v2World: Vector2 = new Vector2();
+
+        if (projection == ProjectionType.EPSG_4326) {
+            v2World = this.tileSet.GetWorldPosition(v2.y, v2.x); //lat lon
+        }
+        if (projection == ProjectionType.EPSG_3857) {
+            v2World = this.tileSet.GetWorldPositionFrom3857(v2.x, v2.y);
+        }
+        const coord = new Vector3(v2World.x, 0.0, v2World.y);
+
+        return coord;
+    }
+
+    private generateSingleBuilding(f: GeoJSON.features, projection: ProjectionType, tile: Tile | null): Mesh {
+        let name = "Building";
+        let finalMesh = new Mesh("empty mesh", this.scene);
+
+        if (f.id !== undefined) {
+            name = f.id;
         }
         if (f.properties.name !== undefined) {
             name = f.properties.name;
         }
 
-        let height=this.defaultBuildingHeight;
-        if(f.properties.height !== undefined){
-            height=f.properties.height;
+        let height = this.defaultBuildingHeight;
+        if (f.properties.height !== undefined) {
+            height = f.properties.height;
         }
 
         if (f.geometry.type == "Polygon") {
             const ps: GeoJSON.polygonSet = f.geometry.coordinates as GeoJSON.polygonSet;
             finalMesh.dispose();
-            finalMesh=this.processSinglePolygon(ps, projection, name, height);
+            finalMesh = this.processSinglePolygon(ps, projection, name, height);
 
         }
         else if (f.geometry.type == "MultiPolygon") {
@@ -247,13 +292,13 @@ export default class OpenStreetMapBuildings {
             }
             else if (allMeshes.length == 1) {
                 finalMesh.dispose();
-                finalMesh=allMeshes[0];
+                finalMesh = allMeshes[0];
             } else {
                 const merged = Mesh.MergeMeshes(allMeshes);
                 if (merged) {
                     merged.name = name;
                     finalMesh.dispose();
-                    finalMesh=merged;
+                    finalMesh = merged;
                 } else {
                     console.error("unable to merge meshes!");
                 }
@@ -264,74 +309,87 @@ export default class OpenStreetMapBuildings {
             console.error("unknown building geometry type: " + f.geometry.type);
         }
 
-        if(f.properties!==undefined){
-            finalMesh.metadata=f.properties; //store for user to use later!
+        if (f.properties !== undefined) {
+            finalMesh.metadata = f.properties; //store for user to use later!
         }
+
+        if (tile !== null) {
+            tile.buildings.push(finalMesh);
+            finalMesh.setParent(tile.mesh);
+        } else {
+            const firstCoord = this.getFirstCoordinate(f, projection);
+            const tile = this.tileSet.findBestTile(firstCoord);
+
+            finalMesh.setParent(tile.mesh);
+            const result=tile.buildings.push(finalMesh);
+            //console.log("just added building to tile, building array now: " + result);
+        }
+
+        finalMesh.freezeWorldMatrix();
 
         return finalMesh;
     }
 
-    private processSinglePolygon(ps: GeoJSON.polygonSet, projection: ProjectionType, name: string, height: number ): Mesh{
+    private processSinglePolygon(ps: GeoJSON.polygonSet, projection: ProjectionType, name: string, height: number): Mesh {
         const holeArray: Vector3[][] = [];
-            const positions3D: Vector3[] = [];
+        const positions3D: Vector3[] = [];
 
-            for (let i = 0; i < ps.length; i++) {
-                const hole: Vector3[] = [];
+        for (let i = 0; i < ps.length; i++) {
+            const hole: Vector3[] = [];
 
-                //skip final coord (as it seems to duplicate the first)
-                //also need to do this backwards to get normals / winding correct
-                for (let e = ps[i].length - 2; e >= 0; e--) {
+            //skip final coord (as it seems to duplicate the first)
+            //also need to do this backwards to get normals / winding correct
+            for (let e = ps[i].length - 2; e >= 0; e--) {
 
-                    const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
+                const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
 
-                    let v2World: Vector2=new Vector2();
-                    
-                    if(projection==ProjectionType.EPSG_4326){
-                        v2World= this.tileSet.GetWorldPosition(v2.y, v2.x); //lat lon
-                    } 
-                    if(projection==ProjectionType.EPSG_3857){
-                        v2World=this.tileSet.GetWorldPositionFrom3857(v2.x,v2.y);
-                    }
-                    const coord = new Vector3(v2World.x, 0.0, v2World.y);
+                let v2World: Vector2 = new Vector2();
 
-                    if (i == 0) {
-                        positions3D.push(coord);
-                    } else {
-                        hole.push(coord);
-                    }
+                if (projection == ProjectionType.EPSG_4326) {
+                    v2World = this.tileSet.GetWorldPosition(v2.y, v2.x); //lat lon
                 }
+                if (projection == ProjectionType.EPSG_3857) {
+                    v2World = this.tileSet.GetWorldPositionFrom3857(v2.x, v2.y);
+                }
+                const coord = new Vector3(v2World.x, 0.0, v2World.y);
 
-                //we were previous doing this incorrectly,
-                //actully the second polygon is not to be "merged", 
-                //but actually specifies additional holes
-                //see: https://datatracker.ietf.org/doc/html/rfc7946#page-25
-                if (i > 0) {
-                    holeArray.push(hole);
+                if (i == 0) {
+                    positions3D.push(coord);
+                } else {
+                    hole.push(coord);
                 }
             }
 
-            (window as any).earcut = Earcut;
-            
-            var orientation=Mesh.DEFAULTSIDE;
-            if(holeArray.length>0){
-                orientation=Mesh.DOUBLESIDE; //otherwise we see inside the holes
+            //we were previous doing this incorrectly,
+            //actully the second polygon is not to be "merged", 
+            //but actually specifies additional holes
+            //see: https://datatracker.ietf.org/doc/html/rfc7946#page-25
+            if (i > 0) {
+                holeArray.push(hole);
             }
+        }
 
-            const ourMesh: Mesh = MeshBuilder.ExtrudePolygon(name,
-                {
-                    shape: positions3D,
-                    depth: height * this.heightScaleFixer,
-                    holes: holeArray,
-                    sideOrientation: orientation
-                },
-                this.scene);
+        (window as any).earcut = Earcut;
 
-            ourMesh.position.y = height * this.heightScaleFixer;
-            ourMesh.bakeCurrentTransformIntoVertices(); //optimizations
-            ourMesh.material = this.buildingMaterial; //all buildings will use same material
-            ourMesh.isPickable = false;
-           
-            return ourMesh;
+        var orientation = Mesh.DEFAULTSIDE;
+        if (holeArray.length > 0) {
+            orientation = Mesh.DOUBLESIDE; //otherwise we see inside the holes
+        }
+
+        const ourMesh: Mesh = MeshBuilder.ExtrudePolygon(name,
+            {
+                shape: positions3D,
+                depth: height * this.heightScaleFixer,
+                holes: holeArray,
+                sideOrientation: orientation
+            },
+            this.scene);
+
+        ourMesh.position.y = height * this.heightScaleFixer;
+        ourMesh.material = this.buildingMaterial; //all buildings will use same material
+        ourMesh.isPickable = false;
+        
+        return ourMesh;
     }
 }
 

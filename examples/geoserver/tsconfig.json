@@ -7,7 +7,7 @@
 		"noImplicitAny": true,
         "noImplicitReturns": true,
         "noImplicitThis": true,
-        "strictNullChecks": true,
+        "strictNullChecks": false,
         "strictFunctionTypes": true,
         "skipLibCheck": true,
 		"preserveConstEnums":true,
