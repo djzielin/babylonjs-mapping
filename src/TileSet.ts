@@ -41,7 +41,7 @@ export default class TileSet {
     public doTerrainResBoost=false;
 
     // Subdivisions - number of subdivisions (tiles) on the height and the width of the map.
-    private subdivisions: Vector2;
+    //private subdivisions: Vector2;
     
     private zoom = 0;
     private tileCorner: Vector2;
@@ -55,28 +55,33 @@ export default class TileSet {
     public osmBuildings: OpenStreetMapBuildings; //should make this private again?
     private ourMB: MapBox;
     private totalWidthMeters: number;
+    private totalHeightMeters: number;
     private ourAttribution: Attribution;
 
-
-    constructor(subdivisions: number, private tileWidth: number, public meshPrecision: number, private scene: Scene, private engine: Engine) {
-        /*if(subdivisions%2==1){
-            console.error("we don't yet support non-even number of tiles");
-            return;
-        }*/
+    /**
+    * setup a ground plane tile set. this sets up just the underlying meshes, but doesn't populate them with content yet
+    * @param subdivisions how many tiles in the x and y directions
+    * @param tileWidth width in meters of a single tile
+    * @param meshPrecision how many subdivisions in each tile's mesh. need more for terrain type meshes, less if no height change on mesh. 
+    * @param scene the babylonjs scene, helps us get around a bug, where the main app and the library are in 2 different contexts
+    * @param engine see above description for scene
+    */
+    constructor(public subdivisions: Vector2, public tileWidth: number, public meshPrecision: number, private scene: Scene, private engine: Engine) {
 
         EngineStore._LastCreatedScene=this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
         EngineStore.Instances.push(this.engine);
 
         
-        this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tile numbers in X and Y
-        this.totalWidthMeters=tileWidth*subdivisions;
+        //this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tile numbers in X and Y
+        this.totalWidthMeters=tileWidth*subdivisions.x;
+        this.totalHeightMeters=tileWidth*subdivisions.y;
 
         //this.tileWidth = this.totalWidthMeters / this.subdivisions.x;
 
         this.xmin = -this.totalWidthMeters / 2;
-        this.zmin = -this.totalWidthMeters / 2;
+        this.zmin = -this.totalHeightMeters / 2;
         this.xmax = this.totalWidthMeters / 2;
-        this.zmax = this.totalWidthMeters / 2;
+        this.zmax = this.totalHeightMeters / 2;
 
 
         for (let y = 0; y < this.subdivisions.y; y++) {
@@ -174,7 +179,9 @@ export default class TileSet {
         const tileMeters = this.computeTileRealWidthMeters(this.centerCoords.y, this.zoom);
         console.log("tile (real world) width in meters: " + tileMeters);
 
-        const tileWorldMeters = this.totalWidthMeters / this.subdivisions.x;
+        //const tileWorldMeters = this.totalWidthMeters / this.subdivisions.x;
+        const tileWorldMeters=this.tileWidth; //passed in a parameter in the constructor
+
         console.log("tile (in game) width in meteres: " + tileWorldMeters);
 
         const result = tileWorldMeters / tileMeters;
@@ -366,7 +373,7 @@ export default class TileSet {
                 if(doBuildings){
                     this.deleteBuildings(t);
                 }
-                t.mesh.position.z+=this.totalWidthMeters;
+                t.mesh.position.z+=this.totalHeightMeters;
                 this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y-this.subdivisions.y,t);   
 
                 if(doBuildings){
@@ -381,7 +388,7 @@ export default class TileSet {
                 if(doBuildings){
                     this.deleteBuildings(t);
                 }
-                t.mesh.position.z-=this.totalWidthMeters;
+                t.mesh.position.z-=this.totalHeightMeters;
                 this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y+this.subdivisions.y,t);   
 
                 if(doBuildings){

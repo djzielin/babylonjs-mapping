@@ -108,7 +108,7 @@ class Game {
         var light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         light2.intensity=0.5;        
 
-        this.ourTS = new TileSet(4,50,this.maxPrecision,this.scene, this.engine);
+        this.ourTS = new TileSet(new Vector2(4,4),50,this.maxPrecision,this.scene, this.engine);
         await this.getMapboxKey("mapbox-key.txt");
         this.ourTS.setRasterProvider("MB",this.mapboxKey);
        

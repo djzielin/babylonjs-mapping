@@ -116,7 +116,7 @@ export class Game {
         this.ourCSV = new CsvData();
         await this.ourCSV.processURL(window.location.href + "JCSU.csv");
 
-        this.ourTS = new TileSet(4, 25, 2, this.scene,this.engine);
+        this.ourTS = new TileSet(new Vector2(4,4), 25, 2, this.scene,this.engine);
         this.ourTS.setRasterProvider("OSM");
 
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //charlotte
