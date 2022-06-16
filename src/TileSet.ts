@@ -117,9 +117,7 @@ export default class TileSet {
     public setRasterProvider(providerName: string, accessToken?: string){
         this.rasterProvider=providerName;
         this.accessToken=accessToken ?? "";
-        this.ourMB.accessToken=this.accessToken;
-
-        this.ourAttribution.showAttribution(providerName);
+        this.ourMB.accessToken=this.accessToken;       
     }
 
     //https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
@@ -248,6 +246,8 @@ export default class TileSet {
         this.centerCoords = new Vector2(lon, lat); 
         this.tileCorner = this.computeCornerTile(lat,lon, zoom);
         this.zoom = zoom;
+
+        this.ourAttribution.addAttribution(this.rasterProvider);
 
         //console.log("Tile Base: " + this.tileCorner);
 
@@ -406,6 +406,8 @@ export default class TileSet {
     }
 
     public generateBuildings(exaggeration: number, doMerge=true) {
+        this.ourAttribution.addAttribution("OSMB");
+
         this.osmBuildings.setExaggeration(this.computeTileScale(), exaggeration);
 
         for (const t of this.ourTiles) {
