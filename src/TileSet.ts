@@ -185,15 +185,19 @@ export default class TileSet {
         return result;
     }
 
+    //TODO: depricate this?
     public GetWorldPosition(lat: number, lon: number): Vector2 {
-       
-        //console.log("computing world for lon: " + lon + " lat: " + lat + " zoom: " + this.zoom);
-
-        const x: number = this.lon2tileExact(lon, this.zoom); //this gets things in terms of tile coordinates
-        const y: number = this.lat2tileExact(lat, this.zoom);
-
-        return this.GetWorldPositionFromTile(x,y);
+        return this.GetWorldPositionFrom4326(lat,lon);
     } 
+
+    public GetWorldPositionFrom4326(lat: number, lon: number){
+         //console.log("computing world for lon: " + lon + " lat: " + lat + " zoom: " + this.zoom);
+
+         const x: number = this.lon2tileExact(lon, this.zoom); //this gets things in terms of tile coordinates
+         const y: number = this.lat2tileExact(lat, this.zoom);
+ 
+         return this.GetWorldPositionFromTile(x,y);
+    }
     
     //see https://stackoverflow.com/questions/37523872/converting-coordinates-from-epsg-3857-to-4326
     public GetWorldPositionFrom3857(x: number, y: number): Vector2{
