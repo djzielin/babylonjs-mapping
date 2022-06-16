@@ -24,5 +24,9 @@ module.exports = merge(common, {
 
         // if you aren’t using ngrok, and want to connect locally, webxr requires https
         // https: true,
+
+        headers:{
+            "Access-Control-Allow-Origin": "*"
+        }
     }    
 });
