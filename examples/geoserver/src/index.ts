@@ -17,13 +17,15 @@ import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { ActionManager } from "@babylonjs/core";
+import { ActionManager, InstancedMesh, Material } from "@babylonjs/core";
 import { ExecuteCodeAction } from "@babylonjs/core";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
 import { Button } from "@babylonjs/gui/2D/controls/button";
 import { Control, Checkbox } from "@babylonjs/gui/2D/controls"; 
 import { StackPanel, Rectangle, TextBlock, Image} from "@babylonjs/gui/2D/controls"; 
-
+import { SceneLoader } from "@babylonjs/core";
+import {ISceneLoaderAsyncResult} from "@babylonjs/core";
+import { BoundingInfo } from "@babylonjs/core";
 
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
@@ -35,6 +37,7 @@ import CsvData from "./CsvData";
 import TileSet from "babylonjs-mapping";
 import PropertyGUI from "./propertyGUI";
 import { ProjectionType } from "babylonjs-mapping";
+import { conflictingValuesPlaceholder } from "@babylonjs/inspector/lines/targetsProxy";
 
 export interface propertiesCharlotte {
     "Shape_Leng": number;
@@ -45,6 +48,15 @@ export interface propertiesCharlotte {
     "Land_type": string;
     "Housing_co": string;
     "Church": string;
+}
+
+export interface CustomBuildings {
+    "id": string;
+    "filename": string;
+}
+
+export interface AllCustomBuildings {
+    "buildings": CustomBuildings[];
 }
 
 export class Game {
@@ -64,6 +76,7 @@ export class Game {
     public advancedTexture: AdvancedDynamicTexture;
 
     public propertyGUIs: PropertyGUI[]=[];
+    public ourCustomBuildings: AllCustomBuildings;
 
     constructor() {
         // Get the canvas element 
@@ -93,7 +106,117 @@ export class Game {
        });
     }    
 
+    private loadCustomBuildingsJSON(){
+        const url=window.location.href + "custom_buildings.json";
+
+        fetch(url).then((res) => {
+            //console.log("  fetch returned: " + res.status);
+
+            if (res.status == 200) {
+                res.text().then(
+                    (text) => {
+                        //console.log("about to json parse for tile: " + tile.tileCoords);
+                        if (text.length == 0) {
+                            //console.log("no buildings in this tile!");
+                            return;
+                        }
+                        this.ourCustomBuildings = JSON.parse(text);
+                    }
+                )
+            }
+        });
+    }
+
+    private async replaceSimpleBuildingsWithCustom() {
+        const buildingMaterial = new StandardMaterial("merged buildingMaterial");
+        buildingMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
+        
+
+        for (let c of this.ourCustomBuildings.buildings) {
+            var loadResult: ISceneLoaderAsyncResult = await SceneLoader.ImportMeshAsync("", "./", c.filename, this.scene);
+            console.log("number of meshes loaded: " + loadResult.meshes.length);
+
+            const realMeshes: Mesh[] = [];
+
+            for (let m of loadResult.meshes) {
+                if (m.getClassName() == "Mesh") {
+                    const pureMesh = m as Mesh;
+
+                    if (pureMesh.getTotalVertices() > 0) {
+                        realMeshes.push(pureMesh);
+                    }
+                } else if (m.getClassName() == "InstancedMesh") {
+                    //per https://forum.babylonjs.com/t/how-to-replace-instancedmesh-with-a-mesh/6185
+                    const instanceMesh = m as InstancedMesh;
+                    const newMesh = instanceMesh.sourceMesh.clone(instanceMesh.name + "non_instance", instanceMesh.parent)
+                    newMesh.position = instanceMesh.position.clone();
+                    if (instanceMesh.rotationQuaternion)
+                        newMesh.rotationQuaternion = instanceMesh.rotationQuaternion.clone();
+                    newMesh.scaling = instanceMesh.scaling.clone();
+
+                    if (newMesh.getTotalVertices() > 0) {
+                        realMeshes.push(newMesh);
+                    }
+                }
+            }
+
+            console.log("trying to merge now");
+            const merged = Mesh.MergeMeshes(realMeshes);
+            if (merged) {
+                console.log("succesfully merged building pieces");
+                merged.name = "merged_building_pieces";
+            } else {
+                console.log("unable to merge all building meshes!");
+                continue;
+            }
+
+            for (let m of loadResult.meshes) {
+                m.dispose();
+            }
+            for (let t of loadResult.transformNodes) {
+                t.dispose();
+            }
+
+            for (let l of loadResult.lights) {
+                l.dispose();
+            }
+            for (let g of loadResult.geometries) {
+                g.dispose();
+            }
+
+            console.log("custom building loaded for: " + c.id);
+
+            for (let b of this.allBuildings) {
+              
+                if(b.name.includes(c.id)){ //DANGER: this is dangerous!, as 11 will be found in 1011
+                    console.log("found site for custom building!");
+                    
+                    b.showBoundingBox=true;
+                    merged.showBoundingBox=true;
+                    const bbounds: BoundingInfo=b.getBoundingInfo()
+                    const ibounds: BoundingInfo=merged.getBoundingInfo();
+
+                    const correctRadius=bbounds.boundingSphere.radius;
+                    const importRadius=ibounds.boundingSphere.radius;
+                    const scaleCorrection=correctRadius/importRadius;
+                    merged.scaling=merged.scaling.multiplyByFloats(scaleCorrection,scaleCorrection,scaleCorrection);
+
+                    /*const correctPosition=bbounds.boundingSphere.center;
+                    const importPosition=ibounds.boundingSphere.center;
+                    const positionCorrection=correctPosition.subtract(importPosition);
+                    merged.position=merged.position.add(positionCorrection);*/
+
+
+                }
+                
+            }
+        }
+        console.log("finished loading all custom buildings");
+    }
+
     private async createScene() {
+        this.loadCustomBuildingsJSON();
+
         this.scene.clearColor = new Color4(135/255,206/255,235/255, 1.0);
 
         var camera = new UniversalCamera("camera1", new Vector3(10, 10, -50), this.scene);
@@ -179,79 +302,83 @@ export class Game {
             pgui1.generateGUI(panel);
             this.propertyGUIs.push(pgui1);
 
-            const pgui2=new PropertyGUI("Church", this);
+            const pgui2 = new PropertyGUI("Church", this);
             pgui2.generateGUI(panel);
-            this.propertyGUIs.push(pgui2);            
+            this.propertyGUIs.push(pgui2);
 
-            for (let i = 0; i < this.allBuildings.length; i++) {
-                const b = this.allBuildings[i];
-                b.isPickable=true;
-                //console.log("setting up building: " + b.name);
-                b.actionManager = new ActionManager(this.scene);
-                b.actionManager.registerAction(
-                    new ExecuteCodeAction(
-                        {
-                            trigger: ActionManager.OnPickTrigger //OnPointerOverTrigger
-                        },
-                        () => {
-                            console.log("user clicked on building: " + b.name);
+            this.replaceSimpleBuildingsWithCustom().then(() => {
 
-                            const originalMaterial=b.material;
-                            b.material = myMaterialHighlight;
-    
-                            if(this.lastSelectedBuildingIndex==i){
-                                console.log("user clicked object that is already selected!");
-                                return;
+                console.log("setting up buildings to be clickable now");
+                for (let i = 0; i < this.allBuildings.length; i++) {
+                    const b = this.allBuildings[i];
+                    b.isPickable = true;
+                    //console.log("setting up building: " + b.name);
+                    b.actionManager = new ActionManager(this.scene);
+                    b.actionManager.registerAction(
+                        new ExecuteCodeAction(
+                            {
+                                trigger: ActionManager.OnPickTrigger //OnPointerOverTrigger
+                            },
+                            () => {
+                                console.log("user clicked on building: " + b.name);
+
+                                const originalMaterial = b.material;
+                                b.material = myMaterialHighlight;
+
+                                if (this.lastSelectedBuildingIndex == i) {
+                                    console.log("user clicked object that is already selected!");
+                                    return;
+                                }
+
+
+                                if (this.lastSelectedBuildingIndex >= 0) {
+                                    this.lastSelectedBuilding.material = originalMaterial;
+                                    this.advancedTexture.removeControl(this.previousButton);
+                                    this.previousButton.dispose();
+                                }
+
+                                const props = b.metadata as Map<string, string>;
+
+                                let popupText: string = "";
+                                popupText += "id: " + b.name + "\n";
+                                popupText += "Block_numb: " + props.get("Block_numb") + "\n";
+                                popupText += "Drawing_nu: " + props.get("Drawing_nu") + "\n";
+                                popupText += "Plot_numbe: " + props.get("Plot_numbe") + "\n";
+                                popupText += "Land_type: " + props.get("Land_type") + "\n";
+                                popupText += "Housing_co: " + props.get("Housing_co") + "\n";
+                                popupText += "Church: " + props.get("Church") + "\n";
+
+                                const button: Button = Button.CreateSimpleButton("but", popupText);
+                                button.width = "300px";
+                                button.height = "200px";
+                                button.color = "white";
+
+                                button.background = "black";
+                                button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+                                button.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+
+                                if (button.textBlock) {
+                                    button.textBlock.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                                }
+                                this.advancedTexture.addControl(button);
+
+                                button.onPointerClickObservable.add(() => {
+                                    console.log("user clicked on button");
+                                    b.material = originalMaterial;
+                                    this.lastSelectedBuildingIndex = -1;
+                                    this.advancedTexture.removeControl(button);
+                                    button.dispose();
+                                });
+
+                                this.lastSelectedBuildingIndex = i;
+                                this.lastSelectedBuilding = b;
+                                this.previousButton = button;
+
                             }
-
-
-                            if (this.lastSelectedBuildingIndex >= 0) {
-                                this.lastSelectedBuilding.material = originalMaterial;
-                                this.advancedTexture.removeControl(this.previousButton);
-                                this.previousButton.dispose();
-                            }
-
-                            const props = b.metadata as Map<string, string>;
-
-                            let popupText: string = "";
-                            popupText += "id: " + b.name + "\n";
-                            popupText += "Block_numb: " + props.get("Block_numb") + "\n";
-                            popupText += "Drawing_nu: " + props.get("Drawing_nu") + "\n";
-                            popupText += "Plot_numbe: " + props.get("Plot_numbe") + "\n";
-                            popupText += "Land_type: " + props.get("Land_type") + "\n";
-                            popupText += "Housing_co: " + props.get("Housing_co") + "\n";
-                            popupText += "Church: " + props.get("Church") + "\n";
-
-                            const button: Button = Button.CreateSimpleButton("but", popupText);
-                            button.width = "300px";
-                            button.height = "200px";
-                            button.color = "white";
-
-                            button.background = "black";
-                            button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-                            button.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-
-                            if (button.textBlock) {
-                                button.textBlock.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                            }
-                            this.advancedTexture.addControl(button);
-
-                            button.onPointerClickObservable.add(() => {
-                                console.log("user clicked on button");
-                                b.material = originalMaterial;
-                                this.lastSelectedBuildingIndex = -1;
-                                this.advancedTexture.removeControl(button);
-                                button.dispose();
-                            });
-
-                            this.lastSelectedBuildingIndex = i;
-                            this.lastSelectedBuilding = b;
-                            this.previousButton = button;
-
-                        }
-                    )
-                );
-            }
+                        )
+                    );
+                }
+            });
         });
 
         // Show the debug scene explorer and object inspector
