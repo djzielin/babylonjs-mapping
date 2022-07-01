@@ -45,7 +45,7 @@ export default class OpenStreetMapBuildings {
 
     private heightScaleFixer = 1.0;
     private buildingMaterial: StandardMaterial;
-    private defaultBuildingHeight=10.0;
+    private defaultBuildingHeight=4.0;
 
     constructor(private tileSet: TileSet, private scene: Scene) {
         this.buildingMaterial = new StandardMaterial("buildingMaterial", this.scene);

@@ -38,6 +38,8 @@ import TileSet from "babylonjs-mapping";
 import PropertyGUI from "./propertyGUI";
 import { ProjectionType } from "babylonjs-mapping";
 import { conflictingValuesPlaceholder } from "@babylonjs/inspector/lines/targetsProxy";
+import { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
+import { bumpFragmentMainFunctions } from "@babylonjs/core/Shaders/ShadersInclude/bumpFragmentMainFunctions";
 
 export interface propertiesCharlotte {
     "Shape_Leng": number;
@@ -47,7 +49,10 @@ export interface propertiesCharlotte {
     "Plot_numbe": string;
     "Land_type": string;
     "Housing_co": string;
-    "Church": string;
+    "Additional": string;
+    "Street": string;
+    "Address": string;
+    "Story": string;
 }
 
 export interface CustomBuildings {
@@ -127,18 +132,11 @@ export class Game {
         });
     }
 
-    private async replaceSimpleBuildingsWithCustom() {
-        const buildingMaterial = new StandardMaterial("merged buildingMaterial");
-        buildingMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
-        
+    private mergeBuildingMeshes(rawMeshes: AbstractMesh[]): Mesh
+    {
+        const realMeshes: Mesh[] = [];
 
-        for (let c of this.ourCustomBuildings.buildings) {
-            var loadResult: ISceneLoaderAsyncResult = await SceneLoader.ImportMeshAsync("", "./", c.filename, this.scene);
-            console.log("number of meshes loaded: " + loadResult.meshes.length);
-
-            const realMeshes: Mesh[] = [];
-
-            for (let m of loadResult.meshes) {
+            for (let m of rawMeshes) {
                 if (m.getClassName() == "Mesh") {
                     const pureMesh = m as Mesh;
 
@@ -166,38 +164,58 @@ export class Game {
                 console.log("succesfully merged building pieces");
                 merged.name = "merged_building_pieces";
             } else {
-                console.log("unable to merge all building meshes!");
-                continue;
-            }
+                console.error("unable to merge all building meshes!");
+                return new Mesh("failed merge");
+            }            
 
-            for (let m of loadResult.meshes) {
-                m.dispose();
-            }
-            for (let t of loadResult.transformNodes) {
-                t.dispose();
-            }
+            return merged;
+    }
 
-            for (let l of loadResult.lights) {
-                l.dispose();
-            }
-            for (let g of loadResult.geometries) {
-                g.dispose();
-            }
+    private async replaceSimpleBuildingsWithCustom() {
+        console.log("trying to replace SimpleBuildings with Custom Model");
+
+        const buildingMaterial = new StandardMaterial("merged buildingMaterial");
+        buildingMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
+
+        console.log("number of custom buildings found: " + this.ourCustomBuildings.buildings.length);
+        
+        for (let c of this.ourCustomBuildings.buildings) {
+            var loadResult: ISceneLoaderAsyncResult = await SceneLoader.ImportMeshAsync("", "./models/", c.filename, this.scene);
+            console.log("number of meshes loaded: " + loadResult.meshes.length);
+            const merged = this.mergeBuildingMeshes(loadResult.meshes);
+
+            for (let m of loadResult.meshes)            { m.dispose(); }
+            for (let t of loadResult.transformNodes)    { t.dispose(); }
+            for (let l of loadResult.lights)            { l.dispose(); }
+            for (let g of loadResult.geometries)        { g.dispose(); }
 
             console.log("custom building loaded for: " + c.id);
 
             for (let b of this.allBuildings) {
-              
-                if(b.name.includes(c.id)){ //DANGER: this is dangerous!, as 11 will be found in 1011
+
+                if (b.name.includes(c.id)) { //DANGER: this is dangerous!, as 11 will be found in 1011
                     console.log("found site for custom building!");
-                    
+
                     b.showBoundingBox=true;
                     merged.showBoundingBox=true;
-                    const bbounds: BoundingInfo=b.getBoundingInfo()
-                    const ibounds: BoundingInfo=merged.getBoundingInfo();
+                    const bbounds: BoundingInfo=b.getBoundingInfo();
+                    const bmax=bbounds.maximum.clone();
+                    const bmin=bbounds.minimum.clone();
+                    bmax.y=0;
+                    bmin.y=0;                    
+                    const bboundsNoY: BoundingInfo=new BoundingInfo(bmin,bmax);
+                    console.log("adjusted bbounds: " + bboundsNoY.maximum + " " + bboundsNoY.minimum);
 
-                    const correctRadius=bbounds.boundingSphere.radius;
-                    const importRadius=ibounds.boundingSphere.radius;
+                    const ibounds: BoundingInfo=merged.getBoundingInfo();
+                    const imax=ibounds.maximum.clone();
+                    const imin=ibounds.minimum.clone();
+                    imax.y=0;
+                    imin.y=0;
+                    const iboundsNoY: BoundingInfo=new BoundingInfo(imin,imax);
+                    console.log("adjusted ibounds: " + iboundsNoY.maximum + " " + iboundsNoY.minimum);
+
+                    const correctRadius=bboundsNoY.boundingSphere.radius;
+                    const importRadius=iboundsNoY.boundingSphere.radius;
                     const scaleCorrection=correctRadius/importRadius;
                     merged.scaling=merged.scaling.multiplyByFloats(scaleCorrection,scaleCorrection,scaleCorrection);
 
@@ -245,6 +263,7 @@ export class Game {
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //charlotte
         //this.ourTS.generateBuildings(3, true);
         this.ourTS.generateBuildingsCustom("https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3AFootprint_Test&outputFormat=application%2Fjson",ProjectionType.EPSG_3857,2,false);
+        //this.ourTS.generateBuildingsCustom("http://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABuildings&maxFeatures=50&outputFormat=application%2Fjson",ProjectionType.EPSG_3857,2,false);
 
 
         /*var myMaterial = new StandardMaterial("infoSpotMaterial", this.scene);
@@ -279,8 +298,10 @@ export class Game {
                 ourMap.set("Plot_numbe", props.Plot_numbe);
                 ourMap.set("Land_type", props.Land_type);
                 ourMap.set("Housing_co", props.Housing_co);
-                ourMap.set("Church", props.Church);
-
+                ourMap.set("Additional", props.Additional ? props.Additional: "none");
+                ourMap.set("Street", props.Street ? props.Street: "none");
+                ourMap.set("Address", props.Address ? props.Address: "none");
+                ourMap.set("Story", props.Story ? props.Story : "0");
                 b.metadata=ourMap; //replace interface data with our new map!
             }
 
@@ -302,13 +323,14 @@ export class Game {
             pgui1.generateGUI(panel);
             this.propertyGUIs.push(pgui1);
 
-            const pgui2 = new PropertyGUI("Church", this);
+            const pgui2 = new PropertyGUI("Additional", this);
             pgui2.generateGUI(panel);
             this.propertyGUIs.push(pgui2);
 
             this.replaceSimpleBuildingsWithCustom().then(() => {
 
                 console.log("setting up buildings to be clickable now");
+                console.log("number of buildings: " + this.allBuildings.length);
                 for (let i = 0; i < this.allBuildings.length; i++) {
                     const b = this.allBuildings[i];
                     b.isPickable = true;
@@ -330,7 +352,6 @@ export class Game {
                                     return;
                                 }
 
-
                                 if (this.lastSelectedBuildingIndex >= 0) {
                                     this.lastSelectedBuilding.material = originalMaterial;
                                     this.advancedTexture.removeControl(this.previousButton);
@@ -341,16 +362,13 @@ export class Game {
 
                                 let popupText: string = "";
                                 popupText += "id: " + b.name + "\n";
-                                popupText += "Block_numb: " + props.get("Block_numb") + "\n";
-                                popupText += "Drawing_nu: " + props.get("Drawing_nu") + "\n";
-                                popupText += "Plot_numbe: " + props.get("Plot_numbe") + "\n";
-                                popupText += "Land_type: " + props.get("Land_type") + "\n";
-                                popupText += "Housing_co: " + props.get("Housing_co") + "\n";
-                                popupText += "Church: " + props.get("Church") + "\n";
+                                props.forEach((value: string, key: string) => {
+                                    popupText += key + ": " + value + "\n";
+                                });                               
 
                                 const button: Button = Button.CreateSimpleButton("but", popupText);
                                 button.width = "300px";
-                                button.height = "200px";
+                                button.height = "300px";
                                 button.color = "white";
 
                                 button.background = "black";
