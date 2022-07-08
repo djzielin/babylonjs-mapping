@@ -7,7 +7,7 @@
 
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
-import { Vector2 } from "@babylonjs/core/Maths/math";
+import { Quaternion, Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Color3 } from "@babylonjs/core/Maths/math";
 import { Color4 } from "@babylonjs/core/Maths/math";
@@ -17,7 +17,7 @@ import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { ActionManager, InstancedMesh, Material } from "@babylonjs/core";
+import { ActionManager, EdgesRenderer, FloatArray, InstancedMesh, IShadowLight, Light, Material, RenderTargetTexture } from "@babylonjs/core";
 import { ExecuteCodeAction } from "@babylonjs/core";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
 import { Button } from "@babylonjs/gui/2D/controls/button";
@@ -26,7 +26,8 @@ import { StackPanel, Rectangle, TextBlock, Image} from "@babylonjs/gui/2D/contro
 import { SceneLoader } from "@babylonjs/core";
 import {ISceneLoaderAsyncResult} from "@babylonjs/core";
 import { BoundingInfo } from "@babylonjs/core";
-
+import { ShadowGenerator } from "@babylonjs/core";
+import { VertexBuffer } from "@babylonjs/core";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 
@@ -82,6 +83,8 @@ export class Game {
 
     public propertyGUIs: PropertyGUI[]=[];
     public ourCustomBuildings: AllCustomBuildings;
+
+    private dirLight: IShadowLight;
 
     constructor() {
         // Get the canvas element 
@@ -171,6 +174,106 @@ export class Game {
             return merged;
     }
 
+    private fixScale(originalMesh: Mesh, importedMesh: Mesh) {
+        const bbounds: BoundingInfo = originalMesh.getBoundingInfo();
+        const bmax = bbounds.boundingBox.maximumWorld.clone();
+        const bmin = bbounds.boundingBox.minimumWorld.clone();
+        bmax.y = 0;
+        bmin.y = 0;
+        const bboundsNoY: BoundingInfo = new BoundingInfo(bmin, bmax);
+        //console.log("adjusted bbounds: " + bboundsNoY.maximum + " " + bboundsNoY.minimum);
+
+        const ibounds: BoundingInfo = importedMesh.getBoundingInfo();
+        const imax = ibounds.boundingBox.maximumWorld.clone();
+        const imin = ibounds.boundingBox.minimumWorld.clone();
+        imax.y = 0;
+        imin.y = 0;
+        const iboundsNoY: BoundingInfo = new BoundingInfo(imin, imax);
+        //console.log("adjusted ibounds: " + iboundsNoY.maximum + " " + iboundsNoY.minimum);
+
+        const correctRadius = bboundsNoY.boundingSphere.radiusWorld;
+        const importRadius = iboundsNoY.boundingSphere.radiusWorld;
+        const scaleCorrection = correctRadius / importRadius;
+        
+        console.log("original radius: " + correctRadius);
+        console.log("import radius: " + importRadius);
+       
+        importedMesh.scaling = importedMesh.scaling.multiplyByFloats(scaleCorrection, scaleCorrection, scaleCorrection);
+
+        //let's check to see 
+        importedMesh.computeWorldMatrix(true);
+        const checkBounds: BoundingInfo = importedMesh.getBoundingInfo();  
+        const cmax = checkBounds.boundingBox.maximumWorld.clone();
+        const cmin = checkBounds.boundingBox.minimumWorld.clone();
+        cmax.y = 0;
+        cmin.y = 0;
+        
+        const checkBoundsNoY: BoundingInfo = new BoundingInfo(cmin, cmax);
+        //console.log("adjusted cbounds: " + checkBoundsNoY.maximum + " " + checkBoundsNoY.minimum);
+
+        console.log("post radius: " + checkBoundsNoY.boundingSphere.radiusWorld);
+    }
+
+    private fixPosition(originalMesh: Mesh, importedMesh: Mesh) {
+        const bbounds: BoundingInfo = originalMesh.getBoundingInfo();     
+        const ibounds: BoundingInfo = importedMesh.getBoundingInfo();
+     
+        const correctPosition = bbounds.boundingSphere.centerWorld;
+        const importPosition = ibounds.boundingSphere.centerWorld;       
+        const positionCorrection = correctPosition.subtract(importPosition);
+        positionCorrection.y=0; //don't adjust y
+
+        console.log("original position: " + correctPosition);
+        console.log("import position: " + importPosition);
+
+        importedMesh.position=importedMesh.position.add(positionCorrection);
+        importedMesh.computeWorldMatrix(true);
+
+        const cbounds: BoundingInfo = importedMesh.getBoundingInfo();
+        console.log("post position: " + cbounds.boundingSphere.centerWorld);
+    }
+
+    private computeDifferenceCost(originalMesh: Mesh, importedMesh: Mesh): number{
+        const originalPosRaw: FloatArray = originalMesh.getVerticesData(VertexBuffer.PositionKind);
+        const originalPosVec3: Vector3[]=[];
+
+        for(let i=0;i<originalPosRaw.length;i+=3){
+            const vec3=new Vector3(originalPosRaw[i],originalPosRaw[i+1],originalPosRaw[i+2]);
+            const worldVec3=Vector3.TransformCoordinates(vec3, originalMesh.getWorldMatrix());
+            originalPosVec3.push(worldVec3);
+        }
+
+        const importedPosRaw: FloatArray = importedMesh.getVerticesData(VertexBuffer.PositionKind);
+        const importedPosVec3: Vector3[]=[];
+
+        for(let i=0;i<importedPosRaw.length;i+=3){
+            const vec3=new Vector3(importedPosRaw[i],importedPosRaw[i+1],importedPosRaw[i+2]);
+            const worldVec3=Vector3.TransformCoordinates(vec3, importedMesh.getWorldMatrix());
+            importedPosVec3.push(worldVec3);
+        }
+
+        let totalCost=0;
+        for(let i=0;i<importedPosVec3.length;i++){
+            let lowestCost=Number.POSITIVE_INFINITY;
+            for(let e=0;e<originalPosVec3.length;e++){
+                const cost=Vector3.Distance(importedPosVec3[i],originalPosVec3[e]);
+                if(cost<lowestCost){
+                    lowestCost=cost;
+                }
+            }
+            totalCost+=lowestCost;
+        }
+        const costPerVertex=totalCost/importedPosVec3.length;
+        
+        return costPerVertex;
+    }
+
+    private applyYaw(importedMesh: Mesh, originalRot: Quaternion, yaw: number){
+        const rotAdjustment: Quaternion = Quaternion.FromEulerAngles(0, yaw, 0);
+        importedMesh.rotationQuaternion = originalRot.multiply(rotAdjustment);
+        importedMesh.computeWorldMatrix(true);
+    }
+
     private async replaceSimpleBuildingsWithCustom() {
         console.log("trying to replace SimpleBuildings with Custom Model");
 
@@ -190,41 +293,52 @@ export class Game {
             for (let g of loadResult.geometries)        { g.dispose(); }
 
             console.log("custom building loaded for: " + c.id);
-
+            
             for (let b of this.allBuildings) {
 
                 if (b.name.includes(c.id)) { //DANGER: this is dangerous!, as 11 will be found in 1011
                     console.log("found site for custom building!");
 
-                    b.showBoundingBox=true;
-                    merged.showBoundingBox=true;
-                    const bbounds: BoundingInfo=b.getBoundingInfo();
-                    const bmax=bbounds.maximum.clone();
-                    const bmin=bbounds.minimum.clone();
-                    bmax.y=0;
-                    bmin.y=0;                    
-                    const bboundsNoY: BoundingInfo=new BoundingInfo(bmin,bmax);
-                    console.log("adjusted bbounds: " + bboundsNoY.maximum + " " + bboundsNoY.minimum);
+                    // b.showBoundingBox = true;
+                    //merged.showBoundingBox = true;
+                    b.enableEdgesRendering();
+                    b.edgesColor=new Color4(1,0,0,1);
+                    b.edgesWidth=3.0;
 
-                    const ibounds: BoundingInfo=merged.getBoundingInfo();
-                    const imax=ibounds.maximum.clone();
-                    const imin=ibounds.minimum.clone();
-                    imax.y=0;
-                    imin.y=0;
-                    const iboundsNoY: BoundingInfo=new BoundingInfo(imin,imax);
-                    console.log("adjusted ibounds: " + iboundsNoY.maximum + " " + iboundsNoY.minimum);
+                    merged.enableEdgesRendering();
+                    merged.edgesColor=new Color4(0,0,1,1);
+                    merged.edgesWidth=3.0;
 
-                    const correctRadius=bboundsNoY.boundingSphere.radius;
-                    const importRadius=iboundsNoY.boundingSphere.radius;
-                    const scaleCorrection=correctRadius/importRadius;
-                    merged.scaling=merged.scaling.multiplyByFloats(scaleCorrection,scaleCorrection,scaleCorrection);
+                    let originalImportedRot: Quaternion = merged.rotationQuaternion;
+                    if (originalImportedRot == null) {
+                        console.log("quaternion not defined, will create from rotation euler angles");
+                        originalImportedRot = Quaternion.FromEulerVector(merged.rotation);
+                    }
 
-                    /*const correctPosition=bbounds.boundingSphere.center;
-                    const importPosition=ibounds.boundingSphere.center;
-                    const positionCorrection=correctPosition.subtract(importPosition);
-                    merged.position=merged.position.add(positionCorrection);*/
+                    let lowestCost: number = Number.POSITIVE_INFINITY;
+                    let lowestAngle: number = 0;
 
+                    for (let a = 0; a < 360; a++) {
+                        
+                        this.applyYaw(merged, originalImportedRot, a);
+                        this.fixScale(b, merged);
+                        this.fixPosition(b, merged);
 
+                        const cost = this.computeDifferenceCost(b, merged);
+                        console.log("computed cost per vertex: " + cost);
+
+                        if(cost<lowestCost){
+                            lowestCost=cost;
+                            lowestAngle=a;
+                        }
+                    }
+
+                    console.log("Lowest Cost: " + lowestCost);
+                    console.log("Lowest Cost Angle: " + lowestAngle);
+
+                    this.applyYaw(merged, originalImportedRot, lowestAngle);
+                    this.fixScale(b, merged);
+                    this.fixPosition(b, merged);
                 }
                 
             }
@@ -251,8 +365,8 @@ export class Game {
         var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.5;
 
-        var light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
-        light2.intensity=0.5;
+        this.dirLight = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
+        this.dirLight.intensity=0.5;
 
         this.ourCSV = new CsvData();
         await this.ourCSV.processURL(window.location.href + "JCSU.csv");
