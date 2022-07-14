@@ -41,5 +41,12 @@ export default class Tile {
 
     public eastSeamFixed=false;
     public northSeamFixed=false;
-    public northEastSeamFixed=false;    
+    public northEastSeamFixed=false;  
+    
+    public deleteBuildings(){
+        for(let m of this.buildings){
+            m.dispose();
+        }
+        this.buildings=[];
+    }
 }

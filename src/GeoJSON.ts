@@ -75,7 +75,7 @@ export default class GeoJSON {
         return coord;
     }
 
-    public generateSingleBuilding(f: features, projection: ProjectionType, tile: Tile | null, buildingMaterial: Material, exaggeration=1.0, defaultBuildingHeight=4.5): Mesh {
+    public generateSingleBuilding(f: features, projection: ProjectionType, tile: Tile | null, buildingMaterial: StandardMaterial, exaggeration=1.0, defaultBuildingHeight=4.5): Mesh {
         let name = "Building";
         let finalMesh = new Mesh("empty mesh", this.tileSet.scene);
 
@@ -94,7 +94,8 @@ export default class GeoJSON {
         if (f.geometry.type == "Polygon") {
             const ps: polygonSet = f.geometry.coordinates as polygonSet;
             finalMesh.dispose();
-            finalMesh = this.processSinglePolygon(ps, projection, name, exaggeration, height);
+            finalMesh = this.processSinglePolygon(ps, projection, buildingMaterial, exaggeration, height);
+            finalMesh.name=name;
 
         }
         else if (f.geometry.type == "MultiPolygon") {
@@ -103,7 +104,7 @@ export default class GeoJSON {
             const allMeshes: Mesh[] = [];
 
             for (let i = 0; i < mp.length; i++) {
-                const singleMesh = this.processSinglePolygon(mp[i], projection, name, exaggeration, height);
+                const singleMesh = this.processSinglePolygon(mp[i], projection, buildingMaterial, exaggeration, height);
                 allMeshes.push(singleMesh);
             }
 
@@ -113,6 +114,7 @@ export default class GeoJSON {
             else if (allMeshes.length == 1) {
                 finalMesh.dispose();
                 finalMesh = allMeshes[0];
+                finalMesh.name=name;
             } else {
                 const merged = Mesh.MergeMeshes(allMeshes);
                 if (merged) {
@@ -138,7 +140,7 @@ export default class GeoJSON {
             finalMesh.setParent(tile.mesh);
         } else {
             const firstCoord = this.getFirstCoordinate(f, projection);
-            const tile = this.tileSet.findBestTile(firstCoord);
+            const tile = this.tileSet.ourTileMath.findBestTile(firstCoord);
 
             finalMesh.setParent(tile.mesh);
             const result = tile.buildings.push(finalMesh);
@@ -150,7 +152,7 @@ export default class GeoJSON {
         return finalMesh;
     }
 
-    private processSinglePolygon(ps: polygonSet, projection: ProjectionType, name: string, buildingMaterial: Material, exaggeration: number, height: number): Mesh {
+    private processSinglePolygon(ps: polygonSet, projection: ProjectionType, buildingMaterial: StandardMaterial, exaggeration: number, height: number): Mesh {
         const holeArray: Vector3[][] = [];
         const positions3D: Vector3[] = [];
 
@@ -198,7 +200,7 @@ export default class GeoJSON {
 
         const heightScaleFixer=exaggeration * this.tileSet.tileScale;
 
-        const ourMesh: Mesh = MeshBuilder.ExtrudePolygon(name,
+        const ourMesh: Mesh = MeshBuilder.ExtrudePolygon("extruded polygon",
             {
                 shape: positions3D,
                 depth: height * heightScaleFixer,

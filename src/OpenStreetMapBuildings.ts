@@ -38,6 +38,29 @@ export default class OpenStreetMapBuildings {
     //https://osmbuildings.org/documentation/data/
     //GET http(s)://({abcd}.)data.osmbuildings.org/0.2/anonymous/tile/15/{x}/{y}.json
 
+    public processBuildingRequests(){
+        this.osmBuildings.processBuildingRequests();
+    }
+
+    public generateBuildings(exaggeration: number, doMerge=true) {
+        this.ourAttribution.addAttribution("OSMB");
+
+        this.osmBuildings.setExaggeration(exaggeration);
+
+        for (const t of this.ourTiles) {
+            //this.osmBuildings.generateBuildingsForTile(t,doMerge);
+            this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
+        }
+    }
+
+    
+
+    /*public generateBuildingsCustom(url: string, projection: ProjectionType, exaggeration: number, doMerge=true) {
+        this.osmBuildings.setExaggeration(this.ourTileMath.computeTileScale(), exaggeration);
+
+        this.osmBuildings.populateFromCustomServer(url, projection, doMerge); 
+    }*/
+
     private osmBuildingServers: string[] = ["https://a.data.osmbuildings.org/0.2/anonymous/tile/",
         "https://b.data.osmbuildings.org/0.2/anonymous/tile/",
         "https://c.data.osmbuildings.org/0.2/anonymous/tile/",
@@ -84,7 +107,7 @@ export default class OpenStreetMapBuildings {
                         //console.log("number of buildings in this tile: " + tileBuildings.features.length);
                         const allBuildings: Mesh[]=[];
                         for (const f of tileBuildings.features) {
-                            //const building = this.generateSingleBuilding(f, projection, null);
+                            //const building = generateSingleBuilding(f, projection, null);
                             //allBuildings.push(building);                         
                         }
                         if(doMerge){

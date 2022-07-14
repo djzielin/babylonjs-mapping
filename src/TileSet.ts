@@ -49,7 +49,7 @@ export default class TileSet {
     private rasterProvider: string;
     private accessToken: string;
 
-    public osmBuildings: OpenStreetMapBuildings; //should make this private again?
+    private osmBuildings: OpenStreetMapBuildings; //should make this private again?
     private ourMB: MapBox;
     private totalWidthMeters: number;
     private totalHeightMeters: number;
@@ -152,13 +152,13 @@ export default class TileSet {
                 const tileX = this.tileCorner.x + x;
                 const tileY = this.tileCorner.y - y;
                 const tile=this.ourTiles[tileIndex];
-                this.updateSingleRasterTile(tileX,tileY,tile);
+                this.updateSingleRasterTile(tile,tileX,tileY);
                 tileIndex++;
             }
         }
     }
 
-    private updateSingleRasterTile(tileX: number, tileY: number, tile: Tile) {
+    private updateSingleRasterTile( tile: Tile, tileX: number, tileY: number) {
         tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later     
         this.ourTilesMap.set(tile.tileCoords.toString(),tile);
 
@@ -214,138 +214,76 @@ export default class TileSet {
     * underneath does
     * @param movX x, ie left-right amount to move
     * @param movZ z, ie forward-back amount to move 
-    * @param oneReloadPerFrame should we only allow one tile wrap around and 
-    * reload? this is useful when trying to limit how much activity we are 
-    * doing per frame, assuming we are calling this function every frame
+    * @param reloadLimitPerFrame limit how many tiles we update per frame, to prevent stuttering
+    * @param doBuildingsOSM should we spawn OSM Buildings on the new tile?
+    * @param doMerge should we merge all those OSM Buildings into one mesh? as an optimization
     */
-    public moveAllTiles(movX: number, movZ: number, oneReloadPerFrame: boolean, doBuildings: boolean, doMerge: boolean) {
+    public moveAllTiles(movX: number, movZ: number, reloadLimitPerFrame: number, doBuildingsOSM: boolean, doMerge: boolean) {
         for (const t of this.ourTiles) {
             t.mesh.position.x += movX;
             t.mesh.position.z += movZ;
         }
 
+        let tilesReloaded=0;
+
         for (const t of this.ourTiles) {
             if (t.mesh.position.x<this.xmin){
                 console.log("Tile: " + t.tileCoords + " is below xMin");
-                if(doBuildings){
-                    this.deleteBuildings(t);
-                }
-                t.mesh.position.x+=this.totalWidthMeters;
-                this.ourTilesMap.delete(t.tileCoords.toString());
-                this.updateSingleRasterTile(t.tileCoords.x+this.subdivisions.x,t.tileCoords.y,t);  
+                this.moveHelper(t, new Vector3(this.totalWidthMeters,0,0), new Vector3(this.subdivisions.x,0,0), doBuildingsOSM, doMerge);
                 
-                if(doBuildings){
-                    this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
-                }
-                if(oneReloadPerFrame){ //limit how many reload we try to do in a single frame
-                    return;         
-                }    
+                tilesReloaded++;
+                if(tilesReloaded<reloadLimitPerFrame){
+                    return;
+                } 
             }
+
             if(t.mesh.position.x>this.xmax){
                 console.log("Tile: " + t.tileCoords + " is above xMax");
-                if(doBuildings){
-                    this.deleteBuildings(t);
-                }
-                t.mesh.position.x-=this.totalWidthMeters;
-                this.updateSingleRasterTile(t.tileCoords.x-this.subdivisions.x,t.tileCoords.y,t);   
-
-                if(doBuildings){
-                    this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
-                }
-                if(oneReloadPerFrame){
-                    return;         
+                
+                this.moveHelper(t, new Vector3(-this.totalWidthMeters,0,0), new Vector3(-this.subdivisions.x,0,0), doBuildingsOSM, doMerge);
+                
+                tilesReloaded++;
+                if(tilesReloaded<reloadLimitPerFrame){
+                    return;
                 }                
             }
             if(t.mesh.position.z<this.zmin){
                 console.log("Tile: " + t.tileCoords + " is below zmin");
-                if(doBuildings){
-                    this.deleteBuildings(t);
-                }
-                t.mesh.position.z+=this.totalHeightMeters;
-                this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y-this.subdivisions.y,t);   
 
-                if(doBuildings){
-                    this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
-                }
-                if(oneReloadPerFrame){
-                    return;         
-                }                
+                this.moveHelper(t, new Vector3(0,0,this.totalHeightMeters), new Vector3(0,-this.subdivisions.y,0), doBuildingsOSM, doMerge);
+                
+                tilesReloaded++;
+                if(tilesReloaded<reloadLimitPerFrame){
+                    return;
+                }            
             }
             if(t.mesh.position.z>this.zmax){
                 console.log("Tile: " + t.tileCoords + " is above zmax");
-                if(doBuildings){
-                    this.deleteBuildings(t);
-                }
-                t.mesh.position.z-=this.totalHeightMeters;
-                this.updateSingleRasterTile(t.tileCoords.x,t.tileCoords.y+this.subdivisions.y,t);   
 
-                if(doBuildings){
-                    this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
-                }
-                if(oneReloadPerFrame){
-                    return;         
-                }               
+                this.moveHelper(t, new Vector3(0,0,-this.totalHeightMeters), new Vector3(0,this.subdivisions.y,0), doBuildingsOSM, doMerge);
+                
+                tilesReloaded++;
+                if(tilesReloaded<reloadLimitPerFrame){
+                    return;
+                }      
             }           
         }        
     }
 
-    private deleteBuildings(t: Tile){
-        for(let m of t.buildings){
-            m.dispose();
-        }
-        t.buildings=[];
-    }
+    private moveHelper(t: Tile, meshMoveAmount: Vector3, tileCoordAdjustment: Vector3, doBuildingsOSM: boolean, doMerge: boolean){
+        
+        t.deleteBuildings();
+        
+        t.mesh.position=t.mesh.position.add(meshMoveAmount);
+        this.ourTilesMap.delete(t.tileCoords.toString());
 
-    public processBuildingRequests(){
-        this.osmBuildings.processBuildingRequests();
-    }
-
-    public generateBuildings(exaggeration: number, doMerge=true) {
-        this.ourAttribution.addAttribution("OSMB");
-
-        this.osmBuildings.setExaggeration(exaggeration);
-
-        for (const t of this.ourTiles) {
-            //this.osmBuildings.generateBuildingsForTile(t,doMerge);
+        let newTileCoords=t.tileCoords.add(tileCoordAdjustment);
+        this.updateSingleRasterTile(t, newTileCoords.x, newTileCoords.y);  
+        
+        if(doBuildingsOSM){ 
             this.osmBuildings.populateBuildingGenerationRequestsForTile(t,doMerge);
-        }
-    }
-
-    public findBestTile(position: Vector3): Tile{
-        const tileHalfWidth=this.tileWidth*0.500001; //make bounding box just a bit bigger, in the off chance something lands right on the line
-        const addMax=new Vector3(this.tileWidth*0.5,0,this.tileWidth*0.5);
-        const addMin=new Vector3(-this.tileWidth*0.5,0,-this.tileWidth*0.5);
-
-        let closestTileDistance=Number.POSITIVE_INFINITY;
-        let closestTile=this.ourTiles[0];
-
-        for (const t of this.ourTiles) {
-            const tp=t.mesh.position;
-            const tMax=tp.add(addMax);
-            const tMin=tp.add(addMin);
-            const tileBox: BoundingBox=new BoundingBox(tMin,tMax);   
-            //console.log("box: " + tileBox.center + " " + tileBox.centerWorld);   
-
-            if(tileBox.intersectsPoint(position)){
-                //console.log("found a tile that can contain this building!");
-                return t;
-            }
-
-            const dist=Vector3.Distance(tp,position);
-            if(dist<closestTileDistance){
-                closestTile=t;
-            }
-        }
-
-        console.log("couldn't find a tile for this building. choosing closest tile");
-        return closestTile; //position wasn't inside tile, so we will send back the closest tile
-    }
-
-    public generateBuildingsCustom(url: string, projection: ProjectionType, exaggeration: number, doMerge=true) {
-        this.osmBuildings.setExaggeration(this.ourTileMath.computeTileScale(), exaggeration);
-
-        this.osmBuildings.populateFromCustomServer(url, projection, doMerge); 
-    }
+        }       
+    }   
 
     public async generateTerrain(exaggeration: number){
         await this.ourMB.updateAllTerrainTiles(exaggeration);

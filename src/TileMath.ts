@@ -1,4 +1,6 @@
 import { Vector2 } from "@babylonjs/core/Maths/math";
+import { Vector3 } from "@babylonjs/core/Maths/math";
+import { BoundingBox } from "@babylonjs/core";
 
 import Tile from './Tile';
 import TileSet from "./TileSet";
@@ -51,7 +53,7 @@ export default class TileMath {
         if(zoom===undefined){
             zoom = this.tileSet.zoom;
         }
-        
+
         console.log("computing corner tile for lat: " + lat + " lon: " + lon);
 
         const cornerTile = this.getTileFromLatLon(lat, lon, zoom);
@@ -132,5 +134,35 @@ export default class TileMath {
         console.log("scale of tile (in game) (1.0 would be true size): " + result);
 
         return result;
+    }
+
+    public findBestTile(position: Vector3): Tile{
+        const tileHalfWidth=this.tileSet.tileWidth*0.500001; //make bounding box just a bit bigger, in the off chance something lands right on the line
+        const addMax=new Vector3(this.tileSet.tileWidth*0.5,0,this.tileSet.tileWidth*0.5);
+        const addMin=new Vector3(-this.tileSet.tileWidth*0.5,0,-this.tileSet.tileWidth*0.5);
+
+        let closestTileDistance=Number.POSITIVE_INFINITY;
+        let closestTile=this.tileSet.ourTiles[0];
+
+        for (const t of this.tileSet.ourTiles) {
+            const tp=t.mesh.position;
+            const tMax=tp.add(addMax);
+            const tMin=tp.add(addMin);
+            const tileBox: BoundingBox=new BoundingBox(tMin,tMax);   
+            //console.log("box: " + tileBox.center + " " + tileBox.centerWorld);   
+
+            if(tileBox.intersectsPoint(position)){
+                //console.log("found a tile that can contain this building!");
+                return t;
+            }
+
+            const dist=Vector3.Distance(tp,position);
+            if(dist<closestTileDistance){
+                closestTile=t;
+            }
+        }
+
+        console.log("couldn't find a tile for this building. choosing closest tile");
+        return closestTile; //position wasn't inside tile, so we will send back the closest tile
     }
 }
