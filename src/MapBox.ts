@@ -72,7 +72,7 @@ export default class MapBox {
     }
 
     public updateAllTerrainTiles(exaggeration: number) {
-        this.setExaggeration(this.tileSet.computeTileScale(), exaggeration);
+        this.setExaggeration(this.tileSet.ourTileMath.computeTileScale(), exaggeration);
 
         for (let t of this.tileSet.ourTiles) {
             this.updateSingleTerrainTile(t);         
