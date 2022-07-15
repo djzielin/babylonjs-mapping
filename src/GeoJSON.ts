@@ -77,7 +77,7 @@ export default class GeoJSON {
 
     public generateSingleBuilding(f: features, projection: ProjectionType, tile: Tile | null, buildingMaterial: StandardMaterial, exaggeration=1.0, defaultBuildingHeight=4.5): Mesh {
         let name = "Building";
-        let finalMesh = new Mesh("empty mesh", this.tileSet.scene);
+        let finalMesh: Mesh | null = null;
 
         if (f.id !== undefined) {
             name = f.id;
@@ -93,7 +93,6 @@ export default class GeoJSON {
 
         if (f.geometry.type == "Polygon") {
             const ps: polygonSet = f.geometry.coordinates as polygonSet;
-            finalMesh.dispose();
             finalMesh = this.processSinglePolygon(ps, projection, buildingMaterial, exaggeration, height);
             finalMesh.name=name;
 
@@ -112,14 +111,12 @@ export default class GeoJSON {
                 console.error("found 0 meshes for MultiPolygon, something went wrong in JSON parsing!");
             }
             else if (allMeshes.length == 1) {
-                finalMesh.dispose();
                 finalMesh = allMeshes[0];
                 finalMesh.name=name;
             } else {
                 const merged = Mesh.MergeMeshes(allMeshes);
                 if (merged) {
                     merged.name = name;
-                    finalMesh.dispose();
                     finalMesh = merged;
                 } else {
                     console.error("unable to merge meshes!");
@@ -129,6 +126,10 @@ export default class GeoJSON {
         else {
             //TODO: support other geometry types? 
             console.error("unknown building geometry type: " + f.geometry.type);
+        }
+        
+        if(finalMesh==null){
+            finalMesh = new Mesh("empty mesh", this.tileSet.scene);
         }
 
         if (f.properties !== undefined) {
