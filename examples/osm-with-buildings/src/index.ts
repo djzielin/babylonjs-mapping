@@ -30,6 +30,8 @@ import CsvData from "./CsvData";
 //import MapBox from "./babylonjs-mapping/MapBox";
 
 import TileSet from "babylonjs-mapping";
+import BuildingsOSM from "babylonjs-mapping/lib/BuildingsOSM";
+import { ProjectionType } from "../../../lib/TileMath";
 
 class Game {
     private canvas: HTMLCanvasElement;
@@ -38,6 +40,7 @@ class Game {
 
     private ourCSV: CsvData;
     private ourTS: TileSet;
+    private ourOSM: BuildingsOSM;
 
     private lastSelectedSphereIndex: number=-1;
     private lastSelectedSphere: Mesh;
@@ -95,11 +98,15 @@ class Game {
         this.ourCSV = new CsvData();
         await this.ourCSV.processURL(window.location.href + "JCSU.csv");
 
-        this.ourTS = new TileSet(new Vector2(4,4), 25, 2, this.scene,this.engine);
+        this.ourTS = new TileSet(new Vector2(4,4), 20, 2, this.scene,this.engine);
         this.ourTS.setRasterProvider("OSM");
 
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //charlotte
-        this.ourTS.generateBuildings(3, true);
+
+        this.ourOSM=new BuildingsOSM(this.ourTS,this.scene);
+        this.ourOSM.doMerge=true;
+        this.ourOSM.exaggeration=3;
+        this.ourOSM.generateBuildings();
 
         var myMaterial = new StandardMaterial("infoSpotMaterial", this.scene);
         myMaterial.diffuseColor = new Color3(0, 1, 0.25);
@@ -114,12 +121,12 @@ class Game {
         for (let i = 0; i < this.ourCSV.numRows(); i++) {
 
             const ourPos = this.ourCSV.getCoordinates(i);
-            const convertedPos = this.ourTS.GetWorldPosition(ourPos.y, ourPos.x);
+            console.log("trying to place: " + ourPos);
+            const convertedPos = this.ourTS.ourTileMath.GetWorldPosition(ourPos, ProjectionType.EPSG_4326);
+
             const sphere = MeshBuilder.CreateSphere(this.ourCSV.getRow(i)[2], { diameter: 1.0, segments: 4 }, this.scene);
 
-            sphere.position.y = 0;
-            sphere.position.x = convertedPos.x;
-            sphere.position.z = convertedPos.y;
+            sphere.position=convertedPos;
             sphere.isVisible = true;
             sphere.material = myMaterial;
 
@@ -192,11 +199,8 @@ class Game {
         this.scene.debugLayer.show();
     }
 
-    // The main update loop will be executed once per frame before the scene is rendered
-    // modify camera flythrough?
     private update(): void {
-        this.ourTS.processBuildingRequests();
-
+       
     }
 
 }
