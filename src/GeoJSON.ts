@@ -2,19 +2,21 @@ import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
+import { Scene } from "@babylonjs/core";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import Earcut from 'earcut';
 
 import Tile from './Tile';
 import TileSet from "./TileSet";
-import { ProjectionType } from "./TileSet";
+import { ProjectionType } from "./TileMath";
+import TileMath from "./TileMath";
 
 export interface topLevel {
     "type": string;
-    "features": features[];
+    "features": feature[];
 }
 
-export interface features {
+export interface feature {
     "id": string;
     "type": string;
     "properties": any;
@@ -38,44 +40,60 @@ export interface polygonSet extends Array<coordinateSet> { }
 export interface coordinateSet extends Array<coordinatePair> { }
 export interface coordinatePair extends Array<number> { }
 
-export default class GeoJSON {
-    constructor(private tileSet: TileSet) {
+export class GeoJSON {
+    constructor(private tileSet: TileSet, private scene: Scene) {
     }
+    
+    private getFirstCoordinateWorld(f: feature, projection: ProjectionType, zoom?: number): Vector3 {
+        if (zoom === undefined) {
+            zoom = this.tileSet.zoom;
+        }
 
-    private getFirstCoordinate(f: features, projection: ProjectionType): Vector3 {
         if (f.geometry.type == "Polygon") {
             const ps: polygonSet = f.geometry.coordinates as polygonSet;
-            return this.getFirstCoordinateFromPolygonSet(ps, projection);
+            return this.getFirstCoordinateWorldFromPolygonSet(ps, projection);
         }
         else if (f.geometry.type == "MultiPolygon") {
             const mp: multiPolygonSet = f.geometry.coordinates as multiPolygonSet;
-            return this.getFirstCoordinateFromPolygonSet(mp[0], projection);
+            return this.getFirstCoordinateWorldFromPolygonSet(mp[0], projection);
         }
         else {
             console.error("unknown geometry type: " + f.geometry.type);
         }
 
-        return new Vector3();
+        return new Vector3(0,0,0);
     }
-
-    private getFirstCoordinateFromPolygonSet(ps: polygonSet, projection: ProjectionType): Vector3 {
-
+    private getFirstCoordinateWorldFromPolygonSet(ps: polygonSet, projection: ProjectionType, zoom?: number): Vector3 {
         const v2 = new Vector2(ps[0][0][0], ps[0][0][1]);
-
-        let v2World: Vector2 = new Vector2();
-
-        if (projection == ProjectionType.EPSG_4326) {
-            v2World = this.tileSet.GetWorldPosition(v2.y, v2.x); //lat lon
-        }
-        if (projection == ProjectionType.EPSG_3857) {
-            v2World = this.tileSet.ourTileMath.GetWorldPositionFrom3857(v2.x, v2.y);
-        }
-        const coord = new Vector3(v2World.x, 0.0, v2World.y);
-
-        return coord;
+        return this.tileSet.ourTileMath.GetWorldPosition(v2, projection, zoom)
     }
 
-    public generateSingleBuilding(f: features, projection: ProjectionType, tile: Tile | null, buildingMaterial: StandardMaterial, exaggeration=1.0, defaultBuildingHeight=4.5): Mesh {
+    public getFirstCoordinateTile(f: feature, projection: ProjectionType, zoom: number): Vector2 {
+        if (zoom === undefined) {
+            zoom = this.tileSet.zoom;
+        }
+
+        if (f.geometry.type == "Polygon") {
+            const ps: polygonSet = f.geometry.coordinates as polygonSet;
+            return this.getFirstCoordinateTileFromPolygonSet(ps, projection, zoom);
+        }
+        else if (f.geometry.type == "MultiPolygon") {
+            const mp: multiPolygonSet = f.geometry.coordinates as multiPolygonSet;
+            return this.getFirstCoordinateTileFromPolygonSet(mp[0], projection, zoom);
+        }
+        else {
+            console.error("unknown geometry type: " + f.geometry.type);
+        }
+
+        return new Vector2(0,0);
+    }
+
+    private getFirstCoordinateTileFromPolygonSet(ps: polygonSet, projection: ProjectionType, zoom: number): Vector2 {
+        const v2 = new Vector2(ps[0][0][0], ps[0][0][1]);
+        return this.tileSet.ourTileMath.GetTilePosition(v2, projection, zoom); //lat lon
+    }
+
+    public generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number): Mesh {
         let name = "Building";
         let finalMesh: Mesh | null = null;
 
@@ -127,26 +145,17 @@ export default class GeoJSON {
             //TODO: support other geometry types? 
             console.error("unknown building geometry type: " + f.geometry.type);
         }
-        
+
         if(finalMesh==null){
-            finalMesh = new Mesh("empty mesh", this.tileSet.scene);
+            finalMesh = new Mesh("empty mesh", this.scene);
         }
 
         if (f.properties !== undefined) {
             finalMesh.metadata = f.properties; //store for user to use later!
         }
 
-        if (tile !== null) {
-            tile.buildings.push(finalMesh);
-            finalMesh.setParent(tile.mesh);
-        } else {
-            const firstCoord = this.getFirstCoordinate(f, projection);
-            const tile = this.tileSet.ourTileMath.findBestTile(firstCoord);
-
-            finalMesh.setParent(tile.mesh);
-            const result = tile.buildings.push(finalMesh);
-            //console.log("just added building to tile, building array now: " + result);
-        }
+        tile.buildings.push(finalMesh);
+        finalMesh.setParent(tile.mesh);
 
         finalMesh.freezeWorldMatrix(); //optimization? might want to skip here? hmmm...
 
@@ -165,17 +174,8 @@ export default class GeoJSON {
             for (let e = ps[i].length - 2; e >= 0; e--) {
 
                 const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
-
-                let v2World: Vector2 = new Vector2();
-
-                if (projection == ProjectionType.EPSG_4326) {
-                    v2World = this.tileSet.GetWorldPosition(v2.y, v2.x); //lat lon
-                }
-                if (projection == ProjectionType.EPSG_3857) {
-                    v2World = this.tileSet.ourTileMath.GetWorldPositionFrom3857(v2.x, v2.y);
-                }
-                const coord = new Vector3(v2World.x, 0.0, v2World.y);
-
+                const coord=this.tileSet.ourTileMath.GetWorldPosition(v2,projection);
+                
                 if (i == 0) {
                     positions3D.push(coord);
                 } else {
@@ -208,13 +208,13 @@ export default class GeoJSON {
                 holes: holeArray,
                 sideOrientation: orientation
             },
-            this.tileSet.scene);
+            this.scene);
 
         ourMesh.position.y = height * heightScaleFixer;
         ourMesh.material = buildingMaterial; //all buildings will use same material
         ourMesh.isPickable = false;
 
         return ourMesh;
-    }
+    }    
 }
 

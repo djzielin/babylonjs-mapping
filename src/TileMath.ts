@@ -5,6 +5,11 @@ import { BoundingBox } from "@babylonjs/core";
 import Tile from './Tile';
 import TileSet from "./TileSet";
 
+export enum ProjectionType{
+    EPSG_3857,
+    EPSG_4326
+}
+
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
 
@@ -21,22 +26,8 @@ export default class TileMath {
     public lon2tileExact(lon: number, zoom: number): number { return (((lon + 180) / 360 * Math.pow(2, zoom))); }
     public lat2tileExact(lat: number, zoom: number): number { return (((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom))); }
 
-    public getTileFromLatLon(lat: number, lon: number, zoom: number) {
-
-        console.log("computing for lon: " + lon + " lat: " + lat + " zoom: " + zoom);
-
-        const x = this.lon2tile(lon, zoom);
-        console.log("tile x: " + x);
-
-        const y = this.lat2tile(lat, zoom);
-        console.log("tile y: " + y);
-
-        return new Vector2(x, y);
-    }
-
     //https://wiki.openstreetmap.org/wiki/Zoom_levels
     //Stile = C ∙ cos(latitude) / 2^zoomlevel
-
     public computeTileRealWidthMeters(lat: number, zoom: number): number {
         if (zoom == 0) {
             console.log("ERROR: zoom not setup yet!");
@@ -49,14 +40,15 @@ export default class TileMath {
         return C * Math.cos(latRadians) / Math.pow(2, zoom); //seems to need abs?
     }
 
-    public computeCornerTile(lat: number, lon: number, zoom?: number): Vector2 {
+    public computeCornerTile(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
         if(zoom===undefined){
             zoom = this.tileSet.zoom;
         }
 
-        console.log("computing corner tile for lat: " + lat + " lon: " + lon);
+        console.log("computing corner tile for: " + pos);
 
-        const cornerTile = this.getTileFromLatLon(lat, lon, zoom);
+        let cornerTile = this.GetTilePosition(pos, projection, zoom);
+        cornerTile = new Vector2(Math.floor(cornerTile.x), Math.floor(cornerTile.y));
         console.log("center tile: " + cornerTile);
 
         cornerTile.x -= Math.floor(this.tileSet.subdivisions.x / 2); //use floor to handle odd tileset sizes
@@ -65,47 +57,53 @@ export default class TileMath {
         console.log("corner tile: " + cornerTile);
 
         return cornerTile;
-    }
- 
-    public GetWorldPositionFrom4326(lat: number, lon: number, zoom?: number) {
-        if(zoom===undefined){
-            zoom = this.tileSet.zoom;
-        }
-        //console.log("computing world for lon: " + lon + " lat: " + lat + " zoom: " + this.zoom);
+    }  
 
-        const x: number = this.lon2tileExact(lon, zoom); //this gets things in terms of tile coordinates
-        const y: number = this.lat2tileExact(lat, zoom);
-
-        return this.GetWorldPositionFromTile(x, y);
-    }
-
-    //see https://stackoverflow.com/questions/37523872/converting-coordinates-from-epsg-3857-to-4326
-    public GetWorldPositionFrom3857(x: number, y: number, zoom?: number): Vector2 {
-        if(zoom===undefined){
+    public GetWorldPosition(pos: Vector2, projection: ProjectionType, zoom?: number): Vector3 {
+        if (zoom === undefined) {
             zoom = this.tileSet.zoom;
         }
 
-        //console.log("trying to compute world position for: " + x + " " + y);
-        const max = 20037508.34;
+        const tilePos = this.GetTilePosition(pos, projection, zoom);    
+        return this.GetWorldPositionFromTile(tilePos);
+    }    
 
-        const xAdjusted = x / max;
-        const yAdjusted = y / max;
+    public GetTilePosition(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
+        if (zoom === undefined) {
+            zoom = this.tileSet.zoom;
+        }
 
-        const xShifted = 0.5 * xAdjusted + 0.5;
-        const yShifted = 0.5 - 0.5 * yAdjusted;
+        if (projection == ProjectionType.EPSG_4326) {
+            const x = this.lon2tileExact(pos.x, zoom);
+            const y = this.lat2tileExact(pos.y, zoom);
+            return new Vector2(x, y);
+        }
+        else if (projection == ProjectionType.EPSG_3857) {
+            //see https://stackoverflow.com/questions/37523872/converting-coordinates-from-epsg-3857-to-4326
 
-        const n = Math.pow(2, zoom);
+            const max = 20037508.34;
 
-        const worldPos = this.GetWorldPositionFromTile(n * xShifted, n * yShifted);
-        //console.log("world pos is: " + worldPos);
-        return worldPos;
-    }
+            const xAdjusted = pos.x / max;
+            const yAdjusted = pos.y / max;
 
-    public GetWorldPositionFromTile(x: number, y: number): Vector2 {
+            const xShifted = 0.5 * xAdjusted + 0.5;
+            const yShifted = 0.5 - 0.5 * yAdjusted;
+
+            const n = Math.pow(2, zoom);
+            return new Vector2(n * xShifted, n * yShifted);
+        } else {
+            console.error("unknown projection type");
+            return new Vector2(0, 0);
+        }
+    }    
+
+    public GetWorldPositionFromTile(pos: Vector2): Vector3 {
         const t = this.tileSet.ourTiles[0]; //just grab the first tile
 
-        const tileDiffX = x - t.tileCoords.x;
-        const tileDiffY = y - t.tileCoords.y;
+        //console.log("corner tile coords: " + t.tileCoords);
+
+        const tileDiffX = pos.x - t.tileCoords.x;
+        const tileDiffY = pos.y - t.tileCoords.y;
 
         //console.log("tile diff: " + tileDiffX + " " + tileDiffY);
 
@@ -117,9 +115,9 @@ export default class TileMath {
         const xFixed = upperLeftCornerX + tileDiffX * this.tileSet.tileWidth;
         const yFixed = upperLeftCornerY - tileDiffY * this.tileSet.tileWidth;
 
-        //console.log("world position: " + xFixed +" " + yFixed);       
+       // console.log("world position: " + xFixed +" " + yFixed);       
 
-        return new Vector2(xFixed, yFixed);
+        return new Vector3(xFixed, 0, yFixed);
     }
 
     public computeTileScale(): number {
