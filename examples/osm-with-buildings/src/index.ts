@@ -31,7 +31,7 @@ import CsvData from "./CsvData";
 
 import TileSet from "babylonjs-mapping";
 import BuildingsOSM from "babylonjs-mapping/lib/BuildingsOSM";
-import { ProjectionType } from "../../../lib/TileMath";
+import { ProjectionType } from "babylonjs-mapping/lib/TileMath";
 
 class Game {
     private canvas: HTMLCanvasElement;
