@@ -64,7 +64,7 @@ export default abstract class Buildings {
             return;
         }
 
-        for (let i = 0; i < this.buildingsCreatedPerFrame; i++) { //process 10 requests per frame?
+        for (let i = 0; i < this.buildingsCreatedPerFrame; i++) { //process certain number of requests per frame?
             const request = this.buildingRequests.shift();
             if (request === undefined) return;
 
@@ -75,11 +75,14 @@ export default abstract class Buildings {
 
             if (request.requestType == BuildingRequestType.CreateBuilding) {
                 if (request.feature !== undefined) {
-                    //console.log("generating single building for tile: " + request.tileCoords);
-
-                    if (request.projectionType){ //create building request must have a projectionType
+                    if (request.projectionType!==undefined){ //create building request must have a projectionType
+                        console.log("generating single building for tile: " + request.tileCoords);
                         const building = this.ourGeoJSON.generateSingleBuilding(request.feature, request.projectionType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight);
+                    } else{
+                        console.error("can't create a building with no projection specified!");
                     }
+                } else{
+                    console.error("can't create a building with no feature data!");
                 }
             }
 

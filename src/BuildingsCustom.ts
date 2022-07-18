@@ -12,7 +12,7 @@ import Buildings from "./Buildings";
 import * as GeoJSON from './GeoJSON';
 
 export default class BuildingsCustom extends Buildings {
-    private BuildingsPerTile: Map<string, GeoJSON.feature[]>;
+    private BuildingsPerTile: Map<string, GeoJSON.feature[]> = new Map();
     private projection: ProjectionType;
 
     constructor(tileSet: TileSet, scene: Scene) {
@@ -39,19 +39,24 @@ export default class BuildingsCustom extends Buildings {
             //console.log("no buildings in this tile!");
             return;
         }
-        const tileBuildings: GeoJSON.topLevel = JSON.parse(text);
+        const allBuildings: GeoJSON.topLevel = JSON.parse(text);
 
-        const allBuildings: Mesh[] = [];
-        for (const f of tileBuildings.features) {
+        console.log("buildings found: " + allBuildings.features.length);
+
+        for (const f of allBuildings.features) {
             const tileCoord = this.ourGeoJSON.getFirstCoordinateTile(f, projection, this.tileSet.zoom);
             const tileCoordString = tileCoord.toString();
+            //console.log("this building is for tile: " + tileCoordString);
 
             let fArray = this.BuildingsPerTile.get(tileCoordString);
             if (fArray === undefined) { //first time seeing this tile, need to initialize the array
                 fArray = [];
             }
             fArray.push(f);
+            this.BuildingsPerTile.set(tileCoordString,fArray);
         }
+        
+        console.log("map size: " + this.BuildingsPerTile.size);
     }
 
     public generateBuildings() {            
@@ -85,7 +90,9 @@ export default class BuildingsCustom extends Buildings {
                 }
                 this.buildingRequests.push(request)
             }
-            console.log("all building generation requests queued for tile: " + tile.tileCoords);
+            console.log("building generation requests queued for tile: " + tile.tileCoords);
+            console.log("total creation requests are now: " + this.buildingRequests.length);
+
         }
     }
 }

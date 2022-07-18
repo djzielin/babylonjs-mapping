@@ -48,7 +48,6 @@ export default class TileMath {
         console.log("computing corner tile for: " + pos);
 
         let cornerTile = this.GetTilePosition(pos, projection, zoom);
-        cornerTile = new Vector2(Math.floor(cornerTile.x), Math.floor(cornerTile.y));
         console.log("center tile: " + cornerTile);
 
         cornerTile.x -= Math.floor(this.tileSet.subdivisions.x / 2); //use floor to handle odd tileset sizes
@@ -64,11 +63,21 @@ export default class TileMath {
             zoom = this.tileSet.zoom;
         }
 
-        const tilePos = this.GetTilePosition(pos, projection, zoom);    
+        const tilePos = this.GetTilePositionExact(pos, projection, zoom);    
         return this.GetWorldPositionFromTile(tilePos);
     }    
 
     public GetTilePosition(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
+        if (zoom === undefined) {
+            zoom = this.tileSet.zoom;
+        }
+
+        const exact=this.GetTilePositionExact(pos,projection,zoom);
+
+        return new Vector2(Math.floor(exact.x), Math.floor(exact.y));
+    }
+
+    public GetTilePositionExact(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
         if (zoom === undefined) {
             zoom = this.tileSet.zoom;
         }

@@ -158,8 +158,10 @@ export class GeoJSON {
 
         tile.buildings.push(finalMesh);
         finalMesh.setParent(tile.mesh);
-
         finalMesh.freezeWorldMatrix(); //optimization? might want to skip here? hmmm...
+
+        console.log("created " + finalMesh.name);
+
 
         return finalMesh;
     }

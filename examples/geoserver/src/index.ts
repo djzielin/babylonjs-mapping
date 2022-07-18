@@ -347,30 +347,25 @@ export class Game {
 
         this.scene.clearColor = new Color4(135/255,206/255,235/255, 1.0);
 
-        var camera = new UniversalCamera("camera1", new Vector3(10, 10, -50), this.scene);
-    
-        //var camera = new UniversalCamera("camera1", new Vector3(90, 45, 0), this.scene); //grand canyon
-        
+        var camera = new UniversalCamera("camera1", new Vector3(10, 10, -50), this.scene);    
         camera.setTarget(new Vector3(15,-15,30));
         camera.attachControl(this.canvas, true);
-
         camera.speed=0.5;
         camera.angularSensibility=8000;
         
-
         var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.5;
-
         this.dirLight = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         this.dirLight.intensity=0.5;
 
-      
+        var myMaterialHighlight = new StandardMaterial("infoSpotMaterialHighlight", this.scene);
+        myMaterialHighlight.diffuseColor = new Color3(1, 1, 1);
+        myMaterialHighlight.freeze();
 
         this.ourTS = new TileSet(new Vector2(4,4), 25, 2, this.scene,this.engine);
         this.ourTS.setRasterProvider("OSM");
-
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //charlotte
-        //this.ourTS.generateBuildings(3, true);
+        this.advancedTexture = this.ourTS.getAdvancedDynamicTexture();      
 
         const url="https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3AFootprint_Test&outputFormat=application%2Fjson";
         //const url="http://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABuildings&maxFeatures=50&outputFormat=application%2Fjson";
@@ -379,14 +374,8 @@ export class Game {
         this.customBuildingGenerator.doMerge=false;
         await this.customBuildingGenerator.loadGeoJSON(url, ProjectionType.EPSG_3857);
         this.customBuildingGenerator.generateBuildings();
-       
-        var myMaterialHighlight = new StandardMaterial("infoSpotMaterialHighlight", this.scene);
-        myMaterialHighlight.diffuseColor = new Color3(1, 1, 1);
-        myMaterialHighlight.freeze();
 
-        this.advancedTexture = this.ourTS.getAdvancedDynamicTexture();
-
-        this.ourTS.osmBuildings.onCustomLoaded.add(() => {
+        this.customBuildingGenerator.onCaughtUpObservable.addOnce(() => {
            
             for (let t of this.ourTS.ourTiles) {
                 //console.log("tile: " + t.mesh.name + " contains buildings: " + t.buildings.length);
@@ -517,7 +506,6 @@ export class Game {
     // The main update loop will be executed once per frame before the scene is rendered
     // modify camera flythrough?
     private update(): void {
-        this.ourTS.processBuildingRequests();
     }
 
 }
