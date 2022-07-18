@@ -393,7 +393,9 @@ export class Game {
             for (let t of this.ourTS.ourTiles) {
                 //console.log("tile: " + t.mesh.name + " contains buildings: " + t.buildings.length);
                 for (let b of t.buildings) {
-                    this.allBuildings.push(b);
+                    if(b.name.includes("Building")){
+                        this.allBuildings.push(b);
+                    }
                 }
             }
             console.log("buildings found: " + this.allBuildings.length);
