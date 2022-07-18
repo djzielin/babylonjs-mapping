@@ -36,7 +36,7 @@ export default abstract class Buildings {
 
     protected buildingRequests: BuildingRequest[]=[];
     private previousRequestSize=0;   
-    private ourGeoJSON: GeoJSON.GeoJSON;
+    protected ourGeoJSON: GeoJSON.GeoJSON;
 
     constructor(protected tileSet: TileSet, protected scene: Scene) {
         this.buildingMaterial = new StandardMaterial("buildingMaterial", this.scene);

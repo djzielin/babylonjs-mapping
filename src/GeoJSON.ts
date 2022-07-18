@@ -63,12 +63,13 @@ export class GeoJSON {
 
         return new Vector3(0,0,0);
     }
+
     private getFirstCoordinateWorldFromPolygonSet(ps: polygonSet, projection: ProjectionType, zoom?: number): Vector3 {
         const v2 = new Vector2(ps[0][0][0], ps[0][0][1]);
         return this.tileSet.ourTileMath.GetWorldPosition(v2, projection, zoom)
     }
 
-    public getFirstCoordinateTile(f: feature, projection: ProjectionType, zoom: number): Vector2 {
+    public getFirstCoordinateTile(f: feature, projection: ProjectionType, zoom: number): Vector3 {
         if (zoom === undefined) {
             zoom = this.tileSet.zoom;
         }
@@ -85,12 +86,13 @@ export class GeoJSON {
             console.error("unknown geometry type: " + f.geometry.type);
         }
 
-        return new Vector2(0,0);
+        return new Vector3(0,0,0);
     }
 
-    private getFirstCoordinateTileFromPolygonSet(ps: polygonSet, projection: ProjectionType, zoom: number): Vector2 {
+    private getFirstCoordinateTileFromPolygonSet(ps: polygonSet, projection: ProjectionType, zoom: number): Vector3 {
         const v2 = new Vector2(ps[0][0][0], ps[0][0][1]);
-        return this.tileSet.ourTileMath.GetTilePosition(v2, projection, zoom); //lat lon
+        const tileXY= this.tileSet.ourTileMath.GetTilePosition(v2, projection, zoom); //lat lon
+        return new Vector3(tileXY.x, tileXY.y, zoom);
     }
 
     public generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number): Mesh {
