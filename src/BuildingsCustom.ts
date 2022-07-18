@@ -91,7 +91,7 @@ export default class BuildingsCustom extends Buildings {
                 this.buildingRequests.push(request)
             }
             console.log("building generation requests queued for tile: " + tile.tileCoords);
-            console.log("total creation requests are now: " + this.buildingRequests.length);
+            //console.log("total creation requests are now: " + this.buildingRequests.length);
 
         }
     }

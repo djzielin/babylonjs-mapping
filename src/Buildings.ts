@@ -76,7 +76,7 @@ export default abstract class Buildings {
             if (request.requestType == BuildingRequestType.CreateBuilding) {
                 if (request.feature !== undefined) {
                     if (request.projectionType!==undefined){ //create building request must have a projectionType
-                        console.log("generating single building for tile: " + request.tileCoords);
+                        //console.log("generating single building for tile: " + request.tileCoords);
                         const building = this.ourGeoJSON.generateSingleBuilding(request.feature, request.projectionType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight);
                     } else{
                         console.error("can't create a building with no projection specified!");

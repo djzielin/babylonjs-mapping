@@ -381,7 +381,6 @@ export class Game {
 
 
         //const url = "https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3AFootprint_Test&outputFormat=application%2Fjson";
-        //const url="http://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABuildings&maxFeatures=50&outputFormat=application%2Fjson";
         const url="https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABuildings&outputFormat=application%2Fjson";
 
         this.customBuildingGenerator=new BuildingsCustom(this.ourTS,this.scene);
