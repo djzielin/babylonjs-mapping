@@ -8,6 +8,7 @@ import * as GeoJSON from './GeoJSON';
 import Tile from "./Tile";
 import TileSet from "./TileSet";
 import { ProjectionType } from "./TileMath";
+import { Observable } from "@babylonjs/core";
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
@@ -38,6 +39,8 @@ export default abstract class Buildings {
     private previousRequestSize=0;   
     protected ourGeoJSON: GeoJSON.GeoJSON;
 
+    public onCaughtUpObservable: Observable<boolean>=new Observable;
+
     constructor(protected tileSet: TileSet, protected scene: Scene) {
         this.buildingMaterial = new StandardMaterial("buildingMaterial", this.scene);
         this.buildingMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
@@ -56,6 +59,7 @@ export default abstract class Buildings {
             if (this.previousRequestSize > 0) {
                 console.log("caught up on all building generation requests!");
                 this.previousRequestSize = 0;
+                this.onCaughtUpObservable.notifyObservers(true);  
             }
             return;
         }

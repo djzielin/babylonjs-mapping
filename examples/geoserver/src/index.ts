@@ -14,33 +14,28 @@ import { Color4 } from "@babylonjs/core/Maths/math";
 import { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
-import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { ActionManager, EdgesRenderer, FloatArray, InstancedMesh, IShadowLight, Light, Material, RenderTargetTexture } from "@babylonjs/core";
 import { ExecuteCodeAction } from "@babylonjs/core";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
 import { Button } from "@babylonjs/gui/2D/controls/button";
-import { Control, Checkbox } from "@babylonjs/gui/2D/controls"; 
-import { StackPanel, Rectangle, TextBlock, Image} from "@babylonjs/gui/2D/controls"; 
+import { Control, Checkbox } from "@babylonjs/gui/2D/controls";
+import { StackPanel, Rectangle, TextBlock, Image } from "@babylonjs/gui/2D/controls";
 import { SceneLoader } from "@babylonjs/core";
-import {ISceneLoaderAsyncResult} from "@babylonjs/core";
+import { ISceneLoaderAsyncResult } from "@babylonjs/core";
 import { BoundingInfo } from "@babylonjs/core";
-import { ShadowGenerator } from "@babylonjs/core";
 import { VertexBuffer } from "@babylonjs/core";
+import { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 
-import CsvData from "./CsvData";
 //import OpenStreetMap from "./babylonjs-mapping/OpenStreetMap";
-//import MapBox from "./babylonjs-mapping/MapBox";
 
 import TileSet from "babylonjs-mapping";
 import PropertyGUI from "./propertyGUI";
-import { ProjectionType } from "babylonjs-mapping";
-import { conflictingValuesPlaceholder } from "@babylonjs/inspector/lines/targetsProxy";
-import { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
-import { bumpFragmentMainFunctions } from "@babylonjs/core/Shaders/ShadersInclude/bumpFragmentMainFunctions";
+import { ProjectionType } from "babylonjs-mapping/lib/TileMath";
+import BuildingsCustom from "babylonjs-mapping/lib/BuildingsCustom";
 
 export interface propertiesCharlotte {
     "Shape_Leng": number;
@@ -70,10 +65,9 @@ export class Game {
     private engine: Engine;
     public scene: Scene;
 
-    private ourCSV: CsvData;
     private ourTS: TileSet;
 
-    private lastSelectedBuildingIndex: number=-1;
+    private lastSelectedBuildingIndex: number = -1;
     private lastSelectedBuilding: Mesh;
     private previousButton: Button;
 
@@ -81,8 +75,10 @@ export class Game {
 
     public advancedTexture: AdvancedDynamicTexture;
 
-    public propertyGUIs: PropertyGUI[]=[];
+    public propertyGUIs: PropertyGUI[] = [];
     public ourCustomBuildings: AllCustomBuildings;
+
+    public customBuildingGenerator: BuildingsCustom;
 
     private dirLight: IShadowLight;
 
@@ -98,8 +94,8 @@ export class Game {
     }
 
     start(): void {
-       // Create the scene and then execute this function afterwards
-       this.createScene().then(() => {
+        // Create the scene and then execute this function afterwards
+        this.createScene().then(() => {
 
            // Register a render loop to repeatedly render the scene
            this.engine.runRenderLoop(() => { 
@@ -368,22 +364,22 @@ export class Game {
         this.dirLight = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         this.dirLight.intensity=0.5;
 
-        this.ourCSV = new CsvData();
-        await this.ourCSV.processURL(window.location.href + "JCSU.csv");
+      
 
         this.ourTS = new TileSet(new Vector2(4,4), 25, 2, this.scene,this.engine);
         this.ourTS.setRasterProvider("OSM");
 
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //charlotte
         //this.ourTS.generateBuildings(3, true);
-        this.ourTS.generateBuildingsCustom("https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3AFootprint_Test&outputFormat=application%2Fjson",ProjectionType.EPSG_3857,2,false);
-        //this.ourTS.generateBuildingsCustom("http://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABuildings&maxFeatures=50&outputFormat=application%2Fjson",ProjectionType.EPSG_3857,2,false);
 
+        const url="https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3AFootprint_Test&outputFormat=application%2Fjson";
+        //const url="http://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABuildings&maxFeatures=50&outputFormat=application%2Fjson";
 
-        /*var myMaterial = new StandardMaterial("infoSpotMaterial", this.scene);
-        myMaterial.diffuseColor = new Color3(0, 1, 0.25);
-        myMaterial.freeze();*/
-
+        this.customBuildingGenerator=new BuildingsCustom(this.ourTS,this.scene);
+        this.customBuildingGenerator.doMerge=false;
+        await this.customBuildingGenerator.loadGeoJSON(url, ProjectionType.EPSG_3857);
+        this.customBuildingGenerator.generateBuildings();
+       
         var myMaterialHighlight = new StandardMaterial("infoSpotMaterialHighlight", this.scene);
         myMaterialHighlight.diffuseColor = new Color3(1, 1, 1);
         myMaterialHighlight.freeze();
