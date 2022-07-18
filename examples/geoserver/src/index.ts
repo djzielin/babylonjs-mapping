@@ -365,10 +365,24 @@ export class Game {
         this.ourTS = new TileSet(new Vector2(4,4), 25, 2, this.scene,this.engine);
         this.ourTS.setRasterProvider("OSM");
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //charlotte
-        this.advancedTexture = this.ourTS.getAdvancedDynamicTexture();      
+        this.advancedTexture = this.ourTS.getAdvancedDynamicTexture();
 
-        const url="https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3AFootprint_Test&outputFormat=application%2Fjson";
+        const blockMaterial = new StandardMaterial("blockMaterial", this.scene);
+        blockMaterial.diffuseColor = new Color3(0.4, 0.4, 0.4);
+        blockMaterial.freeze();
+
+        const blockUrl = "http://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABlocks&maxFeatures=50&outputFormat=application%2Fjson";
+        const customBlockGenerator = new BuildingsCustom(this.ourTS, this.scene);
+        customBlockGenerator.doMerge = false;
+        customBlockGenerator.defaultBuildingHeight = 1.0;
+        customBlockGenerator.buildingMaterial = blockMaterial;
+        await customBlockGenerator.loadGeoJSON(blockUrl, ProjectionType.EPSG_3857);
+        customBlockGenerator.generateBuildings();
+
+
+        //const url = "https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3AFootprint_Test&outputFormat=application%2Fjson";
         //const url="http://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABuildings&maxFeatures=50&outputFormat=application%2Fjson";
+        const url="https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABuildings&outputFormat=application%2Fjson";
 
         this.customBuildingGenerator=new BuildingsCustom(this.ourTS,this.scene);
         this.customBuildingGenerator.doMerge=false;
@@ -426,7 +440,7 @@ export class Game {
             pgui2.generateGUI(panel);
             this.propertyGUIs.push(pgui2);
 
-            this.replaceSimpleBuildingsWithCustom().then(() => {
+            //this.replaceSimpleBuildingsWithCustom().then(() => {
 
                 console.log("setting up buildings to be clickable now");
                 console.log("number of buildings: " + this.allBuildings.length);
@@ -495,7 +509,7 @@ export class Game {
                         )
                     );
                 }
-            });
+            //});
         });
 
         // Show the debug scene explorer and object inspector
