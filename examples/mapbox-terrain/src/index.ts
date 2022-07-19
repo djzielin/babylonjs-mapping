@@ -128,7 +128,7 @@ class Game {
     // The main update loop will be executed once per frame before the scene is rendered
     // modify camera flythrough?
     private update(): void {
-        this.ourTS.processBuildingRequests();
+        //this.ourTS.processBuildingRequests();
 
     }
 }
