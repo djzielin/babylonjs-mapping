@@ -1,5 +1,4 @@
 import { Scene } from "@babylonjs/core/scene";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { fetch } from 'cross-fetch'
 
 import { ProjectionType } from "./TileMath";
@@ -56,7 +55,7 @@ export default class BuildingsCustom extends Buildings {
             this.BuildingsPerTile.set(tileCoordString,fArray);
         }
         
-        console.log("map size: " + this.BuildingsPerTile.size);
+        //console.log("map size: " + this.BuildingsPerTile.size);
     }
 
     public generateBuildings() {            

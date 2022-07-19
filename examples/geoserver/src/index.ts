@@ -9,14 +9,14 @@ import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
 import { Quaternion, Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Color3 } from "@babylonjs/core/Maths/math";
 import { Color4 } from "@babylonjs/core/Maths/math";
 import { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { ActionManager, EdgesRenderer, FloatArray, InstancedMesh, IShadowLight, Light, Material, RenderTargetTexture } from "@babylonjs/core";
+import { ActionManager, EdgesRenderer, FloatArray, IShadowLight, Light, Material, MeshBuilder, RenderTargetTexture, TransformNode } from "@babylonjs/core";
 import { ExecuteCodeAction } from "@babylonjs/core";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
 import { Button } from "@babylonjs/gui/2D/controls/button";
@@ -27,6 +27,8 @@ import { ISceneLoaderAsyncResult } from "@babylonjs/core";
 import { BoundingInfo } from "@babylonjs/core";
 import { VertexBuffer } from "@babylonjs/core";
 import { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
+import { InstancedMesh } from "@babylonjs/core";
+
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 
@@ -80,6 +82,10 @@ export class Game {
 
     public customBuildingGenerator: BuildingsCustom;
 
+    private ourMaterialHighlight: StandardMaterial;
+    private ourBlackMaterial: StandardMaterial;
+
+
     private dirLight: IShadowLight;
 
     constructor() {
@@ -131,7 +137,8 @@ export class Game {
         });
     }
 
-    private mergeBuildingMeshes(rawMeshes: AbstractMesh[]): Mesh
+    //bringing models from sketchup to blender to GLB, seems to have a bunch of instanced parts, which if we want a single mesh, we need to collapse;
+    public mergeBuildingMeshes(rawMeshes: AbstractMesh[]): Mesh
     {
         const realMeshes: Mesh[] = [];
 
@@ -168,7 +175,7 @@ export class Game {
             }            
 
             return merged;
-    }
+    }    
 
     private fixScale(originalMesh: Mesh, importedMesh: Mesh) {
         const bbounds: BoundingInfo = originalMesh.getBoundingInfo();
@@ -342,6 +349,91 @@ export class Game {
         console.log("finished loading all custom buildings");
     }
 
+    private setupClickableBuilding(b: Mesh, index: number) {
+        b.isPickable = true;
+        //console.log("setting up building: " + b.name);
+        b.actionManager = new ActionManager(this.scene);
+        b.actionManager.registerAction(
+            new ExecuteCodeAction(
+                {
+                    trigger: ActionManager.OnPickTrigger //OnPointerOverTrigger
+                },
+                () => {
+                    console.log("user clicked on building: " + b.name);
+
+                    for(const n of b.getChildren()){
+                        if(n.name.includes("gui")){
+                            console.log("object is already selected!");
+                            return; 
+                        }
+                    }                  
+
+                    const originalMaterial = b.material;
+                    b.material = this.ourMaterialHighlight;
+
+                    
+                    const props = b.metadata as Map<string, string>;
+
+                    let popupText: string = "";
+                    popupText += "id: " + b.name + "\n";
+                    props.forEach((value: string, key: string) => {
+                        popupText += key + ": " + value + "\n";
+                    });
+
+                    const bbounds: BoundingInfo = b.getBoundingInfo();             
+                    const bpos = bbounds.boundingSphere.centerWorld;                  
+
+                    var stick = MeshBuilder.CreatePlane("gui_stick", {height: 0.5, width: 0.1});
+                    stick.position=bpos.add(new Vector3(0,0.25,0));   
+                    stick.setParent(b);
+                    stick.billboardMode=TransformNode.BILLBOARDMODE_Y;
+                    stick.material=this.ourBlackMaterial;
+
+                    var plane = MeshBuilder.CreatePlane("gui_plane", {height: 1, width: 1});                
+                    plane.position=bpos.add(new Vector3(0,1.0,0));   
+                    plane.setParent(b);
+                    plane.billboardMode=TransformNode.BILLBOARDMODE_Y;
+
+                    const floatingAdvancedTexture = AdvancedDynamicTexture.CreateForMesh(plane);
+
+                    const button: Button = Button.CreateSimpleButton("but", popupText);
+                    button.width = "100%";
+                    button.height = "100%";
+                    button.color = "white";
+                    button.textBlock.fontSize="60px";
+                    button.textBlock.paddingLeft="10px";
+                    button.textBlock.paddingTop="10px";
+                    button.textBlock.textVerticalAlignment=Control.VERTICAL_ALIGNMENT_TOP;
+
+                    button.background = "black";
+                    button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+                    button.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+
+                    if (button.textBlock) {
+                        button.textBlock.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                    }
+                    floatingAdvancedTexture.addControl(button);
+
+                    button.onPointerClickObservable.add(() => {
+                        console.log("user clicked on button");
+                        b.material = originalMaterial;
+                        this.lastSelectedBuildingIndex = -1;
+                        floatingAdvancedTexture.removeControl(button);
+                        button.dispose();
+                        floatingAdvancedTexture.dispose();
+                        plane.dispose();           
+                        stick.dispose();             
+                    });
+
+                    this.lastSelectedBuildingIndex = index;
+                    this.lastSelectedBuilding = b;
+                    this.previousButton = button;
+
+                }
+            )
+        );
+    }
+
     private async createScene() {
         this.loadCustomBuildingsJSON();
 
@@ -358,9 +450,13 @@ export class Game {
         this.dirLight = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         this.dirLight.intensity=0.5;
 
-        var myMaterialHighlight = new StandardMaterial("infoSpotMaterialHighlight", this.scene);
-        myMaterialHighlight.diffuseColor = new Color3(1, 1, 1);
-        myMaterialHighlight.freeze();
+        this.ourMaterialHighlight = new StandardMaterial("infoSpotMaterialHighlight", this.scene);
+        this.ourMaterialHighlight.diffuseColor = new Color3(1, 1, 1);
+        this.ourMaterialHighlight.freeze();
+
+        this.ourBlackMaterial = new StandardMaterial("black_color", this.scene);
+        this.ourBlackMaterial.diffuseColor = new Color3(0, 0, 0);
+        this.ourBlackMaterial.freeze();
 
         this.ourTS = new TileSet(new Vector2(4,4), 25, 2, this.scene,this.engine);
         this.ourTS.setRasterProvider("OSM");
@@ -379,10 +475,7 @@ export class Game {
         await customBlockGenerator.loadGeoJSON(blockUrl, ProjectionType.EPSG_3857);
         customBlockGenerator.generateBuildings();
 
-
-        //const url = "https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3AFootprint_Test&outputFormat=application%2Fjson";
         const url="https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABuildings&outputFormat=application%2Fjson";
-
         this.customBuildingGenerator=new BuildingsCustom(this.ourTS,this.scene);
         this.customBuildingGenerator.doMerge=false;
         await this.customBuildingGenerator.loadGeoJSON(url, ProjectionType.EPSG_3857);
@@ -447,68 +540,7 @@ export class Game {
                 console.log("number of buildings: " + this.allBuildings.length);
                 for (let i = 0; i < this.allBuildings.length; i++) {
                     const b = this.allBuildings[i];
-                    b.isPickable = true;
-                    //console.log("setting up building: " + b.name);
-                    b.actionManager = new ActionManager(this.scene);
-                    b.actionManager.registerAction(
-                        new ExecuteCodeAction(
-                            {
-                                trigger: ActionManager.OnPickTrigger //OnPointerOverTrigger
-                            },
-                            () => {
-                                console.log("user clicked on building: " + b.name);
-
-                                const originalMaterial = b.material;
-                                b.material = myMaterialHighlight;
-
-                                if (this.lastSelectedBuildingIndex == i) {
-                                    console.log("user clicked object that is already selected!");
-                                    return;
-                                }
-
-                                if (this.lastSelectedBuildingIndex >= 0) {
-                                    this.lastSelectedBuilding.material = originalMaterial;
-                                    this.advancedTexture.removeControl(this.previousButton);
-                                    this.previousButton.dispose();
-                                }
-
-                                const props = b.metadata as Map<string, string>;
-
-                                let popupText: string = "";
-                                popupText += "id: " + b.name + "\n";
-                                props.forEach((value: string, key: string) => {
-                                    popupText += key + ": " + value + "\n";
-                                });                               
-
-                                const button: Button = Button.CreateSimpleButton("but", popupText);
-                                button.width = "300px";
-                                button.height = "300px";
-                                button.color = "white";
-
-                                button.background = "black";
-                                button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-                                button.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-
-                                if (button.textBlock) {
-                                    button.textBlock.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-                                }
-                                this.advancedTexture.addControl(button);
-
-                                button.onPointerClickObservable.add(() => {
-                                    console.log("user clicked on button");
-                                    b.material = originalMaterial;
-                                    this.lastSelectedBuildingIndex = -1;
-                                    this.advancedTexture.removeControl(button);
-                                    button.dispose();
-                                });
-
-                                this.lastSelectedBuildingIndex = i;
-                                this.lastSelectedBuilding = b;
-                                this.previousButton = button;
-
-                            }
-                        )
-                    );
+                    this.setupClickableBuilding(b,i);
                 }
             //});
         });
