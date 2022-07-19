@@ -30,6 +30,7 @@ import "@babylonjs/inspector";
 import CsvData from "./CsvData";
 //import OpenStreetMap from "./babylonjs-mapping/OpenStreetMap";
 //import MapBox from "./babylonjs-mapping/MapBox";
+import BuildingsOSM from "babylonjs-mapping/lib/BuildingsOSM";
 
 import TileSet from "babylonjs-mapping";
 
@@ -40,6 +41,7 @@ class Game {
 
     private ourCSV: CsvData;
     private ourTS: TileSet;
+    private ourOSM: BuildingsOSM;
 
     private lastSelectedSphereIndex: number=-1;
     private lastSelectedSphere: Mesh;
@@ -121,7 +123,10 @@ class Game {
         this.ourTS.setRasterProvider("OSM");
  
         this.ourTS.updateRaster(35.21, -80.8400777, 16); //charlotte
-        this.ourTS.generateBuildings(3,true);        
+        this.ourOSM=new BuildingsOSM(this.ourTS, this.scene);
+        this.ourOSM.doMerge=true;
+        this.ourOSM.exaggeration=3;
+        this.ourOSM.generateBuildings();        
 
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program
@@ -189,10 +194,8 @@ class Game {
         if(Math.abs(forwardAmount)>0.0 || Math.abs(rightAmount)>0.0){
             movVec=movVec.add(fVec.multiplyByFloats(forwardAmount,forwardAmount,forwardAmount));
             movVec=movVec.add(rVec.multiplyByFloats(rightAmount,rightAmount,rightAmount));
-            this.ourTS.moveAllTiles(movVec.x, movVec.z, true, true, true);
+            this.ourTS.moveAllTiles(movVec.x, movVec.z, 100, this.ourOSM);
         }
-
-        this.ourTS.processBuildingRequests();
     }
 
 }
