@@ -12,16 +12,16 @@ import Buildings from "./Buildings";
 import * as GeoJSON from './GeoJSON';
 
 export default class BuildingsOSM extends Buildings {
+    private serverNum=0;
+    
     constructor(tileSet: TileSet, scene: Scene) {
         super(tileSet, scene);
     }
 
     public generateBuildings() {
-        this.tileSet.ourAttribution.addAttribution("OSMB");
+        super.generateBuildings();
 
-        for (const t of this.tileSet.ourTiles) {
-            this.populateBuildingGenerationRequestsForTile(t);
-        }
+        this.tileSet.ourAttribution.addAttribution("OSMB");       
     }
 
     private osmBuildingServers: string[] = ["https://a.data.osmbuildings.org/0.2/anonymous/tile/",
@@ -29,7 +29,7 @@ export default class BuildingsOSM extends Buildings {
         "https://c.data.osmbuildings.org/0.2/anonymous/tile/",
         "https://d.data.osmbuildings.org/0.2/anonymous/tile/"];
 
-    public populateBuildingGenerationRequestsForTile(tile: Tile) {
+    public SubmitTileRequest(tile: Tile) {
         if (tile.tileCoords.z > 16) {
             console.error("Zoom level of: " + tile.tileCoords.z + " is too large! This means that buildings won't work!");
             return;
@@ -37,58 +37,51 @@ export default class BuildingsOSM extends Buildings {
 
         const storedCoords = tile.tileCoords.clone();
 
-        const url = this.osmBuildingServers[0] + tile.tileCoords.z + "/" + tile.tileCoords.x + "/" + tile.tileCoords.y + ".json";
+        const url = this.osmBuildingServers[this.serverNum] + tile.tileCoords.z + "/" + tile.tileCoords.x + "/" + tile.tileCoords.y + ".json";
+        this.serverNum = (this.serverNum + 1) % this.osmBuildingServers.length; //increment server to use with wrap around
 
-        console.log("trying to fetch: " + url);
+        const request: BuildingRequest = {
+            requestType: BuildingRequestType.LoadTile,
+            tile: tile,
+            tileCoords: tile.tileCoords.clone(),
+            projectionType: ProjectionType.EPSG_4326,
+            url: url
+        }
+        this.buildingRequests.push(request);
+    }
 
-        fetch(url).then((res) => {
-            //console.log("  fetch returned: " + res.status);
+    public ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void {
 
-            if (res.status == 200) {
-                res.text().then(
-                    (text) => {
-                        //console.log("about to json parse for tile: " + tile.tileCoords);
-                        if (text.length == 0) {
-                            //console.log("no buildings in this tile!");
-                            return;
-                        }
-                        const tileBuildings: GeoJSON.topLevel = JSON.parse(text);
-                        //console.log("number of buildings in this tile: " + tileBuildings.features.length);
+        if (request.tile.tileCoords.equals(request.tileCoords) == false) {
+            console.warn("tile coords have changed while we were loading, not adding buildings to queue!");
+            return;
+        }
 
-                        if (tile.tileCoords.equals(storedCoords) == false) {
-                            console.warn("tile coords have changed while we were loading, not adding buildings to queue!");
-                            return;
-                        }
-
-                        let index = 0;
-                        const meshArray: Mesh[] = [];
-                        for (const f of tileBuildings.features) {
-                            const request: BuildingRequest = {
-                                requestType: BuildingRequestType.CreateBuilding,
-                                tile: tile,
-                                tileCoords: tile.tileCoords.clone(),
-                                projectionType: ProjectionType.EPSG_4326,
-                                feature: f
-                            }
-                            this.buildingRequests.push(request);
-                        }
-
-                        if (this.doMerge) {
-                            //console.log("queueing up merge request for tile: " + tile.tileCoords);
-                            const request: BuildingRequest = {
-                                requestType: BuildingRequestType.MergeAllBuildingsOnTile, //request a merge
-                                tile: tile,
-                                tileCoords: tile.tileCoords.clone()
-                            }
-                            this.buildingRequests.push(request)
-                        }
-                        console.log("all building generation requests queued for tile: " + tile.tileCoords);
-                    });
+        let index = 0;
+        let addedBuildings=0;
+        const meshArray: Mesh[] = [];
+        for (const f of topLevel.features) {
+            const brequest: BuildingRequest = {
+                requestType: BuildingRequestType.CreateBuilding,
+                tile: request.tile,
+                tileCoords: request.tile.tileCoords.clone(),
+                projectionType: request.projectionType,
+                feature: f
             }
-            else {
-                console.error("unable to fetch: " + url);
+            this.buildingRequests.push(brequest);
+            addedBuildings++;
+        }
+
+        if (this.doMerge) {
+            //console.log("queueing up merge request for tile: " + tile.tileCoords);
+            const mrequest: BuildingRequest = {
+                requestType: BuildingRequestType.MergeAllBuildingsOnTile, //request a merge
+                tile: request.tile,
+                tileCoords: request.tile.tileCoords.clone()
             }
-        });
+            this.buildingRequests.push(mrequest)
+        }
+        console.log(addedBuildings + " building generation requests queued for tile: " + request.tile.tileCoords);
     }
 }
 

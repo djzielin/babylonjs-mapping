@@ -468,19 +468,18 @@ export class Game {
         blockMaterial.freeze();
 
         const blockUrl = "http://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABlocks&maxFeatures=50&outputFormat=application%2Fjson";
-        const customBlockGenerator = new BuildingsCustom(this.ourTS, this.scene);
+        const customBlockGenerator = new BuildingsCustom("blocks", blockUrl, ProjectionType.EPSG_3857, this.ourTS, this.scene);
         customBlockGenerator.doMerge = false;
         customBlockGenerator.defaultBuildingHeight = 1.0;
         customBlockGenerator.buildingMaterial = blockMaterial;
-        await customBlockGenerator.loadGeoJSON(blockUrl, ProjectionType.EPSG_3857);
         customBlockGenerator.generateBuildings();
 
         const url="https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABuildings&outputFormat=application%2Fjson";
-        this.customBuildingGenerator=new BuildingsCustom(this.ourTS,this.scene);
+        this.customBuildingGenerator=new BuildingsCustom("buildings", url, ProjectionType.EPSG_3857, this.ourTS,this.scene);
         this.customBuildingGenerator.doMerge=false;
-        await this.customBuildingGenerator.loadGeoJSON(url, ProjectionType.EPSG_3857);
         this.customBuildingGenerator.generateBuildings();
 
+        
         this.customBuildingGenerator.onCaughtUpObservable.addOnce(() => {
            
             for (let t of this.ourTS.ourTiles) {
@@ -544,6 +543,7 @@ export class Game {
                 }
             //});
         });
+        
 
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program 
