@@ -104,11 +104,6 @@ export default abstract class Buildings {
     }
 
     protected handleLoadTileRequest(request: BuildingRequest): void {
-        if (request.inProgress == true) {
-            //console.log(this.prettyName() + "still waiting for building tile load request to complete for: " + request.tileCoords);
-            return;
-        }
-
         if (!request.url) {
             console.error(this.prettyName() + "no valid URL specified in GeoJSON load request");
 
@@ -190,6 +185,11 @@ export default abstract class Buildings {
                 return;
             }
             const request = this.buildingRequests[0]; //peek at front of queue
+            
+            if (request.inProgress == true) {
+                //TODO: this is where we could do some work while waiting (maybe process some buildings?)
+                return;
+            }
 
             if (request.tile.tileCoords.equals(request.tileCoords) == false) { //make sure tile still has same coords
                 console.warn(this.prettyName() + "tile coords: " + request.tileCoords + " are no longer around, we must have already changed tile");
@@ -198,7 +198,8 @@ export default abstract class Buildings {
                 return;
             }
 
-            if (request.requestType == BuildingRequestType.LoadTile) {
+            if (request.requestType == BuildingRequestType.LoadTile) {  
+
                 this.handleLoadTileRequest(request);
                 return;
             }
