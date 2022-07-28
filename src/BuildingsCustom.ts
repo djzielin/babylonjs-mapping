@@ -20,10 +20,10 @@ export default class BuildingsCustom extends Buildings {
 
     private setupMap(request: BuildingRequest, topLevel: GeoJSON.topLevel) {
         for (const f of topLevel.features) {
-            if (request.projectionType!==undefined) {
+            if (request.projectionType !== undefined) {
                 const tileCoord = this.ourGeoJSON.getFirstCoordinateTile(f, request.projectionType, this.tileSet.zoom);
                 const tileCoordString = tileCoord.toString();
-                console.log("this building is for tile: " + tileCoordString);
+                console.log(this.prettyName() + "this building is for tile: " + tileCoordString);
 
                 let fArray = this.BuildingsOnTile.get(tileCoordString);
                 if (fArray === undefined) { //first time seeing this tile, need to initialize the array
@@ -33,7 +33,7 @@ export default class BuildingsCustom extends Buildings {
                 this.BuildingsOnTile.set(tileCoordString, fArray);
             }
         }
-        console.log("map is now setup with size: " + this.BuildingsOnTile.size);
+        console.log(this.prettyName() + "map is now setup with size: " + this.BuildingsOnTile.size);
     }
 
     public SubmitLoadTileRequest(tile: Tile): void {
@@ -56,7 +56,7 @@ export default class BuildingsCustom extends Buildings {
 
         console.log(this.prettyName() + "trying to submit building requests for tile: " + request.tileCoords);
 
-        let buildingsAdded=0;
+        let buildingsAdded = 0;
 
         //if we want to filter each time we get called, instead of using the map (cached sorting) of features into appropriate tiles
         /*for (const f of topLevel.features) {
@@ -76,7 +76,7 @@ export default class BuildingsCustom extends Buildings {
         }*/
 
         if (this.BuildingsOnTile.size == 0) {
-            console.log("map hasn't yet been setup!");
+            console.log(this.prettyName() + "map hasn't yet been setup!");
             this.setupMap(request, topLevel);
         }
 
@@ -107,5 +107,5 @@ export default class BuildingsCustom extends Buildings {
             this.buildingRequests.push(mrequest)
         }
         console.log(this.prettyName() + buildingsAdded + " building generation requests queued for tile: " + request.tile.tileCoords);
-    }   
+    }
 }

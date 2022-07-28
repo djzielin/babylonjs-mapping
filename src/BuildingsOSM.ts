@@ -13,8 +13,8 @@ import * as GeoJSON from './GeoJSON';
 import { SliderLineComponent } from "@babylonjs/inspector/lines/sliderLineComponent";
 
 export default class BuildingsOSM extends Buildings {
-    private serverNum=0;
-    
+    private serverNum = 0;
+
     constructor(tileSet: TileSet, scene: Scene) {
         super("OSM", tileSet, scene);
     }
@@ -22,7 +22,7 @@ export default class BuildingsOSM extends Buildings {
     public generateBuildings() {
         super.generateBuildings();
 
-        this.tileSet.ourAttribution.addAttribution("OSMB");       
+        this.tileSet.ourAttribution.addAttribution("OSMB");
     }
 
     private osmBuildingServers: string[] = ["https://a.data.osmbuildings.org/0.2/anonymous/tile/",
@@ -31,14 +31,14 @@ export default class BuildingsOSM extends Buildings {
         "https://d.data.osmbuildings.org/0.2/anonymous/tile/"];
 
     protected stripFilePrefix(original: string): string {
-        const stripped=original.slice(51);
+        const stripped = original.slice(51);
         //console.log("new file URL is: " + stripped);
         return stripped;
     }
 
     public SubmitLoadTileRequest(tile: Tile) {
         if (tile.tileCoords.z > 16) {
-            console.error(this.prettyName() +"Zoom level of: " + tile.tileCoords.z + " is too large! This means that buildings won't work!");
+            console.error(this.prettyName() + "Zoom level of: " + tile.tileCoords.z + " is too large! This means that buildings won't work!");
             return;
         }
 
@@ -61,12 +61,12 @@ export default class BuildingsOSM extends Buildings {
     public ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void {
 
         if (request.tile.tileCoords.equals(request.tileCoords) == false) {
-            console.warn(this.prettyName() +"tile coords have changed while we were loading, not adding buildings to queue!");
+            console.warn(this.prettyName() + "tile coords have changed while we were loading, not adding buildings to queue!");
             return;
         }
 
         let index = 0;
-        let addedBuildings=0;
+        let addedBuildings = 0;
         const meshArray: Mesh[] = [];
         for (const f of topLevel.features) {
             const brequest: BuildingRequest = {
