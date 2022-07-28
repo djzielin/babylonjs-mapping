@@ -97,17 +97,19 @@ export default abstract class Buildings {
         return original;
     }
 
-    protected popPendingRequest() {
+    protected removePendingRequest(index=0) {
         //console.log(this.prettyName() + "popping request off front of queue");
         this.requestsProcessedSinceCaughtUp++;
-        this.buildingRequests.shift(); //pop ourselves off the queue
+
+        //this.buildingRequests.shift(); //pop ourselves off the queue
+        this.buildingRequests.splice(index,1);
     }
 
     protected handleLoadTileRequest(request: BuildingRequest): void {
         if (!request.url) {
             console.error(this.prettyName() + "no valid URL specified in GeoJSON load request");
 
-            this.popPendingRequest();
+            this.removePendingRequest();
             return;
         }
 
@@ -120,7 +122,7 @@ export default abstract class Buildings {
                 console.error(this.prettyName() + "can't find topLevel in already loaded geojson file!");
             }
 
-            this.popPendingRequest();
+            this.removePendingRequest();
             return;
         }
 
@@ -149,20 +151,20 @@ export default abstract class Buildings {
                             this.ProcessGeoJSON(request, topLevel);
                         }
 
-                        this.popPendingRequest();
+                        this.removePendingRequest();
                         return;
                     }
                 );
             } else {
                 console.error(this.prettyName() + "unable to fetch: " + request.url + " error code: " + res.status);
-                this.popPendingRequest();
+                this.removePendingRequest();
                 return;
             }
         }
         ).catch((error) => {
             console.error(this.prettyName() + "error during fetch! " + error);
 
-            this.popPendingRequest();
+            this.removePendingRequest();
             return;
         });
 
@@ -184,17 +186,31 @@ export default abstract class Buildings {
             if (this.buildingRequests.length == 0) {
                 return;
             }
-            const request = this.buildingRequests[0]; //peek at front of queue
+            let rIndex=0;
+            let request = this.buildingRequests[rIndex]; //peek at front of queue
             
+            let foundWork=false;
             if (request.inProgress == true) {
+
                 //TODO: this is where we could do some work while waiting (maybe process some buildings?)
-                return;
-            }
+                for(let e=1;e<this.buildingRequests.length;e++){
+                    request=this.buildingRequests[e];
+                    if(request.requestType==BuildingRequestType.CreateBuilding || request.requestType==BuildingRequestType.MergeAllBuildingsOnTile){
+                        console.log(this.prettyName() + "found some work to do while waiting!");
+                        foundWork=true;
+                        rIndex=e;
+                        break;
+                    }
+                }
+                if(foundWork==false){
+                    return; //nothing to do
+                }
+            }    
 
             if (request.tile.tileCoords.equals(request.tileCoords) == false) { //make sure tile still has same coords
                 console.warn(this.prettyName() + "tile coords: " + request.tileCoords + " are no longer around, we must have already changed tile");
 
-                this.popPendingRequest();
+                this.removePendingRequest(rIndex);
                 return;
             }
 
@@ -205,7 +221,7 @@ export default abstract class Buildings {
             }
 
             if (request.requestType == BuildingRequestType.CreateBuilding) {
-                this.popPendingRequest();
+                this.removePendingRequest(rIndex);
 
                 if (request.feature !== undefined) {
                     if (request.projectionType !== undefined) { //create building request must have a projectionType
@@ -218,15 +234,15 @@ export default abstract class Buildings {
                     console.error(this.prettyName() + "can't create a building with no feature data!");
                 }
 
-                if (this.buildingRequests.length > 0) { //take a peek at next upcoming request
-                    if (this.buildingRequests[0].requestType != BuildingRequestType.CreateBuilding) { //if its not another building, end processing this frame
-                        return;
-                    }
-                }
+                //if (this.buildingRequests.length > 0) { //take a peek at next upcoming request
+                //    if (this.buildingRequests[0].requestType != BuildingRequestType.CreateBuilding) { //if its not another building, end processing this frame
+                //        return;
+                //    }
+                //}
             }
 
             if (request.requestType == BuildingRequestType.MergeAllBuildingsOnTile) {
-                this.popPendingRequest();
+                this.removePendingRequest(rIndex);
 
                 console.log(this.prettyName() + "processing merge request for tile: " + request.tileCoords);
                 //console.log("  number of buildings in merge: " + request.tile.buildings.length);
