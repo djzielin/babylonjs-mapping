@@ -23,6 +23,21 @@ import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 import '@babylonjs/core/Debug/debugLayer';
 import { AdvancedDynamicTexture } from "@babylonjs/gui";
+import { Observable } from "@babylonjs/core";
+
+enum TileRequestType{
+    LoadTile,
+}
+
+interface TileRequest {
+    requestType: TileRequestType
+    tile: Tile;
+    tileCoords: Vector3;
+    url: string;
+    mesh: Mesh;
+    texture: Texture | null;
+    inProgress: boolean;
+}
 
 export default class TileSet {
 
@@ -50,6 +65,10 @@ export default class TileSet {
     private totalHeightMeters: number;
     public ourAttribution: Attribution;
     public ourTileMath: TileMath;
+
+    protected tileRequests: TileRequest[]=[];
+    protected requestsProcessedSinceCaughtUp=0;
+    public onCaughtUpObservable: Observable<boolean>=new Observable;
 
     /**
     * setup a ground plane tile set. this sets up just the underlying meshes, but doesn't populate them with content yet
@@ -90,7 +109,53 @@ export default class TileSet {
         this.ourMB = new MapBox(this, this.scene);      
         this.ourAttribution = new Attribution(this.scene);
         this.ourTileMath= new TileMath(this);
+
+        const observer = this.scene.onBeforeRenderObservable.add(() => { //fire every frame
+            this.processTileRequests();
+         });
     }   
+
+    public processTileRequests() {
+        if (this.tileRequests.length == 0) {
+            if (this.requestsProcessedSinceCaughtUp > 0) {
+                console.log("caught up on all tile generation requests! (processed " + this.requestsProcessedSinceCaughtUp + " requests)");
+                this.requestsProcessedSinceCaughtUp = 0;
+                this.onCaughtUpObservable.notifyObservers(true);
+            }
+            return;
+        }
+
+        //console.log("tile requests remaining in queue: " + this.tileRequests.length);
+        const request = this.tileRequests[0];
+
+        if (request.requestType == TileRequestType.LoadTile) {
+            if (request.inProgress == false) {
+                console.log("trying to load tile raster: " + request.url);
+                request.texture = new Texture(request.url, this.scene);
+                request.inProgress = true;
+                return;
+            }
+            if (request.inProgress == true) {
+                if (request.texture) {
+                    if (request.texture.isReady()) {
+                        console.log("tile raster is ready: " + request.url);
+
+                        const material = request.mesh.material as StandardMaterial;
+
+                        material.diffuseTexture = request.texture;
+                        material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
+                        material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
+                        material.freeze(); //optimization
+
+                        request.mesh.setEnabled(true); //show it!
+                        this.requestsProcessedSinceCaughtUp++;
+                        this.tileRequests.shift(); //pop request off front of queue
+                        return;
+                    }
+                }
+            }
+        }
+    }    
 
     public getAdvancedDynamicTexture(): AdvancedDynamicTexture{
         return this.ourAttribution.advancedTexture;
@@ -157,16 +222,21 @@ export default class TileSet {
 
         if (tile.material) {
             material = tile.material;
-            const text = material.diffuseTexture;
-            if (text) {
-                text.dispose(); //get rid of texture if it already exists  
-            }
             material.unfreeze();
+
+            const texture = material.diffuseTexture;
+
+            if (texture) { //get rid of texture if it already exists  
+                texture.dispose(); 
+            }
         }
         else {
             material = new StandardMaterial("material" + tileX + "-" + tileY, this.scene);
             material!.specularColor = new Color3(0, 0, 0);
             material.alpha = 1.0;
+
+            tile.mesh.material = material;
+            tile.material = material;   
             // material.backFaceCulling = false;
         }
 
@@ -178,20 +248,16 @@ export default class TileSet {
             url = this.ourMB.getRasterURL(new Vector2(tileX, tileY), this.zoom, this.doRasterResBoost);
         }
 
-        const texture=new Texture(url, this.scene); 
-        texture.onLoadObservable.addOnce((tx)=>{ 
-            tile.mesh.setEnabled(true); //show it!
-        });
-
-        material.diffuseTexture = texture; 
-          
-        material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
-        material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
-
-        material.freeze(); //optimization
-
-        tile.mesh.material = material;
-        tile.material = material;    
+        const request: TileRequest = {
+            requestType: TileRequestType.LoadTile,
+            tile: tile,
+            tileCoords: tile.tileCoords.clone(),
+            url: url,
+            mesh: tile.mesh,
+            texture: null,
+            inProgress: false           
+        }
+        this.tileRequests.push(request); 
 
         tile.mesh.name="Tile_"+tileX + "_"+tileY;
     }
