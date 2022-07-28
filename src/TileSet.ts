@@ -337,7 +337,7 @@ export default class TileSet {
         this.updateSingleRasterTile(t, newTileCoords.x, newTileCoords.y);
 
         if (buildingCreator) {
-            buildingCreator.SubmitTileRequest(t);
+            buildingCreator.SubmitLoadTileRequest(t);
         }
     }
 

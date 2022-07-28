@@ -16,7 +16,7 @@ export default class BuildingsOSM extends Buildings {
     private serverNum=0;
     
     constructor(tileSet: TileSet, scene: Scene) {
-        super(tileSet, scene);
+        super("OSM", tileSet, scene);
     }
 
     public generateBuildings() {
@@ -36,9 +36,9 @@ export default class BuildingsOSM extends Buildings {
         return stripped;
     }
 
-    public SubmitTileRequest(tile: Tile) {
+    public SubmitLoadTileRequest(tile: Tile) {
         if (tile.tileCoords.z > 16) {
-            console.error("Zoom level of: " + tile.tileCoords.z + " is too large! This means that buildings won't work!");
+            console.error(this.prettyName() +"Zoom level of: " + tile.tileCoords.z + " is too large! This means that buildings won't work!");
             return;
         }
 
@@ -52,7 +52,8 @@ export default class BuildingsOSM extends Buildings {
             tile: tile,
             tileCoords: tile.tileCoords.clone(),
             projectionType: ProjectionType.EPSG_4326,
-            url: url
+            url: url,
+            inProgress: false
         }
         this.buildingRequests.push(request);
     }
@@ -60,7 +61,7 @@ export default class BuildingsOSM extends Buildings {
     public ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void {
 
         if (request.tile.tileCoords.equals(request.tileCoords) == false) {
-            console.warn("tile coords have changed while we were loading, not adding buildings to queue!");
+            console.warn(this.prettyName() +"tile coords have changed while we were loading, not adding buildings to queue!");
             return;
         }
 
@@ -72,6 +73,7 @@ export default class BuildingsOSM extends Buildings {
                 requestType: BuildingRequestType.CreateBuilding,
                 tile: request.tile,
                 tileCoords: request.tile.tileCoords.clone(),
+                inProgress: false,
                 projectionType: request.projectionType,
                 feature: f
             }
@@ -84,11 +86,12 @@ export default class BuildingsOSM extends Buildings {
             const mrequest: BuildingRequest = {
                 requestType: BuildingRequestType.MergeAllBuildingsOnTile, //request a merge
                 tile: request.tile,
-                tileCoords: request.tile.tileCoords.clone()
+                tileCoords: request.tile.tileCoords.clone(),
+                inProgress: false
             }
             this.buildingRequests.push(mrequest)
         }
-        console.log(addedBuildings + " building generation requests queued for tile: " + request.tile.tileCoords);
+        console.log(this.prettyName() + addedBuildings + " building generation requests queued for tile: " + request.tile.tileCoords);
     }
 }
 

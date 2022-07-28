@@ -14,8 +14,8 @@ export default class BuildingsCustom extends Buildings {
     private BuildingsOnTile: Map<string, GeoJSON.feature[]> = new Map();
 
 
-    constructor(public name: string, public url: string, public projection: ProjectionType, tileSet: TileSet, scene: Scene) {
-        super(tileSet, scene);
+    constructor(name: string, public url: string, public projection: ProjectionType, tileSet: TileSet, scene: Scene) {
+        super(name, tileSet, scene);
     }
 
     private setupMap(request: BuildingRequest, topLevel: GeoJSON.topLevel) {
@@ -36,18 +36,16 @@ export default class BuildingsCustom extends Buildings {
         console.log("map is now setup with size: " + this.BuildingsOnTile.size);
     }
 
-    public SubmitTileRequest(tile: Tile): void {
+    public SubmitLoadTileRequest(tile: Tile): void {
         const request: BuildingRequest = {
             requestType: BuildingRequestType.LoadTile,
             tile: tile,
             tileCoords: tile.tileCoords.clone(),
             projectionType: this.projection,
-            url: this.url
+            url: this.url,
+            inProgress: false
         }
         this.buildingRequests.push(request);
-    }
-    private prettyName(): string{
-        return "[" + this.name + "] ";
     }
 
     public ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void {
@@ -90,7 +88,8 @@ export default class BuildingsCustom extends Buildings {
                     tile: request.tile,
                     tileCoords: request.tile.tileCoords.clone(),
                     projectionType: request.projectionType,
-                    feature: f
+                    feature: f,
+                    inProgress: false
                 }
                 this.buildingRequests.push(brequest);
                 buildingsAdded++;
@@ -102,7 +101,8 @@ export default class BuildingsCustom extends Buildings {
             const mrequest: BuildingRequest = {
                 requestType: BuildingRequestType.MergeAllBuildingsOnTile, //request a merge
                 tile: request.tile,
-                tileCoords: request.tile.tileCoords.clone()
+                tileCoords: request.tile.tileCoords.clone(),
+                inProgress: false
             }
             this.buildingRequests.push(mrequest)
         }
