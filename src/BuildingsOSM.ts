@@ -10,6 +10,7 @@ import Tile from "./Tile";
 import TileSet from "./TileSet";
 import Buildings from "./Buildings";
 import * as GeoJSON from './GeoJSON';
+import { SliderLineComponent } from "@babylonjs/inspector/lines/sliderLineComponent";
 
 export default class BuildingsOSM extends Buildings {
     private serverNum=0;
@@ -28,6 +29,12 @@ export default class BuildingsOSM extends Buildings {
         "https://b.data.osmbuildings.org/0.2/anonymous/tile/",
         "https://c.data.osmbuildings.org/0.2/anonymous/tile/",
         "https://d.data.osmbuildings.org/0.2/anonymous/tile/"];
+
+    protected stripFilePrefix(original: string): string {
+        const stripped=original.slice(51);
+        //console.log("new file URL is: " + stripped);
+        return stripped;
+    }
 
     public SubmitTileRequest(tile: Tile) {
         if (tile.tileCoords.z > 16) {

@@ -40,6 +40,7 @@ export default abstract class Buildings {
     public doMerge=false;
     public defaultBuildingHeight=4.0;
     public buildingsCreatedPerFrame=10;
+    public cacheFiles=true;
     public buildingMaterial: StandardMaterial;
     private lastRequestCompleted=true;
 
@@ -66,8 +67,9 @@ export default abstract class Buildings {
     public abstract ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void;
 
     private isURLLoaded(url: string): boolean{
+        const stripped=this.stripFilePrefix(url);
         for(let f of this.filesLoaded){
-            if(f.url==url){
+            if(f.url==stripped){
                 return true;
             }
         }
@@ -76,13 +78,18 @@ export default abstract class Buildings {
     }
     
     private getFeatures(url: string): GeoJSON.topLevel | null{
+        const stripped=this.stripFilePrefix(url);
         for(let f of this.filesLoaded){
-            if(f.url==url){
+            if(f.url==stripped){
                 return f.topLevel;
             }
         }
 
         return null;
+    }
+
+    protected stripFilePrefix(original: string): string{
+        return original;
     }
     
     public processBuildingRequests() {
@@ -118,7 +125,7 @@ export default abstract class Buildings {
                 }
                                    
                 if (this.isURLLoaded(request.url)) {
-                    //console.log("we already have this GeoJSON loaded!");
+                    console.log("we already have this GeoJSON loaded: " + this.stripFilePrefix(request.url));
                     const topLevel = this.getFeatures(request.url);
                     if (topLevel) {
                         this.ProcessGeoJSON(request, topLevel);
@@ -138,16 +145,18 @@ export default abstract class Buildings {
                                     //console.log("about to json parse for tile: " + tile.tileCoords);
                                     if (text.length == 0) {
                                         //console.log("no buildings in this tile!");
-                                        this.lastRequestCompleted=true;
+                                        this.lastRequestCompleted = true;
                                         return;
                                     }
                                     const topLevel: GeoJSON.topLevel = JSON.parse(text);
-                                   
-                                    const floaded: GeoFileLoaded = {
-                                        url: request.url!,
-                                        topLevel: topLevel
-                                    };
-                                    this.filesLoaded.push(floaded);
+
+                                    if (this.cacheFiles) {
+                                        const floaded: GeoFileLoaded = {
+                                            url: this.stripFilePrefix(request.url!),
+                                            topLevel: topLevel
+                                        };
+                                        this.filesLoaded.push(floaded);
+                                    }
 
                                     this.ProcessGeoJSON(request, topLevel);
 

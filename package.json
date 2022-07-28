@@ -1,6 +1,6 @@
 {
   "name": "babylonjs-mapping",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "author": "David Zielinski <djzielin@gmail.com>",
   "license": "MIT",
   "description": "module to help display map content from OpenStreetMaps and Mapbox natively in Babylon.js",
