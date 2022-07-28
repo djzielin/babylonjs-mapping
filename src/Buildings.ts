@@ -105,7 +105,7 @@ export default abstract class Buildings {
 
     protected handleLoadTileRequest(request: BuildingRequest): void {
         if (request.inProgress == true) {
-            console.log(this.prettyName() + "still waiting for building tile load request to complete for: " + request.tileCoords);
+            //console.log(this.prettyName() + "still waiting for building tile load request to complete for: " + request.tileCoords);
             return;
         }
 

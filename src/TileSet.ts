@@ -115,10 +115,14 @@ export default class TileSet {
          });
     }   
 
+    protected prettyName(): string {
+        return "[Tile] ";
+    }
+
     public processTileRequests() {
         if (this.tileRequests.length == 0) {
             if (this.requestsProcessedSinceCaughtUp > 0) {
-                console.log("caught up on all tile generation requests! (processed " + this.requestsProcessedSinceCaughtUp + " requests)");
+                console.log(this.prettyName() + "caught up on all tile generation requests! (processed " + this.requestsProcessedSinceCaughtUp + " requests)");
                 this.requestsProcessedSinceCaughtUp = 0;
                 this.onCaughtUpObservable.notifyObservers(true);
             }
@@ -130,7 +134,7 @@ export default class TileSet {
 
         if (request.requestType == TileRequestType.LoadTile) {
             if (request.inProgress == false) {
-                console.log("trying to load tile raster: " + request.url);
+                console.log(this.prettyName() + "trying to load tile raster: " + request.url);
                 request.texture = new Texture(request.url, this.scene);
                 request.inProgress = true;
                 return;
@@ -138,7 +142,7 @@ export default class TileSet {
             if (request.inProgress == true) {
                 if (request.texture) {
                     if (request.texture.isReady()) {
-                        console.log("tile raster is ready: " + request.url);
+                        console.log(this.prettyName() + "tile raster is ready: " + request.url);
 
                         const material = request.mesh.material as StandardMaterial;
 
@@ -258,6 +262,7 @@ export default class TileSet {
             inProgress: false           
         }
         this.tileRequests.push(request); 
+        console.log(this.prettyName() + "submitted tile raster load request for: " + tile.tileCoords);
 
         tile.mesh.name="Tile_"+tileX + "_"+tileY;
     }
