@@ -115,7 +115,7 @@ export class GeoJSON {
             if(stories==0){ //0 just means undefined
                 stories=1;
             }
-            height = (stories+0.5) * 3.3; //not sure if we should do this to account for roof height?
+            height = (stories+0.5) * 3.0; //not sure if we should do this to account for roof height?
         }
 
         if (f.geometry.type == "Polygon") {
