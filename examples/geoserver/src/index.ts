@@ -28,8 +28,9 @@ import { BoundingInfo } from "@babylonjs/core";
 import { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import { InstancedMesh } from "@babylonjs/core";
 
-//import "@babylonjs/core/Materials/standardMaterial"
-//import "@babylonjs/inspector";
+import "@babylonjs/core/Materials/standardMaterial"
+import "@babylonjs/inspector";
+
 
 import TileSet from "babylonjs-mapping";
 import PropertyGUI from "./propertyGUI";
