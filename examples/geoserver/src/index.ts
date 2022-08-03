@@ -7,7 +7,7 @@
 
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
-import { Quaternion, Vector2 } from "@babylonjs/core/Maths/math";
+import { Angle, Quaternion, Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Color3 } from "@babylonjs/core/Maths/math";
@@ -56,6 +56,8 @@ export interface propertiesCharlotte {
 export interface CustomBuildings {
     "id": string;
     "filename": string;
+    "rotation": number;
+    "photo": string;
 }
 
 export interface AllCustomBuildings {
@@ -140,16 +142,22 @@ export class Game {
     //bringing models from sketchup to blender to GLB, seems to have a bunch of instanced parts, which if we want a single mesh, we need to collapse;
     public mergeBuildingMeshes(rawMeshes: AbstractMesh[]): Mesh
     {
+        console.log("trying to do merge now!");
+
         const realMeshes: Mesh[] = [];
 
             for (let m of rawMeshes) {
                 if (m.getClassName() == "Mesh") {
+                    //console.log("found regular mesh: " + m.name);
                     const pureMesh = m as Mesh;
 
+                    //console.log("  verticies: " + pureMesh.getTotalVertices());
                     if (pureMesh.getTotalVertices() > 0) {
+                        //console.log("  adding mesh to merge list");
                         realMeshes.push(pureMesh);
                     }
                 } else if (m.getClassName() == "InstancedMesh") {
+                    //console.log("found instanced mesh: " + m.name);
                     //per https://forum.babylonjs.com/t/how-to-replace-instancedmesh-with-a-mesh/6185
                     const instanceMesh = m as InstancedMesh;
                     const newMesh = instanceMesh.sourceMesh.clone(instanceMesh.name + "non_instance", instanceMesh.parent)
@@ -158,14 +166,18 @@ export class Game {
                         newMesh.rotationQuaternion = instanceMesh.rotationQuaternion.clone();
                     newMesh.scaling = instanceMesh.scaling.clone();
 
+                    //console.log("  verticies: " + newMesh.getTotalVertices());
                     if (newMesh.getTotalVertices() > 0) {
+                        //console.log("  adding mesh to merge list");
                         realMeshes.push(newMesh);
                     }
+                } else{
+                    console.error("unknown classtype: " + m.getClassName());
                 }
             }
 
-            console.log("trying to merge now");
-            const merged = Mesh.MergeMeshes(realMeshes);
+            console.log("trying to merge now. meshes: " + realMeshes.length);
+            const merged = Mesh.MergeMeshes(realMeshes,false,true); 
             if (merged) {
                 console.log("succesfully merged building pieces");
                 merged.name = "merged_building_pieces";
@@ -236,7 +248,7 @@ export class Game {
         console.log("post position: " + cbounds.boundingSphere.centerWorld);
     }
 
-    private computeDifferenceCost(originalMesh: Mesh, importedMesh: Mesh): number{
+    /*private computeDifferenceCost(originalMesh: Mesh, importedMesh: Mesh): number{
         const originalPosRaw: FloatArray = originalMesh.getVerticesData(VertexBuffer.PositionKind);
         const originalPosVec3: Vector3[]=[];
 
@@ -270,12 +282,12 @@ export class Game {
         
         return costPerVertex;
     }
-
-    private applyYaw(importedMesh: Mesh, originalRot: Quaternion, yaw: number){
+    */
+    /*private applyYaw(importedMesh: Mesh, originalRot: Quaternion, yaw: number){
         const rotAdjustment: Quaternion = Quaternion.FromEulerAngles(0, yaw, 0);
         importedMesh.rotationQuaternion = originalRot.multiply(rotAdjustment);
         importedMesh.computeWorldMatrix(true);
-    }
+    }*/
 
     private async replaceSimpleBuildingsWithCustom() {
         console.log("trying to replace SimpleBuildings with Custom Model");
@@ -288,6 +300,11 @@ export class Game {
         for (let c of this.ourCustomBuildings.buildings) {
             var loadResult: ISceneLoaderAsyncResult = await SceneLoader.ImportMeshAsync("", "./models/", c.filename, this.scene);
             console.log("number of meshes loaded: " + loadResult.meshes.length);
+            /*for( let m of loadResult.meshes){
+                console.log("mesh loaded: " + m.name);
+            }*/
+
+            
             const merged = this.mergeBuildingMeshes(loadResult.meshes);
 
             for (let m of loadResult.meshes)            { m.dispose(); }
@@ -297,6 +314,8 @@ export class Game {
 
             console.log("custom building loaded for: " + c.id);
             
+            let buildingToRemove: Mesh | null=null;
+
             for (let b of this.allBuildings) {
 
                 if (b.name.includes(c.id)) { //DANGER: this is dangerous!, as 11 will be found in 1011
@@ -306,18 +325,18 @@ export class Game {
                     //merged.showBoundingBox = true;
                     b.enableEdgesRendering();
                     b.edgesColor=new Color4(1,0,0,1);
-                    b.edgesWidth=3.0;
+                    b.edgesWidth=0.3;
 
                     merged.enableEdgesRendering();
-                    merged.edgesColor=new Color4(0,0,1,1);
-                    merged.edgesWidth=3.0;
+                    merged.edgesColor=new Color4(0,0,0,1);
+                    merged.edgesWidth=0.3;
 
-                    let originalImportedRot: Quaternion = merged.rotationQuaternion;
+                    /*let originalImportedRot: Quaternion = merged.rotationQuaternion;
                     if (originalImportedRot == null) {
                         console.log("quaternion not defined, will create from rotation euler angles");
                         originalImportedRot = Quaternion.FromEulerVector(merged.rotation);
                     }
-
+                    
                     let lowestCost: number = Number.POSITIVE_INFINITY;
                     let lowestAngle: number = 0;
 
@@ -338,13 +357,35 @@ export class Game {
 
                     console.log("Lowest Cost: " + lowestCost);
                     console.log("Lowest Cost Angle: " + lowestAngle);
-
-                    this.applyYaw(merged, originalImportedRot, lowestAngle);
+                    */
+                    //this.applyYaw(merged, originalImportedRot, lowestAngle);
+                    console.log("trying to set rotation to: " + c.rotation);
+                    const radians=Angle.FromDegrees(c.rotation);
+                    merged.rotation=new Vector3(0,radians.radians(),0);//Quaternion.FromEulerAngles(0, c.rotation, 0);
+                    merged.computeWorldMatrix(true);
                     this.fixScale(b, merged);
-                    this.fixPosition(b, merged);
+                    this.fixPosition(b, merged); 
+                    
+                    const props = b.metadata as Map<string, string>;
+                    props.set("photo",c.photo);
+                    console.log("adding photo: " + c.photo);
+
+                    merged.metadata=props;
+                    merged.name=b.name;
+                    buildingToRemove=b;
+
+                    break;
                 }
-                
+             
             }
+
+            if(buildingToRemove){
+                const index=this.allBuildings.indexOf(buildingToRemove);    
+                this.allBuildings.splice(index,1);
+                buildingToRemove.dispose();
+
+                this.allBuildings.push(merged);
+            }           
         }
         console.log("finished loading all custom buildings");
     }
@@ -368,8 +409,8 @@ export class Game {
                         }
                     }                  
 
-                    const originalMaterial = b.material;
-                    b.material = this.ourMaterialHighlight;
+                    //const originalMaterial = b.material;
+                    //b.material = this.ourMaterialHighlight;
 
                     
                     const props = b.metadata as Map<string, string>;
@@ -385,38 +426,48 @@ export class Game {
 
                     var stick = MeshBuilder.CreatePlane("gui_stick", {height: 0.5, width: 0.1});
                     stick.position=bpos.add(new Vector3(0,0.25,0));   
-                    stick.setParent(b);
+                    //stick.setParent(b);
                     stick.billboardMode=TransformNode.BILLBOARDMODE_Y;
                     stick.material=this.ourBlackMaterial;
 
                     var plane = MeshBuilder.CreatePlane("gui_plane", {height: 1, width: 1});                
                     plane.position=bpos.add(new Vector3(0,1.0,0));   
-                    plane.setParent(b);
-                    plane.billboardMode=TransformNode.BILLBOARDMODE_Y;
-
+                    //plane.setParent(b);
+                    plane.billboardMode=TransformNode.BILLBOARDMODE_Y;                 
+                
                     const floatingAdvancedTexture = AdvancedDynamicTexture.CreateForMesh(plane);
 
-                    const button: Button = Button.CreateSimpleButton("but", popupText);
-                    button.width = "100%";
-                    button.height = "100%";
-                    button.color = "white";
-                    button.textBlock.fontSize="60px";
-                    button.textBlock.paddingLeft="10px";
-                    button.textBlock.paddingTop="10px";
-                    button.textBlock.textVerticalAlignment=Control.VERTICAL_ALIGNMENT_TOP;
+                    let button: Button = null;
 
-                    button.background = "black";
-                    button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-                    button.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+                    if (props.has("photo")) {
+                        plane.scaling.x=1.3; //make a little wider
+                        button = Button.CreateImageOnlyButton("building photo", "photos/"+props.get("photo"));
+                        button.width = "100%";
+                        button.height = "100%";
 
-                    if (button.textBlock) {
-                        button.textBlock.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                    } else {
+                        button = Button.CreateSimpleButton("but", popupText);
+                        button.width = "100%";
+                        button.height = "100%";
+                        button.color = "white";
+                        button.textBlock.fontSize = "60px";
+                        button.textBlock.paddingLeft = "10px";
+                        button.textBlock.paddingTop = "10px";
+                        button.textBlock.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+
+                        button.background = "black";
+                        button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+                        button.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+
+                        if (button.textBlock) {
+                            button.textBlock.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+                        }
                     }
                     floatingAdvancedTexture.addControl(button);
 
                     button.onPointerClickObservable.add(() => {
                         console.log("user clicked on button");
-                        b.material = originalMaterial;
+                        //b.material = originalMaterial;
                         this.lastSelectedBuildingIndex = -1;
                         floatingAdvancedTexture.removeControl(button);
                         button.dispose();
@@ -442,7 +493,8 @@ export class Game {
         var camera = new UniversalCamera("camera1", new Vector3(10, 10, -50), this.scene);    
         camera.setTarget(new Vector3(15,-15,30));
         camera.attachControl(this.canvas, true);
-        camera.speed=0.5;
+        camera.speed=0.1;
+        camera.minZ=0.1;
         camera.angularSensibility=8000;
         
         var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
@@ -470,7 +522,7 @@ export class Game {
         const blockUrl = "http://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABlocks&maxFeatures=50&outputFormat=application%2Fjson";
         const customBlockGenerator = new BuildingsCustom("blocks", blockUrl, ProjectionType.EPSG_3857, this.ourTS, this.scene);
         customBlockGenerator.doMerge = false;
-        customBlockGenerator.defaultBuildingHeight = 1.0;
+        customBlockGenerator.defaultBuildingHeight = 0.1;
         customBlockGenerator.buildingMaterial = blockMaterial;
         customBlockGenerator.generateBuildings();
 
@@ -533,15 +585,14 @@ export class Game {
             pgui2.generateGUI(panel);
             this.propertyGUIs.push(pgui2);
 
-            //this.replaceSimpleBuildingsWithCustom().then(() => {
-
+            this.replaceSimpleBuildingsWithCustom().then(() => {
                 console.log("setting up buildings to be clickable now");
                 console.log("number of buildings: " + this.allBuildings.length);
                 for (let i = 0; i < this.allBuildings.length; i++) {
                     const b = this.allBuildings[i];
                     this.setupClickableBuilding(b,i);
                 }
-            //});
+            });
         });
         
 

@@ -1,8 +1,22 @@
 {
     "buildings": [
         {
-            "id": "1081",
-            "filename": "brevard_library.glb"
+            "id": "174",
+            "filename": "grier_funeral.glb",
+            "rotation": 230,
+            "photo": "grier.jpg"
+        },
+        {
+            "id": "287",
+            "filename": "savoy_theater.glb",
+            "rotation": 140,
+            "photo": "savoy.jpg"
+        },
+        {
+            "id": "275",
+            "filename": "2nd_highschool.glb",
+            "rotation": 318,
+            "photo": "secondward.jpg"
         }
     ]
 }
