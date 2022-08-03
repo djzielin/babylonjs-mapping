@@ -115,27 +115,24 @@ export class Game {
                this.engine.resize();
            });
        });
-    }    
+    }
 
-    private loadCustomBuildingsJSON(){
-        const url=window.location.href + "custom_buildings.json";
+    private async loadCustomBuildingsJSON() {
+        const url = window.location.href + "custom_buildings.json";
 
-        fetch(url).then((res) => {
-            //console.log("  fetch returned: " + res.status);
+        var res = await fetch(url); //then((res) => {
+        //console.log("  fetch returned: " + res.status);
 
-            if (res.status == 200) {
-                res.text().then(
-                    (text) => {
-                        //console.log("about to json parse for tile: " + tile.tileCoords);
-                        if (text.length == 0) {
-                            //console.log("no buildings in this tile!");
-                            return;
-                        }
-                        this.ourCustomBuildings = JSON.parse(text);
-                    }
-                )
+        if (res.status == 200) {
+            var text = await res.text();
+
+            //console.log("about to json parse for tile: " + tile.tileCoords);
+            if (text.length == 0) {
+                //console.log("no buildings in this tile!");
+                return;
             }
-        });
+            this.ourCustomBuildings = JSON.parse(text);
+        }
     }
 
     //bringing models from sketchup to blender to GLB, seems to have a bunch of instanced parts, which if we want a single mesh, we need to collapse;
@@ -485,7 +482,7 @@ export class Game {
     }
 
     private async createScene() {
-        this.loadCustomBuildingsJSON();
+        await this.loadCustomBuildingsJSON();
 
         this.scene.clearColor = new Color4(135/255,206/255,235/255, 1.0);
 
