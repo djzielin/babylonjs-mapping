@@ -7,7 +7,7 @@
 
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
-import { Angle, Quaternion, Vector2 } from "@babylonjs/core/Maths/math";
+import { Angle, Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Color3 } from "@babylonjs/core/Maths/math";
@@ -16,23 +16,20 @@ import { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { ActionManager, EdgesRenderer, FloatArray, IShadowLight, Light, Material, MeshBuilder, RenderTargetTexture, TransformNode } from "@babylonjs/core";
+import { ActionManager, IShadowLight,  MeshBuilder, Scalar, TransformNode } from "@babylonjs/core";
 import { ExecuteCodeAction } from "@babylonjs/core";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
 import { Button } from "@babylonjs/gui/2D/controls/button";
-import { Control, Checkbox } from "@babylonjs/gui/2D/controls";
-import { StackPanel, Rectangle, TextBlock, Image } from "@babylonjs/gui/2D/controls";
+import { Control } from "@babylonjs/gui/2D/controls";
+import { StackPanel } from "@babylonjs/gui/2D/controls";
 import { SceneLoader } from "@babylonjs/core";
 import { ISceneLoaderAsyncResult } from "@babylonjs/core";
 import { BoundingInfo } from "@babylonjs/core";
-import { VertexBuffer } from "@babylonjs/core";
 import { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import { InstancedMesh } from "@babylonjs/core";
 
-import "@babylonjs/core/Materials/standardMaterial"
-import "@babylonjs/inspector";
-
-//import OpenStreetMap from "./babylonjs-mapping/OpenStreetMap";
+//import "@babylonjs/core/Materials/standardMaterial"
+//import "@babylonjs/inspector";
 
 import TileSet from "babylonjs-mapping";
 import PropertyGUI from "./propertyGUI";
@@ -89,6 +86,7 @@ export class Game {
 
 
     private dirLight: IShadowLight;
+    private camera: UniversalCamera;
 
     constructor() {
         // Get the canvas element 
@@ -490,12 +488,12 @@ export class Game {
 
         this.scene.clearColor = new Color4(135/255,206/255,235/255, 1.0);
 
-        var camera = new UniversalCamera("camera1", new Vector3(10, 10, -50), this.scene);    
-        camera.setTarget(new Vector3(15,-15,30));
-        camera.attachControl(this.canvas, true);
-        camera.speed=0.1;
-        camera.minZ=0.1;
-        camera.angularSensibility=8000;
+        this.camera = new UniversalCamera("camera1", new Vector3(10, 10, -50), this.scene);    
+        this.camera.setTarget(new Vector3(15,-15,30));
+        this.camera.attachControl(this.canvas, true);
+        this.camera.speed=0.1;
+        this.camera.minZ=0.1;
+        this.camera.angularSensibility=8000;
         
         var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.5;
@@ -519,7 +517,7 @@ export class Game {
         blockMaterial.diffuseColor = new Color3(0.4, 0.4, 0.4);
         blockMaterial.freeze();
 
-        const blockUrl = "http://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABlocks&maxFeatures=50&outputFormat=application%2Fjson";
+        const blockUrl = "https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABlocks&outputFormat=application%2Fjson";
         const customBlockGenerator = new BuildingsCustom("blocks", blockUrl, ProjectionType.EPSG_3857, this.ourTS, this.scene);
         customBlockGenerator.doMerge = false;
         customBlockGenerator.defaultBuildingHeight = 0.1;
@@ -598,12 +596,16 @@ export class Game {
 
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program 
-        this.scene.debugLayer.show();
+        //this.scene.debugLayer.show();
     }
 
     // The main update loop will be executed once per frame before the scene is rendered
-    // modify camera flythrough?
+    // adjust fly speed based on height above ground
     private update(): void {
+         const clampedY=Scalar.Clamp(this.camera.position.y,0.1,5);
+        const percent=clampedY/5.0;
+        const speed=0.02+percent*0.15;
+        this.camera.speed=speed;       
     }
 
 }
