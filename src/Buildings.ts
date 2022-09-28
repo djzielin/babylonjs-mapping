@@ -50,14 +50,16 @@ export default abstract class Buildings {
 
     private requestsProcessedSinceCaughtUp = 0;
     protected ourGeoJSON: GeoJSON.GeoJSON;
-
+    private scene: Scene;
     public onCaughtUpObservable: Observable<boolean> = new Observable;
 
-    constructor(public name: string, protected tileSet: TileSet, protected scene: Scene) {
+    constructor(public name: string, protected tileSet: TileSet) {
+        this.scene=this.tileSet.scene;
+
         this.buildingMaterial = new StandardMaterial("buildingMaterial", this.scene);
         this.buildingMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
         this.buildingMaterial.freeze();
-        this.ourGeoJSON = new GeoJSON.GeoJSON(tileSet, scene);
+        this.ourGeoJSON = new GeoJSON.GeoJSON(tileSet, this.scene);
 
         const observer = this.scene.onBeforeRenderObservable.add(() => { //fire every frame
             this.processBuildingRequests();

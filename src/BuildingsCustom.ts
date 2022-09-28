@@ -14,8 +14,8 @@ export default class BuildingsCustom extends Buildings {
     private BuildingsOnTile: Map<string, GeoJSON.feature[]> = new Map();
 
 
-    constructor(name: string, public url: string, public projection: ProjectionType, tileSet: TileSet, scene: Scene) {
-        super(name, tileSet, scene);
+    constructor(name: string, public url: string, public projection: ProjectionType, tileSet: TileSet) {
+        super(name, tileSet);
     }
 
     private setupMap(request: BuildingRequest, topLevel: GeoJSON.topLevel) {

@@ -70,31 +70,45 @@ export default class TileSet {
     protected requestsProcessedSinceCaughtUp=0;
     public onCaughtUpObservable: Observable<boolean>=new Observable;
 
+    public numTiles: Vector2;
+    public tileWidth: number;
+    public meshPrecision: number;
+    private isGeometrySetup: boolean=false;
+
+    /**
+    * this doesn't do much, just sets up a linkage between our library and users main project
+    * @param scene the babylonjs scene, helps us get around a bug, where the main app and the library are in 2 different contexts
+    * @param engine see above description for scene
+    */
+    constructor(public scene: Scene, private engine: Engine) {
+
+        EngineStore._LastCreatedScene=this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
+        EngineStore.Instances.push(this.engine);
+
+        const observer = this.scene.onBeforeRenderObservable.add(() => { //fire every frame
+            this.processTileRequests();
+         });
+    }
+
     /**
     * setup a ground plane tile set. this sets up just the underlying meshes, but doesn't populate them with content yet
     * @param numTiles how many tiles in the x and y directions
     * @param tileWidth width in meters of a single tile
     * @param meshPrecision how many numTiles in each tile's mesh. need more for terrain type meshes, less if no height change on mesh. 
-    * @param scene the babylonjs scene, helps us get around a bug, where the main app and the library are in 2 different contexts
-    * @param engine see above description for scene
     */
-    constructor(public numTiles: Vector2, public tileWidth: number, public meshPrecision: number, public scene: Scene, private engine: Engine) {
+    public createGeometry( numTiles: Vector2,  tileWidth: number,  meshPrecision: number)
+    {        
+        this.numTiles=numTiles;
+        this.tileWidth=tileWidth;
+        this.meshPrecision=meshPrecision;
 
-        EngineStore._LastCreatedScene=this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
-        EngineStore.Instances.push(this.engine);
-
-        
-        //this.numTiles = new Vector2(numTiles,numTiles); //TODO: in future support differring tile numbers in X and Y
         this.totalWidthMeters=tileWidth*numTiles.x;
         this.totalHeightMeters=tileWidth*numTiles.y;
-
-        //this.tileWidth = this.totalWidthMeters / this.numTiles.x;
 
         this.xmin = -this.totalWidthMeters / 2;
         this.zmin = -this.totalHeightMeters / 2;
         this.xmax = this.totalWidthMeters / 2;
         this.zmax = this.totalHeightMeters / 2;
-
 
         for (let y = 0; y < this.numTiles.y; y++) {
             for (let x = 0; x < this.numTiles.x; x++) {
@@ -105,14 +119,12 @@ export default class TileSet {
             }
         }
 
-        //this.osmBuildings = new OpenStreetMapBuildings(this, this.scene);
-        this.ourMB = new MapBox(this, this.scene);      
+        this.ourMB = new MapBox(this, this.scene); //TODO: seems a bit clunky to have to instantiate this here
+
         this.ourAttribution = new Attribution(this.scene);
         this.ourTileMath= new TileMath(this);
 
-        const observer = this.scene.onBeforeRenderObservable.add(() => { //fire every frame
-            this.processTileRequests();
-         });
+        this.isGeometrySetup=true;
     }   
 
     protected prettyName(): string {
@@ -120,6 +132,10 @@ export default class TileSet {
     }
 
     public processTileRequests() {
+        if(this.isGeometrySetup==false){
+            return;
+        }
+
         if (this.tileRequests.length == 0) {
             if (this.requestsProcessedSinceCaughtUp > 0) {
                 console.log(this.prettyName() + "caught up on all tile generation requests! (processed " + this.requestsProcessedSinceCaughtUp + " requests)");

@@ -15,8 +15,8 @@ import { SliderLineComponent } from "@babylonjs/inspector/lines/sliderLineCompon
 export default class BuildingsOSM extends Buildings {
     private serverNum = 0;
 
-    constructor(tileSet: TileSet, scene: Scene) {
-        super("OSM", tileSet, scene);
+    constructor(tileSet: TileSet) {
+        super("OSM", tileSet);
     }
 
     public generateBuildings() {
