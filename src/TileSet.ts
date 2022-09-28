@@ -1,29 +1,23 @@
-//TODO: compile down to javascript as part of build process see links
-// https://dev.to/monisnap/5-min-typescript-npm-package-4ce4
-// https://itnext.io/step-by-step-building-and-publishing-an-npm-typescript-package-44fe7164964c
-
 import { Scene } from "@babylonjs/core/scene";
 import { Engine, EngineStore, BoundingBox } from "@babylonjs/core";
 import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math";
-
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
+import { AdvancedDynamicTexture } from "@babylonjs/gui";
+import { Observable } from "@babylonjs/core";
 
 import Tile from './Tile';
 import OpenStreetMap from "./OpenStreetMap";
 import MapBox from "./MapBox";
 import TileMath, { ProjectionType } from './TileMath';
-import OpenStreetMapBuildings from "./Buildings";
 import Attribution from "./Attribution";
 import Buildings from './Buildings';
 
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 import '@babylonjs/core/Debug/debugLayer';
-import { AdvancedDynamicTexture } from "@babylonjs/gui";
-import { Observable } from "@babylonjs/core";
 
 enum TileRequestType{
     LoadTile,
@@ -85,6 +79,10 @@ export default class TileSet {
         EngineStore._LastCreatedScene=this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
         EngineStore.Instances.push(this.engine);
 
+        this.ourMB = new MapBox(this, this.scene); //TODO: seems a bit clunky to have to instantiate this here
+        this.ourAttribution = new Attribution(this.scene);
+        this.ourTileMath= new TileMath(this);
+
         const observer = this.scene.onBeforeRenderObservable.add(() => { //fire every frame
             this.processTileRequests();
          });
@@ -118,11 +116,6 @@ export default class TileSet {
                 this.ourTiles.push(t);               
             }
         }
-
-        this.ourMB = new MapBox(this, this.scene); //TODO: seems a bit clunky to have to instantiate this here
-
-        this.ourAttribution = new Attribution(this.scene);
-        this.ourTileMath= new TileMath(this);
 
         this.isGeometrySetup=true;
     }   
@@ -211,6 +204,11 @@ export default class TileSet {
     * @param zoom standard tile mapping zoom levels 0 (whole earth) - 20 (building)
     */
     public updateRaster(lat: number, lon: number, zoom: number) {
+        if(this.isGeometrySetup==false){
+            console.error("can't updateRaster! geometry not setup yet!");
+            return;
+        }
+
         this.zoom = zoom;
         this.centerCoords = new Vector2(lon, lat); 
         this.tileCorner = this.ourTileMath.computeCornerTile(this.centerCoords,ProjectionType.EPSG_4326,this.zoom);

@@ -67,11 +67,11 @@ class Game {
     private async createScene() {
         this.scene.clearColor = new Color4(135/255,206/255,235/255, 1.0);
 
-        var camera = new UniversalCamera("camera1", new Vector3(0, 40, -80), this.scene);
+        var camera = new UniversalCamera("camera1", new Vector3(0, 800, -1500), this.scene);
         camera.setTarget(Vector3.Zero());
         camera.attachControl(this.canvas, true);
-        camera.speed=0.5;
-        camera.angularSensibility=8000;
+        camera.speed=10;
+        camera.angularSensibility=2000;
         
         var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.5;
@@ -80,8 +80,8 @@ class Game {
         light2.intensity=0.5;
 
         this.ourTS = new TileSet(this.scene,this.engine);
-        const tileSize=this.ourTS.ourTileMath.
-        this.ourTS.createGeometry(new Vector2(4,4), 20, 2);
+        const tileSize=this.ourTS.ourTileMath.computeTileRealWidthMeters(35.2258461, 16);
+        this.ourTS.createGeometry(new Vector2(4,4), tileSize, 2);
         this.ourTS.setRasterProvider("OSM");
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //charlotte
 
