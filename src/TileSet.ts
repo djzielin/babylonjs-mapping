@@ -72,23 +72,23 @@ export default class TileSet {
 
     /**
     * setup a ground plane tile set. this sets up just the underlying meshes, but doesn't populate them with content yet
-    * @param subdivisions how many tiles in the x and y directions
+    * @param numTiles how many tiles in the x and y directions
     * @param tileWidth width in meters of a single tile
-    * @param meshPrecision how many subdivisions in each tile's mesh. need more for terrain type meshes, less if no height change on mesh. 
+    * @param meshPrecision how many numTiles in each tile's mesh. need more for terrain type meshes, less if no height change on mesh. 
     * @param scene the babylonjs scene, helps us get around a bug, where the main app and the library are in 2 different contexts
     * @param engine see above description for scene
     */
-    constructor(public subdivisions: Vector2, public tileWidth: number, public meshPrecision: number, public scene: Scene, private engine: Engine) {
+    constructor(public numTiles: Vector2, public tileWidth: number, public meshPrecision: number, public scene: Scene, private engine: Engine) {
 
         EngineStore._LastCreatedScene=this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
         EngineStore.Instances.push(this.engine);
 
         
-        //this.subdivisions = new Vector2(subdivisions,subdivisions); //TODO: in future support differring tile numbers in X and Y
-        this.totalWidthMeters=tileWidth*subdivisions.x;
-        this.totalHeightMeters=tileWidth*subdivisions.y;
+        //this.numTiles = new Vector2(numTiles,numTiles); //TODO: in future support differring tile numbers in X and Y
+        this.totalWidthMeters=tileWidth*numTiles.x;
+        this.totalHeightMeters=tileWidth*numTiles.y;
 
-        //this.tileWidth = this.totalWidthMeters / this.subdivisions.x;
+        //this.tileWidth = this.totalWidthMeters / this.numTiles.x;
 
         this.xmin = -this.totalWidthMeters / 2;
         this.zmin = -this.totalHeightMeters / 2;
@@ -96,8 +96,8 @@ export default class TileSet {
         this.zmax = this.totalHeightMeters / 2;
 
 
-        for (let y = 0; y < this.subdivisions.y; y++) {
-            for (let x = 0; x < this.subdivisions.x; x++) {
+        for (let y = 0; y < this.numTiles.y; y++) {
+            for (let x = 0; x < this.numTiles.x; x++) {
                 const ground=this.makeSingleTileMesh(x,y,this.meshPrecision);
                 const t = new Tile();
                 t.mesh = ground;
@@ -206,8 +206,8 @@ export default class TileSet {
         //console.log("Tile Base: " + this.tileCorner);
 
         let tileIndex = 0;
-        for (let y = 0; y < this.subdivisions.y; y++) {
-            for (let x = 0; x < this.subdivisions.x; x++) {
+        for (let y = 0; y < this.numTiles.y; y++) {
+            for (let x = 0; x < this.numTiles.x; x++) {
                 const tileX = this.tileCorner.x + x;
                 const tileY = this.tileCorner.y - y;
                 const tile=this.ourTiles[tileIndex];
@@ -290,7 +290,7 @@ export default class TileSet {
         for (const t of this.ourTiles) {
             if (t.mesh.position.x<this.xmin){
                 console.log("Tile: " + t.tileCoords + " is below xMin");
-                this.moveHelper(t, new Vector3(this.totalWidthMeters,0,0), new Vector3(this.subdivisions.x,0,0), buildingCreator);
+                this.moveHelper(t, new Vector3(this.totalWidthMeters,0,0), new Vector3(this.numTiles.x,0,0), buildingCreator);
                 
                 tilesReloaded++;
                 if(tilesReloaded<reloadLimitPerFrame){
@@ -301,7 +301,7 @@ export default class TileSet {
             if(t.mesh.position.x>this.xmax){
                 console.log("Tile: " + t.tileCoords + " is above xMax");
                 
-                this.moveHelper(t, new Vector3(-this.totalWidthMeters,0,0), new Vector3(-this.subdivisions.x,0,0), buildingCreator);
+                this.moveHelper(t, new Vector3(-this.totalWidthMeters,0,0), new Vector3(-this.numTiles.x,0,0), buildingCreator);
                 
                 tilesReloaded++;
                 if(tilesReloaded<reloadLimitPerFrame){
@@ -311,7 +311,7 @@ export default class TileSet {
             if(t.mesh.position.z<this.zmin){
                 console.log("Tile: " + t.tileCoords + " is below zmin");
 
-                this.moveHelper(t, new Vector3(0,0,this.totalHeightMeters), new Vector3(0,-this.subdivisions.y,0), buildingCreator);
+                this.moveHelper(t, new Vector3(0,0,this.totalHeightMeters), new Vector3(0,-this.numTiles.y,0), buildingCreator);
                 
                 tilesReloaded++;
                 if(tilesReloaded<reloadLimitPerFrame){
@@ -321,7 +321,7 @@ export default class TileSet {
             if(t.mesh.position.z>this.zmax){
                 console.log("Tile: " + t.tileCoords + " is above zmax");
 
-                this.moveHelper(t, new Vector3(0,0,-this.totalHeightMeters), new Vector3(0,this.subdivisions.y,0), buildingCreator);
+                this.moveHelper(t, new Vector3(0,0,-this.totalHeightMeters), new Vector3(0,this.numTiles.y,0), buildingCreator);
                 
                 tilesReloaded++;
                 if(tilesReloaded<reloadLimitPerFrame){
