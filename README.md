@@ -7,7 +7,8 @@ Currently supported data sources include:
 * Mapbox (satellite and terrain)
 ![grand canyon with river at bottom](https://raw.githubusercontent.com/djzielin/babylonjs-mapping/main/doc/grand_canyon.jpg "Mapbox Terrain Demo")
 
-The "Hello World" of creating a OpenStreetMap tileset, along with extruded buildings is:
+
+The "Hello World" of creating an OpenStreetMap tileset, along with extruded buildings is:
 
 ```
 this.ourTS = new TileSet(this.scene,this.engine);
