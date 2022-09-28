@@ -50,8 +50,8 @@ export default class TileMath {
         let cornerTile = this.GetTilePosition(pos, projection, zoom);
         console.log("center tile: " + cornerTile);
 
-        cornerTile.x -= Math.floor(this.tileSet.subdivisions.x / 2); //use floor to handle odd tileset sizes
-        cornerTile.y += Math.floor(this.tileSet.subdivisions.y / 2);
+        cornerTile.x -= Math.floor(this.tileSet.numTiles.x / 2); //use floor to handle odd tileset sizes
+        cornerTile.y += Math.floor(this.tileSet.numTiles.y / 2);
 
         console.log("corner tile: " + cornerTile);
 
