@@ -1,7 +1,7 @@
 {
-    "name": "Web-Based-VR-Tutorial",
+    "name": "OpenStreetMap-UserData",
     "version": "1.0.0",
-    "description": "IEEE VR 2021 Web-Based VR Tutorial",
+    "description": "pull in user lat/lon data to create clickable info spots",
     "main": "index.ts",
     "dependencies": {
         "@babylonjs/core": "^5.6.0",
@@ -34,6 +34,6 @@
         "build": "npx webpack --config webpack.config-prod.js",
         "lint": "npx eslint . --ext .ts,.tsx"
     },
-    "author": "original template by Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>",
+    "author": "David J. Zielinski. original template by Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>",
     "license": "CC BY-NC-SA 4.0"
 }
