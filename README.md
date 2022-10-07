@@ -17,7 +17,7 @@ this.ourTS.setRasterProvider("OSM");
 this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //charlotte
 
 this.ourOSM=new BuildingsOSM(this.ourTS);
-this.ourOSM.doMerge=true;
+this.ourOSM.doMerge=true; //merge all buildings on a tile
 this.ourOSM.exaggeration=3;
 this.ourOSM.generateBuildings();
 ```
