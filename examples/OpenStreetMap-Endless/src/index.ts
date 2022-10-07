@@ -27,11 +27,7 @@ import * as GUI from "@babylonjs/gui/";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 
-import CsvData from "./CsvData";
-//import OpenStreetMap from "./babylonjs-mapping/OpenStreetMap";
-//import MapBox from "./babylonjs-mapping/MapBox";
 import BuildingsOSM from "babylonjs-mapping/lib/BuildingsOSM";
-
 import TileSet from "babylonjs-mapping";
 
 class Game {
@@ -39,7 +35,6 @@ class Game {
     private engine: Engine;
     private scene: Scene;
 
-    private ourCSV: CsvData;
     private ourTS: TileSet;
     private ourOSM: BuildingsOSM;
 
@@ -85,18 +80,7 @@ class Game {
    }
 
     private async createScene() {
-        /*
-        //from https://doc.babylonjs.com/divingDeeper/environment/skybox
-        var skybox = MeshBuilder.CreateBox("skyBox", { size: 1000.0 }, this.scene);
-        var skyboxMaterial = new StandardMaterial("skyBox", this.scene);
-        skyboxMaterial.backFaceCulling = false;
-        skyboxMaterial.reflectionTexture = new CubeTexture("textures/TropicalSunnyDay", this.scene);
-        //skyboxMaterial.reflectionTexture = new CubeTexture("textures/skybox", scene);
-        skyboxMaterial.reflectionTexture.coordinatesMode = Texture.SKYBOX_MODE;
-        skyboxMaterial.diffuseColor = new Color3(0, 0, 0);
-        skyboxMaterial.specularColor = new Color3(0, 0, 0);
-        skybox.material = skyboxMaterial;
-        */
+
         this.scene.clearColor = new Color4(135/255,206/255,235/255, 1.0);
 
         this.camera = new UniversalCamera("camera1", new Vector3(0, 10, 0), this.scene);
@@ -116,14 +100,15 @@ class Game {
         light2.intensity=0.5;
         light2.parent=this.camera;
 
-        this.ourCSV = new CsvData();
-        await this.ourCSV.processURL(window.location.href + "JCSU.csv");
 
-        this.ourTS = new TileSet(new Vector2(14,14), 25, 2, this.scene, this.engine);
+
+        this.ourTS = new TileSet(this.scene, this.engine);
+
+        this.ourTS.createGeometry(new Vector2(14,14), 25, 2);
         this.ourTS.setRasterProvider("OSM");
  
         this.ourTS.updateRaster(35.21, -80.8400777, 16); //charlotte
-        this.ourOSM=new BuildingsOSM(this.ourTS, this.scene);
+        this.ourOSM=new BuildingsOSM(this.ourTS);
         this.ourOSM.doMerge=true;
         this.ourOSM.exaggeration=3;
         this.ourOSM.generateBuildings();        
