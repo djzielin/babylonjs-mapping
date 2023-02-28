@@ -506,7 +506,8 @@ export class Game {
         this.ourBlackMaterial.diffuseColor = new Color3(0, 0, 0);
         this.ourBlackMaterial.freeze();
 
-        this.ourTS = new TileSet(new Vector2(4,4), 25, 2, this.scene,this.engine);
+        this.ourTS = new TileSet(this.scene,this.engine);
+        this.ourTS.createGeometry(new Vector2(4,4), 25, 2);
         this.ourTS.setRasterProvider("OSM");
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //charlotte
         this.advancedTexture = this.ourTS.getAdvancedDynamicTexture();
@@ -516,14 +517,14 @@ export class Game {
         blockMaterial.freeze();
 
         const blockUrl = "https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABlocks&outputFormat=application%2Fjson";
-        const customBlockGenerator = new BuildingsCustom("blocks", blockUrl, ProjectionType.EPSG_3857, this.ourTS, this.scene);
+        const customBlockGenerator = new BuildingsCustom("blocks", blockUrl, ProjectionType.EPSG_3857, this.ourTS);
         customBlockGenerator.doMerge = false;
         customBlockGenerator.defaultBuildingHeight = 0.1;
         customBlockGenerator.buildingMaterial = blockMaterial;
         customBlockGenerator.generateBuildings();
 
         const url="https://virtualblackcharlotte.net/geoserver/Charlotte/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=Charlotte%3ABuildings&outputFormat=application%2Fjson";
-        this.customBuildingGenerator=new BuildingsCustom("buildings", url, ProjectionType.EPSG_3857, this.ourTS,this.scene);
+        this.customBuildingGenerator=new BuildingsCustom("buildings", url, ProjectionType.EPSG_3857, this.ourTS);
         this.customBuildingGenerator.doMerge=false;
         this.customBuildingGenerator.generateBuildings();
 
@@ -573,13 +574,13 @@ export class Game {
             pgui.generateGUI(panel);
             this.propertyGUIs.push(pgui);
 
-            const pgui1=new PropertyGUI("Housing_co", this);
+            /*const pgui1=new PropertyGUI("Housing_co", this);
             pgui1.generateGUI(panel);
             this.propertyGUIs.push(pgui1);
 
             const pgui2 = new PropertyGUI("Additional", this);
             pgui2.generateGUI(panel);
-            this.propertyGUIs.push(pgui2);
+            this.propertyGUIs.push(pgui2);*/
 
             this.replaceSimpleBuildingsWithCustom().then(() => {
                 console.log("setting up buildings to be clickable now");

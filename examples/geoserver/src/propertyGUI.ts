@@ -11,7 +11,8 @@ import { Button } from "@babylonjs/gui/2D/controls/button";
 import { Control, Checkbox, ColorPicker} from "@babylonjs/gui/2D/controls"; 
 import { StackPanel, Rectangle, TextBlock } from "@babylonjs/gui/2D/controls"; 
 import {Game} from "./index";
-import TileSet from "../../../lib/TileSet";
+//import TileSet from "../../../lib/TileSet";
+import TileSet from "babylonjs-mapping";
 
 export default class PropertyGUI {
     private valuesFound: string[] = [];
