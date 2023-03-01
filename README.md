@@ -24,3 +24,6 @@ this.ourOSM.generateBuildings();
 
 This is published on NPM at:
 https://www.npmjs.com/package/babylonjs-mapping
+
+Note: when installing use Node v16.13.1
+The current Node LTS v18.14.2 FAILS!
