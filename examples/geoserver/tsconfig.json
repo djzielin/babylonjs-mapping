@@ -1,7 +1,7 @@
 {
 	"compilerOptions": {
-        "module": "es2020",
-    	"target": "es2018",
+        "module": "esNext",
+		"target": "es5",
 		"moduleResolution": "node",
 		"strict": true,
 		"noImplicitAny": true,
