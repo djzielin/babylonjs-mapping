@@ -4,7 +4,6 @@ var filePrefix="https://cdn.jsdelivr.net/gh/djzielin/babylonjs-mapping/lib/";
 var allFiles=[
     "Attribution.js",
     "Buildings.js",
-    "Buildings.js",
     "BuildingsOSM.js",
     "GeoJSON.js",
     "MapBox.js",
@@ -38,6 +37,8 @@ function checkIfAllLoaded(callbackFunction){
     if(numScriptsLoaded==allFiles.length){
         console.log("all babylonjs-mapping scripts are loaded!"); 
         callbackFunction();
+    } else{
+        console.log("only have: " + numScriptsLoaded + " loaded out of: " + allFiles.length);
     }
 }
 
