@@ -33,7 +33,7 @@ function loadSingleScript(url, callbackFunction){
     }
 }
 
-function checkIfAllLoaded(){
+function checkIfAllLoaded(callbackFunction){
     if(numScriptsLoaded==allFiles.length){
         console.log("all babylonjs-mapping scripts are loaded!"); 
         callbackFunction();
