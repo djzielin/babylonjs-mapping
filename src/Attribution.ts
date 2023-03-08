@@ -1,5 +1,4 @@
 import { Scene } from "@babylonjs/core/scene";
-import { Engine, EngineStore, FloatArray, Observable, ThinEngine, VertexBuffer } from "@babylonjs/core";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/";
 import { Button } from "@babylonjs/gui/2D/controls";
 import { Control } from "@babylonjs/gui/2D/controls"; 
@@ -17,7 +16,7 @@ export default class Attribution {
     private attributionList: string[]=[];
     private ourRightPanel: StackPanel;
     private ourLeftPanel: StackPanel;
-
+    
     constructor(private scene: Scene) {
         this.advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
