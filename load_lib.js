@@ -1,16 +1,17 @@
 //var filePrefix="https://raw.githubusercontent.com/djzielin/babylonjs-mapping/main/lib/"; //causes MIME type error
-var filePrefix="https://cdn.jsdelivr.net/gh/djzielin/babylonjs-mapping/lib/";
+var filePrefix="https://cdn.jsdelivr.net/gh/djzielin/babylonjs-mapping";
+
 
 var allFiles=[
-    "Attribution.js",
-    "Buildings.js",
-    "BuildingsOSM.js",
-    "GeoJSON.js",
-    "MapBox.js",
-    "OpenStreetMap.js",
-    "OpenStreetMapBuildings.js",
-    "Tile.js",
-    "TileMath.js",
+    "/lib/Attribution.js",
+    "/lib/Buildings.js",
+    "/lib/BuildingsOSM.js",
+    "/lib/GeoJSON.js",
+    "/lib/MapBox.js",
+    "/lib/OpenStreetMap.js",
+    "/lib/OpenStreetMapBuildings.js",
+    "/lib/Tile.js",
+    "/lib/TileMath.js",
     "TileSet.js",
 ];
 
@@ -42,10 +43,10 @@ function checkIfAllLoaded(callbackFunction){
     }
 }
 
-function loadAllMappingScripts(callbackFunction){
+function loadAllMappingScripts(commitVer,callbackFunction){
     console.log("trying to load all babylonjs-mapping scripts");
     for(const script of allFiles){
-        loadSingleScript(filePrefix+script,callbackFunction);
+        loadSingleScript(filePrefix+commitVer+script,callbackFunction);
     }
 }
 
