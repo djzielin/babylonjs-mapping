@@ -1,4 +1,5 @@
-var filePrefix="https://raw.githubusercontent.com/djzielin/babylonjs-mapping/main/lib/";
+//var filePrefix="https://raw.githubusercontent.com/djzielin/babylonjs-mapping/main/lib/"; //causes MIME type error
+var filePrefix="https://cdn.jsdelivr.net/gh/djzielin/babylonjs-mapping/lib/";
 
 var allFiles=[
     "Attribution.js",
