@@ -3,16 +3,16 @@ var filePrefix="https://cdn.jsdelivr.net/gh/djzielin/babylonjs-mapping";
 
 
 var allFiles=[
-    "/lib/Attribution.js",
-    "/lib/Buildings.js",
-    "/lib/BuildingsOSM.js",
-    "/lib/GeoJSON.js",
-    "/lib/MapBox.js",
+    //"/lib/Attribution.js",
+    //"/lib/Buildings.js",
+    //"/lib/BuildingsOSM.js",
+    //"/lib/GeoJSON.js",
+    //"/lib/MapBox.js",
     "/lib/OpenStreetMap.js",
-    "/lib/OpenStreetMapBuildings.js",
+    //"/lib/OpenStreetMapBuildings.js",
     "/lib/Tile.js",
     "/lib/TileMath.js",
-    "TileSet.js",
+    "/lib/TileSet.js"
 ];
 
 var numScriptsLoaded=0;

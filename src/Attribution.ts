@@ -5,7 +5,7 @@ import { Control } from "@babylonjs/gui/2D/controls";
 import { StackPanel, Rectangle, TextBlock } from "@babylonjs/gui/2D/controls"; 
 
 export default class Attribution {
-    public advancedTexture: AdvancedDynamicTexture;
+     public advancedTexture: AdvancedDynamicTexture;
 
     private buttonOSM: Button;
     private buttonMB: Button;
