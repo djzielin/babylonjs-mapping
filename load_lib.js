@@ -22,7 +22,8 @@ var numScriptsLoaded=0;
 function loadSingleScript(url, callbackFunction){
     console.log("trying to load: " + url);
     var s = document.createElement("script");
-    s.type = "text/javascript";
+    //s.type = "text/javascript";
+    s.type="module"; //per https://stackoverflow.com/questions/42237388/syntaxerror-import-declarations-may-only-appear-at-top-level-of-a-module
     s.src = url;
     document.head.appendChild(s);
 
