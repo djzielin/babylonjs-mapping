@@ -25,7 +25,7 @@ function loadSingleScript(url, callbackFunction){
     //s.type = "text/javascript";
     s.type="module"; //per https://stackoverflow.com/questions/42237388/syntaxerror-import-declarations-may-only-appear-at-top-level-of-a-module
     s.src = url;
-    document.head.appendChild(s);
+    document.body.appendChild(s); //should this be head or body?
 
     s.onload = function() {
         console.log(url + " has been loaded!");
