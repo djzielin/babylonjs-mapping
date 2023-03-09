@@ -20,16 +20,32 @@ var numScriptsLoaded = 0;
 //per documentation at: https://doc.babylonjs.com/toolsAndResources/thePlayground/externalPGAssets
 //per example at: https://playground.babylonjs.com/#WF3VKZ
 
-//TODO: check if script already on page to prevent double loading:
-// https://stackoverflow.com/questions/9659265/check-if-javascript-script-exists-on-page
+
+//per https://stackoverflow.com/questions/9659265/check-if-javascript-script-exists-on-page
+function isMyScriptLoaded(url) {
+    var scripts = document.getElementsByTagName('script');
+    for (var i = 0; i<scripts.length; i++) {
+        if (scripts[i].src == url) return true;
+    }
+    return false;
+}
+
 function loadSingleScript(url, attachPoint, callbackFunction) {
     console.log("trying to load: " + url);
+
+    var isLoaded=isMyScriptLoaded(url);
+
+    if(isLoaded){
+        console.log("script already present on page");
+        numScriptsLoaded++;
+        checkIfAllLoaded(callbackFunction);
+        return;
+    }
+
     var s = document.createElement("script");
-    //s.type = "text/javascript";
-    //s.type="module"; //per https://stackoverflow.com/questions/42237388/syntaxerror-import-declarations-may-only-appear-at-top-level-of-a-module
-    s.type = "text/javascript"; //see if this works?
+    s.type = "text/javascript"; 
     s.src = url;
-    attachPoint.head.appendChild(s); //should this be head or body?
+    attachPoint.head.appendChild(s); 
 
     s.onload = function () {
         console.log(url + " has been loaded!");
