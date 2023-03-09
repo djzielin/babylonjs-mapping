@@ -19,6 +19,9 @@ var numScriptsLoaded=0;
 
 //per documentation at: https://doc.babylonjs.com/toolsAndResources/thePlayground/externalPGAssets
 //per example at: https://playground.babylonjs.com/#WF3VKZ
+
+//TODO: check if script already on page to prevent double loading:
+// https://stackoverflow.com/questions/9659265/check-if-javascript-script-exists-on-page
 function loadSingleScript(url, callbackFunction,attachPoint){
     console.log("trying to load: " + url);
     var s = document.createElement("script");
