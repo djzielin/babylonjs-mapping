@@ -23,7 +23,8 @@ function loadSingleScript(url, callbackFunction,attachPoint){
     console.log("trying to load: " + url);
     var s = document.createElement("script");
     //s.type = "text/javascript";
-    s.type="module"; //per https://stackoverflow.com/questions/42237388/syntaxerror-import-declarations-may-only-appear-at-top-level-of-a-module
+    //s.type="module"; //per https://stackoverflow.com/questions/42237388/syntaxerror-import-declarations-may-only-appear-at-top-level-of-a-module
+    s.type="text/javascript"; //see if this works?
     s.src = url;
     attachPoint.appendChild(s); //should this be head or body?
 
