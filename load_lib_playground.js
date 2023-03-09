@@ -8,11 +8,11 @@ var allFiles = [
     //"/lib/BuildingsOSM.js",
     //"/lib/GeoJSON.js",
     //"/lib/MapBox.js",
-    "/lib/OpenStreetMap.js",
+    "/lib_playground/OpenStreetMap.js",
     //"/lib/OpenStreetMapBuildings.js",
-    "/lib/Tile.js",
-    "/lib/TileMath.js",
-    "/lib/TileSet.js"
+    "/lib_playground/Tile.js",
+    "/lib_playground/TileMath.js",
+    "/lib_playground/TileSet.js"
 ];
 
 var numScriptsLoaded = 0;
