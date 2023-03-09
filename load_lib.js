@@ -19,13 +19,13 @@ var numScriptsLoaded=0;
 
 //per documentation at: https://doc.babylonjs.com/toolsAndResources/thePlayground/externalPGAssets
 //per example at: https://playground.babylonjs.com/#WF3VKZ
-function loadSingleScript(url, callbackFunction){
+function loadSingleScript(url, callbackFunction,attachPoint){
     console.log("trying to load: " + url);
     var s = document.createElement("script");
     //s.type = "text/javascript";
     s.type="module"; //per https://stackoverflow.com/questions/42237388/syntaxerror-import-declarations-may-only-appear-at-top-level-of-a-module
     s.src = url;
-    document.head.appendChild(s); //should this be head or body?
+    attachPoint.appendChild(s); //should this be head or body?
 
     s.onload = function() {
         console.log(url + " has been loaded!");
@@ -43,10 +43,10 @@ function checkIfAllLoaded(callbackFunction){
     }
 }
 
-function loadAllMappingScripts(commitVer,callbackFunction){
+function loadAllMappingScripts(commitVer,callbackFunction,attachPoint){
     console.log("trying to load all babylonjs-mapping scripts");
     for(const script of allFiles){
-        loadSingleScript(filePrefix+commitVer+script,callbackFunction);
+        loadSingleScript(filePrefix+commitVer+script,callbackFunction,attachPoint);
     }
 }
 
