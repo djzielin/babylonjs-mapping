@@ -29,7 +29,7 @@ var BuildingRequestType;
         this.buildingMaterial = new BABYLON.StandardMaterial("buildingMaterial", this.scene);
         this.buildingMaterial.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8);
         this.buildingMaterial.freeze();
-        this.ourGeoJSON = new GeoJSON.GeoJSON(tileSet, this.scene);
+        this.ourGeoJSON = new GeoJSON(tileSet, this.scene);
         const observer = this.scene.onBeforeRenderObservable.add(() => {
             this.processBuildingRequests();
         });

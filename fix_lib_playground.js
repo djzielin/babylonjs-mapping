@@ -111,6 +111,15 @@ replace({
   silent: false,
 });
 
+replace({
+  regex: "new GeoJSON.GeoJSON",
+  replacement: "new GeoJSON",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});
+
+
 ///////////////////////////////////
 // GUI
 ///////////////////////////////////
