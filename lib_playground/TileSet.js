@@ -174,7 +174,7 @@ var TileRequestType;
             }
         }
         else {
-            material = new StandardMaterial("material" + tileX + "-" + tileY, this.scene);
+            material = new BABYLON.StandardMaterial("material" + tileX + "-" + tileY, this.scene);
             material.specularColor = new Color3(0, 0, 0);
             material.alpha = 1.0;
             tile.mesh.material = material;
