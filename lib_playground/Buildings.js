@@ -5,7 +5,7 @@
 
 //
 //
- BuildingRequestType;
+var BuildingRequestType;
 (function (BuildingRequestType) {
     BuildingRequestType[BuildingRequestType["LoadTile"] = 0] = "LoadTile";
     BuildingRequestType[BuildingRequestType["CreateBuilding"] = 1] = "CreateBuilding";

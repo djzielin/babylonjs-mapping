@@ -21,7 +21,7 @@ replace({
 //remove export statements
 replace({
   regex: "export var",
-  replacement: "",
+  replacement: "var",
   paths: ['./lib_playground/'],
   recursive: true,
   silent: false,
