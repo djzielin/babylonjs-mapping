@@ -96,6 +96,14 @@ replace({
 });
 
 replace({
+  regex: "Texture[.]",
+  replacement: "BABYLON.Texture.",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});
+
+replace({
   regex: "MeshBuilder[.]",
   replacement: "BABYLON.MeshBuilder.",
   paths: ['./lib_playground/'],

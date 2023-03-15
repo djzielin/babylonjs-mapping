@@ -99,8 +99,8 @@ var TileRequestType;
                         console.log(this.prettyName() + "tile raster is ready: " + request.url);
                         const material = request.mesh.material;
                         material.diffuseTexture = request.texture;
-                        material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
-                        material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
+                        material.diffuseBABYLON.Texture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
+                        material.diffuseBABYLON.Texture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
                         material.freeze(); //optimization
                         request.mesh.setEnabled(true); //show it!
                         this.requestsProcessedSinceCaughtUp++;

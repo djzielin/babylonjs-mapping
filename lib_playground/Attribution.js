@@ -6,21 +6,21 @@
     constructor(scene) {
         this.scene = scene;
         this.attributionList = [];
-        this.advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+        this.advancedTexture = AdvancedDynamicBABYLON.Texture.CreateFullscreenUI("UI");
         this.ourRightPanel = new BABYLON.GUI.StackPanel("attribution right panel");
         this.ourRightPanel.height = "25px";
         this.ourRightPanel.isVertical = false;
         this.ourRightPanel.paddingTopInPixels = 3;
         this.ourRightPanel.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.ourRightPanel.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.advancedTexture.addControl(this.ourRightPanel);
+        this.advancedBABYLON.Texture.addControl(this.ourRightPanel);
         this.ourLeftPanel = new BABYLON.GUI.StackPanel("attribution left panel");
         this.ourLeftPanel.height = "25px";
         this.ourLeftPanel.isVertical = false;
         this.ourLeftPanel.paddingTopInPixels = 3;
         this.ourLeftPanel.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.ourLeftPanel.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.advancedTexture.addControl(this.ourLeftPanel);
+        this.advancedBABYLON.Texture.addControl(this.ourLeftPanel);
     }
     addAttribution(provider) {
         //TODO: rewrite this as apparently includes is not in ES2015
