@@ -1,6 +1,6 @@
 //var filePrefix="https://raw.githubusercontent.com/djzielin/babylonjs-mapping/main/lib/"; //causes MIME type error
 var filePrefix = "https://cdn.jsdelivr.net/gh/djzielin/babylonjs-mapping";
-
+var commitVer = "";
 
 var allFiles = [
     "/lib_playground/Attribution.js",
@@ -54,31 +54,32 @@ function loadSingleScript(url, attachPoint, callbackFunction) {
         console.log(url + " has been loaded!");
         numScriptsLoaded++;
 
-        CheckIfAllLoaded(url, attachPoint, callbackFunction);
+        CheckIfAllLoaded(attachPoint, callbackFunction);
     }
 }
 
-function CheckIfAllLoaded(url, attachPoint, callbackFunction){
+function CheckIfAllLoaded(attachPoint, callbackFunction){
     if (numScriptsLoaded == allFiles.length) {
         console.log("all babylonjs-mapping scripts are loaded!");
         callbackFunction();
     } else {
         console.log("not done yet. only have: " + numScriptsLoaded + " loaded out of: " + allFiles.length);
         if(loadOneAtATime){
-            loadSingleScript(filePrefix + commitVer + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
+            loadSingleScript(filePrefix + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
         }
     }
 }
 
 function loadAllMappingScripts(commitVer, attachPoint, callbackFunction) {
     console.log("trying to load all babylonjs-mapping scripts");
+    filePrefix=firePrefix+commitVer;
 
     if(loadOneAtATime){
-        loadSingleScript(filePrefix + commitVer + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
+        loadSingleScript(filePrefix + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
     }
     else{
         for (const script of allFiles) {
-            loadSingleScript(filePrefix + commitVer + script, attachPoint, callbackFunction);
+            loadSingleScript(filePrefix + script, attachPoint, callbackFunction);
         }
     }
 }
