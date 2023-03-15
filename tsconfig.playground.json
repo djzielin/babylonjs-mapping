@@ -9,15 +9,15 @@
     "noImplicitThis": true,
     "strictNullChecks": true,
     "strictFunctionTypes": true,
-    "declaration": true,
+    "declaration": false,
     "skipLibCheck": true,
     "preserveConstEnums": true,
-    "sourceMap": true,
+    "sourceMap": false,
     "watch": false,
     "lib": ["es5", "dom", "es2015.promise", "es2015.collection", "es2015.iterable", "es2015.symbol.wellknown", "es2020.bigint", "es2017"],
     "strictPropertyInitialization": false,
     "allowSyntheticDefaultImports": true,
-    "outDir": "./lib"
+    "outDir": "./lib_playground"
   },
   "include": [
     "src"],

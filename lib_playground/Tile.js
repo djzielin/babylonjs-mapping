@@ -1,7 +1,7 @@
 //based on this example: https://www.babylonjs-playground.com/#866PVL#5
-//import "@babylonjs/core/Materials/standardMaterial"
-//import "@babylonjs/inspector";
-class Tile {
+//
+//
+ class Tile {
     constructor() {
         //////////////////////////////////
         // BUILDINGS
@@ -19,4 +19,3 @@ class Tile {
         this.buildings = [];
     }
 }
-//# sourceMappingURL=Tile.js.map

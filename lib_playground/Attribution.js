@@ -1,67 +1,46 @@
-import { Scene } from "@babylonjs/core/scene";
-import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/";
-import { Button } from "@babylonjs/gui/2D/controls";
-import { Control } from "@babylonjs/gui/2D/controls"; 
-import { StackPanel, Rectangle, TextBlock } from "@babylonjs/gui/2D/controls"; 
 
-export default class Attribution {
-     public advancedTexture: AdvancedDynamicTexture;
 
-    private buttonOSM: Button;
-    private buttonMB: Button;
-    private buttonMBLogo: Button;
-    private buttonImprov: Button;
-    private buttonOSMBuildings: Button;
 
-    private attributionList: string[]=[];
-    private ourRightPanel: StackPanel;
-    private ourLeftPanel: StackPanel;
-    
-    constructor(private scene: Scene) {
+
+ class Attribution {
+    constructor(scene) {
+        this.scene = scene;
+        this.attributionList = [];
         this.advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI");
-
         this.ourRightPanel = new StackPanel("attribution right panel");
         this.ourRightPanel.height = "25px";
         this.ourRightPanel.isVertical = false;
-        this.ourRightPanel.paddingTopInPixels=3;
+        this.ourRightPanel.paddingTopInPixels = 3;
         this.ourRightPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.ourRightPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.advancedTexture.addControl(this.ourRightPanel);
-
         this.ourLeftPanel = new StackPanel("attribution left panel");
         this.ourLeftPanel.height = "25px";
         this.ourLeftPanel.isVertical = false;
-        this.ourLeftPanel.paddingTopInPixels=3;
+        this.ourLeftPanel.paddingTopInPixels = 3;
         this.ourLeftPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.ourLeftPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.advancedTexture.addControl(this.ourLeftPanel);
     }
-
-    public addAttribution(provider: string) {
+    addAttribution(provider) {
         //TODO: rewrite this as apparently includes is not in ES2015
         /*if(this.attributionList.includes(provider)){
             return; //we already contain this provider
         }*/
-              
         if (provider == "MB") {
             this.addAttributionOSM();
             this.attributionList.push("OSM");
-
-            this.addAttributionMapbox();           
+            this.addAttributionMapbox();
         }
-
         if (provider == "OSM") {
             this.addAttributionOSM();
         }
-
         if (provider == "OSMB") {
             this.addAttributionOSMBuildings();
         }
-
         this.attributionList.push(provider);
     }
-    
-    private addAttributionOSM() {
+    addAttributionOSM() {
         this.buttonOSM = Button.CreateSimpleButton("button_osm", "© OpenStreetMap contributors");
         this.buttonOSM.width = "175px";
         this.buttonOSM.height = "25px";
@@ -75,11 +54,9 @@ export default class Attribution {
         this.buttonOSM.onPointerUpObservable.add(function () {
             window.open("https://www.openstreetmap.org/copyright");
         });
-
         this.ourRightPanel.addControl(this.buttonOSM);
-    }    
-
-    private addAttributionOSMBuildings() {
+    }
+    addAttributionOSMBuildings() {
         this.buttonOSMBuildings = Button.CreateSimpleButton("button_osm", "© OSM Buildings");
         this.buttonOSMBuildings.width = "100px";
         this.buttonOSMBuildings.height = "25px";
@@ -93,15 +70,12 @@ export default class Attribution {
         this.buttonOSMBuildings.onPointerUpObservable.add(function () {
             window.open("https://osmbuildings.org/copyright/");
         });
-
         this.ourRightPanel.addControl(this.buttonOSMBuildings);
-    }    
-
-
-    /* 
+    }
+    /*
        https://docs.mapbox.com/help/getting-started/attribution/
     */
-    private addAttributionMapbox() {
+    addAttributionMapbox() {
         this.buttonMB = Button.CreateSimpleButton("button_mb", "© Mapbox");
         this.buttonMB.width = "65px";
         //this.buttonMB.left = "-200px";
@@ -115,8 +89,7 @@ export default class Attribution {
         this.buttonMB.background = "";
         this.buttonMB.onPointerUpObservable.add(function () {
             window.open("https://www.mapbox.com/about/maps/");
-        });       
-
+        });
         this.buttonImprov = Button.CreateSimpleButton("button_improve", "Improve this map");
         this.buttonImprov.width = "100px";
         this.buttonImprov.height = "25px";
@@ -130,10 +103,8 @@ export default class Attribution {
         this.buttonImprov.onPointerUpObservable.add(function () {
             window.open("https://www.mapbox.com/map-feedback/");
         });
-
         //logo via https://commons.wikimedia.org/wiki/File:Mapbox_logo_2019.svg
         this.buttonMBLogo = Button.CreateImageOnlyButton("button_logo", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Mapbox_logo_2019.svg/320px-Mapbox_logo_2019.svg.png");
-
         this.buttonMBLogo.width = "99px";
         this.buttonMBLogo.height = "30px";
         this.buttonMBLogo.paddingBottom = "5px";
@@ -149,7 +120,6 @@ export default class Attribution {
         this.buttonMBLogo.onPointerUpObservable.add(function () {
             window.open("https://www.mapbox.com/about/maps/");
         });
-
         this.ourRightPanel.addControl(this.buttonMB);
         this.ourRightPanel.addControl(this.buttonImprov);
         this.ourLeftPanel.addControl(this.buttonMBLogo);

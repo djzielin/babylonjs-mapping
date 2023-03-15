@@ -1,29 +1,22 @@
-//import { EngineStore } from "@babylonjs/core";
-//import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math";
-//import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
-//import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-//import { Texture } from '@babylonjs/core/Materials/Textures/texture';
-//import { Observable } from "@babylonjs/core";
- 
-//import Tile from './Tile';
-//import OpenStreetMap from "./OpenStreetMap";
-//import MapBox from "./MapBox";
-//import TileMath, { ProjectionType } from './TileMath';
-//import Attribution from "./Attribution";
-//import "@babylonjs/core/Materials/standardMaterial";
-//import "@babylonjs/inspector";
-//import '@babylonjs/core/Debug/debugLayer';
- 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 var TileRequestType;
 (function (TileRequestType) {
     TileRequestType[TileRequestType["LoadTile"] = 0] = "LoadTile";
 })(TileRequestType || (TileRequestType = {}));
-
-function testPrint(){
-    console.log("test print");
-}
-
-class TileSet {
+ class TileSet {
     /**
     * this doesn't do much, just sets up a linkage between our library and users main project
     * @param scene the babylonjs scene, helps us get around a bug, where the main app and the library are in 2 different contexts
@@ -39,12 +32,12 @@ class TileSet {
         this.zoom = 0;
         this.tileRequests = [];
         this.requestsProcessedSinceCaughtUp = 0;
-        this.onCaughtUpObservable = new BABYLON.Observable;
+        this.onCaughtUpObservable = new Observable;
         this.isGeometrySetup = false;
-        BABYLON.EngineStore._LastCreatedScene = this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
-        BABYLON.EngineStore.Instances.push(this.engine);
-        //this.ourMB = new MapBox(this, this.scene); //TODO: seems a bit clunky to have to instantiate this here
-        //this.ourAttribution = new Attribution(this.scene);
+        EngineStore._LastCreatedScene = this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
+        EngineStore.Instances.push(this.engine);
+        this.ourMB = new MapBox(this, this.scene); //TODO: seems a bit clunky to have to instantiate this here
+        this.ourAttribution = new Attribution(this.scene);
         this.ourTileMath = new TileMath(this);
         const observer = this.scene.onBeforeRenderObservable.add(() => {
             this.processTileRequests();
@@ -96,7 +89,7 @@ class TileSet {
         if (request.requestType == TileRequestType.LoadTile) {
             if (request.inProgress == false) {
                 console.log(this.prettyName() + "trying to load tile raster: " + request.url);
-                request.texture = new BABYLON.Texture(request.url, this.scene);
+                request.texture = new Texture(request.url, this.scene);
                 request.inProgress = true;
                 return;
             }
@@ -106,8 +99,8 @@ class TileSet {
                         console.log(this.prettyName() + "tile raster is ready: " + request.url);
                         const material = request.mesh.material;
                         material.diffuseTexture = request.texture;
-                        material.diffuseTexture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
-                        material.diffuseTexture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+                        material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
+                        material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
                         material.freeze(); //optimization
                         request.mesh.setEnabled(true); //show it!
                         this.requestsProcessedSinceCaughtUp++;
@@ -118,11 +111,11 @@ class TileSet {
             }
         }
     }
-    //getAdvancedDynamicTexture() {
-    //    return this.ourAttribution.advancedTexture;
-    //}
+    getAdvancedDynamicTexture() {
+        return this.ourAttribution.advancedTexture;
+    }
     makeSingleTileMesh(x, y, precision) {
-        const ground = BABYLON.MeshBuilder.CreateGround("tile", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
+        const ground = MeshBuilder.CreateGround("tile", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
         ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
         ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
         //ground.bakeCurrentTransformIntoVertices(); //optimization
@@ -136,8 +129,8 @@ class TileSet {
     }
     setRasterProvider(providerName, accessToken) {
         this.rasterProvider = providerName;
-        this.accessToken = accessToken !== null && accessToken !== void 0 ? accessToken : "";
-        //this.ourMB.accessToken = this.accessToken;
+        this.accessToken = accessToken ?? "";
+        this.ourMB.accessToken = this.accessToken;
     }
     /**
     * update all the tiles in the tileset
@@ -154,7 +147,7 @@ class TileSet {
         this.centerCoords = new BABYLON.Vector2(lon, lat);
         this.tileCorner = this.ourTileMath.computeCornerTile(this.centerCoords, ProjectionType.EPSG_4326, this.zoom);
         this.tileScale = this.ourTileMath.computeTileScale();
-        //this.ourAttribution.addAttribution(this.rasterProvider);
+        this.ourAttribution.addAttribution(this.rasterProvider);
         //console.log("Tile Base: " + this.tileCorner);
         let tileIndex = 0;
         for (let y = 0; y < this.numTiles.y; y++) {
@@ -181,8 +174,8 @@ class TileSet {
             }
         }
         else {
-            material = new BABYLON.StandardMaterial("material" + tileX + "-" + tileY, this.scene);
-            material.specularColor = new BABYLON.Color3(0, 0, 0);
+            material = new StandardMaterial("material" + tileX + "-" + tileY, this.scene);
+            material.specularColor = new Color3(0, 0, 0);
             material.alpha = 1.0;
             tile.mesh.material = material;
             tile.material = material;
@@ -193,7 +186,7 @@ class TileSet {
             url = OpenStreetMap.getRasterURL(new BABYLON.Vector2(tileX, tileY), this.zoom);
         }
         else if (this.rasterProvider == "MB") {
-            //url = this.ourMB.getRasterURL(new Vector2(tileX, tileY), this.zoom, this.doRasterResBoost);
+            url = this.ourMB.getRasterURL(new BABYLON.Vector2(tileX, tileY), this.zoom, this.doRasterResBoost);
         }
         const request = {
             requestType: TileRequestType.LoadTile,
@@ -272,10 +265,9 @@ class TileSet {
         }
     }
     async generateTerrain(exaggeration) {
-        //await this.ourMB.updateAllTerrainTiles(exaggeration);
+        await this.ourMB.updateAllTerrainTiles(exaggeration);
     }
     getTerrainLowestY() {
-        //return this.ourMB.globalMinHeight;
+        return this.ourMB.globalMinHeight;
     }
 }
-//# sourceMappingURL=TileSet.js.map

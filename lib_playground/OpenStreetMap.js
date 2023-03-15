@@ -1,4 +1,4 @@
-class OpenStreetMap {
+ class OpenStreetMap {
     static getRasterURL(tileCoords, zoom) {
         const extension = ".png";
         const prefix = this.osmServers[this.index % 3];
@@ -9,4 +9,3 @@ class OpenStreetMap {
 }
 OpenStreetMap.osmServers = ["https://a.tile.openstreetmap.org/", "https://b.tile.openstreetmap.org/", "https://c.tile.openstreetmap.org/"];
 OpenStreetMap.index = 0;
-//# sourceMappingURL=OpenStreetMap.js.map

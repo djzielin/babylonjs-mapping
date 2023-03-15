@@ -1,15 +1,14 @@
-//import { Vector2 } from "@babylonjs/core/Maths/math";
-//import { Vector3 } from "@babylonjs/core/Maths/math";
-//import { BoundingBox } from "@babylonjs/core";
- 
-var ProjectionType;
+
+
+
+export var ProjectionType;
 (function (ProjectionType) {
     ProjectionType[ProjectionType["EPSG_3857"] = 0] = "EPSG_3857";
     ProjectionType[ProjectionType["EPSG_4326"] = 1] = "EPSG_4326";
 })(ProjectionType || (ProjectionType = {}));
-//import "@babylonjs/core/Materials/standardMaterial"
-//import "@babylonjs/inspector";
-class TileMath {
+//
+//
+ class TileMath {
     constructor(tileSet) {
         this.tileSet = tileSet;
     }
@@ -114,13 +113,13 @@ class TileMath {
             const tp = t.mesh.position;
             const tMax = tp.add(addMax);
             const tMin = tp.add(addMin);
-            const tileBox = new BABYLON.BoundingBox(tMin, tMax);
+            const tileBox = new BoundingBox(tMin, tMax);
             //console.log("box: " + tileBox.center + " " + tileBox.centerWorld);   
             if (tileBox.intersectsPoint(position)) {
                 //console.log("found a tile that can contain this building!");
                 return t;
             }
-            const dist = BABYLON.Vector3.Distance(tp, position);
+            const dist = Vector3.Distance(tp, position);
             if (dist < closestTileDistance) {
                 closestTile = t;
             }
@@ -129,4 +128,3 @@ class TileMath {
         return closestTile; //position wasn't inside tile, so we will send back the closest tile
     }
 }
-//# sourceMappingURL=TileMath.js.map
