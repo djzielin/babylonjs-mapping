@@ -40,7 +40,7 @@ function loadSingleScript(url, attachPoint, callbackFunction) {
         console.log("script already present on page");
         numScriptsLoaded++;
 
-        CheckIfAllLoaded(url, attachPoint, callbackFunction);
+        CheckIfAllLoaded(attachPoint, callbackFunction);
 
         return;
     }
