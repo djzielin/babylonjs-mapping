@@ -48,6 +48,14 @@ replace({
 });
 
 replace({
+  regex: "new Color3",
+  replacement: "new BABYLON.Color3",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});
+
+replace({
   regex: "new Vector2",
   replacement: "new BABYLON.Vector2",
   paths: ['./lib_playground/'],
