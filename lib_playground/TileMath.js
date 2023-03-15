@@ -1,7 +1,7 @@
 
 
 
-export var ProjectionType;
+ ProjectionType;
 (function (ProjectionType) {
     ProjectionType[ProjectionType["EPSG_3857"] = 0] = "EPSG_3857";
     ProjectionType[ProjectionType["EPSG_4326"] = 1] = "EPSG_4326";

@@ -18,6 +18,15 @@ replace({
   silent: false,
 });
 
+//remove export statements
+replace({
+  regex: "export var",
+  replacement: "",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});
+
 //////////////////////////////////////////////
 // Add BABYLON prefix to needed classes
 //////////////////////////////////////////////
