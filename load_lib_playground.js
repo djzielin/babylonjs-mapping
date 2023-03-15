@@ -79,6 +79,7 @@ function loadAllMappingScripts(commitVer, attachPoint, callbackFunction) {
     else{
         for (const script of allFiles) {
             loadSingleScript(filePrefix + commitVer + script, attachPoint, callbackFunction);
+        }
     }
 }
 
