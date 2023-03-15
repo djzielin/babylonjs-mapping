@@ -72,7 +72,7 @@ function CheckIfAllLoaded(attachPoint, callbackFunction){
 
 function loadAllMappingScripts(commitVer, attachPoint, callbackFunction) {
     console.log("trying to load all babylonjs-mapping scripts");
-    filePrefix=firePrefix+commitVer;
+    filePrefix=filePrefix+commitVer;
 
     if(loadOneAtATime){
         loadSingleScript(filePrefix + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
