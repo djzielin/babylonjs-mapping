@@ -142,7 +142,7 @@ class GeoJSON {
                 holeArray.push(hole);
             }
         }
-        window.earcut = Earcut;
+        
         var orientation = Mesh.DEFAULTSIDE;
         if (holeArray.length > 0) {
             orientation = Mesh.DOUBLESIDE; //otherwise we see inside the holes

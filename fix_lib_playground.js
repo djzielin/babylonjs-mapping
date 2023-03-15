@@ -36,6 +36,14 @@ replace({
   silent: false,
 });
 
+replace({
+  regex: "window.earcut = Earcut;",
+  replacement: "",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});
+
 //////////////////////////////////////////////
 // Add BABYLON prefix to needed classes
 //////////////////////////////////////////////
