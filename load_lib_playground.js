@@ -16,6 +16,7 @@ var allFiles = [
 ];
 
 var numScriptsLoaded = 0;
+var loadOneAtATime=false;
 
 //per documentation at: https://doc.babylonjs.com/toolsAndResources/thePlayground/externalPGAssets
 //per example at: https://playground.babylonjs.com/#WF3VKZ
@@ -63,14 +64,21 @@ function CheckIfAllLoaded(url, attachPoint, callbackFunction){
         callbackFunction();
     } else {
         console.log("not done yet. only have: " + numScriptsLoaded + " loaded out of: " + allFiles.length);
-        loadSingleScript(filePrefix + commitVer + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
-
+        if(loadOneAtATime){
+            loadSingleScript(filePrefix + commitVer + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
+        }
     }
 }
 
 function loadAllMappingScripts(commitVer, attachPoint, callbackFunction) {
     console.log("trying to load all babylonjs-mapping scripts");
 
-    loadSingleScript(filePrefix + commitVer + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
+    if(loadOneAtATime){
+        loadSingleScript(filePrefix + commitVer + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
+    }
+    else{
+        for (const script of allFiles) {
+            loadSingleScript(filePrefix + commitVer + script, attachPoint, callbackFunction);
+    }
 }
 
