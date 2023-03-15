@@ -111,7 +111,7 @@ var TileRequestType;
             }
         }
     }
-    getBABYLON.GUI.AdvancedDynamicTexture.) {
+    getAdvancedDynamicTexture() {
         return this.ourAttribution.advancedTexture;
     }
     makeSingleTileMesh(x, y, precision) {
