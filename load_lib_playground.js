@@ -24,7 +24,7 @@ var numScriptsLoaded = 0;
 //per https://stackoverflow.com/questions/9659265/check-if-javascript-script-exists-on-page
 function isMyScriptLoaded(url) {
     var scripts = document.getElementsByTagName('script');
-    for (var i = 0; i<scripts.length; i++) {
+    for (var i = 0; i < scripts.length; i++) {
         if (scripts[i].src == url) return true;
     }
     return false;
@@ -33,40 +33,46 @@ function isMyScriptLoaded(url) {
 function loadSingleScript(url, attachPoint, callbackFunction) {
     console.log("trying to load: " + url);
 
-    var isLoaded=isMyScriptLoaded(url);
+    var isLoaded = isMyScriptLoaded(url);
 
-    if(isLoaded){
+    if (isLoaded) {
         console.log("script already present on page");
         numScriptsLoaded++;
-        checkIfAllLoaded(callbackFunction);
+
+        if (numScriptsLoaded == allFiles.length) {
+            console.log("all babylonjs-mapping scripts are loaded!");
+            callbackFunction();
+        } else {
+            console.log("not done yet. only have: " + numScriptsLoaded + " loaded out of: " + allFiles.length);
+            loadSingleScript(filePrefix + commitVer + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
+        }
+
         return;
     }
 
     var s = document.createElement("script");
-    s.type = "text/javascript"; 
+    s.type = "text/javascript";
     s.src = url;
-    attachPoint.head.appendChild(s); 
+    attachPoint.head.appendChild(s);
 
     s.onload = function () {
         console.log(url + " has been loaded!");
         numScriptsLoaded++;
-        checkIfAllLoaded(callbackFunction);
-    }
-}
 
-function checkIfAllLoaded(callbackFunction) {
-    if (numScriptsLoaded == allFiles.length) {
-        console.log("all babylonjs-mapping scripts are loaded!");
-        callbackFunction();
-    } else {
-        console.log("not done yet. only have: " + numScriptsLoaded + " loaded out of: " + allFiles.length);
+        if (numScriptsLoaded == allFiles.length) {
+            console.log("all babylonjs-mapping scripts are loaded!");
+            callbackFunction();
+        } else {
+            console.log("not done yet. only have: " + numScriptsLoaded + " loaded out of: " + allFiles.length);
+            loadSingleScript(filePrefix + commitVer + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
+
+        }
     }
 }
 
 function loadAllMappingScripts(commitVer, attachPoint, callbackFunction) {
     console.log("trying to load all babylonjs-mapping scripts");
-    for (const script of allFiles) {
-        loadSingleScript(filePrefix + commitVer + script, attachPoint, callbackFunction);
-    }
+
+    loadSingleScript(filePrefix + commitVer + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
 }
 
