@@ -115,7 +115,7 @@ var TileRequestType;
         return this.ourAttribution.advancedTexture;
     }
     makeSingleTileMesh(x, y, precision) {
-        const ground = MeshBuilder.CreateGround("tile", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
+        const ground = BABYLON.MeshBuilder.CreateGround("tile", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
         ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
         ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
         //ground.bakeCurrentTransformIntoVertices(); //optimization

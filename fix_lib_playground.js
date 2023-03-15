@@ -71,6 +71,14 @@ replace({
   silent: false,
 });
 
+replace({
+  regex: "MeshBuilder[.]",
+  replacement: "BABYLON.MeshBuilder.",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});
+
 ///////////////////////////////////
 // GUI
 ///////////////////////////////////

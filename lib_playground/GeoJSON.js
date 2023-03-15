@@ -148,7 +148,7 @@ class GeoJSON {
             orientation = Mesh.DOUBLESIDE; //otherwise we see inside the holes
         }
         const heightScaleFixer = exaggeration * this.tileSet.tileScale;
-        const ourMesh = MeshBuilder.ExtrudePolygon("extruded polygon", {
+        const ourMesh = BABYLON.MeshBuilder.ExtrudePolygon("extruded polygon", {
             shape: positions3D,
             depth: height * heightScaleFixer,
             holes: holeArray,
