@@ -21,8 +21,9 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc",
-    "clean": "rimraf ./lib"
+    "build": "tsc --build tsconfig.npm.json",
+    "clean": "rimraf ./lib",
+    "clean:playground": "rimraf ./lib_playground"
   },
   "repository": {
     "type": "git",
