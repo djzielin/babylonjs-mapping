@@ -91,7 +91,7 @@ class GeoJSON {
                 finalMesh.name = name;
             }
             else {
-                const merged = Mesh.MergeMeshes(allMeshes);
+                const merged =BABYLON.Mesh.MergeMeshes(allMeshes);
                 if (merged) {
                     merged.name = name;
                     finalMesh = merged;
@@ -143,9 +143,9 @@ class GeoJSON {
             }
         }
         
-        var orientation = Mesh.DEFAULTSIDE;
+        var orientation =BABYLON.Mesh.DEFAULTSIDE;
         if (holeArray.length > 0) {
-            orientation = Mesh.DOUBLESIDE; //otherwise we see inside the holes
+            orientation =BABYLON.Mesh.DOUBLESIDE; //otherwise we see inside the holes
         }
         const heightScaleFixer = exaggeration * this.tileSet.tileScale;
         const ourMesh =BABYLON.MeshBuilder.ExtrudePolygon("extruded polygon", {

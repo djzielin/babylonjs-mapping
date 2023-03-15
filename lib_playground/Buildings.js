@@ -188,7 +188,7 @@ var BuildingRequestType;
                         }
                     }
                     //console.log("about to do big merge");
-                    const merged = Mesh.MergeMeshes(request.tile.buildings);
+                    const merged =BABYLON.Mesh.MergeMeshes(request.tile.buildings);
                     if (merged) {
                         merged.setParent(request.tile.mesh);
                         merged.name = "all_buildings_merged";

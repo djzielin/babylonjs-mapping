@@ -120,6 +120,14 @@ replace({
 });
 
 replace({
+  regex: "[ \t]Mesh[.]",
+  replacement: "BABYLON.Mesh.",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});
+
+replace({
   regex: "new GeoJSON.GeoJSON",
   replacement: "new GeoJSON",
   paths: ['./lib_playground/'],
