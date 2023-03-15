@@ -32,7 +32,7 @@ var TileRequestType;
         this.zoom = 0;
         this.tileRequests = [];
         this.requestsProcessedSinceCaughtUp = 0;
-        this.onCaughtUpObservable = new Observable;
+        this.onCaughtUpObservable = new BABYLON.Observable;
         this.isGeometrySetup = false;
         EngineStore._LastCreatedScene = this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
         EngineStore.Instances.push(this.engine);

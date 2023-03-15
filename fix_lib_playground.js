@@ -54,3 +54,11 @@ replace({
   recursive: true,
   silent: false,
 });
+
+replace({
+  regex: "new Observable",
+  replacement: "new BABYLON.Observable",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});

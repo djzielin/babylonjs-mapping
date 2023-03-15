@@ -4,7 +4,7 @@
 //
 //
  class MapBox {
-    //public onAllLoaded: Observable<boolean> = new Observable();
+    //public onAllLoaded: Observable<boolean> = new BABYLON.Observable();
     constructor(tileSet, scene) {
         //sku code generation from:
         //https://github.com/mapbox/mapbox-gl-js/blob/992514ac5471c1231d8a1951bc6752a65aa9e3e6/src/util/sku_token.js

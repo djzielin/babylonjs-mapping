@@ -24,7 +24,7 @@ var BuildingRequestType;
         this.buildingRequests = [];
         this.filesLoaded = [];
         this.requestsProcessedSinceCaughtUp = 0;
-        this.onCaughtUpObservable = new Observable;
+        this.onCaughtUpObservable = new BABYLON.Observable;
         this.scene = this.tileSet.scene;
         this.buildingMaterial = new StandardMaterial("buildingMaterial", this.scene);
         this.buildingMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
