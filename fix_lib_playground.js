@@ -64,7 +64,7 @@ replace({
 });
 
 replace({
-  regex: "EngineStore.",
+  regex: "EngineStore\.",
   replacement: "BABYLON.EngineStore.",
   paths: ['./lib_playground/'],
   recursive: true,
@@ -72,7 +72,7 @@ replace({
 });
 
 replace({
-  regex: "AdvancedDynamicTexture.",
+  regex: "AdvancedDynamicTexture\.",
   replacement: "BABYLON.GUI.AdvancedDynamicTexture.",
   paths: ['./lib_playground/'],
   recursive: true,
@@ -80,7 +80,7 @@ replace({
 });
 
 replace({
-  regex: "Button.",
+  regex: "Button\.",
   replacement: "BABYLON.GUI.Button.",
   paths: ['./lib_playground/'],
   recursive: true,
