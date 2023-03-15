@@ -88,7 +88,7 @@ replace({
 });
 
 replace({
-  regex: "EngineStore[.]",
+  regex: "[ \t]EngineStore[.]",
   replacement: "BABYLON.EngineStore.",
   paths: ['./lib_playground/'],
   recursive: true,
@@ -96,7 +96,7 @@ replace({
 });
 
 replace({
-  regex: "Texture[.]",
+  regex: "[ \t]Texture[.]",
   replacement: "BABYLON.Texture.",
   paths: ['./lib_playground/'],
   recursive: true,
@@ -104,7 +104,7 @@ replace({
 });
 
 replace({
-  regex: "MeshBuilder[.]",
+  regex: "[ \t]MeshBuilder[.]",
   replacement: "BABYLON.MeshBuilder.",
   paths: ['./lib_playground/'],
   recursive: true,

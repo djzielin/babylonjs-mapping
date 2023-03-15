@@ -34,8 +34,8 @@ var TileRequestType;
         this.requestsProcessedSinceCaughtUp = 0;
         this.onCaughtUpObservable = new BABYLON.Observable;
         this.isGeometrySetup = false;
-        BABYLON.EngineStore._LastCreatedScene = this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
-        BABYLON.EngineStore.Instances.push(this.engine);
+       BABYLON.EngineStore._LastCreatedScene = this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
+       BABYLON.EngineStore.Instances.push(this.engine);
         this.ourMB = new MapBox(this, this.scene); //TODO: seems a bit clunky to have to instantiate this here
         this.ourAttribution = new Attribution(this.scene);
         this.ourTileMath = new TileMath(this);
@@ -99,8 +99,8 @@ var TileRequestType;
                         console.log(this.prettyName() + "tile raster is ready: " + request.url);
                         const material = request.mesh.material;
                         material.diffuseTexture = request.texture;
-                        material.diffuseBABYLON.Texture.wrapU = BABYLON.Texture.CLAMP_ADDRESSMODE;
-                        material.diffuseBABYLON.Texture.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+                        material.diffuseTexture.wrapU =BABYLON.Texture.CLAMP_ADDRESSMODE;
+                        material.diffuseTexture.wrapV =BABYLON.Texture.CLAMP_ADDRESSMODE;
                         material.freeze(); //optimization
                         request.mesh.setEnabled(true); //show it!
                         this.requestsProcessedSinceCaughtUp++;
@@ -115,7 +115,7 @@ var TileRequestType;
         return this.ourAttribution.advancedTexture;
     }
     makeSingleTileMesh(x, y, precision) {
-        const ground = BABYLON.MeshBuilder.CreateGround("tile", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
+        const ground =BABYLON.MeshBuilder.CreateGround("tile", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
         ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
         ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
         //ground.bakeCurrentTransformIntoVertices(); //optimization
