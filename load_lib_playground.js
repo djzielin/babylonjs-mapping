@@ -3,13 +3,13 @@ var filePrefix = "https://cdn.jsdelivr.net/gh/djzielin/babylonjs-mapping";
 
 
 var allFiles = [
-    "/lib/Attribution.js",
-    "/lib/Buildings.js",
-    "/lib/BuildingsOSM.js",
-    "/lib/GeoJSON.js",
-    "/lib/MapBox.js",
+    "/lib_playground/Attribution.js",
+    "/lib_playground/Buildings.js",
+    "/lib_playground/BuildingsOSM.js",
+    "/lib_playground/GeoJSON.js",
+    "/lib_playground/MapBox.js",
     "/lib_playground/OpenStreetMap.js",
-    "/lib/OpenStreetMapBuildings.js",
+    "/lib_playground/OpenStreetMapBuildings.js",
     "/lib_playground/Tile.js",
     "/lib_playground/TileMath.js",
     "/lib_playground/TileSet.js"
