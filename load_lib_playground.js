@@ -39,13 +39,7 @@ function loadSingleScript(url, attachPoint, callbackFunction) {
         console.log("script already present on page");
         numScriptsLoaded++;
 
-        if (numScriptsLoaded == allFiles.length) {
-            console.log("all babylonjs-mapping scripts are loaded!");
-            callbackFunction();
-        } else {
-            console.log("not done yet. only have: " + numScriptsLoaded + " loaded out of: " + allFiles.length);
-            loadSingleScript(filePrefix + commitVer + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
-        }
+        CheckIfAllLoaded(url, attachPoint, callbackFunction);
 
         return;
     }
@@ -59,14 +53,18 @@ function loadSingleScript(url, attachPoint, callbackFunction) {
         console.log(url + " has been loaded!");
         numScriptsLoaded++;
 
-        if (numScriptsLoaded == allFiles.length) {
-            console.log("all babylonjs-mapping scripts are loaded!");
-            callbackFunction();
-        } else {
-            console.log("not done yet. only have: " + numScriptsLoaded + " loaded out of: " + allFiles.length);
-            loadSingleScript(filePrefix + commitVer + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
+        CheckIfAllLoaded(url, attachPoint, callbackFunction);
+    }
+}
 
-        }
+function CheckIfAllLoaded(url, attachPoint, callbackFunction){
+    if (numScriptsLoaded == allFiles.length) {
+        console.log("all babylonjs-mapping scripts are loaded!");
+        callbackFunction();
+    } else {
+        console.log("not done yet. only have: " + numScriptsLoaded + " loaded out of: " + allFiles.length);
+        loadSingleScript(filePrefix + commitVer + allFiles[numScriptsLoaded], attachPoint, callbackFunction);
+
     }
 }
 
