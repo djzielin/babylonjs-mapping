@@ -22,6 +22,10 @@ this.ourOSM.exaggeration=3;
 this.ourOSM.generateBuildings();
 ```
 
+New (as of 3/14/2023)
+Try the "Hello World" in the BabylonJS Plaground 
+https://playground.babylonjs.com/#XJVMUY
+
 This is published on NPM at:
 https://www.npmjs.com/package/babylonjs-mapping
 
