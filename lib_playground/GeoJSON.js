@@ -3,7 +3,7 @@
 
 
 
-export class GeoJSON {
+class GeoJSON {
     constructor(tileSet, scene) {
         this.tileSet = tileSet;
         this.scene = scene;

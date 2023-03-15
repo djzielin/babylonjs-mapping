@@ -27,6 +27,15 @@ replace({
   silent: false,
 });
 
+//remove export statements
+replace({
+  regex: "export class",
+  replacement: "class",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});
+
 //////////////////////////////////////////////
 // Add BABYLON prefix to needed classes
 //////////////////////////////////////////////
