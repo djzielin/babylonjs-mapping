@@ -6,7 +6,7 @@
     constructor(scene) {
         this.scene = scene;
         this.attributionList = [];
-        this.advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI");
+        this.advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
         this.ourRightPanel = new StackPanel("attribution right panel");
         this.ourRightPanel.height = "25px";
         this.ourRightPanel.isVertical = false;
@@ -41,7 +41,7 @@
         this.attributionList.push(provider);
     }
     addAttributionOSM() {
-        this.buttonOSM = Button.CreateSimpleButton("button_osm", "© OpenStreetMap contributors");
+        this.buttonOSM = BABYLON.GUI.Button.CreateSimpleBABYLON.GUI.Button."button_osm", "© OpenStreetMap contributors");
         this.buttonOSM.width = "175px";
         this.buttonOSM.height = "25px";
         this.buttonOSM.color = "blue";
@@ -57,7 +57,7 @@
         this.ourRightPanel.addControl(this.buttonOSM);
     }
     addAttributionOSMBuildings() {
-        this.buttonOSMBuildings = Button.CreateSimpleButton("button_osm", "© OSM Buildings");
+        this.buttonOSMBuildings = BABYLON.GUI.Button.CreateSimpleBABYLON.GUI.Button."button_osm", "© OSM Buildings");
         this.buttonOSMBuildings.width = "100px";
         this.buttonOSMBuildings.height = "25px";
         this.buttonOSMBuildings.color = "blue";
@@ -76,7 +76,7 @@
        https://docs.mapbox.com/help/getting-started/attribution/
     */
     addAttributionMapbox() {
-        this.buttonMB = Button.CreateSimpleButton("button_mb", "© Mapbox");
+        this.buttonMB = BABYLON.GUI.Button.CreateSimpleBABYLON.GUI.Button."button_mb", "© Mapbox");
         this.buttonMB.width = "65px";
         //this.buttonMB.left = "-200px";
         this.buttonMB.height = "25px";
@@ -90,7 +90,7 @@
         this.buttonMB.onPointerUpObservable.add(function () {
             window.open("https://www.mapbox.com/about/maps/");
         });
-        this.buttonImprov = Button.CreateSimpleButton("button_improve", "Improve this map");
+        this.buttonImprov = BABYLON.GUI.Button.CreateSimpleBABYLON.GUI.Button."button_improve", "Improve this map");
         this.buttonImprov.width = "100px";
         this.buttonImprov.height = "25px";
         this.buttonImprov.color = "blue";
@@ -104,7 +104,7 @@
             window.open("https://www.mapbox.com/map-feedback/");
         });
         //logo via https://commons.wikimedia.org/wiki/File:Mapbox_logo_2019.svg
-        this.buttonMBLogo = Button.CreateImageOnlyButton("button_logo", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Mapbox_logo_2019.svg/320px-Mapbox_logo_2019.svg.png");
+        this.buttonMBLogo = BABYLON.GUI.Button.CreateImageOnlyBABYLON.GUI.Button."button_logo", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Mapbox_logo_2019.svg/320px-Mapbox_logo_2019.svg.png");
         this.buttonMBLogo.width = "99px";
         this.buttonMBLogo.height = "30px";
         this.buttonMBLogo.paddingBottom = "5px";

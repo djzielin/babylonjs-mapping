@@ -70,3 +70,21 @@ replace({
   recursive: true,
   silent: false,
 });
+
+replace({
+  regex: "AdvancedDynamicTexture.",
+  replacement: "BABYLON.GUI.AdvancedDynamicTexture.",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});
+
+replace({
+  regex: "Button.",
+  replacement: "BABYLON.GUI.Button.",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});
+
+
