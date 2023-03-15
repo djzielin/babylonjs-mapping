@@ -7,19 +7,19 @@
         this.scene = scene;
         this.attributionList = [];
         this.advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
-        this.ourRightPanel = new StackPanel("attribution right panel");
+        this.ourRightPanel = new BABYLON.GUI.StackPanel("attribution right panel");
         this.ourRightPanel.height = "25px";
         this.ourRightPanel.isVertical = false;
         this.ourRightPanel.paddingTopInPixels = 3;
-        this.ourRightPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.ourRightPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.ourRightPanel.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.ourRightPanel.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.advancedTexture.addControl(this.ourRightPanel);
-        this.ourLeftPanel = new StackPanel("attribution left panel");
+        this.ourLeftPanel = new BABYLON.GUI.StackPanel("attribution left panel");
         this.ourLeftPanel.height = "25px";
         this.ourLeftPanel.isVertical = false;
         this.ourLeftPanel.paddingTopInPixels = 3;
-        this.ourLeftPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.ourLeftPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.ourLeftPanel.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.ourLeftPanel.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.advancedTexture.addControl(this.ourLeftPanel);
     }
     addAttribution(provider) {
@@ -47,8 +47,8 @@
         this.buttonOSM.color = "blue";
         this.buttonOSM.alpha = 0.75;
         this.buttonOSM.thickness = 0;
-        this.buttonOSM.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.buttonOSM.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.buttonOSM.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.buttonOSM.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.buttonOSM.fontSize = "12px";
         this.buttonOSM.background = "";
         this.buttonOSM.onPointerUpObservable.add(function () {
@@ -63,8 +63,8 @@
         this.buttonOSMBuildings.color = "blue";
         this.buttonOSMBuildings.alpha = 0.75;
         this.buttonOSMBuildings.thickness = 0;
-        this.buttonOSMBuildings.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.buttonOSMBuildings.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.buttonOSMBuildings.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.buttonOSMBuildings.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.buttonOSMBuildings.fontSize = "12px";
         this.buttonOSMBuildings.background = "";
         this.buttonOSMBuildings.onPointerUpObservable.add(function () {
@@ -83,8 +83,8 @@
         this.buttonMB.color = "blue";
         this.buttonMB.alpha = 0.75;
         this.buttonMB.thickness = 0;
-        //this.buttonMB.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        //this.buttonMB.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        //this.buttonMB.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        //this.buttonMB.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.buttonMB.fontSize = "12px";
         this.buttonMB.background = "";
         this.buttonMB.onPointerUpObservable.add(function () {
@@ -96,8 +96,8 @@
         this.buttonImprov.color = "blue";
         this.buttonImprov.alpha = 0.75;
         this.buttonImprov.thickness = 0;
-        //this.buttonImprov.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        //this.buttonImprov.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        //this.buttonImprov.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        //this.buttonImprov.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.buttonImprov.fontSize = "12px";
         this.buttonImprov.background = "";
         this.buttonImprov.onPointerUpObservable.add(function () {
@@ -114,8 +114,8 @@
         this.buttonMBLogo.background = "";
         this.buttonMBLogo.alpha = 0.75;
         this.buttonMBLogo.thickness = 0;
-        //this.buttonMBLogo.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        //this.buttonMBLogo.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        //this.buttonMBLogo.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+        //this.buttonMBLogo.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.buttonMBLogo.fontSize = "12px";
         this.buttonMBLogo.onPointerUpObservable.add(function () {
             window.open("https://www.mapbox.com/about/maps/");

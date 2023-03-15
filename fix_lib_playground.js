@@ -71,6 +71,18 @@ replace({
   silent: false,
 });
 
+///////////////////////////////////
+// GUI
+///////////////////////////////////
+
+replace({
+  regex: "new StackPanel",
+  replacement: "new BABYLON.GUI.StackPanel",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});
+
 replace({
   regex: "AdvancedDynamicTexture[.]",
   replacement: "BABYLON.GUI.AdvancedDynamicTexture.",
@@ -87,4 +99,11 @@ replace({
   silent: false,
 });
 
+replace({
+  regex: "Control[.]",
+  replacement: "BABYLON.GUI.Control.",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});
 
