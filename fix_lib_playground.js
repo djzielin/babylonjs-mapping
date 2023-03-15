@@ -62,3 +62,11 @@ replace({
   recursive: true,
   silent: false,
 });
+
+replace({
+  regex: "EngineStore.",
+  replacement: "BABYLON.EngineStore.",
+  paths: ['./lib_playground/'],
+  recursive: true,
+  silent: false,
+});

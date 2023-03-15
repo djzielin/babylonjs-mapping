@@ -34,8 +34,8 @@ var TileRequestType;
         this.requestsProcessedSinceCaughtUp = 0;
         this.onCaughtUpObservable = new BABYLON.Observable;
         this.isGeometrySetup = false;
-        EngineStore._LastCreatedScene = this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
-        EngineStore.Instances.push(this.engine);
+        BABYLON.EngineStore._LastCreatedScene = this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
+        BABYLON.EngineStore.Instances.push(this.engine);
         this.ourMB = new MapBox(this, this.scene); //TODO: seems a bit clunky to have to instantiate this here
         this.ourAttribution = new Attribution(this.scene);
         this.ourTileMath = new TileMath(this);
