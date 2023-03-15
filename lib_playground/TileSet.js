@@ -89,7 +89,7 @@ var TileRequestType;
         if (request.requestType == TileRequestType.LoadTile) {
             if (request.inProgress == false) {
                 console.log(this.prettyName() + "trying to load tile raster: " + request.url);
-                request.texture = new Texture(request.url, this.scene);
+                request.texture = new BABYLON.Texture(request.url, this.scene);
                 request.inProgress = true;
                 return;
             }

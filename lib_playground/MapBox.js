@@ -46,7 +46,7 @@
     //https://www.babylonjs-playground.com/#DXARSP#30
     GetAsyncTexture(url) {
         return new Promise((resolve, reject) => {
-            var texture = new Texture(url, this.scene, true, false, Texture.NEAREST_SAMPLINGMODE, function () {
+            var texture = new BABYLON.Texture(url, this.scene, true, false, Texture.NEAREST_SAMPLINGMODE, function () {
                 console.log("loading texture success!");
                 resolve(texture);
             }, function (message) {
