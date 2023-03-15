@@ -16,7 +16,7 @@ var allFiles = [
 ];
 
 var numScriptsLoaded = 0;
-var loadOneAtATime=false;
+var loadOneAtATime=true;
 
 //per documentation at: https://doc.babylonjs.com/toolsAndResources/thePlayground/externalPGAssets
 //per example at: https://playground.babylonjs.com/#WF3VKZ
