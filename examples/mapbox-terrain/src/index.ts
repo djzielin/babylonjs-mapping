@@ -108,8 +108,9 @@ class Game {
         var light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         light2.intensity=0.5;        
 
-        this.ourTS = new TileSet(new Vector2(4,4),50,this.maxPrecision,this.scene, this.engine);
-        await this.getMapboxKey("mapbox-key.txt");
+        this.ourTS = new TileSet(this.scene,this.engine);
+        this.ourTS.createGeometry(new Vector2(4,4), 50, this.maxPrecision);
+        await this.getMapboxKey("mapbox-key.txt"); //you'll need to create this file in ./public
         this.ourTS.setRasterProvider("MB",this.mapboxKey);
        
         const zoom = 14; 

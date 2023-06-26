@@ -14,6 +14,7 @@ module.exports = {
     },
     output: {
         filename: 'js/babylonBundle.js',
+        path: path.resolve("./dist/")
     },
     module: {
         rules: [{
