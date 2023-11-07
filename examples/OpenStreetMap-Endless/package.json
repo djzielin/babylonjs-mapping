@@ -9,7 +9,7 @@
         "@babylonjs/inspector": "^6.24.0",
         "@babylonjs/materials": "^6.24.0",
         "@types/papaparse": "^5.3.10",
-        "babylonjs-mapping": "^1.1.6"
+        "babylonjs-mapping": "^1.1.7"
     },
     "devDependencies": {
         "@typescript-eslint/eslint-plugin": "^6.8.0",

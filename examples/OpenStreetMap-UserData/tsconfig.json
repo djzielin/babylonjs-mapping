@@ -12,7 +12,7 @@
         "skipLibCheck": true,
 		"preserveConstEnums":true,
 		"sourceMap": true,
-		"watch": false,
+		//"watch": false,
 		"strictPropertyInitialization": false,
 		"allowSyntheticDefaultImports":true
 	},
