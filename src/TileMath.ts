@@ -77,6 +77,29 @@ export default class TileMath {
         return new Vector2(Math.floor(exact.x), Math.floor(exact.y));
     }
 
+
+    //https://developers.auravant.com/en/blog/2022/09/09/post-3/
+    public static epsg4326toEpsg3857(coordinates: Vector2) {
+
+        let x = (coordinates[0] * 20037508.34) / 180;
+        let y =
+            Math.log(Math.tan(((90 + coordinates[1]) * Math.PI) / 360)) /
+            (Math.PI / 180);
+        y = (y * 20037508.34) / 180;
+        return new Vector2(x, y);
+    }
+
+    //https://developers.auravant.com/en/blog/2022/09/09/post-3/
+    public static epsg3857toEpsg4326(pos: Vector2) {
+        let x = pos.x
+        let y = pos.y;
+        x = (x * 180) / 20037508.34;
+        y = (y * 180) / 20037508.34;
+        y = (Math.atan(Math.pow(Math.E, y * (Math.PI / 180))) * 360) / Math.PI - 90;
+        return new Vector2(x, y);
+    }
+
+    //this is incorrect!!!!! UGH!!!!
     public GetTilePositionExact(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
         if (zoom === undefined) {
             zoom = this.tileSet.zoom;
