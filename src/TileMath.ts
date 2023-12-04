@@ -79,50 +79,43 @@ export default class TileMath {
 
 
     //https://developers.auravant.com/en/blog/2022/09/09/post-3/
-    public static epsg4326toEpsg3857(coordinates: Vector2) {
+    public epsg4326toEpsg3857(coord4326: Vector2) {
 
-        let x = (coordinates[0] * 20037508.34) / 180;
-        let y =
-            Math.log(Math.tan(((90 + coordinates[1]) * Math.PI) / 360)) /
+        let x:number = (coord4326.x * 20037508.34) / 180;
+        let y:number =
+            Math.log(Math.tan(((90 + coord4326.y) * Math.PI) / 360)) /
             (Math.PI / 180);
         y = (y * 20037508.34) / 180;
         return new Vector2(x, y);
     }
 
     //https://developers.auravant.com/en/blog/2022/09/09/post-3/
-    public static epsg3857toEpsg4326(pos: Vector2) {
-        let x = pos.x
-        let y = pos.y;
+    public epsg3857toEpsg4326(coord3857: Vector2) {
+        let x:number = coord3857.x
+        let y:number = coord3857.y;
         x = (x * 180) / 20037508.34;
         y = (y * 180) / 20037508.34;
         y = (Math.atan(Math.pow(Math.E, y * (Math.PI / 180))) * 360) / Math.PI - 90;
         return new Vector2(x, y);
     }
 
-    //this is incorrect!!!!! UGH!!!!
     public GetTilePositionExact(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
         if (zoom === undefined) {
             zoom = this.tileSet.zoom;
         }
 
-        if (projection == ProjectionType.EPSG_4326) {
-            const x = this.lon2tileExact(pos.x, zoom);
-            const y = this.lat2tileExact(pos.y, zoom);
+        if (projection == ProjectionType.EPSG_4326 || projection == ProjectionType.EPSG_3857) {
+
+            let lonLat: Vector2=pos;
+
+            if(projection==ProjectionType.EPSG_3857) //if in meters
+            {
+                lonLat=this.epsg3857toEpsg4326(pos); //lets just get everything into 4326 (lat/lon), and then convert to tile
+            }
+
+            const x = this.lon2tileExact(lonLat.x, zoom);
+            const y = this.lat2tileExact(lonLat.y, zoom);
             return new Vector2(x, y);
-        }
-        else if (projection == ProjectionType.EPSG_3857) {
-            //see https://stackoverflow.com/questions/37523872/converting-coordinates-from-epsg-3857-to-4326
-
-            const max = 20037508.34;
-
-            const xAdjusted = pos.x / max;
-            const yAdjusted = pos.y / max;
-
-            const xShifted = 0.5 * xAdjusted + 0.5;
-            const yShifted = 0.5 - 0.5 * yAdjusted;
-
-            const n = Math.pow(2, zoom);
-            return new Vector2(n * xShifted, n * yShifted);
         } else {
             console.error("unknown projection type");
             return new Vector2(0, 0);
