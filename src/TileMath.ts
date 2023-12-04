@@ -1,7 +1,7 @@
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { BoundingBox } from "@babylonjs/core";
-
+import { toWgs84, toMercator } from '@turf/projection';
 import Tile from './Tile';
 import TileSet from "./TileSet";
 
@@ -89,7 +89,7 @@ export default class TileMath {
         return new Vector2(x, y);
     }
 
-    //https://developers.auravant.com/en/blog/2022/09/09/post-3/
+    /*//https://developers.auravant.com/en/blog/2022/09/09/post-3/
     public epsg3857toEpsg4326(coord3857: Vector2) {
         let x:number = coord3857.x
         let y:number = coord3857.y;
@@ -97,6 +97,19 @@ export default class TileMath {
         y = (y * 180) / 20037508.34;
         y = (Math.atan(Math.pow(Math.E, y * (Math.PI / 180))) * 360) / Math.PI - 90;
         return new Vector2(x, y);
+    }*/
+
+    //from https://github.com/Turfjs/turf/blob/master/packages/turf-projection/index.ts
+    public epsg3857toEpsg4326(coord3857: Vector2){
+
+        // 900913 properties.
+        var R2D = 180 / Math.PI;
+        var A = 6378137.0;
+        
+        return new Vector2(
+            (coord3857.x * R2D) / A,
+            (Math.PI * 0.5 - 2.0 * Math.atan(Math.exp(-coord3857.y / A))) * R2D
+        );
     }
 
     public GetTilePositionExact(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {

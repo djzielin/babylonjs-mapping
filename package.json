@@ -11,6 +11,7 @@
     "@babylonjs/gui": "^6.24.0",
     "@babylonjs/inspector": "^6.24.0",
     "@babylonjs/materials": "^6.24.0",
+    "@turf/projection": "^6.5.0",
     "cross-fetch": "^4.0.0",
     "earcut": "^2.2.4",
     "replace": "^1.2.2",
