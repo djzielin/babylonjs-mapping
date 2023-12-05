@@ -8,7 +8,7 @@ export declare enum ProjectionType {
 }
 export default class TileMath {
     private tileSet;
-    constructor(tileSet: TileSet);
+    constructor(tileSet: TileSet | undefined);
     lon2tile(lon: number, zoom: number): number;
     lat2tile(lat: number, zoom: number): number;
     lon2tileExact(lon: number, zoom: number): number;
@@ -17,8 +17,8 @@ export default class TileMath {
     computeCornerTile(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2;
     GetWorldPosition(pos: Vector2, projection: ProjectionType, zoom?: number): Vector3;
     GetTilePosition(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2;
-    epsg4326toEpsg3857(coord4326: Vector2): Vector2;
-    epsg3857toEpsg4326(coord3857: Vector2): Vector2;
+    epsg3857toEpsg4326_auravant(coord3857: Vector2): Vector2;
+    epsg3857toEpsg4326_turf(coord3857: Vector2): Vector2;
     GetTilePositionExact(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2;
     GetWorldPositionFromTile(pos: Vector2): Vector3;
     computeTileScale(): number;
