@@ -19,6 +19,7 @@ export default class TileMath {
     GetTilePosition(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2;
     epsg3857toEpsg4326_auravant(coord3857: Vector2): Vector2;
     epsg3857toEpsg4326_turf(coord3857: Vector2): Vector2;
+    epsg3857toEpsg4326(coord3857: Vector2): Vector2;
     GetTilePositionExact(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2;
     GetWorldPositionFromTile(pos: Vector2): Vector3;
     computeTileScale(): number;

@@ -126,6 +126,11 @@ export default class TileMath {
         );
     }
 
+    public epsg3857toEpsg4326(coord3857: Vector2){
+
+        return this.epsg3857toEpsg4326_turf(coord3857);
+    }
+
     public GetTilePositionExact(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
         if (zoom === undefined) {
             if(this.tileSet===undefined){
@@ -141,11 +146,12 @@ export default class TileMath {
 
             if(projection==ProjectionType.EPSG_3857) //if in meters
             {
-                lonLat=this.epsg3857toEpsg4326_turf(pos); //lets just get everything into 4326 (lat/lon), and then convert to tile
+                lonLat=this.epsg3857toEpsg4326(pos); //lets just get everything into 4326 (lat/lon), and then convert to tile
             }
 
             const x = this.lon2tileExact(lonLat.x, zoom);
             const y = this.lat2tileExact(lonLat.y, zoom);
+            
             return new Vector2(x, y);
         } else {
             console.error("unknown projection type");

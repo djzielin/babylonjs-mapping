@@ -1,6 +1,6 @@
 {
   "name": "babylonjs-mapping",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "author": "David Zielinski <djzielin@gmail.com>",
   "license": "MIT",
   "description": "module to help display map content from OpenStreetMaps and Mapbox natively in Babylon.js",
@@ -24,7 +24,7 @@
     "typescript": "^5.2.2"
   },
   "scripts": {
-    "test": "node --experimental-specifier-resolution=node ./src/Tests.js",
+    "test": "node --experimental-specifier-resolution=node tests.js",
     "build": "tsc --build tsconfig.npm.json",
     "clean": "rimraf ./lib",
     "rebuild:playground": "npm run clean:playground && npm run build:playground && npm run fix:playground",
