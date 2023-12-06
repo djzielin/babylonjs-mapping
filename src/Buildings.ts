@@ -67,7 +67,42 @@ export default abstract class Buildings {
     }
 
     public abstract SubmitLoadTileRequest(tile: Tile): void;
-    public abstract ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void;
+
+    public ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void
+    {
+        if (request.tile.tileCoords.equals(request.tileCoords) == false) {
+            console.warn(this.prettyName() + "tile coords have changed while we were loading, not adding buildings to queue!");
+            return;
+        }
+
+        let index = 0;
+        let addedBuildings = 0;
+        const meshArray: Mesh[] = [];
+        for (const f of topLevel.features) {
+            const brequest: BuildingRequest = {
+                requestType: BuildingRequestType.CreateBuilding,
+                tile: request.tile,
+                tileCoords: request.tile.tileCoords.clone(),
+                inProgress: false,
+                projectionType: request.projectionType,
+                feature: f
+            }
+            this.buildingRequests.push(brequest);
+            addedBuildings++;
+        }
+
+        if (this.doMerge) {
+            //console.log("queueing up merge request for tile: " + tile.tileCoords);
+            const mrequest: BuildingRequest = {
+                requestType: BuildingRequestType.MergeAllBuildingsOnTile, //request a merge
+                tile: request.tile,
+                tileCoords: request.tile.tileCoords.clone(),
+                inProgress: false
+            }
+            this.buildingRequests.push(mrequest)
+        }
+        console.log(this.prettyName() + addedBuildings + " building generation requests queued for tile: " + request.tile.tileCoords);
+    }
 
     protected prettyName(): string {
         return "[Buildings " + this.name + "] ";
@@ -157,7 +192,16 @@ export default abstract class Buildings {
                         return;
                     }
                 );
-            } else {
+            } else if (res.status == 500) {
+                console.log("Error 500 requesting: " + request.url);
+
+                //console.log("but we will try again!");
+                //this.buildingRequests.push(request); //let's try again? maybe there should be a maximum number of retries?
+                
+                this.removePendingRequest();
+                return;
+            }
+            else {
                 console.error(this.prettyName() + "unable to fetch: " + request.url + " error code: " + res.status);
                 this.removePendingRequest();
                 return;

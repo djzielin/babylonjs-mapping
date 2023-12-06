@@ -40,7 +40,7 @@ export default abstract class Buildings {
     onCaughtUpObservable: Observable<boolean>;
     constructor(name: string, tileSet: TileSet);
     abstract SubmitLoadTileRequest(tile: Tile): void;
-    abstract ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void;
+    ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void;
     protected prettyName(): string;
     private isURLLoaded;
     private getFeatures;

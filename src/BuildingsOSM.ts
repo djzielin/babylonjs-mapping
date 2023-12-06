@@ -1,7 +1,3 @@
-import { Scene } from "@babylonjs/core/scene";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
-import { fetch } from 'cross-fetch'
-
 import { ProjectionType } from "./TileMath";
 import { BuildingRequest } from "./Buildings";
 import { BuildingRequestType } from "./Buildings";
@@ -9,8 +5,6 @@ import { BuildingRequestType } from "./Buildings";
 import Tile from "./Tile";
 import TileSet from "./TileSet";
 import Buildings from "./Buildings";
-import * as GeoJSON from './GeoJSON';
-import { SliderLineComponent } from "@babylonjs/inspector/lines/sliderLineComponent";
 
 export default class BuildingsOSM extends Buildings {
     private serverNum = 0;
@@ -44,54 +38,18 @@ export default class BuildingsOSM extends Buildings {
 
         const storedCoords = tile.tileCoords.clone();
 
-        const url = this.osmBuildingServers[this.serverNum] + tile.tileCoords.z + "/" + tile.tileCoords.x + "/" + tile.tileCoords.y + ".json";
+        const url = this.osmBuildingServers[this.serverNum] + storedCoords.z + "/" + storedCoords.x + "/" + storedCoords.y + ".json";
         this.serverNum = (this.serverNum + 1) % this.osmBuildingServers.length; //increment server to use with wrap around
 
         const request: BuildingRequest = {
             requestType: BuildingRequestType.LoadTile,
             tile: tile,
-            tileCoords: tile.tileCoords.clone(),
+            tileCoords: storedCoords,
             projectionType: ProjectionType.EPSG_4326,
             url: url,
             inProgress: false
         }
         this.buildingRequests.push(request);
-    }
-
-    public ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void {
-
-        if (request.tile.tileCoords.equals(request.tileCoords) == false) {
-            console.warn(this.prettyName() + "tile coords have changed while we were loading, not adding buildings to queue!");
-            return;
-        }
-
-        let index = 0;
-        let addedBuildings = 0;
-        const meshArray: Mesh[] = [];
-        for (const f of topLevel.features) {
-            const brequest: BuildingRequest = {
-                requestType: BuildingRequestType.CreateBuilding,
-                tile: request.tile,
-                tileCoords: request.tile.tileCoords.clone(),
-                inProgress: false,
-                projectionType: request.projectionType,
-                feature: f
-            }
-            this.buildingRequests.push(brequest);
-            addedBuildings++;
-        }
-
-        if (this.doMerge) {
-            //console.log("queueing up merge request for tile: " + tile.tileCoords);
-            const mrequest: BuildingRequest = {
-                requestType: BuildingRequestType.MergeAllBuildingsOnTile, //request a merge
-                tile: request.tile,
-                tileCoords: request.tile.tileCoords.clone(),
-                inProgress: false
-            }
-            this.buildingRequests.push(mrequest)
-        }
-        console.log(this.prettyName() + addedBuildings + " building generation requests queued for tile: " + request.tile.tileCoords);
-    }
+    }       
 }
 

@@ -1,4 +1,4 @@
-import { Vector2 } from "@babylonjs/core/Maths/math";
+import { Vector2, Vector4 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { BoundingBox } from "@babylonjs/core";
 import Tile from './Tile';
@@ -25,6 +25,60 @@ export default class TileMath {
     public lon2tileExact(lon: number, zoom: number): number { return (((lon + 180) / 360 * Math.pow(2, zoom))); }
     public lat2tileExact(lat: number, zoom: number): number { return (((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom))); }
 
+    //inverse
+    public tile2lon(x: number, z: number): number {
+        return (x / Math.pow(2, z) * 360 - 180);
+    }
+    public tile2lat(y: number, z: number): number {
+        var n = Math.PI - 2 * Math.PI * y / Math.pow(2, z);
+        return (180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n))));
+    }
+
+    public tile2lonlat(tileCoords:Vector3):Vector2{
+        const x=tileCoords.x;
+        const y=tileCoords.y;
+        const zoom=tileCoords.z;
+
+        const lon=this.tile2lon(x,zoom);
+        const lat=this.tile2lat(y,zoom);
+
+        return new Vector2(lon,lat);
+    }
+
+    public computeBBOX_4326(tileCoords:Vector3): Vector4{
+        console.log("In computeBBOX_4326!");
+        console.log("   looking at tile: " + tileCoords);
+    
+        const tileBottomLeft=tileCoords.add(new Vector3(0,1,0));
+        console.log("   proposed bottom left: " + tileBottomLeft);
+
+        const bottomLeft=this.tile2lonlat(tileBottomLeft);
+        console.log("   result: " + bottomLeft);
+
+        const tileUpperRight=tileCoords.add(new Vector3(1,0,0));
+        console.log("   proposed upper right: " + tileUpperRight);
+
+        const topRight=this.tile2lonlat(tileUpperRight);
+        console.log("   result: " + topRight);
+
+        const finalResult = new Vector4(bottomLeft.y, bottomLeft.x, topRight.y, topRight.x); //note the swapped y,x and to get lat,lon ordering   
+        console.log("   final result: " + finalResult);
+        return finalResult;
+    }
+
+    /*public computeBBOX_3857(tileCoords: Vector3): Vector4 {
+        const answer4326 = this.computeBBOX_4326(tileCoords);
+
+        const firstPair = new Vector2(answer4326.y, answer4326.x); //flip back to lon,lat
+        const secondPair = new Vector2(answer4326.w, answer4326.z);
+
+        const fixedFirst = this.epsg4326toEpsg3857(firstPair);
+        const fixedSecond = this.epsg4326toEpsg3857(secondPair);
+
+        const finalResult = new Vector4(fixedFirst.x, fixedFirst.y, fixedSecond.x, fixedSecond.y); //note the swapped y,x and to get lat,lon ordering   
+        return finalResult;
+    }*/
+
     //https://wiki.openstreetmap.org/wiki/Zoom_levels
     //Stile = C ∙ cos(latitude) / 2^zoomlevel
     public computeTileRealWidthMeters(lat: number, zoom: number): number {
@@ -40,12 +94,12 @@ export default class TileMath {
     }
 
     public computeCornerTile(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
-        if(this.tileSet===undefined){
+        if (this.tileSet === undefined) {
             console.error("tileSet is undefined!");
-            return new Vector2(0,0);
+            return new Vector2(0, 0);
         }
 
-        if(zoom===undefined){
+        if (zoom === undefined) {
             zoom = this.tileSet.zoom;
         }
 
@@ -60,82 +114,85 @@ export default class TileMath {
         console.log("corner tile: " + cornerTile);
 
         return cornerTile;
-    }  
+    }
 
     public GetWorldPosition(pos: Vector2, projection: ProjectionType, zoom?: number): Vector3 {
         if (zoom === undefined) {
-            if(this.tileSet===undefined){
+            if (this.tileSet === undefined) {
                 console.error("tileSet is undefined!");
-                return new Vector3(0,0,0);
+                return new Vector3(0, 0, 0);
             }
-            
+
             zoom = this.tileSet.zoom;
         }
 
-        const tilePos = this.GetTilePositionExact(pos, projection, zoom);    
+        const tilePos = this.GetTilePositionExact(pos, projection, zoom);
         return this.GetWorldPositionFromTile(tilePos);
-    }    
+    }
 
     public GetTilePosition(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
         if (zoom === undefined) {
-            if(this.tileSet===undefined){
+            if (this.tileSet === undefined) {
                 console.error("tileSet is undefined!");
-                return new Vector2(0,0);
+                return new Vector2(0, 0);
             }
 
             zoom = this.tileSet.zoom;
         }
 
-        const exact=this.GetTilePositionExact(pos,projection,zoom);
+        const exact = this.GetTilePositionExact(pos, projection, zoom);
 
         return new Vector2(Math.floor(exact.x), Math.floor(exact.y));
     }
 
-
-    //https://developers.auravant.com/en/blog/2022/09/09/post-3/
-    /*public epsg4326toEpsg3857_auravant(coord4326: Vector2) {
-
-        let x:number = (coord4326.x * 20037508.34) / 180;
-        let y:number =
-            Math.log(Math.tan(((90 + coord4326.y) * Math.PI) / 360)) /
-            (Math.PI / 180);
-        y = (y * 20037508.34) / 180;
-        return new Vector2(x, y);
-    }*/
-
-    //https://developers.auravant.com/en/blog/2022/09/09/post-3/
-    public epsg3857toEpsg4326_auravant(coord3857: Vector2) {
-        let x:number = coord3857.x
-        let y:number = coord3857.y;
-        x = (x * 180) / 20037508.34;
-        y = (y * 180) / 20037508.34;
-        y = (Math.atan(Math.pow(Math.E, y * (Math.PI / 180))) * 360) / Math.PI - 90;
-        return new Vector2(x, y);
-    }
-
     //from https://github.com/Turfjs/turf/blob/master/packages/turf-projection/index.ts
-    public epsg3857toEpsg4326_turf(coord3857: Vector2){
+    public epsg3857toEpsg4326(coord3857: Vector2) {
 
         // 900913 properties.
         var R2D = 180 / Math.PI;
         var A = 6378137.0;
-        
+
         return new Vector2(
             (coord3857.x * R2D) / A,
             (Math.PI * 0.5 - 2.0 * Math.atan(Math.exp(-coord3857.y / A))) * R2D
         );
     }
 
-    public epsg3857toEpsg4326(coord3857: Vector2){
+    public epsg4326toEpsg3857(lonLat: Vector2) {
+        var D2R = Math.PI / 180,
+            // 900913 properties
+            A = 6378137.0,
+            MAXEXTENT = 20037508.342789244;
 
-        return this.epsg3857toEpsg4326_turf(coord3857);
+        // compensate longitudes passing the 180th meridian
+        // from https://github.com/proj4js/proj4js/blob/master/lib/common/adjust_lon.js
+        var adjusted =
+            Math.abs(lonLat.x) <= 180 ? lonLat.x : lonLat.x - this.sign(lonLat.x) * 360;
+        const xy: Vector2 = new Vector2(
+            A * adjusted * D2R,
+            A * Math.log(Math.tan(Math.PI * 0.25 + 0.5 * lonLat.y * D2R)),
+        );
+
+        // if xy value is beyond maxextent (e.g. poles), return maxextent
+        if (xy.x > MAXEXTENT) xy.x = MAXEXTENT;
+        if (xy.x < -MAXEXTENT) xy.x = -MAXEXTENT;
+        if (xy.y > MAXEXTENT) xy.y = MAXEXTENT;
+        if (xy.y < -MAXEXTENT) xy.y = -MAXEXTENT;
+
+        return xy;
     }
+
+    public sign(x: number): number {
+        return x < 0 ? -1 : x > 0 ? 1 : 0;
+    }
+
+
 
     public GetTilePositionExact(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
         if (zoom === undefined) {
-            if(this.tileSet===undefined){
+            if (this.tileSet === undefined) {
                 console.error("tileSet is undefined!");
-                return new Vector2(0,0);
+                return new Vector2(0, 0);
             }
             zoom = this.tileSet.zoom;
         }
@@ -151,7 +208,7 @@ export default class TileMath {
 
             const x = this.lon2tileExact(lonLat.x, zoom);
             const y = this.lat2tileExact(lonLat.y, zoom);
-            
+
             return new Vector2(x, y);
         } else {
             console.error("unknown projection type");
