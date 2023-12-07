@@ -3,7 +3,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math";
 import { BoundingBox } from "@babylonjs/core";
 import Tile from './Tile';
 import TileSet from "./TileSet";
-
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
 export enum ProjectionType{
     EPSG_3857,
     EPSG_4326
@@ -66,7 +66,8 @@ export default class TileMath {
         return finalResult;
     }
 
-    /*public computeBBOX_3857(tileCoords: Vector3): Vector4 {
+    /*
+    public computeBBOX_3857(tileCoords: Vector3): Vector4 {
         const answer4326 = this.computeBBOX_4326(tileCoords);
 
         const firstPair = new Vector2(answer4326.y, answer4326.x); //flip back to lon,lat
@@ -75,7 +76,7 @@ export default class TileMath {
         const fixedFirst = this.epsg4326toEpsg3857(firstPair);
         const fixedSecond = this.epsg4326toEpsg3857(secondPair);
 
-        const finalResult = new Vector4(fixedFirst.x, fixedFirst.y, fixedSecond.x, fixedSecond.y); //note the swapped y,x and to get lat,lon ordering   
+        const finalResult = new Vector4(fixedFirst.x, fixedFirst.y, fixedSecond.x, fixedSecond.y);    
         return finalResult;
     }*/
 
@@ -186,8 +187,6 @@ export default class TileMath {
         return x < 0 ? -1 : x > 0 ? 1 : 0;
     }
 
-
-
     public GetTilePositionExact(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
         if (zoom === undefined) {
             if (this.tileSet === undefined) {
@@ -263,10 +262,10 @@ export default class TileMath {
         return result;
     }
 
-    public findBestTile(position: Vector3): Tile{
+    public findBestTile(position: Vector3): Tile | undefined{
         if(this.tileSet===undefined){
             console.error("tileSet is undefined!");
-            return new Tile();
+            return undefined;
         }
 
         const tileHalfWidth=this.tileSet.tileWidth*0.500001; //make bounding box just a bit bigger, in the off chance something lands right on the line

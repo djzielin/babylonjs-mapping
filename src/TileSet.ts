@@ -14,6 +14,7 @@ import MapBox from "./MapBox";
 import TileMath, { ProjectionType } from './TileMath';
 import Attribution from "./Attribution";
 import Buildings from './Buildings';
+import TileBuilding from "./TileBuilding";
 
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
@@ -96,6 +97,8 @@ export default class TileSet {
     */
     public createGeometry( numTiles: Vector2,  tileWidth: number,  meshPrecision: number)
     {        
+        //inspiration from this example: https://www.babylonjs-playground.com/#866PVL#5
+
         this.numTiles=numTiles;
         this.tileWidth=tileWidth;
         this.meshPrecision=meshPrecision;
@@ -110,9 +113,8 @@ export default class TileSet {
 
         for (let y = 0; y < this.numTiles.y; y++) {
             for (let x = 0; x < this.numTiles.x; x++) {
-                const ground=this.makeSingleTileMesh(x,y,this.meshPrecision);
-                const t = new Tile();
-                t.mesh = ground;
+                const mesh=this.makeSingleTileMesh(x,y,this.meshPrecision);
+                const t = new Tile(mesh);
                 this.ourTiles.push(t);               
             }
         }
@@ -183,6 +185,21 @@ export default class TileSet {
         //ground.freezeWorldMatrix(); //optimization
 
         return ground;
+    }
+
+    public isBuildingDuplicate(newBuilding: TileBuilding){
+        for(let t of this.ourTiles){
+            for(let existingBuilding of t.buildings){
+                if(existingBuilding.isBBoxContainedOnTile){
+                    continue; //don't need to consider buildings fully contained on a tile
+                } else{
+                    if(existingBuilding.doVerticesMatch(newBuilding)){
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     public disableGroundCulling(){

@@ -272,7 +272,7 @@ export default abstract class Buildings {
                 if (request.feature !== undefined) {
                     if (request.projectionType !== undefined) { //create building request must have a projectionType
                         //console.log("generating single building for tile: " + request.tileCoords);
-                        const building = this.ourGeoJSON.generateSingleBuilding(request.feature, request.projectionType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight);
+                        this.ourGeoJSON.generateSingleBuilding(request.feature, request.projectionType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight);
                     } else {
                         console.error(this.prettyName() + "can't create a building with no projection specified!");
                     }
@@ -294,20 +294,24 @@ export default abstract class Buildings {
                 //console.log("  number of buildings in merge: " + request.tile.buildings.length);
 
                 if (request.tile.buildings.length > 1) {
-                    for (let m of request.tile.buildings) {
-                        if (m.isReady() == false) {
-                            console.error(this.prettyName() + "Mesh not ready!");
+                    for (let b of request.tile.buildings) {
+                        if (b.mesh.isReady() == false) {
+                            console.error(this.prettyName() + "ERROR: Mesh not ready!");
                         }
                     }
                     //console.log("about to do big merge");
-                    const merged = Mesh.MergeMeshes(request.tile.buildings);
+                    const allMeshes: Mesh[]=request.tile.getAllBuildingMeshes();
+                    const merged = Mesh.MergeMeshes(allMeshes,false); //false=don't get rid of originals
+
                     if (merged) {
                         merged.setParent(request.tile.mesh);
                         merged.name = "all_buildings_merged";
-                        request.tile.buildings = [];
-                        request.tile.buildings.push(merged);
+
+                        request.tile.hideIndividualBuildings();
+
+                        request.tile.mergedBuildingMesh=merged;
                     } else {
-                        console.error(this.prettyName() + "unable to merge meshes!");
+                        console.error(this.prettyName() + "ERROR: unable to merge meshes!");
                     }
                 } else {
                     console.log(this.prettyName() + "not enough meshes to merge: " + request.tile.buildings.length);

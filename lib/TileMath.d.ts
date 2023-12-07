@@ -27,5 +27,5 @@ export default class TileMath {
     GetTilePositionExact(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2;
     GetWorldPositionFromTile(pos: Vector2): Vector3;
     computeTileScale(): number;
-    findBestTile(position: Vector3): Tile;
+    findBestTile(position: Vector3): Tile | undefined;
 }

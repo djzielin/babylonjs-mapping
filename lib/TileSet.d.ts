@@ -9,6 +9,7 @@ import Tile from './Tile';
 import TileMath from './TileMath';
 import Attribution from "./Attribution";
 import Buildings from './Buildings';
+import TileBuilding from "./TileBuilding";
 import "@babylonjs/core/Materials/standardMaterial";
 import "@babylonjs/inspector";
 import '@babylonjs/core/Debug/debugLayer';
@@ -70,6 +71,7 @@ export default class TileSet {
     processTileRequests(): void;
     getAdvancedDynamicTexture(): AdvancedDynamicTexture;
     makeSingleTileMesh(x: number, y: number, precision: number): Mesh;
+    isBuildingDuplicate(newBuilding: TileBuilding): boolean;
     disableGroundCulling(): void;
     setRasterProvider(providerName: string, accessToken?: string): void;
     /**

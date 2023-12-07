@@ -1,5 +1,4 @@
 import { Vector3 } from "@babylonjs/core/Maths/math";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Scene } from "@babylonjs/core";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import Tile from './Tile';
@@ -41,6 +40,6 @@ export declare class GeoJSON {
     private getFirstCoordinateWorldFromPolygonSet;
     getFirstCoordinateTile(f: feature, projection: ProjectionType, zoom: number): Vector3;
     private getFirstCoordinateTileFromPolygonSet;
-    generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number): Mesh;
+    generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number): void;
     private processSinglePolygon;
 }

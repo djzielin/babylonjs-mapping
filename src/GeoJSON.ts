@@ -10,6 +10,7 @@ import Tile from './Tile';
 import TileSet from "./TileSet";
 import { ProjectionType } from "./TileMath";
 import TileMath from "./TileMath";
+import TileBuilding from "./TileBuilding";
 
 export interface topLevel {
     "type": string;
@@ -95,7 +96,7 @@ export class GeoJSON {
         return new Vector3(tileXY.x, tileXY.y, zoom);
     }
 
-    public generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number): Mesh {
+    public generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number) {
         let name = "Building";
         let finalMesh: Mesh | null = null;
 
@@ -156,20 +157,35 @@ export class GeoJSON {
         }
 
         if(finalMesh==null){
-            finalMesh = new Mesh("empty mesh", this.scene);
+            return;
         }
 
         if (f.properties !== undefined) {
             finalMesh.metadata = f.properties; //store for user to use later!
         }
 
-        tile.buildings.push(finalMesh);
+        finalMesh.refreshBoundingInfo();
         finalMesh.setParent(tile.mesh);
         finalMesh.freezeWorldMatrix(); //optimization? might want to skip here? hmmm...
 
-        //console.log("created " + finalMesh.name);
+        
+        const building=new TileBuilding(finalMesh,tile);
 
-        return finalMesh;
+        if(building.isBBoxContainedOnTile==false){
+            //TODO: check if building is a duplicate
+            if(this.tileSet.isBuildingDuplicate(building)){
+                console.log("building already exists on another tile! deleting!");
+                building.dispose();
+                return;
+            }
+        }
+
+        console.log("building is an original, adding to tile!");
+
+        tile.buildings.push(building);
+
+
+        //console.log("created " + finalMesh.name);
     }
 
     private processSinglePolygon(ps: polygonSet, projection: ProjectionType, buildingMaterial: StandardMaterial, exaggeration: number, height: number): Mesh {
