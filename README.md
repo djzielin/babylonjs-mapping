@@ -6,6 +6,7 @@ Currently supported data sources include:
 ![lots of gray buildings on top of map of roads](https://raw.githubusercontent.com/djzielin/babylonjs-mapping/main/doc/charlotte.jpg "Open Street Maps Demo")
 * Mapbox (satellite and terrain)
 ![grand canyon with river at bottom](https://raw.githubusercontent.com/djzielin/babylonjs-mapping/main/doc/grand_canyon.jpg "Mapbox Terrain Demo")
+* GeoServer via WFS
 
 The "Hello World" of creating an OpenStreetMap tileset, along with extruded buildings is:
 
@@ -21,13 +22,7 @@ this.ourOSM.exaggeration=3;
 this.ourOSM.generateBuildings();
 ```
 
-New (as of 3/14/2023)  
-Try the "Hello World" in the BabylonJS Plaground  
-https://playground.babylonjs.com/#XJVMUY#4 
-  
-This is published on NPM at:  
-https://www.npmjs.com/package/babylonjs-mapping  
-  
+
 Note: when installing use Node v16.13.1  
 The current Node LTS v18.14.2 FAILS!  
-
+TODO: check if this is still true
