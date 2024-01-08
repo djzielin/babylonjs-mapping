@@ -22,7 +22,13 @@ module.exports = {
                 loader: 'source-map-loader',
                 enforce: 'pre',
             },
-            {
+            { //per https://stackoverflow.com/questions/70964723/webpack-5-in-ceate-react-app-cant-resolve-not-fully-specified-routes
+                test: /\.m?js$/,
+                resolve: {
+                    fullySpecified: false,
+                },
+            },
+            { 
                 test: /\.tsx?$/,
                 loader: 'ts-loader',
                 exclude: /node_modules/
