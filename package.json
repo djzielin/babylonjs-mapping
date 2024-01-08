@@ -1,6 +1,6 @@
 {
   "name": "babylonjs-mapping",
-  "version": "1.1.9",
+  "version": "1.1.10",
   "author": "David Zielinski <djzielin@gmail.com>",
   "license": "MIT",
   "description": "module to help display map content from OpenStreetMaps and Mapbox natively in Babylon.js",
@@ -8,23 +8,23 @@
   "type": "module",
   "types": "lib/TileSet.d.ts",
   "dependencies": {
-    "@babylonjs/core": "^6.24.0",
-    "@babylonjs/gui": "^6.24.0",
-    "@babylonjs/inspector": "^6.24.0",
-    "@babylonjs/materials": "^6.24.0",
+    "@babylonjs/core": "^6.37.1",
+    "@babylonjs/gui": "^6.37.1",
+    "@babylonjs/inspector": "^6.37.1",
+    "@babylonjs/materials": "^6.37.1",
     "@turf/projection": "^6.5.0",
     "cross-fetch": "^4.0.0",
     "earcut": "^2.2.4",
     "replace": "^1.2.2",
     "rimraf": "^5.0.5",
-    "ts-node": "^10.9.1"
+    "ts-node": "^10.9.2"
   },
   "devDependencies": {
-    "@types/earcut": "^2.1.2",
-    "typescript": "^5.2.2"
+    "@types/earcut": "^2.1.4",
+    "typescript": "^5.3.3"
   },
   "scripts": {
-    "test": "node --experimental-specifier-resolution=node tests.js",
+    "test": "node --experimental-specifier-resolution=node",
     "build": "tsc --build tsconfig.npm.json",
     "clean": "rimraf ./lib",
     "rebuild:playground": "npm run clean:playground && npm run build:playground && npm run fix:playground",
