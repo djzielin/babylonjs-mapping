@@ -23,6 +23,5 @@ this.ourOSM.generateBuildings();
 ```
 
 
-Note: when installing use Node v16.13.1  
-The current Node LTS v18.14.2 FAILS!  
-TODO: check if this is still true
+Tested with:
+Node 20.10.0 LTS
