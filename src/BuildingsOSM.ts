@@ -47,7 +47,8 @@ export default class BuildingsOSM extends Buildings {
             tileCoords: storedCoords,
             projectionType: ProjectionType.EPSG_4326,
             url: url,
-            inProgress: false
+            inProgress: false,
+            flipWinding: false
         }
         this.buildingRequests.push(request);
     }       

@@ -15,6 +15,7 @@ export interface BuildingRequest {
     tile: Tile;
     tileCoords: Vector3;
     inProgress: boolean;
+    flipWinding: boolean;
     feature?: GeoJSON.feature;
     projectionType?: ProjectionType;
     url?: string;

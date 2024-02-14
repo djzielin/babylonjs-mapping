@@ -25,9 +25,10 @@ export interface BuildingRequest {
     tile: Tile;
     tileCoords: Vector3;
     inProgress: boolean;
+    flipWinding: boolean;
     feature?: GeoJSON.feature;
     projectionType?: ProjectionType;
-    url?: string;
+    url?: string;    
 }
 
 interface GeoFileLoaded {
@@ -85,7 +86,8 @@ export default abstract class Buildings {
                 tileCoords: request.tile.tileCoords.clone(),
                 inProgress: false,
                 projectionType: request.projectionType,
-                feature: f
+                feature: f,
+                flipWinding: request.flipWinding
             }
             this.buildingRequests.push(brequest);
             addedBuildings++;
@@ -97,7 +99,8 @@ export default abstract class Buildings {
                 requestType: BuildingRequestType.MergeAllBuildingsOnTile, //request a merge
                 tile: request.tile,
                 tileCoords: request.tile.tileCoords.clone(),
-                inProgress: false
+                inProgress: false,
+                flipWinding: request.flipWinding
             }
             this.buildingRequests.push(mrequest)
         }
@@ -272,7 +275,8 @@ export default abstract class Buildings {
                 if (request.feature !== undefined) {
                     if (request.projectionType !== undefined) { //create building request must have a projectionType
                         //console.log("generating single building for tile: " + request.tileCoords);
-                        this.ourGeoJSON.generateSingleBuilding(request.feature, request.projectionType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight);
+
+                        this.ourGeoJSON.generateSingleBuilding(request.feature, request.projectionType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight, request.flipWinding);
                     } else {
                         console.error(this.prettyName() + "can't create a building with no projection specified!");
                     }

@@ -96,7 +96,7 @@ export class GeoJSON {
         return new Vector3(tileXY.x, tileXY.y, zoom);
     }
 
-    public generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number) {
+    public generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean) {
         let name = "Building";
         let finalMesh: Mesh | null = null;
 
@@ -121,7 +121,7 @@ export class GeoJSON {
 
         if (f.geometry.type == "Polygon") {
             const ps: polygonSet = f.geometry.coordinates as polygonSet;
-            finalMesh = this.processSinglePolygon(ps, projection, buildingMaterial, exaggeration, height);
+            finalMesh = this.processSinglePolygon(ps, projection, buildingMaterial, exaggeration, height, flipWinding);
             finalMesh.name=name;
 
         }
@@ -131,7 +131,7 @@ export class GeoJSON {
             const allMeshes: Mesh[] = [];
 
             for (let i = 0; i < mp.length; i++) {
-                const singleMesh = this.processSinglePolygon(mp[i], projection, buildingMaterial, exaggeration, height);
+                const singleMesh = this.processSinglePolygon(mp[i], projection, buildingMaterial, exaggeration, height, flipWinding);
                 allMeshes.push(singleMesh);
             }
 
@@ -188,7 +188,7 @@ export class GeoJSON {
         //console.log("created " + finalMesh.name);
     }
 
-    private processSinglePolygon(ps: polygonSet, projection: ProjectionType, buildingMaterial: StandardMaterial, exaggeration: number, height: number): Mesh {
+    private processSinglePolygon(ps: polygonSet, projection: ProjectionType, buildingMaterial: StandardMaterial, exaggeration: number, height: number, flipWinding: boolean): Mesh {
         const holeArray: Vector3[][] = [];
         const positions3D: Vector3[] = [];
 
@@ -197,15 +197,30 @@ export class GeoJSON {
 
             //skip final coord (as it seems to duplicate the first)
             //also need to do this backwards to get normals / winding correct
-            for (let e = ps[i].length - 2; e >= 0; e--) {
 
-                const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
-                const coord=this.tileSet.ourTileMath.GetWorldPosition(v2,projection);
-                
-                if (i == 0) {
-                    positions3D.push(coord);
-                } else {
-                    hole.push(coord);
+            if (flipWinding == false) {
+                for (let e = ps[i].length - 2; e >= 0; e--) {
+
+                    const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
+                    const coord = this.tileSet.ourTileMath.GetWorldPosition(v2, projection);
+
+                    if (i == 0) {
+                        positions3D.push(coord);
+                    } else {
+                        hole.push(coord);
+                    }
+                }
+            } else {
+                for (let e = 0; e < ps[i].length-1; e++) {
+
+                    const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
+                    const coord = this.tileSet.ourTileMath.GetWorldPosition(v2, projection);
+
+                    if (i == 0) {
+                        positions3D.push(coord);
+                    } else {
+                        hole.push(coord);
+                    }
                 }
             }
 
