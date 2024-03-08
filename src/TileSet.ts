@@ -9,7 +9,6 @@ import { AdvancedDynamicTexture } from "@babylonjs/gui";
 import { Observable } from "@babylonjs/core";
 
 import Tile from './Tile';
-import OpenStreetMap from "./OpenStreetMap";
 import MapBox from "./MapBox";
 import TileMath, { ProjectionType } from './TileMath';
 import Attribution from "./Attribution";
@@ -19,6 +18,7 @@ import TileBuilding from "./TileBuilding";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 import '@babylonjs/core/Debug/debugLayer';
+import RasterProvider from "./RasterProvider";
 
 enum TileRequestType{
     LoadTile,
@@ -52,10 +52,10 @@ export default class TileSet {
     public centerCoords: Vector2;
     public tileScale: number;
 
-    private rasterProvider: string;
-    private accessToken: string;
+    private ourRasterProvider: RasterProvider;
+    //private accessToken: string;
 
-    private ourMB: MapBox;
+    public ourMB: MapBox;
     private totalWidthMeters: number;
     private totalHeightMeters: number;
     public ourAttribution: Attribution;
@@ -208,10 +208,8 @@ export default class TileSet {
         }
     }
 
-    public setRasterProvider(providerName: string, accessToken?: string){
-        this.rasterProvider=providerName;
-        this.accessToken=accessToken ?? "";
-        this.ourMB.accessToken=this.accessToken;       
+    public setRasterProvider(rp:RasterProvider){
+        this.ourRasterProvider=rp;  
     }    
 
     /**
@@ -232,7 +230,7 @@ export default class TileSet {
         this.tileScale=this.ourTileMath.computeTileScale();
 
 
-        this.ourAttribution.addAttribution(this.rasterProvider);
+        this.ourAttribution.addAttribution(this.ourRasterProvider.name);
 
         //console.log("Tile Base: " + this.tileCorner);
 
@@ -277,12 +275,8 @@ export default class TileSet {
 
         let url: string = "";
 
-        if (this.rasterProvider == "OSM") {
-            url = OpenStreetMap.getRasterURL(new Vector2(tileX, tileY), this.zoom)
-        } else if (this.rasterProvider == "MB") {
-            url = this.ourMB.getRasterURL(new Vector2(tileX, tileY), this.zoom, this.doRasterResBoost);
-        }
-
+        url = this.ourRasterProvider.getRasterURL(new Vector2(tileX, tileY), this.zoom);
+      
         const request: TileRequest = {
             requestType: TileRequestType.LoadTile,
             tile: tile,
