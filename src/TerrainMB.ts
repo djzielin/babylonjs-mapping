@@ -16,11 +16,13 @@ export default class TerrainMB {
     private index = 0;
     public accessToken: string = "";
     private heightScaleFixer=0;
-    private skuToken: string;
+    private skuToken: string="";
     //public onAllLoaded: Observable<boolean> = new Observable();
 
-    constructor(public tileSet: TileSet, private scene: Scene) {        
-        this.skuToken = this.tileSet.ourTileMath.generateSKU();
+    constructor(public tileSet: TileSet, private scene: Scene) {     
+
+        //this.skuToken = this.tileSet.ourTileMath.generateSKU();
+          
     }  
 
     public setExaggeration(tileScale: number, exaggeration: number) {

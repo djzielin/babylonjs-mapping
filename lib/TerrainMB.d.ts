@@ -2,7 +2,7 @@ import { Scene } from "@babylonjs/core/scene";
 import Tile from './Tile';
 import TileSet from "./TileSet";
 export default class TerrainMB {
-    private tileSet;
+    tileSet: TileSet;
     private scene;
     private mbServer;
     globalMinHeight: number;

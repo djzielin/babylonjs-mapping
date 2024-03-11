@@ -30,7 +30,7 @@ export default class RasterOSM extends Raster{
     }
 
     //https://docs.mapbox.com/api/maps/raster-tiles/
-    public getRasterURL(tileCoords: Vector2, zoom: number): string {
+    public override getRasterURL(tileCoords: Vector2, zoom: number): string {
         const prefix = this.mbServer;
         const boostParam = this.doResBoost ? "@2x" : "";
         let extension = ".jpg90"; //can do jpg70 to reduce quality & bandwidth
