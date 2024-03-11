@@ -8,7 +8,7 @@
         "@babylonjs/gui": "^6.37.1",
         "@babylonjs/inspector": "^6.37.1",
         "@babylonjs/materials": "^6.37.1",
-        "babylonjs-mapping": "^1.1.18"
+        "babylonjs-mapping": "^1.1.21"
     },
     "devDependencies": {
         "@types/earcut": "^2.1.4",

@@ -19,9 +19,18 @@ export default class TerrainMB {
     private skuToken: string="";
     //public onAllLoaded: Observable<boolean> = new Observable();
 
-    constructor(public tileSet: TileSet, private scene: Scene) {     
+    constructor(public tileSet: TileSet, private scene: Scene) {
+        if(this.tileSet){
+            if(this.tileSet.ourTileMath){
+                console.log("we seem to be able to access tileMath here");
 
-        //this.skuToken = this.tileSet.ourTileMath.generateSKU();
+            } else{
+                console.error("unable to access tileMath!");
+            }
+        } else{
+            console.error("unable to access tileSet!");
+        }  
+        this.skuToken = this.tileSet.ourTileMath.generateSKU();
           
     }  
 
