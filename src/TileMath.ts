@@ -287,13 +287,30 @@ export default class TileMath {
                 return t;
             }
 
-            const dist=Vector3.Distance(tp,position);
-            if(dist<closestTileDistance){
-                closestTile=t;
+            const dist = Vector3.Distance(tp, position);
+            if (dist < closestTileDistance) {
+                closestTile = t;
             }
         }
 
         console.log("couldn't find a tile for this building. choosing closest tile");
         return closestTile; //position wasn't inside tile, so we will send back the closest tile
+    }
+
+    public generateSKU(): string {
+        //sku code generation from:
+        //https://github.com/mapbox/mapbox-gl-js/blob/992514ac5471c1231d8a1951bc6752a65aa9e3e6/src/util/sku_token.js
+
+        const SKU_ID = '01';
+        const TOKEN_VERSION = '1';
+        const base62chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        // sessionRandomizer is a randomized 10-digit base-62 number
+        let sessionRandomizer = '';
+        for (let i = 0; i < 10; i++) {
+            sessionRandomizer += base62chars[Math.floor(Math.random() * 62)];
+        }
+
+        let skuToken: string = [TOKEN_VERSION, SKU_ID, sessionRandomizer].join('');
+        return skuToken;
     }
 }

@@ -13,6 +13,8 @@ import TileBuilding from "./TileBuilding";
 import "@babylonjs/core/Materials/standardMaterial";
 import "@babylonjs/inspector";
 import '@babylonjs/core/Debug/debugLayer';
+import Raster from "./Raster";
+import TerrainMB from "./TerrainMB";
 declare enum TileRequestType {
     LoadTile = 0
 }
@@ -40,9 +42,8 @@ export default class TileSet {
     private tileCorner;
     centerCoords: Vector2;
     tileScale: number;
-    private rasterProvider;
-    private accessToken;
-    private ourMB;
+    private ourRasterProvider;
+    ourTerrainMB: TerrainMB;
     private totalWidthMeters;
     private totalHeightMeters;
     ourAttribution: Attribution;
@@ -73,7 +74,7 @@ export default class TileSet {
     makeSingleTileMesh(x: number, y: number, precision: number): Mesh;
     isBuildingDuplicate(newBuilding: TileBuilding): boolean;
     disableGroundCulling(): void;
-    setRasterProvider(providerName: string, accessToken?: string): void;
+    setRasterProvider(rp: Raster): void;
     /**
     * update all the tiles in the tileset
     * @param lat latitude. conceptually the y position in decimal

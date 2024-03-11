@@ -28,4 +28,5 @@ export default class TileMath {
     GetWorldPositionFromTile(pos: Vector2): Vector3;
     computeTileScale(): number;
     findBestTile(position: Vector3): Tile | undefined;
+    generateSKU(): string;
 }

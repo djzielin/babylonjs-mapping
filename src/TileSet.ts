@@ -9,7 +9,7 @@ import { AdvancedDynamicTexture } from "@babylonjs/gui";
 import { Observable } from "@babylonjs/core";
 
 import Tile from './Tile';
-import MapBox from "./MapBox";
+import MapBox from "./TerrainMB";
 import TileMath, { ProjectionType } from './TileMath';
 import Attribution from "./Attribution";
 import Buildings from './Buildings';
@@ -18,7 +18,9 @@ import TileBuilding from "./TileBuilding";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 import '@babylonjs/core/Debug/debugLayer';
-import RasterProvider from "./RasterProvider";
+import Raster from "./Raster";
+import RasterOSM from "./RasterMB";
+import TerrainMB from "./TerrainMB";
 
 enum TileRequestType{
     LoadTile,
@@ -52,10 +54,10 @@ export default class TileSet {
     public centerCoords: Vector2;
     public tileScale: number;
 
-    private ourRasterProvider: RasterProvider;
+    private ourRasterProvider: Raster;
     //private accessToken: string;
 
-    public ourMB: MapBox;
+    public ourTerrainMB: TerrainMB;
     private totalWidthMeters: number;
     private totalHeightMeters: number;
     public ourAttribution: Attribution;
@@ -80,12 +82,15 @@ export default class TileSet {
         EngineStore._LastCreatedScene=this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
         EngineStore.Instances.push(this.engine);
 
-        this.ourMB = new MapBox(this, this.scene); //TODO: seems a bit clunky to have to instantiate this here
+        this.setRasterProvider(new RasterOSM(this)); //default raster basemap to OSM
+
+        this.ourTerrainMB = new TerrainMB(this, this.scene); //TODO: this should really be a terrain provider, in case we can get terrain from more than just MapBox
+        
         this.ourAttribution = new Attribution(this.scene);
         this.ourTileMath= new TileMath(this);
 
         const observer = this.scene.onBeforeRenderObservable.add(() => { //fire every frame
-            this.processTileRequests();
+            this.processTileRequests(); //TODO: investigate WebWorker or other "threading" techniques, instead of calling every frame
          });
     }
 
@@ -167,10 +172,17 @@ export default class TileSet {
                         this.tileRequests.shift(); //pop request off front of queue
                         return;
                     }
+                    if(request.texture.loadingError){
+                        console.warn(this.prettyName() + "error loading texture for: " + request.url);
+
+                        this.requestsProcessedSinceCaughtUp++;
+                        this.tileRequests.shift(); //pop request off front of queue
+                        return;
+                    }
                 }
             }
         }
-    }    
+    }
 
     public getAdvancedDynamicTexture(): AdvancedDynamicTexture{
         return this.ourAttribution.advancedTexture;
@@ -208,7 +220,7 @@ export default class TileSet {
         }
     }
 
-    public setRasterProvider(rp:RasterProvider){
+    public setRasterProvider(rp:Raster){
         this.ourRasterProvider=rp;  
     }    
 
@@ -372,10 +384,10 @@ export default class TileSet {
     }
 
     public async generateTerrain(exaggeration: number) {
-        await this.ourMB.updateAllTerrainTiles(exaggeration);
+        await this.ourTerrainMB.updateAllTerrainTiles(exaggeration);
     }
 
     public getTerrainLowestY(): number {
-        return this.ourMB.globalMinHeight;
+        return this.ourTerrainMB.globalMinHeight;
     }
 }

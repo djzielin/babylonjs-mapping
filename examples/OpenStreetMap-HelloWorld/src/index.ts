@@ -21,6 +21,7 @@ import "@babylonjs/inspector";
 
 import TileSet from "babylonjs-mapping";
 import BuildingsOSM from "babylonjs-mapping/lib/BuildingsOSM";
+import RasterOSM from "babylonjs-mapping/lib/RasterOSM";
 
 class Game {
     private canvas: HTMLCanvasElement;
@@ -80,13 +81,13 @@ class Game {
         light2.intensity=0.5;
 
         this.ourTS = new TileSet(this.scene,this.engine);
-        this.ourTS.createGeometry(new Vector2(4,4), 20, 2);
-        this.ourTS.setRasterProvider("OSM");
-        this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //charlotte
+        this.ourTS.setRasterProvider(new RasterOSM(this.ourTS)); //raster basemap to OSM
+        this.ourTS.createGeometry(new Vector2(4,4), 20, 2); //4x4 tile set, 20m width of each tile, and 2 divisions on each tile
+        this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //lat, lon, zoon. takes us to charlotte. 
 
         this.ourOSM=new BuildingsOSM(this.ourTS);
         this.ourOSM.doMerge=true;
-        this.ourOSM.exaggeration=3;
+        this.ourOSM.exaggeration=1;
         this.ourOSM.generateBuildings();
 
         // Show the debug scene explorer and object inspector

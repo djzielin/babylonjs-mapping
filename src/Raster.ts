@@ -1,8 +1,9 @@
 import { Vector2 } from "@babylonjs/core/Maths/math";
+import TileSet from "./TileSet";
 
-export default class RasterProvider {
+export default class Raster {
     
-    constructor(public name:string){
+    constructor(public name:string, public tileSet: TileSet){
 
     }
 
