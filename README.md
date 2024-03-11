@@ -21,7 +21,8 @@ this.ourOSM.doMerge=true; //merge all buildings on a tile
 this.ourOSM.exaggeration=3;
 this.ourOSM.generateBuildings();
 ```
-
+Live Demos!
+https://people.duke.edu/~djzielin/babylonjs-mapping/HelloWorld/
 
 Tested with:
 Node 20.10.0 LTS
