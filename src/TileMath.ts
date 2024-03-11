@@ -311,6 +311,8 @@ export default class TileMath {
         }
 
         let skuToken: string = [TOKEN_VERSION, SKU_ID, sessionRandomizer].join('');
+        console.log("computed mapbox sku: " + skuToken);
+
         return skuToken;
     }
 }
