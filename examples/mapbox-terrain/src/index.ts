@@ -19,6 +19,9 @@ import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
+import { TextBlock } from "@babylonjs/gui";
+import { Control } from "@babylonjs/gui";
+
 //import { AdvancedDynamicTexture } from "@babylonjs/gui/2D";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
@@ -81,6 +84,24 @@ class Game {
         this.mapboxKey=text;
     }
 
+    public setupHelpText() {
+        const ourOverlay = this.ourTS.getAdvancedDynamicTexture();
+
+        const textBlock = new TextBlock();
+        textBlock.text = "On Desktop, use arrow keys and mouse to navigate";
+        textBlock.color = "white";
+        textBlock.fontSize = 24;
+
+        textBlock.textVerticalAlignment=Control.VERTICAL_ALIGNMENT_TOP;
+        textBlock.textHorizontalAlignment=Control.HORIZONTAL_ALIGNMENT_LEFT;
+
+        textBlock.left = "10px";
+        textBlock.top = "10px"; 
+
+        // Add the text block to the texture
+        ourOverlay.addControl(textBlock);        
+    }
+
     private async createScene() {
         this.scene.clearColor = new Color4(135 / 255, 206 / 255, 235 / 255, 1.0);
 
@@ -129,6 +150,8 @@ class Game {
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program 
         this.scene.debugLayer.show();
+
+        this.setupHelpText();
     }
 
     // The main update loop will be executed once per frame before the scene is rendered
