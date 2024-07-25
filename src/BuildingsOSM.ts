@@ -47,7 +47,7 @@ export default class BuildingsOSM extends Buildings {
 
         const storedCoords = tile.tileCoords.clone();
 
-        const url = this.osmBuildingServers[this.serverNum] + storedCoords.z + "/" + storedCoords.x + "/" + storedCoords.y + ".json"+"token="+this.accessToken;
+        const url = this.osmBuildingServers[this.serverNum] + storedCoords.z + "/" + storedCoords.x + "/" + storedCoords.y + ".json"+"?token="+this.accessToken;
         this.serverNum = (this.serverNum + 1) % this.osmBuildingServers.length; //increment server to use with wrap around
 
         const request: BuildingRequest = {
