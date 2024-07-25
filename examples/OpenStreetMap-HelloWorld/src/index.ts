@@ -64,6 +64,20 @@ class Game {
            });
        });
    }
+
+   public async getKey(url: string): Promise<string> {
+    console.log("trying to fetch: " + url);
+    const res = await fetch(url);
+    console.log("  fetch returned: " + res.status);
+
+    if (res.status != 200) {
+        console.error("unable to load key!");
+        return "";
+    }
+
+    const text = await res.text();
+    return text;
+}
    
     private async createScene() {
         this.scene.clearColor = new Color4(135/255,206/255,235/255, 1.0);
@@ -85,7 +99,9 @@ class Game {
         this.ourTS.createGeometry(new Vector2(4,4), 20, 2); //4x4 tile set, 20m width of each tile, and 2 divisions on each tile
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //lat, lon, zoon. takes us to charlotte. 
 
+        const accessToken=await this.getKey("osmb-key.txt");
         this.ourOSM=new BuildingsOSM(this.ourTS);
+        this.ourOSM.accessToken=accessToken;
         this.ourOSM.doMerge=true;
         this.ourOSM.exaggeration=1;
         this.ourOSM.generateBuildings();
