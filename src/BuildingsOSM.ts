@@ -57,7 +57,7 @@ export default class BuildingsOSM extends Buildings {
             projectionType: ProjectionType.EPSG_4326,
             url: url,
             inProgress: false,
-            flipWinding: false
+            flipWinding: true
         }
         this.buildingRequests.push(request);
     }       
