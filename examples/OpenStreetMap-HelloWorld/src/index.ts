@@ -15,6 +15,8 @@ import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Button } from "@babylonjs/gui/2D/controls/button";
+import { TextBlock } from "@babylonjs/gui";
+import { Control } from "@babylonjs/gui";
 
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
@@ -59,28 +61,46 @@ class Game {
            });
 
            // Watch for browser/canvas resize events
-           window.addEventListener("resize", () => { 
+           window.addEventListener("resize", () => {
                this.engine.resize();
            });
        });
-   }
-
-   public async getKey(url: string): Promise<string> {
-    console.log("trying to fetch: " + url);
-    const res = await fetch(url);
-    console.log("  fetch returned: " + res.status);
-
-    if (res.status != 200) {
-        console.error("unable to load key!");
-        return "";
     }
 
-    const text = await res.text();
-    return text;
-}
-   
+    public async getKey(url: string): Promise<string> {
+        console.log("trying to fetch: " + url);
+        const res = await fetch(url);
+        console.log("  fetch returned: " + res.status);
+
+        if (res.status != 200) {
+            console.error("unable to load key!");
+            return "";
+        }
+
+        const text = await res.text();
+        return text;
+    }
+
+    public setupHelpText() {
+        const ourOverlay = this.ourTS.getAdvancedDynamicTexture();
+
+        const textBlock = new TextBlock();
+        textBlock.text = "On Desktop, use arrow keys and mouse to navigate";
+        textBlock.color = "white";
+        textBlock.fontSize = 24;
+
+        textBlock.textVerticalAlignment=Control.VERTICAL_ALIGNMENT_TOP;
+        textBlock.textHorizontalAlignment=Control.HORIZONTAL_ALIGNMENT_LEFT;
+
+        textBlock.left = "10px";
+        textBlock.top = "10px"; 
+
+        // Add the text block to the texture
+        ourOverlay.addControl(textBlock);        
+    }
+
     private async createScene() {
-        this.scene.clearColor = new Color4(135/255,206/255,235/255, 1.0);
+        this.scene.clearColor = new Color4(135 / 255, 206 / 255, 235 / 255, 1.0);
 
         var camera = new UniversalCamera("camera1", new Vector3(0, 40, -80), this.scene);
         camera.setTarget(Vector3.Zero());
@@ -109,6 +129,8 @@ class Game {
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program 
         this.scene.debugLayer.show();
+        
+        this.setupHelpText();
     }
 
     private update(): void {
