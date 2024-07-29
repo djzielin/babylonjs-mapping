@@ -9,7 +9,7 @@
         "@babylonjs/inspector": "^6.37.1",
         "@babylonjs/materials": "^6.37.1",
         "@types/papaparse": "^5.3.14",
-        "babylonjs-mapping": "^1.1.10",
+        "babylonjs-mapping": "^1.1.27",
         "cross-fetch": "^4.0.0",
         "papaparse": "^5.4.1"
     },
