@@ -96,16 +96,85 @@ export class GeoJSON {
         return new Vector3(tileXY.x, tileXY.y, zoom);
     }
 
-    public generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean) {
-        let name = "Building";
-        let finalMesh: Mesh | null = null;
+    private convertCoordinatePairToVector2(cp:coordinatePair):Vector2{
+        const v1=new Vector2(cp[0],cp[1]);
+        return v1;
+    }
 
-        if (f.id !== undefined) {
-            name = f.id;
+    private convertVector2ToCoordinatePair(v: Vector2): coordinatePair{
+        const cp:coordinatePair=[];
+        cp.push(v.x);
+        cp.push(v.y);
+
+        return cp;
+    }
+
+    private computeOffset(v1: Vector2, v2: Vector2): Vector2 {
+        const diff = v2.subtract(v1);
+        const perp = new Vector2(diff.y*-1.0,diff.x*1.0);
+        const perpNormalized = perp.normalize();
+        const offset = perpNormalized.multiplyByFloats(0.0001, 0.0001); //TODO: Make this a parameter (ie line width)
+
+        return offset;
+    }
+
+    private convertLineToPolygonSet(cs: coordinateSet): polygonSet {
+        const newPS: polygonSet = [];
+
+        //if(doVerbose) console.log("original line has number of points: " + cs.length);
+
+        const newCS:coordinateSet=[];
+
+
+        for (let p=0;p<cs.length-1;p++){ //go forward down the line
+            //if(doVerbose) console.log("point index: " + p);
+
+            const v1=this.convertCoordinatePairToVector2(cs[p]);
+            const v2=this.convertCoordinatePairToVector2(cs[p+1]);
+            //if(doVerbose) console.log("  v1: " + v1);
+            //if(doVerbose) console.log("  v2: " + v2);
+
+            const offset=this.computeOffset(v1,v2);
+            //if(doVerbose) console.log("  offset: " + offset);
+
+            const newV1=v1.add(offset);
+            const newV2=v2.add(offset);
+
+            //if(doVerbose) console.log("  new_v1: " + newV1);
+            //if(doVerbose) console.log("  new_v2: " + newV2);
+
+            newCS.push(this.convertVector2ToCoordinatePair(newV1));
+            newCS.push(this.convertVector2ToCoordinatePair(newV2));            
         }
-        if (f.properties.name !== undefined) {
-            name = f.properties.name;
+
+        for (let p=cs.length-1;p>0;p--){ //now lets go back towards the start
+            //if(doVerbose) console.log("point index: " + p);
+
+            const v1=this.convertCoordinatePairToVector2(cs[p]);
+            const v2=this.convertCoordinatePairToVector2(cs[p-1]);
+            //if(doVerbose) console.log("  v1: " + v1);
+            //if(doVerbose) console.log("  v2: " + v2);
+
+            const offset=this.computeOffset(v1,v2);
+
+            const newV1=v1.add(offset);
+            const newV2=v2.add(offset);
+            
+            //if(doVerbose) console.log("  new_v1: " + newV1);
+            //if(doVerbose) console.log("  new_v2: " + newV2);
+
+            newCS.push(this.convertVector2ToCoordinatePair(newV1));
+            newCS.push(this.convertVector2ToCoordinatePair(newV2));            
         }
+
+        newCS.push(newCS[0]); //add starting coord to close the loop
+        newPS.push(newCS);
+
+        return newPS;
+    }
+
+    public generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean) {
+        let finalMesh: Mesh | null = null;
 
         let height = defaultBuildingHeight;
         if (f.properties.height !== undefined) {
@@ -122,17 +191,34 @@ export class GeoJSON {
         if (f.geometry.type == "Polygon") {
             const ps: polygonSet = f.geometry.coordinates as polygonSet;
             finalMesh = this.processSinglePolygon(ps, projection, buildingMaterial, exaggeration, height, flipWinding);
-            finalMesh.name=name;
-
         }
-        else if (f.geometry.type == "MultiPolygon") {
-            const mp: multiPolygonSet = f.geometry.coordinates as multiPolygonSet;
+        else if (f.geometry.type == "MultiPolygon" || f.geometry.type=="MultiLineString") {
 
             const allMeshes: Mesh[] = [];
 
-            for (let i = 0; i < mp.length; i++) {
-                const singleMesh = this.processSinglePolygon(mp[i], projection, buildingMaterial, exaggeration, height, flipWinding);
-                allMeshes.push(singleMesh);
+            if (f.geometry.type == "MultiPolygon") {
+                const mp: multiPolygonSet = f.geometry.coordinates as multiPolygonSet;
+
+                for (let i = 0; i < mp.length; i++) {
+                    const singleMesh = this.processSinglePolygon(mp[i], projection, buildingMaterial, exaggeration, height, flipWinding);
+                    allMeshes.push(singleMesh);
+                }
+            } 
+            if(f.geometry.type=="MultiLineString"){
+                //console.log("NEW GEOMETRY TYPE: MultiLineString");
+
+                const ps: polygonSet = f.geometry.coordinates as polygonSet;
+                //console.log("lineset set of length: " + ps.length);
+
+                for (let i = 0; i < ps.length; i++) {
+                    //console.log("  we are looking at lineset: " + i);
+                    const cs:coordinateSet=ps[i];
+
+                    const newPS: polygonSet=this.convertLineToPolygonSet(cs);                    
+
+                    const singleMesh = this.processSinglePolygon(newPS, projection, buildingMaterial, exaggeration, height, flipWinding);
+                    allMeshes.push(singleMesh);
+                }
             }
 
             if (allMeshes.length == 0) {
@@ -140,18 +226,15 @@ export class GeoJSON {
             }
             else if (allMeshes.length == 1) {
                 finalMesh = allMeshes[0];
-                finalMesh.name=name;
             } else {
                 const merged = Mesh.MergeMeshes(allMeshes);
                 if (merged) {
-                    merged.name = name;
                     finalMesh = merged;
                 } else {
                     console.error("unable to merge meshes!");
                 }
             }
-        }
-        else {
+        } else {
             //TODO: support other geometry types? 
             console.error("unknown building geometry type: " + f.geometry.type);
         }
@@ -168,7 +251,17 @@ export class GeoJSON {
         finalMesh.setParent(tile.mesh);
         finalMesh.freezeWorldMatrix(); //optimization? might want to skip here? hmmm...
 
-        
+        finalMesh.name = "Building";
+        if (f.id !== undefined) {
+            finalMesh.name = f.id;
+        }
+        if (f.properties.name !== undefined) {
+            finalMesh.name = f.properties.name;
+        }
+        if (f.properties.Name !== undefined) {
+            finalMesh.name = f.properties.Name;
+        }
+
         const building=new TileBuilding(finalMesh,tile);
 
         if(building.isBBoxContainedOnTile==false){
@@ -185,7 +278,7 @@ export class GeoJSON {
         tile.buildings.push(building);
 
 
-        //console.log("created " + finalMesh.name);
+        console.log("created " + finalMesh.name);
     }
 
     private processSinglePolygon(ps: polygonSet, projection: ProjectionType, buildingMaterial: StandardMaterial, exaggeration: number, height: number, flipWinding: boolean): Mesh {

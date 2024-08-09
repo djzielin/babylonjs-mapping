@@ -40,6 +40,10 @@ export declare class GeoJSON {
     private getFirstCoordinateWorldFromPolygonSet;
     getFirstCoordinateTile(f: feature, projection: ProjectionType, zoom: number): Vector3;
     private getFirstCoordinateTileFromPolygonSet;
+    private convertCoordinatePairToVector2;
+    private convertVector2ToCoordinatePair;
+    private computeOffset;
+    private convertLineToPolygonSet;
     generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean): void;
     private processSinglePolygon;
 }
