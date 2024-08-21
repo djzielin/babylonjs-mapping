@@ -54,6 +54,8 @@ export default class TileSet {
     public centerCoords: Vector2;
     public tileScale: number;
 
+    public streetExtensionAmount=0.25; //TODO; fix this to be in some sort of units that make sense, instead of game-world coordinates. 
+
     private ourRasterProvider: Raster;
     //private accessToken: string;
 
@@ -119,7 +121,7 @@ export default class TileSet {
         for (let y = 0; y < this.numTiles.y; y++) {
             for (let x = 0; x < this.numTiles.x; x++) {
                 const mesh=this.makeSingleTileMesh(x,y,this.meshPrecision);
-                const t = new Tile(mesh);
+                const t = new Tile(mesh, this);
                 this.ourTiles.push(t);               
             }
         }

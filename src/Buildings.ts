@@ -42,6 +42,7 @@ export default abstract class Buildings {
     public exaggeration = 1.0;
     public doMerge = false;
     public defaultBuildingHeight = 4.0;
+    public lineWidth=0.0001; //TODO: this needs to be different for EPSG:4326 vs EPSG:3857
     public buildingsCreatedPerFrame = 10;
     public cacheFiles = true;
     public buildingMaterial: StandardMaterial;
@@ -276,7 +277,7 @@ export default abstract class Buildings {
                     if (request.projectionType !== undefined) { //create building request must have a projectionType
                         //console.log("generating single building for tile: " + request.tileCoords);
 
-                        this.ourGeoJSON.generateSingleBuilding(request.feature, request.projectionType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight, request.flipWinding);
+                        this.ourGeoJSON.generateSingleBuilding(this.name, request.feature, request.projectionType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight, request.flipWinding, this.lineWidth);
                     } else {
                         console.error(this.prettyName() + "can't create a building with no projection specified!");
                     }

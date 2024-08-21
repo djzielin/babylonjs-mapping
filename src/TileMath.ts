@@ -157,7 +157,7 @@ export default class TileMath {
             (coord3857.x * R2D) / A,
             (Math.PI * 0.5 - 2.0 * Math.atan(Math.exp(-coord3857.y / A))) * R2D
         );
-    }
+    } 
 
     public epsg4326toEpsg3857(lonLat: Vector2) {
         var D2R = Math.PI / 180,
@@ -314,5 +314,55 @@ export default class TileMath {
         console.log("computed mapbox sku: " + skuToken);
 
         return skuToken;
+    }
+
+    // line intercept math by Paul Bourke http://paulbourke.net/geometry/pointlineplane/
+    // Determine the intersection point of two line segments
+    // Return FALSE if the lines don't intersect
+    // updated by DJZ for TypeScript / BabylonJS
+    public line_segment_intersect(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2): Vector2 | false {
+
+        const x1: number = p1.x;
+        const y1: number = p1.y;
+        const x2: number = p2.x;
+        const y2: number = p2.y;
+        const x3: number = p3.x;
+        const y3: number = p3.y;
+        const x4: number = p4.x;
+        const y4: number = p4.y;
+
+        // Check if none of the lines are of length 0
+        if ((x1 === x2 && y1 === y2) || (x3 === x4 && y3 === y4)) {
+            return false
+        }
+
+        const denominator = ((y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1))
+
+        // Lines are parallel
+        if (denominator === 0) {
+            return false
+        }
+
+        let ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / denominator
+        let ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / denominator
+
+        // is the intersection along the segments
+        if (ua < 0 || ua > 1 || ub < 0 || ub > 1) {
+            return false;
+        }
+
+        // Return a object with the x and y coordinates of the intersection
+        let x = x1 + ua * (x2 - x1);
+        let y = y1 + ua * (y2 - y1);
+
+        return new Vector2(x, y)
+    }
+
+    public v3_to_v2(v: Vector3): Vector2{
+        return new Vector2(v.x,v.z);
+    }
+
+    public v2_to_v3(v: Vector2): Vector3{
+        return new Vector3(v.x,0,v.y);
     }
 }

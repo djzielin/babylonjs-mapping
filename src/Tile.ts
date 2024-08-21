@@ -12,6 +12,7 @@ import Earcut from 'earcut';
 import { fetch } from 'cross-fetch'
 import Buildings from "./Buildings";
 import TileSet from "./TileSet";
+import { MeshBuilder } from "@babylonjs/core";
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
@@ -40,17 +41,37 @@ export default class Tile {
     public northSeamFixed = false;
     public northEastSeamFixed = false;
 
-    constructor(public mesh: Mesh) {
+    constructor(public mesh: Mesh, public tileSet: TileSet) {
+        mesh.computeWorldMatrix(true); //we were previously missing this, which caused a bug in the computation of the tile bounds! 
+
         const originalBox: BoundingBox = mesh.getBoundingInfo().boundingBox;
         const originalMin: Vector3 = originalBox.minimumWorld;
         const originalMax: Vector3 = originalBox.maximumWorld;
-        
-        const newMin=new Vector3(originalMin.x, -1, originalMin.z);
-        const newMax=new Vector3(originalMax.x, 1, originalMax.z);
+
+        const newMin = new Vector3(originalMin.x, -1, originalMin.z);
+        const newMax = new Vector3(originalMax.x, 1, originalMax.z);
 
         this.box2D = new BoundingBox(newMin, newMax);
+
+        //code for debugging the tile bounds
+        /*const p1 = new Vector3(originalMin.x, 0, originalMin.z);
+        const p2 = new Vector3(originalMax.x, 0, originalMax.z);
+        const p3 = new Vector3(originalMin.x, 0, originalMax.z);
+        const p4 = new Vector3(originalMax.x, 0, originalMin.z);
+
+        this.makeSphere(p1, this.mesh.name + " p1");
+        this.makeSphere(p2, this.mesh.name + " p2");
+        this.makeSphere(p3, this.mesh.name + " p3");
+        this.makeSphere(p4, this.mesh.name + " p4");
+        */
     }
-    
+
+    private makeSphere(p: Vector3, name: string) { //for debugging
+        const sphere = MeshBuilder.CreateSphere("sphere", { diameter: 1.0 }, this.tileSet.scene);
+        sphere.position = p;
+        sphere.name = name;
+    }
+
     public deleteBuildings(){
         for(let m of this.buildings){
             m.dispose();

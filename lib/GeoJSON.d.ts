@@ -32,6 +32,10 @@ export interface coordinateSet extends Array<coordinatePair> {
 }
 export interface coordinatePair extends Array<number> {
 }
+export interface coordinateArray extends Array<Vector3> {
+}
+export interface coordinateArrayOfArrays extends Array<coordinateArray> {
+}
 export declare class GeoJSON {
     private tileSet;
     private scene;
@@ -44,6 +48,7 @@ export declare class GeoJSON {
     private convertVector2ToCoordinatePair;
     private computeOffset;
     private convertLineToPolygonSet;
-    generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean): void;
+    generateSingleBuilding(shapeType: string, f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean, lineWidth: number): void;
+    private convertLinetoArray;
     private processSinglePolygon;
 }

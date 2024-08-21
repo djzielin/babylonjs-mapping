@@ -29,4 +29,7 @@ export default class TileMath {
     computeTileScale(): number;
     findBestTile(position: Vector3): Tile | undefined;
     generateSKU(): string;
+    line_segment_intersect(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2): Vector2 | false;
+    v3_to_v2(v: Vector3): Vector2;
+    v2_to_v3(v: Vector2): Vector3;
 }

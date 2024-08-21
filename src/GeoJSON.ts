@@ -41,6 +41,9 @@ export interface polygonSet extends Array<coordinateSet> { }
 export interface coordinateSet extends Array<coordinatePair> { }
 export interface coordinatePair extends Array<number> { }
 
+export interface coordinateArray extends Array<Vector3> { } 
+export interface coordinateArrayOfArrays extends Array<coordinateArray> {  }
+
 export class GeoJSON {
     constructor(private tileSet: TileSet, private scene: Scene) {
     }
@@ -109,16 +112,17 @@ export class GeoJSON {
         return cp;
     }
 
-    private computeOffset(v1: Vector2, v2: Vector2): Vector2 {
+    private computeOffset(v1: Vector2, v2: Vector2, lineWidth: number): Vector2 {
         const diff = v2.subtract(v1);
         const perp = new Vector2(diff.y*-1.0,diff.x*1.0);
         const perpNormalized = perp.normalize();
-        const offset = perpNormalized.multiplyByFloats(0.0001, 0.0001); //TODO: Make this a parameter (ie line width)
+        const halfLineWidth=lineWidth*0.5;
+        const offset = perpNormalized.multiplyByFloats(halfLineWidth, halfLineWidth); //TODO: Make this a parameter (ie line width)
 
         return offset;
     }
 
-    private convertLineToPolygonSet(cs: coordinateSet): polygonSet {
+    private convertLineToPolygonSet(cs: coordinateSet, lineWidth: number): polygonSet {
         const newPS: polygonSet = [];
 
         //if(doVerbose) console.log("original line has number of points: " + cs.length);
@@ -127,41 +131,27 @@ export class GeoJSON {
 
 
         for (let p=0;p<cs.length-1;p++){ //go forward down the line
-            //if(doVerbose) console.log("point index: " + p);
-
             const v1=this.convertCoordinatePairToVector2(cs[p]);
             const v2=this.convertCoordinatePairToVector2(cs[p+1]);
-            //if(doVerbose) console.log("  v1: " + v1);
-            //if(doVerbose) console.log("  v2: " + v2);
 
-            const offset=this.computeOffset(v1,v2);
-            //if(doVerbose) console.log("  offset: " + offset);
+            const offset=this.computeOffset(v1,v2, lineWidth);
 
             const newV1=v1.add(offset);
             const newV2=v2.add(offset);
-
-            //if(doVerbose) console.log("  new_v1: " + newV1);
-            //if(doVerbose) console.log("  new_v2: " + newV2);
 
             newCS.push(this.convertVector2ToCoordinatePair(newV1));
             newCS.push(this.convertVector2ToCoordinatePair(newV2));            
         }
 
         for (let p=cs.length-1;p>0;p--){ //now lets go back towards the start
-            //if(doVerbose) console.log("point index: " + p);
 
             const v1=this.convertCoordinatePairToVector2(cs[p]);
             const v2=this.convertCoordinatePairToVector2(cs[p-1]);
-            //if(doVerbose) console.log("  v1: " + v1);
-            //if(doVerbose) console.log("  v2: " + v2);
 
-            const offset=this.computeOffset(v1,v2);
+            const offset=this.computeOffset(v1,v2, lineWidth);
 
             const newV1=v1.add(offset);
             const newV2=v2.add(offset);
-            
-            //if(doVerbose) console.log("  new_v1: " + newV1);
-            //if(doVerbose) console.log("  new_v2: " + newV2);
 
             newCS.push(this.convertVector2ToCoordinatePair(newV1));
             newCS.push(this.convertVector2ToCoordinatePair(newV2));            
@@ -173,8 +163,9 @@ export class GeoJSON {
         return newPS;
     }
 
-    public generateSingleBuilding(f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean) {
+    public generateSingleBuilding(shapeType: string, f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean, lineWidth: number) {
         let finalMesh: Mesh | null = null;
+        const arrayOfLines: coordinateArrayOfArrays=[];
 
         let height = defaultBuildingHeight;
         if (f.properties.height !== undefined) {
@@ -208,13 +199,15 @@ export class GeoJSON {
                 //console.log("NEW GEOMETRY TYPE: MultiLineString");
 
                 const ps: polygonSet = f.geometry.coordinates as polygonSet;
-                //console.log("lineset set of length: " + ps.length);
+                //console.log("lineset set of length: " + ps.length);              
 
                 for (let i = 0; i < ps.length; i++) {
                     //console.log("  we are looking at lineset: " + i);
                     const cs:coordinateSet=ps[i];
 
-                    const newPS: polygonSet=this.convertLineToPolygonSet(cs);                    
+                    const newPS: polygonSet=this.convertLineToPolygonSet(cs, lineWidth);     
+                    const lineArray: coordinateArray = this.convertLinetoArray(cs,projection);
+                    arrayOfLines.push(lineArray);
 
                     const singleMesh = this.processSinglePolygon(newPS, projection, buildingMaterial, exaggeration, height, flipWinding);
                     allMeshes.push(singleMesh);
@@ -262,7 +255,11 @@ export class GeoJSON {
             finalMesh.name = f.properties.Name;
         }
 
+
         const building=new TileBuilding(finalMesh,tile);
+
+     
+        building.ShapeType=shapeType;
 
         if(building.isBBoxContainedOnTile==false){
             //TODO: check if building is a duplicate
@@ -275,10 +272,33 @@ export class GeoJSON {
 
         console.log("building is an original, adding to tile!");
 
+        if(arrayOfLines.length>0){
+            building.LineArray=arrayOfLines;
+            building.computeLineSegments();
+        }
+
         tile.buildings.push(building);
 
 
         console.log("created " + finalMesh.name);
+    }
+
+    private convertLinetoArray (cs: coordinateSet, projection: ProjectionType): coordinateArray {
+        const vArray: coordinateArray=[];
+
+
+        for (let p=0;p<cs.length;p++){ //go forward down the line
+            
+            const x=cs[p][0];
+            const y=cs[p][1];
+
+            const v2=new Vector2(x,y);
+
+            const coord = this.tileSet.ourTileMath.GetWorldPosition(v2, projection);
+
+            vArray.push(coord);
+        }
+        return vArray;
     }
 
     private processSinglePolygon(ps: polygonSet, projection: ProjectionType, buildingMaterial: StandardMaterial, exaggeration: number, height: number, flipWinding: boolean): Mesh {

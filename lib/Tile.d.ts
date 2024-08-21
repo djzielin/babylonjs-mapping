@@ -4,8 +4,10 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import TileBuilding from "./TileBuilding";
 import { BoundingBox } from "@babylonjs/core/Culling/boundingBox";
+import TileSet from "./TileSet";
 export default class Tile {
     mesh: Mesh;
+    tileSet: TileSet;
     material: StandardMaterial;
     tileCoords: Vector3;
     box2D: BoundingBox;
@@ -19,7 +21,8 @@ export default class Tile {
     eastSeamFixed: boolean;
     northSeamFixed: boolean;
     northEastSeamFixed: boolean;
-    constructor(mesh: Mesh);
+    constructor(mesh: Mesh, tileSet: TileSet);
+    private makeSphere;
     deleteBuildings(): void;
     hideIndividualBuildings(): void;
     getAllBuildingMeshes(): Mesh[];

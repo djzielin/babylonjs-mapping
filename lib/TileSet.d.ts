@@ -42,6 +42,7 @@ export default class TileSet {
     private tileCorner;
     centerCoords: Vector2;
     tileScale: number;
+    streetExtensionAmount: number;
     private ourRasterProvider;
     ourTerrainMB: TerrainMB;
     private totalWidthMeters;

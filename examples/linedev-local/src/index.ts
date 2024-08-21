@@ -9,7 +9,7 @@ import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
 import { Vector2 } from "@babylonjs/core/Maths/math.vector";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { Color4 } from "@babylonjs/core/Maths/math";
+import { Color4, Quaternion } from "@babylonjs/core/Maths/math";
 import { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
@@ -19,7 +19,8 @@ import { TextBlock } from "@babylonjs/gui";
 import { Control } from "@babylonjs/gui";
 import { StandardMaterial } from "@babylonjs/core";
 import { Color3 } from "@babylonjs/core/Maths/math";
-
+import { DynamicTexture } from "@babylonjs/core";
+import { Matrix } from "@babylonjs/core/Maths/math";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 
@@ -29,6 +30,10 @@ import BuildingsOSM from "../../../lib/BuildingsOSM";
 import RasterOSM from    "../../../lib/RasterOSM";
 import BuildingsWFS from "../../../lib/BuildingsWFS";
 import { ProjectionType } from "../../../lib/TileMath";
+import TileBuilding from "../../../lib/TileBuilding";
+import { coordinateArray, coordinateArrayOfArrays } from "../../../lib/GeoJSON";
+import { MeshBuilder } from "@babylonjs/core";
+import {LineTestReturnPacket} from "../../../lib/TileBuilding";
 
 class Game {
     private canvas: HTMLCanvasElement;
@@ -38,6 +43,7 @@ class Game {
     private ourTS: TileSet;
     //private ourOSM: BuildingsOSM;
     private ourLines: BuildingsWFS;
+    private loadedStreets: TileBuilding[]=[];
 
     private lastSelectedSphereIndex: number=-1;
     private lastSelectedSphere: Mesh;
@@ -134,7 +140,7 @@ class Game {
         const layer3 = "BURA_Sanborn_Streets_Combined_Corrected_WFS:BURA_Sanborn_Streets_Combined_Corrected"
 
         this.ourLines = new BuildingsWFS(
-            "lines",
+            "streets",
             url3,
             layer3,
             ProjectionType.EPSG_4326,
@@ -147,6 +153,12 @@ class Game {
         this.ourLines.buildingMaterial = this.ourBlackMaterial;
         this.ourLines.generateBuildings();
 
+        this.ourLines.onCaughtUpObservable.addOnce(() => {
+            console.log("completed loading all streets!");
+            this.setupLines();
+        });
+
+
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program 
         this.scene.debugLayer.show();
@@ -154,8 +166,84 @@ class Game {
         this.setupHelpText();
     }
 
+    private setupLines(){
+        for (let t of this.ourTS.ourTiles) {
+            console.log("tile: " + t.mesh.name + " contains buildings: " + t.buildings.length);
+            for (let b of t.buildings) {
+                console.log("  building shape type: " + b.ShapeType);
+                if(b.ShapeType=="streets"){
+                    console.log("    found a street!");
+                    this.loadedStreets.push(b);
+                }
+            }
+        }
+        console.log("total number of streets found: " + this.loadedStreets.length);
+
+        for (let i = 0; i < this.loadedStreets.length; i++) {
+            const s1 = this.loadedStreets[i];
+            for (let e = i + 1; e < this.loadedStreets.length; e++) {
+                const s2 = this.loadedStreets[e];
+
+                const result = s1.findLineIntersectionPoint(s2);
+
+                if (result) {
+                    const result_packet = result as LineTestReturnPacket;
+                    const intersectionName = s1.mesh.name + " and " + s2.mesh.name
+
+                    console.log("found intersection at: " + intersectionName);
+
+                    const sphere = MeshBuilder.CreateSphere("sphere", { diameter: 0.5 }, this.scene);
+                    sphere.position = result.p;
+                    sphere.name = intersectionName;
+
+                    const upPos = result.p.add(new Vector3(0, 0.5, 0));
+                    const sign1 = this.drawStreetSign(s1, upPos, result.dir1);
+                    sign1.setParent(sphere);
+
+                    const upPos2 = result.p.add(new Vector3(0, 1.0, 0));
+                    const sign2 = this.drawStreetSign(s2, upPos2, result.dir2);
+                    sign2.setParent(sphere);
+
+                    sphere.setParent(s1.tile.mesh);
+                }
+            }
+        }
+    }
+
+    //per ChatGPT
+    //modified by DJZ
+    public drawStreetSign(street: TileBuilding, pos: Vector3, dir: Vector3) : Mesh {
+        const textPlane = MeshBuilder.CreatePlane("textPlane", { size: 2 }, this.scene);
+        textPlane.position = pos;
+        textPlane.rotationQuaternion=this.getSignRotation(dir);
+        //textPlane.parent=street.mesh.parent;
+
+        //textPlane.isVisible = false; // Hide the plane initially
+
+        // Create a dynamic texture
+        const dynamicTexture = new DynamicTexture("dynamicTexture", { width: 512, height: 256 }, this.scene, false);
+        dynamicTexture.hasAlpha = true; // Enable transparency
+
+        // Create a material and apply the dynamic texture
+        const textMaterial = new StandardMaterial("textMaterial", this.scene);
+        textMaterial.diffuseTexture = dynamicTexture;
+        textMaterial.emissiveColor = new Color3(1, 1, 1); // Make the text emissive so it stands out
+        textPlane.material = textMaterial;
+
+        dynamicTexture.drawText(street.mesh.name, null, null, "bold 44px Arial", "white", "transparent");
+        
+        return textPlane;
+    };
+
+    public getSignRotation(direction: Vector3): Quaternion {
+        const upVector = Vector3.Up(); // The 'up' direction for the plane (y-axis)
+        const rightVector = Vector3.Cross(upVector, direction); // Get the right vector (perpendicular to the direction)
+    
+        return Quaternion.FromLookDirectionLH(rightVector,upVector);
+    }
+
     private update(): void {
-       
+
     }
 
 }
