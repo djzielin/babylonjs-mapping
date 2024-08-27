@@ -48,7 +48,7 @@ export class GeoJSON {
     constructor(private tileSet: TileSet, private scene: Scene) {
     }
     
-    private getFirstCoordinateWorld(f: feature, projection: ProjectionType, zoom?: number): Vector3 {
+    /*private getFirstCoordinateWorld(f: feature, projection: ProjectionType, zoom?: number): Vector3 {
         if (zoom === undefined) {
             zoom = this.tileSet.zoom;
         }
@@ -97,7 +97,7 @@ export class GeoJSON {
         const v2 = new Vector2(ps[0][0][0], ps[0][0][1]);
         const tileXY= this.tileSet.ourTileMath.GetTilePosition(v2, projection, zoom); //lat lon
         return new Vector3(tileXY.x, tileXY.y, zoom);
-    }
+    }*/
 
     private convertCoordinatePairToVector2(cp:coordinatePair):Vector2{
         const v1=new Vector2(cp[0],cp[1]);
