@@ -40,15 +40,11 @@ export declare class GeoJSON {
     private tileSet;
     private scene;
     constructor(tileSet: TileSet, scene: Scene);
-    private getFirstCoordinateWorld;
-    private getFirstCoordinateWorldFromPolygonSet;
-    getFirstCoordinateTile(f: feature, projection: ProjectionType, zoom: number): Vector3;
-    private getFirstCoordinateTileFromPolygonSet;
     private convertCoordinatePairToVector2;
     private convertVector2ToCoordinatePair;
     private computeOffset;
     private convertLineToPolygonSet;
-    generateSingleBuilding(shapeType: string, f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean, lineWidth: number): void;
+    generateSingleBuilding(shapeType: string, f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean, lineWidth: number, pointDiameter: number): void;
     private convertLinetoArray;
     private processSinglePolygon;
 }

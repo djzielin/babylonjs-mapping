@@ -43,7 +43,8 @@ export default abstract class Buildings {
     public doMerge = false;
     public defaultBuildingHeight = 4.0;
     public lineWidth=0.0001; //TODO: this needs to be different for EPSG:4326 vs EPSG:3857
-    public buildingsCreatedPerFrame = 10;
+    public pointDiameter=0.5; //TODO: this is currently in game world units
+    public buildingsCreatedPerFrame = 10; //TODO: is there a better way to do this?
     public cacheFiles = true;
     public buildingMaterial: StandardMaterial;
 
@@ -277,7 +278,9 @@ export default abstract class Buildings {
                     if (request.projectionType !== undefined) { //create building request must have a projectionType
                         //console.log("generating single building for tile: " + request.tileCoords);
 
-                        this.ourGeoJSON.generateSingleBuilding(this.name, request.feature, request.projectionType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight, request.flipWinding, this.lineWidth);
+                        //TODO: passing too many parameters into this!
+                        //maybe allow it to reference this class instead?
+                        this.ourGeoJSON.generateSingleBuilding(this.name, request.feature, request.projectionType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight, request.flipWinding, this.lineWidth,this.pointDiameter);
                     } else {
                         console.error(this.prettyName() + "can't create a building with no projection specified!");
                     }

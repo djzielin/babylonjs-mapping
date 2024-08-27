@@ -31,6 +31,7 @@ export default abstract class Buildings {
     doMerge: boolean;
     defaultBuildingHeight: number;
     lineWidth: number;
+    pointDiameter: number;
     buildingsCreatedPerFrame: number;
     cacheFiles: boolean;
     buildingMaterial: StandardMaterial;

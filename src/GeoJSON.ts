@@ -163,7 +163,7 @@ export class GeoJSON {
         return newPS;
     }
 
-    public generateSingleBuilding(shapeType: string, f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean, lineWidth: number) {
+    public generateSingleBuilding(shapeType: string, f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean, lineWidth: number, pointDiameter: number) {
         let finalMesh: Mesh | null = null;
         const arrayOfLines: coordinateArrayOfArrays=[];
 
@@ -182,6 +182,16 @@ export class GeoJSON {
         if (f.geometry.type == "Polygon") {
             const ps: polygonSet = f.geometry.coordinates as polygonSet;
             finalMesh = this.processSinglePolygon(ps, projection, buildingMaterial, exaggeration, height, flipWinding);
+        }
+        else if(f.geometry.type=="Point") {
+            const cp: coordinatePair = f.geometry.coordinates as coordinatePair;
+            const v = new Vector2(cp[0], cp[1]);
+            const pos = this.tileSet.ourTileMath.GetWorldPosition(v, projection);
+
+            const sphere = MeshBuilder.CreateSphere("sphere", { diameter: pointDiameter }, this.scene);
+            
+            sphere.position = pos;
+            finalMesh=sphere;
         }
         else if (f.geometry.type == "MultiPolygon" || f.geometry.type=="MultiLineString") {
 
@@ -251,7 +261,8 @@ export class GeoJSON {
         if (f.properties.name !== undefined) {
             finalMesh.name = f.properties.name;
         }
-        if (f.properties.Name !== undefined) {
+
+        if (f.properties.Name !== undefined) { //NOTE: this is not a mistake, look closely and you can see .name vs .Name
             finalMesh.name = f.properties.Name;
         }
 
