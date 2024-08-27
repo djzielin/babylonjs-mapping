@@ -21,6 +21,8 @@ import { StandardMaterial } from "@babylonjs/core";
 import { Color3 } from "@babylonjs/core/Maths/math";
 import { DynamicTexture } from "@babylonjs/core";
 import { Matrix } from "@babylonjs/core/Maths/math";
+import { ActionManager } from "@babylonjs/core";
+import { ExecuteCodeAction } from "@babylonjs/core";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 
@@ -42,7 +44,7 @@ class Game {
 
     private ourTS: TileSet;
     private ourPoints: BuildingsWFS;
-    private loadedStreets: TileBuilding[]=[];
+    private loadedPoints: TileBuilding[]=[];
 
     private lastSelectedSphereIndex: number=-1;
     private lastSelectedSphere: Mesh;
@@ -139,7 +141,7 @@ class Game {
         const layer3 = "Brooklyn_Businesses_3:BrooklynBusinesses3"
 
         this.ourPoints = new BuildingsWFS(
-            "streets",
+            "points",
             url3,
             layer3,
             ProjectionType.EPSG_4326,
@@ -154,7 +156,7 @@ class Game {
 
         this.ourPoints.onCaughtUpObservable.addOnce(() => {
             console.log("completed loading all points!");
-            //this.setupLines();
+            this.setupPoints();
         });
 
 
@@ -165,49 +167,35 @@ class Game {
         this.setupHelpText();
     }
 
-    /*private setupLines(){
+    private setupPoints(){
         for (let t of this.ourTS.ourTiles) {
             console.log("tile: " + t.mesh.name + " contains buildings: " + t.buildings.length);
             for (let b of t.buildings) {
                 console.log("  building shape type: " + b.ShapeType);
-                if(b.ShapeType=="streets"){
-                    console.log("    found a street!");
-                    this.loadedStreets.push(b);
+                if(b.ShapeType=="points"){
+                    console.log("    found a point!");
+                    this.loadedPoints.push(b);
                 }
             }
         }
-        console.log("total number of streets found: " + this.loadedStreets.length);
+        console.log("total number of points found: " + this.loadedPoints.length);
 
-        for (let i = 0; i < this.loadedStreets.length; i++) {
-            const s1 = this.loadedStreets[i];
-            for (let e = i + 1; e < this.loadedStreets.length; e++) {
-                const s2 = this.loadedStreets[e];
+        for (let i = 0; i < this.loadedPoints.length; i++) {
+            const s1 = this.loadedPoints[i];
+            const s1Mesh = s1.mesh;
 
-                const result = s1.findLineIntersectionPoint(s2);
+            s1Mesh.actionManager = new ActionManager(this.scene);
 
-                if (result) {
-                    const result_packet = result as LineTestReturnPacket;
-                    const intersectionName = s1.mesh.name + " and " + s2.mesh.name
-
-                    console.log("found intersection at: " + intersectionName);
-
-                    const sphere = MeshBuilder.CreateSphere("sphere", { diameter: 0.5 }, this.scene);
-                    sphere.position = result.p;
-                    sphere.name = intersectionName;
-
-                    const upPos = result.p.add(new Vector3(0, 0.5, 0));
-                    const sign1 = this.drawStreetSign(s1, upPos, result.dir1);
-                    sign1.setParent(sphere);
-
-                    const upPos2 = result.p.add(new Vector3(0, 1.0, 0));
-                    const sign2 = this.drawStreetSign(s2, upPos2, result.dir2);
-                    sign2.setParent(sphere);
-
-                    sphere.setParent(s1.tile.mesh);
-                }
-            }
+            s1Mesh.actionManager.registerAction(
+                new ExecuteCodeAction(
+                    ActionManager.OnPickTrigger,
+                    function (evt) {
+                        alert("Name: " + s1Mesh.metadata.Name + "\n" + "Address: " + s1Mesh.metadata.Address);
+                    }
+                )
+            );
         }
-    }  */
+    }  
 
     private update(): void {
 
