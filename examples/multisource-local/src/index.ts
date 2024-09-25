@@ -151,7 +151,7 @@ class Game {
         this.ourTS.createGeometry(new Vector2(4,4), 25, 2); //4x4 tile set, 20m width of each tile, and 2 divisions on each tile
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //lat, lon, zoom. takes us to charlotte. 
 
-        /*const url2a = "https://dservices1.arcgis.com/XBhYkoXKJCRHbe7M/arcgis/services/Building_Union_ExportFeatures_Corrected_Data_Sep_3/WFSServer?";
+        const url2a = "https://dservices1.arcgis.com/XBhYkoXKJCRHbe7M/arcgis/services/Building_Union_ExportFeatures_Corrected_Data_Sep_3/WFSServer?";
         const layer2a = "Building_Union_ExportFeatures_Corrected_Data_Sep_3:Building_Union_ExportFeatures1"
 
         const customBuildingGenerator = new BuildingsWFS(
@@ -195,9 +195,9 @@ class Game {
         
         Promise.all([obs1Promise, obs2Promise]).then(() => {
             this.setupBuildings(); // Trigger after both are done
-        });        */
+        });        
         
-        const url2 = "https://dservices1.arcgis.com/XBhYkoXKJCRHbe7M/arcgis/services/VBC_2_7_24_BuildingUnion_WFS/WFSServer?";
+        /* const url2 = "https://dservices1.arcgis.com/XBhYkoXKJCRHbe7M/arcgis/services/VBC_2_7_24_BuildingUnion_WFS/WFSServer?";
         const layer2 = "VBC_2_7_24_BuildingUnion_WFS:Building_Union";
 
         const customBuildingGenerator3 = new BuildingsWFS(
@@ -214,7 +214,7 @@ class Game {
         
         customBuildingGenerator3.onCaughtUpObservable.addOnce(() => {
             this.setupBuildings();
-        });  
+        });  */
 
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program 
