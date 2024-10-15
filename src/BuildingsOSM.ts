@@ -14,7 +14,7 @@ export default class BuildingsOSM extends Buildings {
         super("OSM", tileSet);
     }
 
-    public generateBuildings() {
+    public override generateBuildings() {
         super.generateBuildings();
 
         this.tileSet.ourAttribution.addAttribution("OSMB");
@@ -32,7 +32,7 @@ export default class BuildingsOSM extends Buildings {
         //"https://d.data.osmbuildings.org/0.2/anonymous/tile/"
     ];
 
-    protected stripFilePrefix(original: string): string {
+    protected override stripFilePrefix(original: string): string {
         const prefixLength=35; //51
         const stripped = original.slice(prefixLength);
         //console.log("new file URL is: " + stripped);

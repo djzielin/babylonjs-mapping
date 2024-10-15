@@ -1,6 +1,6 @@
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
-import TileMath from "./lib/TileMath";
+import TileMath from "../../../lib/TileMath";
 
 var tm=new TileMath(undefined);
 

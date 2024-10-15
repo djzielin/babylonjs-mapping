@@ -3,7 +3,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math";
 import { BoundingBox } from "@babylonjs/core";
 import Tile from './Tile';
 import TileSet from "./TileSet";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
+
 export enum ProjectionType{
     EPSG_3857,
     EPSG_4326
@@ -151,7 +151,8 @@ export default class TileMath {
 
         // 900913 properties.
         var R2D = 180 / Math.PI;
-        var A = 6378137.0;
+        var A = 6378137.0; //DJZ - this seems to be the equatorial radius? https://en.wikipedia.org/wiki/Earth_radius
+        //var A = 6371008.8; //this is what maptiler uses: https://github.com/maptiler/maptiler-client-js/blob/main/src/services/math.ts
 
         return new Vector2(
             (coord3857.x * R2D) / A,
