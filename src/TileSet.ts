@@ -53,6 +53,7 @@ export default class TileSet {
     private tileCorner: Vector2;
     public centerCoords: Vector2;
     public tileScale: number;
+    public hasAlpha=false;
 
     public streetExtensionAmount=0.25; //TODO; fix this to be in some sort of units that make sense, instead of game-world coordinates. 
 
@@ -163,10 +164,13 @@ export default class TileSet {
                         console.log(this.prettyName() + "tile raster is ready: " + request.url);
 
                         const material = request.mesh.material as StandardMaterial;
+                        material.unfreeze();
 
                         material.diffuseTexture = request.texture;
                         material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
                         material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
+                        material.diffuseTexture.hasAlpha=this.hasAlpha;
+
                         material.freeze(); //optimization
 
                         request.mesh.setEnabled(true); //show it!

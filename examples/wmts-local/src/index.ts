@@ -43,7 +43,8 @@ class Game {
 
     constructor() {
         // Get the canvas element 
-        this.canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
+        //this.canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
+        this.canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement; //recent node 20.17.0 on mac seems to need this?
 
         // Generate the BABYLON 3D engine
         this.engine = new Engine(this.canvas, true);
@@ -118,6 +119,7 @@ class Game {
         light2.intensity=0.5;
 
         this.ourTS = new TileSet(this.scene,this.engine);
+        this.ourTS.hasAlpha=true; //this should get rid of black spots on edge of dataset
        
         const ourWMTS=new RasterWMTS(this.ourTS);
         ourWMTS.setup("https://tiles.arcgis.com/tiles/XBhYkoXKJCRHbe7M/arcgis/rest/services/Mosaic_jpg/MapServer/WMTS",
