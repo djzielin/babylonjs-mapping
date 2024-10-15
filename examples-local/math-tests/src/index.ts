@@ -43,7 +43,7 @@ class Game {
 
         this.print("Running some math tests...");
 
-        const ts=
+        //const ts=
         
         //https://epsg.io/transform#s_srs=4326&t_srs=3857&x=-80.0000000&y=35.0000000
         
