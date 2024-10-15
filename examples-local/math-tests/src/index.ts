@@ -8,7 +8,7 @@
 import { Vector2 } from "@babylonjs/core/Maths/math.vector";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import TileMath from "../../../lib/TileMath";
-
+import TileSet from "../.../../lib/TileSet";
 
 class Game {
     
@@ -42,6 +42,8 @@ class Game {
         var tm=new TileMath(undefined);
 
         this.print("Running some math tests...");
+
+        const ts=
         
         //https://epsg.io/transform#s_srs=4326&t_srs=3857&x=-80.0000000&y=35.0000000
         
@@ -63,13 +65,10 @@ class Game {
         
         var tileTest=new Vector3(18049,25907,16);
         this.print("looking at tile: " + tileTest);
-        var result=tm.tile2lonlat(tileTest);
         
-        this.print("lon/lat: " + result);       
-    }
-   
-
-    
+        var result=tm.tile2lonlat(tileTest);
+        this.print("lon/lat: " + result);   
+    }   
 
 }
 /******* End of the Game class ******/
