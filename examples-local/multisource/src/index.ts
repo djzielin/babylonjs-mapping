@@ -53,7 +53,8 @@ class Game {
 
     private ourTS: TileSet;
 
-    public allBuildings: Mesh[] = [];
+    public allBuildings1: Mesh[] = [];
+    public allBuildings2: Mesh[] = [];
 
     private ourBlueMaterial: StandardMaterial;
     private ourRedMaterial: StandardMaterial;
@@ -149,13 +150,14 @@ class Game {
         this.ourTS = new TileSet(this.scene,this.engine);
         this.ourTS.setRasterProvider(new RasterOSM(this.ourTS)); //raster basemap to OSM
         this.ourTS.createGeometry(new Vector2(4,4), 25, 2); //4x4 tile set, 20m width of each tile, and 2 divisions on each tile
+        //this.ourTS.createGeometry(new Vector2(1,1), 25, 2);
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //lat, lon, zoom. takes us to charlotte. 
 
         const url2a = "https://dservices1.arcgis.com/XBhYkoXKJCRHbe7M/arcgis/services/Building_Union_ExportFeatures_Corrected_Data_Sep_3/WFSServer?";
         const layer2a = "Building_Union_ExportFeatures_Corrected_Data_Sep_3:Building_Union_ExportFeatures1"
 
         const customBuildingGenerator = new BuildingsWFS(
-            "buildings",
+            "buildings1",
             url2a,
             layer2a,
             EPSG_Type.EPSG_4326,
@@ -192,9 +194,12 @@ class Game {
                 resolve();
             });
         });
-        
-        Promise.all([obs1Promise, obs2Promise]).then(() => {
-            this.setupBuildings(); // Trigger after both are done
+
+        Promise.all([obs1Promise,obs2Promise]).then(() => {
+            this.setupBuildingsArrays(); // Trigger after both are done
+            this.processMetaData(this.allBuildings1, "Building_Union_ExportFeatures_Corrected_Data_Sep_3");
+            this.processMetaData(this.allBuildings1, "DukeSanborn_Buildings_1951");
+            this.dumpData();
         });        
         
         /* const url2 = "https://dservices1.arcgis.com/XBhYkoXKJCRHbe7M/arcgis/services/VBC_2_7_24_BuildingUnion_WFS/WFSServer?";
@@ -223,20 +228,24 @@ class Game {
         this.setupHelpText();
     }
 
-    public setupBuildings(){
+    public setupBuildingsArrays(){
         for (let t of this.ourTS.ourTiles) {
-            //console.log("tile: " + t.mesh.name + " contains buildings: " + t.buildings.length);
             for (let b of t.buildings) {
-                if (b.mesh.name.includes("Building")) {
-                    this.allBuildings.push(b.mesh);
+                if (b.ShapeType === "buildings1") {
+                    this.allBuildings1.push(b.mesh);
+                }
+                if (b.ShapeType === "buildings2") {
+                    this.allBuildings2.push(b.mesh);
                 }
             }
         }
-        console.log("buildings found: " + this.allBuildings.length);
+    }
 
+    public processMetaData(allBuildings: Mesh[], dataSource: string){
+           
         //parse metadata into easy to use Map
-        for (let i = 0; i < this.allBuildings.length; i++) {
-            const b = this.allBuildings[i];
+        for (let i = 0; i < allBuildings.length; i++) {
+            const b = allBuildings[i];
             const props = b.metadata as propertiesCharlotte;
             const ourMap: Map<string, string> = new Map<string, string>();
 
@@ -258,20 +267,21 @@ class Game {
  
             b.name = ourMap.get("Address") + " " + ourMap.get("Street");
             
-            const row=ourMap.get("OBJECTID")+","+ourMap.get("Address") + "," + ourMap.get("Street")+"\n";
+            const row=ourMap.get("OBJECTID")+","+ourMap.get("Address") + "," + ourMap.get("Street")+ "," + dataSource + "\n";
             this.buildingDumpCSV+=row;           
         }
+    }
 
-      
+    public dumpData() {
         //dump data out to file for user!
         var a = document.createElement("a");
-        a.href = window.URL.createObjectURL(new Blob([this.buildingDumpCSV], {type: "text/plain"}));
+        a.href = window.URL.createObjectURL(new Blob([this.buildingDumpCSV], { type: "text/plain" }));
         a.download = "buildings.csv";
         a.click();
     }
 
     private update(): void {
-       
+
     }
 
 }
