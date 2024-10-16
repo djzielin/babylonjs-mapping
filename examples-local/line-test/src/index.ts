@@ -29,7 +29,7 @@ import TileSet from      "../../../lib/TileSet"
 import BuildingsOSM from "../../../lib/BuildingsOSM";
 import RasterOSM from    "../../../lib/RasterOSM";
 import BuildingsWFS from "../../../lib/BuildingsWFS";
-import { ProjectionType } from "../../../lib/TileMath";
+import { EPSG_Type } from "../../../lib/TileMath";
 import TileBuilding from "../../../lib/TileBuilding";
 import { coordinateArray, coordinateArrayOfArrays } from "../../../lib/GeoJSON";
 import { MeshBuilder } from "@babylonjs/core";
@@ -53,7 +53,7 @@ class Game {
 
     constructor() {
         // Get the canvas element 
-        this.canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
+        this.canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 
         // Generate the BABYLON 3D engine
         this.engine = new Engine(this.canvas, true);
@@ -143,7 +143,7 @@ class Game {
             "streets",
             url3,
             layer3,
-            ProjectionType.EPSG_4326,
+            EPSG_Type.EPSG_4326,
             this.ourTS
         );
 
