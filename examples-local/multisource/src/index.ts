@@ -198,7 +198,7 @@ class Game {
         Promise.all([obs1Promise,obs2Promise]).then(() => {
             this.setupBuildingsArrays(); // Trigger after both are done
             this.processMetaData(this.allBuildings1, "Building_Union_ExportFeatures_Corrected_Data_Sep_3");
-            this.processMetaData(this.allBuildings1, "DukeSanborn_Buildings_1951");
+            this.processMetaData(this.allBuildings2, "DukeSanborn_Buildings_1951");
             this.dumpData();
         });        
         
@@ -267,7 +267,10 @@ class Game {
  
             b.name = ourMap.get("Address") + " " + ourMap.get("Street");
             
-            const row=ourMap.get("OBJECTID")+","+ourMap.get("Address") + "," + ourMap.get("Street")+ "," + dataSource + "\n";
+            const a=ourMap.get("Address")!.replace(/,/g, "");
+            const s=ourMap.get("Street")!.replace(/,/g, "");
+
+            const row=ourMap.get("OBJECTID")+dataSource[0]+","+a  + "," + s + "," + dataSource + "\n";
             this.buildingDumpCSV+=row;           
         }
     }
