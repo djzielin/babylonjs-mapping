@@ -244,6 +244,32 @@ export default class TileMath {
         return new Vector3(xFixed, 0, yFixed);
     }
 
+    public GamePosToTile(gPos: Vector3): Vector3 {
+        if(this.tileSet===undefined){
+            console.error("tileSet is undefined!");
+            return new Vector3(0,0,0);
+        }
+
+        const t = this.tileSet.ourTiles[0]; //just grab the first tile
+
+        const tileX = t.tileCoords.x;
+        const tileY = t.tileCoords.y;
+
+        const lowerLeftCornerGameX = t.mesh.position.x - this.tileSet.tileWidth * 0.5;
+        const lowerLeftCornerGameY = t.mesh.position.z + this.tileSet.tileWidth * 0.5;
+ 
+        const posDiffX = gPos.x-lowerLeftCornerGameX;
+        const posDiffY = lowerLeftCornerGameY-gPos.z; //or should this be flipped? [NOT CONFIDENT IN THIS CALC]
+ 
+        const diffInTileCoordinatesX=posDiffX/this.tileSet.tileWidth;
+        const diffinTileCoordinatesY=posDiffY/this.tileSet.tileWidth;
+
+        const finalTileX=tileX+diffInTileCoordinatesX;
+        const finalTileY=tileY+diffinTileCoordinatesY;
+
+        return new Vector3(finalTileX, finalTileY, this.tileSet.zoom);
+    }
+
     public computeTileScale(): number {
         if(this.tileSet===undefined){
             console.error("tileSet is undefined!");
