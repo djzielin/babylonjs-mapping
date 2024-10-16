@@ -106,6 +106,7 @@ export default class TileMath {
     public Game_to_LonLat(gamePos: Vector3){
         const t=this.Game_to_Tile(gamePos); 
         const lonlat=this.tile_to_lonlat(t);
+        return lonlat; //whoops, forgot this line previously. 
     }
 
     public EPSG_to_Tile(pos: Vector2, epsg: EPSG_Type, zoom?: number): Vector2 {
@@ -199,7 +200,7 @@ export default class TileMath {
         const lowerLeftCornerGameY = t.mesh.position.z + this.tileSet.tileWidth * 0.5;
  
         const posDiffX = gPos.x-lowerLeftCornerGameX;
-        const posDiffY = lowerLeftCornerGameY-gPos.z; //or should this be flipped? [NOT CONFIDENT IN THIS CALC]
+        const posDiffY = lowerLeftCornerGameY-gPos.z;
  
         const diffInTileCoordinatesX=posDiffX/this.tileSet.tileWidth;
         const diffinTileCoordinatesY=posDiffY/this.tileSet.tileWidth;

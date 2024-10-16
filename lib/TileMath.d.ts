@@ -20,7 +20,7 @@ export default class TileMath {
     epsg4326_to_Epsg3857(lonLat: Vector2): Vector2;
     sign(x: number): number;
     EPSG_to_Game(pos: Vector2, epsg: EPSG_Type, zoom?: number): Vector3;
-    Game_to_LonLat(gamePos: Vector3): void;
+    Game_to_LonLat(gamePos: Vector3): Vector2;
     EPSG_to_Tile(pos: Vector2, epsg: EPSG_Type, zoom?: number): Vector2;
     EPSG_to_TileExact(pos: Vector2, epsg: EPSG_Type, zoom?: number): Vector2;
     Tile_to_Game(pos: Vector2): Vector3;

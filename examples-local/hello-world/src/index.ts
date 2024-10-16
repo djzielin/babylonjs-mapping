@@ -25,6 +25,7 @@ import "@babylonjs/inspector";
 import TileSet from "../../../lib/TileSet"
 import BuildingsOSM from "../../../lib/BuildingsOSM";
 import RasterOSM from "../../../lib/RasterOSM";
+import TileMath from "../../../lib/TileMath";
 
 class Game {
     private canvas: HTMLCanvasElement;
@@ -33,6 +34,7 @@ class Game {
 
     private ourTS: TileSet;
     private ourOSM: BuildingsOSM;
+    private ourTileMath: TileMath;
 
     private lastSelectedSphereIndex: number=-1;
     private lastSelectedSphere: Mesh;
@@ -120,6 +122,7 @@ class Game {
         this.ourTS.setRasterProvider(new RasterOSM(this.ourTS)); //raster basemap to OSM
         this.ourTS.createGeometry(new Vector2(4,4), 20, 2); //4x4 tile set, 20m width of each tile, and 2 divisions on each tile
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //lat, lon, zoom. takes us to charlotte. 
+        this.ourTileMath=new TileMath(this.ourTS);
 
         const accessToken=await this.getKey("osmb-key.txt");
         this.ourOSM=new BuildingsOSM(this.ourTS);
