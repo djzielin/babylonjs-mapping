@@ -41,7 +41,7 @@ class Game {
 
     constructor() {
         // Get the canvas element 
-        this.canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
+        this.canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 
         // Generate the BABYLON 3D engine
         this.engine = new Engine(this.canvas, true);
