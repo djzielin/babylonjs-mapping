@@ -26,7 +26,7 @@ import TileSet from "../../../lib/TileSet"
 import BuildingsOSM from "../../../lib/BuildingsOSM";
 import RasterOSM from "../../../lib/RasterOSM";
 import BuildingsWFS from "../../../lib/BuildingsWFS";
-import { ProjectionType } from "../../../lib/TileMath";
+import { EPSG_Type } from "../../../lib/TileMath";
 
 export interface propertiesCharlotte {
     "Additional_Information": string;    
@@ -63,7 +63,7 @@ class Game {
 
     constructor() {
         // Get the canvas element 
-        this.canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
+        this.canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 
         // Generate the BABYLON 3D engine
         this.engine = new Engine(this.canvas, true);
@@ -158,7 +158,7 @@ class Game {
             "buildings",
             url2a,
             layer2a,
-            ProjectionType.EPSG_4326,
+            EPSG_Type.EPSG_4326,
             this.ourTS);
 
         customBuildingGenerator.setupAGOL();
@@ -173,7 +173,7 @@ class Game {
             "buildings2",
             url2b,
             layer2b,
-            ProjectionType.EPSG_4326,
+            EPSG_Type.EPSG_4326,
             this.ourTS);
 
         customBuildingGenerator2.setupAGOL();
