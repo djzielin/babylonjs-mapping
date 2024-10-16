@@ -3,7 +3,7 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import * as GeoJSON from './GeoJSON';
 import Tile from "./Tile";
 import TileSet from "./TileSet";
-import { ProjectionType } from "./TileMath";
+import { EPSG_Type } from "./TileMath";
 import { Observable } from "@babylonjs/core";
 export declare enum BuildingRequestType {
     LoadTile = 0,
@@ -17,7 +17,7 @@ export interface BuildingRequest {
     inProgress: boolean;
     flipWinding: boolean;
     feature?: GeoJSON.feature;
-    projectionType?: ProjectionType;
+    epsgType?: EPSG_Type;
     url?: string;
 }
 interface GeoFileLoaded {

@@ -4,13 +4,15 @@ import { BoundingBox } from "@babylonjs/core";
 import Tile from './Tile';
 import TileSet from "./TileSet";
 
-export enum ProjectionType{
+export enum EPSG_Type{
     EPSG_3857,
     EPSG_4326
 }
 
-//import "@babylonjs/core/Materials/standardMaterial"
-//import "@babylonjs/inspector";
+// There are 3 main coordinate systems we deal with:
+// EPSG - could be lon,lat (4326) or webmercator (3857)
+// Tile - refers to specific tiling of basemap (based on zoom levels)
+// Game - the game engine coordinates used in babylonJS
 
 export default class TileMath {
 
@@ -18,31 +20,194 @@ export default class TileMath {
     }
 
     //https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
-    public lon2tile(lon: number, zoom: number): number { return (Math.floor((lon + 180) / 360 * Math.pow(2, zoom))); }
-    public lat2tile(lat: number, zoom: number): number { return (Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom))); }
+    public lon_to_tile(lon: number, zoom: number): number { return (Math.floor((lon + 180) / 360 * Math.pow(2, zoom))); }
+    public lat_to_tile(lat: number, zoom: number): number { return (Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom))); }
 
     //without rounding
-    public lon2tileExact(lon: number, zoom: number): number { return (((lon + 180) / 360 * Math.pow(2, zoom))); }
-    public lat2tileExact(lat: number, zoom: number): number { return (((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom))); }
+    public lon_to_tileExact(lon: number, zoom: number): number { return (((lon + 180) / 360 * Math.pow(2, zoom))); }
+    public lat_to_tileExact(lat: number, zoom: number): number { return (((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom))); }
 
     //inverse
-    public tile2lon(x: number, z: number): number {
+    public tile_to_lon(x: number, z: number): number {
         return (x / Math.pow(2, z) * 360 - 180);
     }
-    public tile2lat(y: number, z: number): number {
+    public tile_to_lat(y: number, z: number): number {
         var n = Math.PI - 2 * Math.PI * y / Math.pow(2, z);
         return (180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n))));
     }
 
-    public tile2lonlat(tileCoords:Vector3):Vector2{
+    public tile_to_lonlat(tileCoords:Vector3):Vector2{
         const x=tileCoords.x;
         const y=tileCoords.y;
         const zoom=tileCoords.z;
 
-        const lon=this.tile2lon(x,zoom);
-        const lat=this.tile2lat(y,zoom);
+        const lon=this.tile_to_lon(x,zoom);
+        const lat=this.tile_to_lat(y,zoom);
 
         return new Vector2(lon,lat);
+    }
+
+    //from https://github.com/Turfjs/turf/blob/master/packages/turf-projection/index.ts
+    public epsg3857_to_Epsg4326(coord3857: Vector2) {
+
+        // 900913 properties.
+        var R2D = 180 / Math.PI;
+        var A = 6378137.0; //DJZ - this seems to be the equatorial radius? https://en.wikipedia.org/wiki/Earth_radius
+        //var A = 6371008.8; //this is what maptiler uses: https://github.com/maptiler/maptiler-client-js/blob/main/src/services/math.ts
+
+        return new Vector2(
+            (coord3857.x * R2D) / A,
+            (Math.PI * 0.5 - 2.0 * Math.atan(Math.exp(-coord3857.y / A))) * R2D
+        );
+    } 
+
+    public epsg4326_to_Epsg3857(lonLat: Vector2) {
+        var D2R = Math.PI / 180,
+            // 900913 properties
+            A = 6378137.0,
+            MAXEXTENT = 20037508.342789244;
+
+        // compensate longitudes passing the 180th meridian
+        // from https://github.com/proj4js/proj4js/blob/master/lib/common/adjust_lon.js
+        var adjusted =
+            Math.abs(lonLat.x) <= 180 ? lonLat.x : lonLat.x - this.sign(lonLat.x) * 360;
+        const xy: Vector2 = new Vector2(
+            A * adjusted * D2R,
+            A * Math.log(Math.tan(Math.PI * 0.25 + 0.5 * lonLat.y * D2R)),
+        );
+
+        // if xy value is beyond maxextent (e.g. poles), return maxextent
+        if (xy.x > MAXEXTENT) xy.x = MAXEXTENT;
+        if (xy.x < -MAXEXTENT) xy.x = -MAXEXTENT;
+        if (xy.y > MAXEXTENT) xy.y = MAXEXTENT;
+        if (xy.y < -MAXEXTENT) xy.y = -MAXEXTENT;
+
+        return xy;
+    }
+
+    public sign(x: number): number {
+        return x < 0 ? -1 : x > 0 ? 1 : 0;
+    }
+
+    public EPSG_to_Game(pos: Vector2, epsg: EPSG_Type, zoom?: number): Vector3 {
+        if (zoom === undefined) {
+            if (this.tileSet === undefined) {
+                console.error("tileSet is undefined!");
+                return new Vector3(0, 0, 0);
+            }
+
+            zoom = this.tileSet.zoom;
+        }
+
+        const exactTile = this.EPSG_to_TileExact(pos, epsg, zoom);
+        return this.Tile_to_Game(exactTile);
+    }
+
+    public Game_to_LonLat(gamePos: Vector3){
+        const t=this.Game_to_Tile(gamePos); 
+        const lonlat=this.tile_to_lonlat(t);
+    }
+
+    public EPSG_to_Tile(pos: Vector2, epsg: EPSG_Type, zoom?: number): Vector2 {
+        if (zoom === undefined) {
+            if (this.tileSet === undefined) {
+                console.error("tileSet is undefined!");
+                return new Vector2(0, 0);
+            }
+
+            zoom = this.tileSet.zoom;
+        }
+
+        const exact = this.EPSG_to_TileExact(pos, epsg, zoom);
+
+        return new Vector2(Math.floor(exact.x), Math.floor(exact.y));
+    }   
+    
+    public EPSG_to_TileExact(pos: Vector2, epsg: EPSG_Type, zoom?: number): Vector2 {
+        if (zoom === undefined) {
+            if (this.tileSet === undefined) {
+                console.error("tileSet is undefined!");
+                return new Vector2(0, 0);
+            }
+            zoom = this.tileSet.zoom;
+        }
+
+        if (epsg == EPSG_Type.EPSG_4326 || epsg == EPSG_Type.EPSG_3857) {
+
+            let lonLat: Vector2=pos;
+
+            if(epsg==EPSG_Type.EPSG_3857) //if in meters
+            {
+                lonLat=this.epsg3857_to_Epsg4326(pos); //lets just get everything into 4326 (lat/lon), and then convert to tile
+            }
+
+            const x = this.lon_to_tileExact(lonLat.x, zoom);
+            const y = this.lat_to_tileExact(lonLat.y, zoom);
+
+            return new Vector2(x, y);
+        } else {
+            console.error("unknown projection type");
+            return new Vector2(0, 0);
+        }
+    }    
+
+    ////////////////////////////////////////////////////////
+    // Tile to Game
+    // Game to Tile
+    ////////////////////////////////////////////////////////
+
+    public Tile_to_Game(pos: Vector2): Vector3 {
+        if(this.tileSet===undefined){
+            console.error("tileSet is undefined!");
+            return new Vector3(0,0,0);
+        }
+
+        const t = this.tileSet.ourTiles[0]; //just grab the first tile
+
+        //console.log("corner tile coords: " + t.tileCoords);
+
+        const tileDiffX = pos.x - t.tileCoords.x;
+        const tileDiffY = pos.y - t.tileCoords.y;
+
+        //console.log("tile diff: " + tileDiffX + " " + tileDiffY);
+
+        const upperLeftCornerX = t.mesh.position.x - this.tileSet.tileWidth * 0.5;
+        const upperLeftCornerY = t.mesh.position.z + this.tileSet.tileWidth * 0.5;
+
+        //console.log("lower left corner: " + upperLeftCornerX + " " + upperLeftCornerY);
+
+        const xFixed = upperLeftCornerX + tileDiffX * this.tileSet.tileWidth;
+        const yFixed = upperLeftCornerY - tileDiffY * this.tileSet.tileWidth;
+
+       // console.log("world position: " + xFixed +" " + yFixed);       
+
+        return new Vector3(xFixed, 0, yFixed);
+    }
+
+    public Game_to_Tile(gPos: Vector3): Vector3 {
+        if(this.tileSet===undefined){
+            console.error("tileSet is undefined!");
+            return new Vector3(0,0,0);
+        }
+
+        const t = this.tileSet.ourTiles[0]; //just grab the first tile
+
+        const tileX = t.tileCoords.x;
+        const tileY = t.tileCoords.y;
+
+        const lowerLeftCornerGameX = t.mesh.position.x - this.tileSet.tileWidth * 0.5;
+        const lowerLeftCornerGameY = t.mesh.position.z + this.tileSet.tileWidth * 0.5;
+ 
+        const posDiffX = gPos.x-lowerLeftCornerGameX;
+        const posDiffY = lowerLeftCornerGameY-gPos.z; //or should this be flipped? [NOT CONFIDENT IN THIS CALC]
+ 
+        const diffInTileCoordinatesX=posDiffX/this.tileSet.tileWidth;
+        const diffinTileCoordinatesY=posDiffY/this.tileSet.tileWidth;
+
+        const finalTileX=tileX+diffInTileCoordinatesX;
+        const finalTileY=tileY+diffinTileCoordinatesY;
+
+        return new Vector3(finalTileX, finalTileY, this.tileSet.zoom);
     }
 
     public computeBBOX_4326(tileCoords:Vector3): Vector4{
@@ -52,13 +217,13 @@ export default class TileMath {
         const tileBottomLeft=tileCoords.add(new Vector3(0,1,0));
         console.log("   proposed bottom left: " + tileBottomLeft);
 
-        const bottomLeft=this.tile2lonlat(tileBottomLeft);
+        const bottomLeft=this.tile_to_lonlat(tileBottomLeft);
         console.log("   result: " + bottomLeft);
 
         const tileUpperRight=tileCoords.add(new Vector3(1,0,0));
         console.log("   proposed upper right: " + tileUpperRight);
 
-        const topRight=this.tile2lonlat(tileUpperRight);
+        const topRight=this.tile_to_lonlat(tileUpperRight);
         console.log("   result: " + topRight);
 
         const finalResult = new Vector4(bottomLeft.y, bottomLeft.x, topRight.y, topRight.x); //note the swapped y,x and to get lat,lon ordering   
@@ -94,7 +259,7 @@ export default class TileMath {
         return C * Math.cos(latRadians) / Math.pow(2, zoom); //seems to need abs?
     }
 
-    public computeCornerTile(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
+    public computeCornerTile(pos: Vector2, epsg: EPSG_Type, zoom?: number): Vector2 {
         if (this.tileSet === undefined) {
             console.error("tileSet is undefined!");
             return new Vector2(0, 0);
@@ -106,7 +271,7 @@ export default class TileMath {
 
         console.log("computing corner tile for: " + pos);
 
-        let cornerTile = this.GetTilePosition(pos, projection, zoom);
+        let cornerTile = this.EPSG_to_Tile(pos, epsg, zoom);
         console.log("center tile: " + cornerTile);
 
         cornerTile.x -= Math.floor(this.tileSet.numTiles.x / 2); //use floor to handle odd tileset sizes
@@ -115,159 +280,6 @@ export default class TileMath {
         console.log("corner tile: " + cornerTile);
 
         return cornerTile;
-    }
-
-    public GetWorldPosition(pos: Vector2, projection: ProjectionType, zoom?: number): Vector3 {
-        if (zoom === undefined) {
-            if (this.tileSet === undefined) {
-                console.error("tileSet is undefined!");
-                return new Vector3(0, 0, 0);
-            }
-
-            zoom = this.tileSet.zoom;
-        }
-
-        const tilePos = this.GetTilePositionExact(pos, projection, zoom);
-        return this.GetWorldPositionFromTile(tilePos);
-    }
-
-    public GetTilePosition(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
-        if (zoom === undefined) {
-            if (this.tileSet === undefined) {
-                console.error("tileSet is undefined!");
-                return new Vector2(0, 0);
-            }
-
-            zoom = this.tileSet.zoom;
-        }
-
-        const exact = this.GetTilePositionExact(pos, projection, zoom);
-
-        return new Vector2(Math.floor(exact.x), Math.floor(exact.y));
-    }
-
-    //from https://github.com/Turfjs/turf/blob/master/packages/turf-projection/index.ts
-    public epsg3857toEpsg4326(coord3857: Vector2) {
-
-        // 900913 properties.
-        var R2D = 180 / Math.PI;
-        var A = 6378137.0; //DJZ - this seems to be the equatorial radius? https://en.wikipedia.org/wiki/Earth_radius
-        //var A = 6371008.8; //this is what maptiler uses: https://github.com/maptiler/maptiler-client-js/blob/main/src/services/math.ts
-
-        return new Vector2(
-            (coord3857.x * R2D) / A,
-            (Math.PI * 0.5 - 2.0 * Math.atan(Math.exp(-coord3857.y / A))) * R2D
-        );
-    } 
-
-    public epsg4326toEpsg3857(lonLat: Vector2) {
-        var D2R = Math.PI / 180,
-            // 900913 properties
-            A = 6378137.0,
-            MAXEXTENT = 20037508.342789244;
-
-        // compensate longitudes passing the 180th meridian
-        // from https://github.com/proj4js/proj4js/blob/master/lib/common/adjust_lon.js
-        var adjusted =
-            Math.abs(lonLat.x) <= 180 ? lonLat.x : lonLat.x - this.sign(lonLat.x) * 360;
-        const xy: Vector2 = new Vector2(
-            A * adjusted * D2R,
-            A * Math.log(Math.tan(Math.PI * 0.25 + 0.5 * lonLat.y * D2R)),
-        );
-
-        // if xy value is beyond maxextent (e.g. poles), return maxextent
-        if (xy.x > MAXEXTENT) xy.x = MAXEXTENT;
-        if (xy.x < -MAXEXTENT) xy.x = -MAXEXTENT;
-        if (xy.y > MAXEXTENT) xy.y = MAXEXTENT;
-        if (xy.y < -MAXEXTENT) xy.y = -MAXEXTENT;
-
-        return xy;
-    }
-
-    public sign(x: number): number {
-        return x < 0 ? -1 : x > 0 ? 1 : 0;
-    }
-
-    public GetTilePositionExact(pos: Vector2, projection: ProjectionType, zoom?: number): Vector2 {
-        if (zoom === undefined) {
-            if (this.tileSet === undefined) {
-                console.error("tileSet is undefined!");
-                return new Vector2(0, 0);
-            }
-            zoom = this.tileSet.zoom;
-        }
-
-        if (projection == ProjectionType.EPSG_4326 || projection == ProjectionType.EPSG_3857) {
-
-            let lonLat: Vector2=pos;
-
-            if(projection==ProjectionType.EPSG_3857) //if in meters
-            {
-                lonLat=this.epsg3857toEpsg4326(pos); //lets just get everything into 4326 (lat/lon), and then convert to tile
-            }
-
-            const x = this.lon2tileExact(lonLat.x, zoom);
-            const y = this.lat2tileExact(lonLat.y, zoom);
-
-            return new Vector2(x, y);
-        } else {
-            console.error("unknown projection type");
-            return new Vector2(0, 0);
-        }
-    }    
-
-    public GetWorldPositionFromTile(pos: Vector2): Vector3 {
-        if(this.tileSet===undefined){
-            console.error("tileSet is undefined!");
-            return new Vector3(0,0,0);
-        }
-
-        const t = this.tileSet.ourTiles[0]; //just grab the first tile
-
-        //console.log("corner tile coords: " + t.tileCoords);
-
-        const tileDiffX = pos.x - t.tileCoords.x;
-        const tileDiffY = pos.y - t.tileCoords.y;
-
-        //console.log("tile diff: " + tileDiffX + " " + tileDiffY);
-
-        const upperLeftCornerX = t.mesh.position.x - this.tileSet.tileWidth * 0.5;
-        const upperLeftCornerY = t.mesh.position.z + this.tileSet.tileWidth * 0.5;
-
-        //console.log("lower left corner: " + upperLeftCornerX + " " + upperLeftCornerY);
-
-        const xFixed = upperLeftCornerX + tileDiffX * this.tileSet.tileWidth;
-        const yFixed = upperLeftCornerY - tileDiffY * this.tileSet.tileWidth;
-
-       // console.log("world position: " + xFixed +" " + yFixed);       
-
-        return new Vector3(xFixed, 0, yFixed);
-    }
-
-    public GamePosToTile(gPos: Vector3): Vector3 {
-        if(this.tileSet===undefined){
-            console.error("tileSet is undefined!");
-            return new Vector3(0,0,0);
-        }
-
-        const t = this.tileSet.ourTiles[0]; //just grab the first tile
-
-        const tileX = t.tileCoords.x;
-        const tileY = t.tileCoords.y;
-
-        const lowerLeftCornerGameX = t.mesh.position.x - this.tileSet.tileWidth * 0.5;
-        const lowerLeftCornerGameY = t.mesh.position.z + this.tileSet.tileWidth * 0.5;
- 
-        const posDiffX = gPos.x-lowerLeftCornerGameX;
-        const posDiffY = lowerLeftCornerGameY-gPos.z; //or should this be flipped? [NOT CONFIDENT IN THIS CALC]
- 
-        const diffInTileCoordinatesX=posDiffX/this.tileSet.tileWidth;
-        const diffinTileCoordinatesY=posDiffY/this.tileSet.tileWidth;
-
-        const finalTileX=tileX+diffInTileCoordinatesX;
-        const finalTileY=tileY+diffinTileCoordinatesY;
-
-        return new Vector3(finalTileX, finalTileY, this.tileSet.zoom);
     }
 
     public computeTileScale(): number {

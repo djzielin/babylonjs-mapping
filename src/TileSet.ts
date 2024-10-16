@@ -10,7 +10,7 @@ import { Observable } from "@babylonjs/core";
 
 import Tile from './Tile';
 import MapBox from "./TerrainMB";
-import TileMath, { ProjectionType } from './TileMath';
+import TileMath, { EPSG_Type } from './TileMath';
 import Attribution from "./Attribution";
 import Buildings from './Buildings';
 import TileBuilding from "./TileBuilding";
@@ -244,7 +244,7 @@ export default class TileSet {
 
         this.zoom = zoom;
         this.centerCoords = new Vector2(lon, lat); 
-        this.tileCorner = this.ourTileMath.computeCornerTile(this.centerCoords,ProjectionType.EPSG_4326,this.zoom);
+        this.tileCorner = this.ourTileMath.computeCornerTile(this.centerCoords,EPSG_Type.EPSG_4326,this.zoom);
         this.tileScale=this.ourTileMath.computeTileScale();
 
 

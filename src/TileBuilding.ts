@@ -1,19 +1,9 @@
-import { Scene } from "@babylonjs/core/scene";
 import { Vector2, Vector3 } from "@babylonjs/core/Maths/math";
-import { Color3 } from "@babylonjs/core/Maths/math";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import { BoundingBox } from "@babylonjs/core/Culling/boundingBox";
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer";
-import * as GeoJSON from './GeoJSON';
 import Tile from "./Tile";
-import TileSet from "./TileSet";
-import TileMath, { ProjectionType } from "./TileMath";
-import { Observable } from "@babylonjs/core";
-import { TreeItemComponent } from "@babylonjs/inspector/components/sceneExplorer/treeItemComponent";
+import TileMath, { EPSG_Type } from "./TileMath";
 import { coordinateArrayOfArrays} from "./GeoJSON";
-import { WebXRCompositionLayerRenderTargetTextureProvider } from "@babylonjs/core/XR/features/Layers/WebXRCompositionLayer";
-import { MeshBuilder } from "@babylonjs/core";
 
 export interface LineSegment {
     p1: Vector2;

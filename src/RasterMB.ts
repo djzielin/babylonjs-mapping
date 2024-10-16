@@ -1,6 +1,5 @@
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import Raster from "./Raster";
-import TileMath, { ProjectionType } from './TileMath';
 import TileSet from "./TileSet";
 
 export default class RasterOSM extends Raster{

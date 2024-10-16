@@ -1,4 +1,4 @@
-import { ProjectionType } from "./TileMath";
+import { EPSG_Type } from "./TileMath";
 import { BuildingRequest } from "./Buildings";
 import { BuildingRequestType } from "./Buildings";
 
@@ -13,7 +13,7 @@ export default class BuildingsWFS extends Buildings {
     public urlRequest = "&request=GetFeature";
     public flipWinding = false;
 
-    constructor(name: string, public url: string, public layerName: string, public projection: ProjectionType, tileSet: TileSet) {
+    constructor(name: string, public url: string, public layerName: string, public epsg: EPSG_Type, tileSet: TileSet) {
         super(name, tileSet);
 
         this.setupGeoServer();
@@ -46,7 +46,7 @@ export default class BuildingsWFS extends Buildings {
             requestType: BuildingRequestType.LoadTile,
             tile: tile,
             tileCoords: tile.tileCoords.clone(),
-            projectionType: this.projection,
+            epsgType: this.epsg,
             url: urlWithBox,
             inProgress: false,
             flipWinding: this.flipWinding

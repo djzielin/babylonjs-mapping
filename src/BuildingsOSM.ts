@@ -1,4 +1,4 @@
-import { ProjectionType } from "./TileMath";
+import { EPSG_Type } from "./TileMath";
 import { BuildingRequest } from "./Buildings";
 import { BuildingRequestType } from "./Buildings";
 
@@ -54,7 +54,7 @@ export default class BuildingsOSM extends Buildings {
             requestType: BuildingRequestType.LoadTile,
             tile: tile,
             tileCoords: storedCoords,
-            projectionType: ProjectionType.EPSG_4326,
+            epsgType: EPSG_Type.EPSG_4326,
             url: url,
             inProgress: false,
             flipWinding: true

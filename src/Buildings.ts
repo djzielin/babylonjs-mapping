@@ -7,9 +7,9 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import * as GeoJSON from './GeoJSON';
 import Tile from "./Tile";
 import TileSet from "./TileSet";
-import { ProjectionType } from "./TileMath";
+import { EPSG_Type } from "./TileMath";
 import { Observable } from "@babylonjs/core";
-import { TreeItemComponent } from "@babylonjs/inspector/components/sceneExplorer/treeItemComponent";
+
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
@@ -27,7 +27,7 @@ export interface BuildingRequest {
     inProgress: boolean;
     flipWinding: boolean;
     feature?: GeoJSON.feature;
-    projectionType?: ProjectionType;
+    epsgType?: EPSG_Type;
     url?: string;    
 }
 
@@ -87,7 +87,7 @@ export default abstract class Buildings {
                 tile: request.tile,
                 tileCoords: request.tile.tileCoords.clone(),
                 inProgress: false,
-                projectionType: request.projectionType,
+                epsgType: request.epsgType,
                 feature: f,
                 flipWinding: request.flipWinding
             }
@@ -275,12 +275,12 @@ export default abstract class Buildings {
                 this.removePendingRequest(rIndex);
 
                 if (request.feature !== undefined) {
-                    if (request.projectionType !== undefined) { //create building request must have a projectionType
+                    if (request.epsgType !== undefined) { //create building request must have a projectionType
                         //console.log("generating single building for tile: " + request.tileCoords);
 
                         //TODO: passing too many parameters into this!
                         //maybe allow it to reference this class instead?
-                        this.ourGeoJSON.generateSingleBuilding(this.name, request.feature, request.projectionType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight, request.flipWinding, this.lineWidth,this.pointDiameter);
+                        this.ourGeoJSON.generateSingleBuilding(this.name, request.feature, request.epsgType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight, request.flipWinding, this.lineWidth,this.pointDiameter);
                     } else {
                         console.error(this.prettyName() + "can't create a building with no projection specified!");
                     }

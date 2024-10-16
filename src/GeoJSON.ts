@@ -8,7 +8,7 @@ import Earcut from 'earcut';
 
 import Tile from './Tile';
 import TileSet from "./TileSet";
-import { ProjectionType } from "./TileMath";
+import { EPSG_Type } from "./TileMath";
 import TileMath from "./TileMath";
 import TileBuilding from "./TileBuilding";
 
@@ -163,7 +163,7 @@ export class GeoJSON {
         return newPS;
     }
 
-    public generateSingleBuilding(shapeType: string, f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean, lineWidth: number, pointDiameter: number) {
+    public generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean, lineWidth: number, pointDiameter: number) {
         let finalMesh: Mesh | null = null;
         const arrayOfLines: coordinateArrayOfArrays=[];
 
@@ -184,12 +184,12 @@ export class GeoJSON {
 
         if (f.geometry.type == "Polygon") {
             const ps: polygonSet = f.geometry.coordinates as polygonSet;
-            finalMesh = this.processSinglePolygon(ps, projection, buildingMaterial, exaggeration, height, flipWinding);
+            finalMesh = this.processSinglePolygon(ps, epsg, buildingMaterial, exaggeration, height, flipWinding);
         }
         else if(f.geometry.type=="Point") {
             const cp: coordinatePair = f.geometry.coordinates as coordinatePair;
             const v = new Vector2(cp[0], cp[1]);
-            const pos = this.tileSet.ourTileMath.GetWorldPosition(v, projection);
+            const pos = this.tileSet.ourTileMath.EPSG_to_Game(v, epsg);
 
             const sphere = MeshBuilder.CreateSphere("sphere", { diameter: pointDiameter }, this.scene);
             
@@ -204,7 +204,7 @@ export class GeoJSON {
                 const mp: multiPolygonSet = f.geometry.coordinates as multiPolygonSet;
 
                 for (let i = 0; i < mp.length; i++) {
-                    const singleMesh = this.processSinglePolygon(mp[i], projection, buildingMaterial, exaggeration, height, flipWinding);
+                    const singleMesh = this.processSinglePolygon(mp[i], epsg, buildingMaterial, exaggeration, height, flipWinding);
                     allMeshes.push(singleMesh);
                 }
             } 
@@ -219,10 +219,10 @@ export class GeoJSON {
                     const cs:coordinateSet=ps[i];
 
                     const newPS: polygonSet=this.convertLineToPolygonSet(cs, lineWidth);     
-                    const lineArray: coordinateArray = this.convertLinetoArray(cs,projection);
+                    const lineArray: coordinateArray = this.convertLinetoArray(cs,epsg);
                     arrayOfLines.push(lineArray);
 
-                    const singleMesh = this.processSinglePolygon(newPS, projection, buildingMaterial, exaggeration, height, flipWinding);
+                    const singleMesh = this.processSinglePolygon(newPS, epsg, buildingMaterial, exaggeration, height, flipWinding);
                     allMeshes.push(singleMesh);
                 }
             }
@@ -297,7 +297,7 @@ export class GeoJSON {
         console.log("created " + finalMesh.name);
     }
 
-    private convertLinetoArray (cs: coordinateSet, projection: ProjectionType): coordinateArray {
+    private convertLinetoArray (cs: coordinateSet, epsg: EPSG_Type): coordinateArray {
         const vArray: coordinateArray=[];
 
 
@@ -308,14 +308,14 @@ export class GeoJSON {
 
             const v2=new Vector2(x,y);
 
-            const coord = this.tileSet.ourTileMath.GetWorldPosition(v2, projection);
+            const coord = this.tileSet.ourTileMath.EPSG_to_Game(v2, epsg);
 
             vArray.push(coord);
         }
         return vArray;
     }
 
-    private processSinglePolygon(ps: polygonSet, projection: ProjectionType, buildingMaterial: StandardMaterial, exaggeration: number, height: number, flipWinding: boolean): Mesh {
+    private processSinglePolygon(ps: polygonSet, epsg: EPSG_Type, buildingMaterial: StandardMaterial, exaggeration: number, height: number, flipWinding: boolean): Mesh {
         const holeArray: Vector3[][] = [];
         const positions3D: Vector3[] = [];
 
@@ -329,7 +329,7 @@ export class GeoJSON {
                 for (let e = ps[i].length - 2; e >= 0; e--) {
 
                     const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
-                    const coord = this.tileSet.ourTileMath.GetWorldPosition(v2, projection);
+                    const coord = this.tileSet.ourTileMath.EPSG_to_Game(v2, epsg);
 
                     if (i == 0) {
                         positions3D.push(coord);
@@ -341,7 +341,7 @@ export class GeoJSON {
                 for (let e = 0; e < ps[i].length-1; e++) {
 
                     const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
-                    const coord = this.tileSet.ourTileMath.GetWorldPosition(v2, projection);
+                    const coord = this.tileSet.ourTileMath.EPSG_to_Game(v2, epsg);
 
                     if (i == 0) {
                         positions3D.push(coord);

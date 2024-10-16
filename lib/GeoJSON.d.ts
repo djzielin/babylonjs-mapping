@@ -3,7 +3,7 @@ import { Scene } from "@babylonjs/core";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import Tile from './Tile';
 import TileSet from "./TileSet";
-import { ProjectionType } from "./TileMath";
+import { EPSG_Type } from "./TileMath";
 export interface topLevel {
     "type": string;
     "features": feature[];
@@ -44,7 +44,7 @@ export declare class GeoJSON {
     private convertVector2ToCoordinatePair;
     private computeOffset;
     private convertLineToPolygonSet;
-    generateSingleBuilding(shapeType: string, f: feature, projection: ProjectionType, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean, lineWidth: number, pointDiameter: number): void;
+    generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean, lineWidth: number, pointDiameter: number): void;
     private convertLinetoArray;
     private processSinglePolygon;
 }
