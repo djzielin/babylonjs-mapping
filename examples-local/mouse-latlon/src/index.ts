@@ -19,7 +19,7 @@ import { TextBlock } from "@babylonjs/gui";
 import { Control } from "@babylonjs/gui";
 import { StandardMaterial } from "@babylonjs/core";
 import { MeshBuilder } from "@babylonjs/core";
-import {ProjectionType} from "../../../lib/TileMath"; 
+import {EPSG_Type} from "../../../lib/TileMath"; 
 
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
@@ -181,19 +181,19 @@ class Game {
 
                     this.ourSphere.position=pickResult.pickedPoint;
 
-                    const tileCoords=this.ourTileMath.GamePosToTile(pickResult.pickedPoint);
+                    const tileCoords=this.ourTileMath.Game_to_Tile(pickResult.pickedPoint);
 
                     this.textBlock.text += ("Tile Coords: " + 
                         tileCoords.x.toFixed(2) + ","+ 
                         tileCoords.y.toFixed(2) + "\n");
 
-                    const lonLat=this.ourTileMath.tile2lonlat(tileCoords);
+                    const lonLat=this.ourTileMath.tile_to_lonlat(tileCoords);
 
                     this.textBlock.text+= ("Lon/Lat: " + 
                         lonLat.x.toFixed(6)+ ","+ 
                         lonLat.y.toFixed(6) + "\n");
 
-                    const backCalculatedPos=this.ourTileMath.GetWorldPosition(lonLat,ProjectionType.EPSG_4326,this.ourTS.zoom);
+                    const backCalculatedPos=this.ourTileMath.EPSG_to_Game(lonLat,EPSG_Type.EPSG_4326,this.ourTS.zoom);
                     
                     this.textBlock.text += ("Point Calcd: " +
                         backCalculatedPos.x.toFixed(2) + "," +
