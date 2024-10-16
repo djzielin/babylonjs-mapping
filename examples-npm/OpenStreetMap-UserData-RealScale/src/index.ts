@@ -36,7 +36,7 @@ import CsvData from "./CsvData";
 
 import TileSet from "babylonjs-mapping";
 import BuildingsOSM from "babylonjs-mapping/lib/BuildingsOSM";
-import { ProjectionType } from "babylonjs-mapping/lib/TileMath";
+import { EPSG_Type } from "babylonjs-mapping/lib/TileMath";
 import RasterOSM from "babylonjs-mapping/lib/RasterOSM";
 
 class Game {
@@ -56,7 +56,7 @@ class Game {
 
     constructor() {
         // Get the canvas element 
-        this.canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
+        this.canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 
         // Generate the BABYLON 3D engine
         this.engine = new Engine(this.canvas, true);
@@ -163,7 +163,7 @@ class Game {
 
             const ourPos = this.ourCSV.getCoordinates(i);
             console.log("trying to place: " + ourPos);
-            const convertedPos = this.ourTS.ourTileMath.GetWorldPosition(ourPos, ProjectionType.EPSG_4326);
+            const convertedPos = this.ourTS.ourTileMath.EPSG_to_Game(ourPos, EPSG_Type.EPSG_4326);
 
             const sphere = MeshBuilder.CreateSphere(this.ourCSV.getRow(i)[2], { diameter: 20.0, segments: 4 }, this.scene);
 
