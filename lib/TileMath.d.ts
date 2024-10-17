@@ -26,6 +26,7 @@ export default class TileMath {
     Tile_to_Game(pos: Vector2): Vector3;
     Game_to_Tile(gPos: Vector3): Vector3;
     computeBBOX_4326(tileCoords: Vector3): Vector4;
+    computeBBOX_4326_Tileset(): Vector4;
     computeTileRealWidthMeters(lat: number, zoom: number): number;
     computeCornerTile(pos: Vector2, epsg: EPSG_Type, zoom?: number): Vector2;
     computeTileScale(): number;

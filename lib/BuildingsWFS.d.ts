@@ -14,4 +14,6 @@ export default class BuildingsWFS extends Buildings {
     setupAGOL(): void;
     setupGeoServer(): void;
     SubmitLoadTileRequest(tile: Tile): void;
+    SubmitLoadAllRequest(): void;
+    private loadHelper;
 }

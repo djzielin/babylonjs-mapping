@@ -9,4 +9,5 @@ export default class BuildingsOSM extends Buildings {
     private osmBuildingServers;
     protected stripFilePrefix(original: string): string;
     SubmitLoadTileRequest(tile: Tile): void;
+    SubmitLoadAllRequest(): void;
 }

@@ -61,5 +61,9 @@ export default class BuildingsOSM extends Buildings {
         }
         this.buildingRequests.push(request);
     }       
+
+    public SubmitLoadAllRequest() {
+        console.error("asking for all OSM data doesn't make sense, you should use the individual request type!");
+    }
 }
 

@@ -26,7 +26,8 @@ import TileSet from "../../../lib/TileSet"
 import BuildingsOSM from "../../../lib/BuildingsOSM";
 import RasterOSM from "../../../lib/RasterOSM";
 import BuildingsWFS from "../../../lib/BuildingsWFS";
-import { EPSG_Type } from "../../../lib/TileMath";
+import { RetrievalType } from "../../../lib/Buildings";
+import { EPSG_Type }     from "../../../lib/TileMath";
 
 export interface propertiesCharlotte {
     "Additional_Information": string;    
@@ -164,6 +165,7 @@ class Game {
             this.ourTS);
 
         customBuildingGenerator.setupAGOL();
+        customBuildingGenerator.retrievalType=RetrievalType.AllData; //NEW: lets try and pull all the data at once!
         customBuildingGenerator.doMerge = false;
         customBuildingGenerator.buildingMaterial=this.ourBlueMaterial;
         customBuildingGenerator.generateBuildings();
@@ -179,6 +181,7 @@ class Game {
             this.ourTS);
 
         customBuildingGenerator2.setupAGOL();
+        customBuildingGenerator2.retrievalType=RetrievalType.AllData; //NEW: lets try and pull all the data at once!
         customBuildingGenerator2.doMerge = false;
         customBuildingGenerator2.buildingMaterial = this.ourRedMaterial;
         customBuildingGenerator2.generateBuildings();    

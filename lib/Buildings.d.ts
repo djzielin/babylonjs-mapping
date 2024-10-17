@@ -10,6 +10,10 @@ export declare enum BuildingRequestType {
     CreateBuilding = 1,
     MergeAllBuildingsOnTile = 2
 }
+export declare enum RetrievalType {
+    IndividualTiles = 0,
+    AllData = 1
+}
 export interface BuildingRequest {
     requestType: BuildingRequestType;
     tile: Tile;
@@ -35,6 +39,7 @@ export default abstract class Buildings {
     buildingsCreatedPerFrame: number;
     cacheFiles: boolean;
     buildingMaterial: StandardMaterial;
+    retrievalType: RetrievalType;
     protected buildingRequests: BuildingRequest[];
     protected filesLoaded: GeoFileLoaded[];
     private requestsProcessedSinceCaughtUp;
@@ -43,6 +48,7 @@ export default abstract class Buildings {
     onCaughtUpObservable: Observable<boolean>;
     constructor(name: string, tileSet: TileSet);
     abstract SubmitLoadTileRequest(tile: Tile): void;
+    abstract SubmitLoadAllRequest(): void;
     ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void;
     protected prettyName(): string;
     private isURLLoaded;

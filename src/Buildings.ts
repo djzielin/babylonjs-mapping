@@ -20,6 +20,11 @@ export enum BuildingRequestType {
     MergeAllBuildingsOnTile
 }
 
+export enum RetrievalType {
+    IndividualTiles,
+    AllData
+}
+
 export interface BuildingRequest {
     requestType: BuildingRequestType;
     tile: Tile;
@@ -47,6 +52,7 @@ export default abstract class Buildings {
     public buildingsCreatedPerFrame = 10; //TODO: is there a better way to do this?
     public cacheFiles = true;
     public buildingMaterial: StandardMaterial;
+    public retrievalType: RetrievalType=RetrievalType.IndividualTiles;
 
     protected buildingRequests: BuildingRequest[] = [];
     protected filesLoaded: GeoFileLoaded[] = [];
@@ -70,6 +76,7 @@ export default abstract class Buildings {
     }
 
     public abstract SubmitLoadTileRequest(tile: Tile): void;
+    public abstract SubmitLoadAllRequest(): void;
 
     public ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void
     {
@@ -333,9 +340,16 @@ export default abstract class Buildings {
     public generateBuildings() {
         console.log(this.prettyName() + "user would like to generate buildings for all tiles in tileset");
 
-        for (const t of this.tileSet.ourTiles) {
-            this.SubmitLoadTileRequest(t);
-            console.log(this.prettyName() + "submitting geojson load request for tile: " + t.tileCoords);
+        if(this.retrievalType==RetrievalType.IndividualTiles){
+            console.log("we are going to issue a seperate request for each tile");
+            for (const t of this.tileSet.ourTiles) {
+               this.SubmitLoadTileRequest(t);
+                 console.log(this.prettyName() + "submitting geojson load request for tile: " + t.tileCoords);
+            }
+        }
+        if(this.retrievalType==RetrievalType.AllData){
+            console.log("lets see if we can get all data pulled down at once");
+            this.SubmitLoadAllRequest();
         }
     }
 }

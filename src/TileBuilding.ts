@@ -162,7 +162,7 @@ export default class TileBuilding {
             accumulatedError+=length;
         }
 
-        console.log("accumulated error for: " + this.mesh.name + ": " + accumulatedError);
+        //console.log("accumulated error for: " + this.mesh.name + ": " + accumulatedError);
 
         if(accumulatedError<0.00001){
             return true;

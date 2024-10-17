@@ -232,6 +232,51 @@ export default class TileMath {
         return finalResult;
     }
 
+    //compute the bounding box of the entire tileset!
+    public computeBBOX_4326_Tileset(): Vector4{
+        if(this.tileSet===undefined){
+            console.error("tileSet is undefined!");
+            return new Vector4(0,0,0,0);
+        }
+
+        console.log("In computeBBOX_4326_Tileset!");
+
+        const tile: Tile=this.tileSet.ourTiles[0];
+
+        let left=tile.tileCoords.x; 
+        let right=tile.tileCoords.x;
+        let top=tile.tileCoords.y;
+        let bottom=tile.tileCoords.y;
+        const zoom=this.tileSet.zoom;
+
+        for(const t of this.tileSet.ourTiles){
+            const x=t.tileCoords.x;
+            const y=t.tileCoords.y;
+
+            if(x<left)   left=x;
+            if(x>right)  right=x; 
+            if(y<top)    top=y;
+            if(y>bottom) bottom=y;
+        }
+        
+        right++; //since tile origin is upper left of individual tile
+        bottom++;
+
+        const tileBottomLeft=new Vector3(left,bottom,zoom);
+        console.log("  tile bottom left: " + tileBottomLeft);
+        const bottomLeft=this.tile_to_lonlat(tileBottomLeft);
+        console.log("    lon lat result: " + bottomLeft);
+
+        const tileTopRight=new Vector3(right,top,zoom);
+        console.log("  tile top right: " + tileTopRight);
+        const topRight=this.tile_to_lonlat(tileTopRight);
+        console.log("    lon lat result: " + topRight);
+
+        const finalResult = new Vector4(bottomLeft.y, bottomLeft.x, topRight.y, topRight.x); //note the swapped y,x and to get lat,lon ordering   
+        console.log("  final result: " + finalResult);
+        return finalResult;
+    }
+
     /*
     public computeBBOX_3857(tileCoords: Vector3): Vector4 {
         const answer4326 = this.computeBBOX_4326(tileCoords);
