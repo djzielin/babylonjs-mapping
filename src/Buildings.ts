@@ -287,7 +287,7 @@ export default abstract class Buildings {
 
                         //TODO: passing too many parameters into this!
                         //maybe allow it to reference this class instead?
-                        this.ourGeoJSON.generateSingleBuilding(this.name, request.feature, request.epsgType, request.tile, this.buildingMaterial, this.exaggeration, this.defaultBuildingHeight, request.flipWinding, this.lineWidth,this.pointDiameter);
+                        this.ourGeoJSON.generateSingleBuilding(this.name, request.feature, request.epsgType, request.tile, request.flipWinding, this);
                     } else {
                         console.error(this.prettyName() + "can't create a building with no projection specified!");
                     }

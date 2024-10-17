@@ -258,7 +258,7 @@ export default class TileMath {
             if(y<top)    top=y;
             if(y>bottom) bottom=y;
         }
-        
+
         right++; //since tile origin is upper left of individual tile
         bottom++;
 
@@ -352,6 +352,7 @@ export default class TileMath {
             console.error("tileSet is undefined!");
             return undefined;
         }
+        position.y=0; //do a 2D analysis
 
         const tileHalfWidth=this.tileSet.tileWidth*0.500001; //make bounding box just a bit bigger, in the off chance something lands right on the line
         const addMax=new Vector3(this.tileSet.tileWidth*0.5,0,this.tileSet.tileWidth*0.5);
@@ -364,6 +365,10 @@ export default class TileMath {
             const tp=t.mesh.position;
             const tMax=tp.add(addMax);
             const tMin=tp.add(addMin);
+            
+            tMax.y=1; //force to do a 2D analysis (ignore y)
+            tMin.y=-1;
+
             const tileBox: BoundingBox=new BoundingBox(tMin,tMax);   
             //console.log("box: " + tileBox.center + " " + tileBox.centerWorld);   
 
@@ -378,7 +383,7 @@ export default class TileMath {
             }
         }
 
-        console.log("couldn't find a tile for this building. choosing closest tile");
+        console.warn("couldn't find a tile for this building. choosing closest tile");
         return closestTile; //position wasn't inside tile, so we will send back the closest tile
     }
 

@@ -5,7 +5,7 @@ import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { Scene } from "@babylonjs/core";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import Earcut from 'earcut';
-
+import Buildings, { RetrievalType } from "./Buildings";
 import Tile from './Tile';
 import TileSet from "./TileSet";
 import { EPSG_Type } from "./TileMath";
@@ -36,18 +36,18 @@ export interface geometry {
     "coordinates": unknown;
 }
 
-export interface multiPolygonSet extends Array<polygonSet> { } 
+export interface multiPolygonSet extends Array<polygonSet> { }
 export interface polygonSet extends Array<coordinateSet> { }
 export interface coordinateSet extends Array<coordinatePair> { }
 export interface coordinatePair extends Array<number> { }
 
-export interface coordinateArray extends Array<Vector3> { } 
-export interface coordinateArrayOfArrays extends Array<coordinateArray> {  }
+export interface coordinateArray extends Array<Vector3> { }
+export interface coordinateArrayOfArrays extends Array<coordinateArray> { }
 
 export class GeoJSON {
     constructor(private tileSet: TileSet, private scene: Scene) {
     }
-    
+
     /*private getFirstCoordinateWorld(f: feature, projection: ProjectionType, zoom?: number): Vector3 {
         if (zoom === undefined) {
             zoom = this.tileSet.zoom;
@@ -99,13 +99,13 @@ export class GeoJSON {
         return new Vector3(tileXY.x, tileXY.y, zoom);
     }*/
 
-    private convertCoordinatePairToVector2(cp:coordinatePair):Vector2{
-        const v1=new Vector2(cp[0],cp[1]);
+    private convertCoordinatePairToVector2(cp: coordinatePair): Vector2 {
+        const v1 = new Vector2(cp[0], cp[1]);
         return v1;
     }
 
-    private convertVector2ToCoordinatePair(v: Vector2): coordinatePair{
-        const cp:coordinatePair=[];
+    private convertVector2ToCoordinatePair(v: Vector2): coordinatePair {
+        const cp: coordinatePair = [];
         cp.push(v.x);
         cp.push(v.y);
 
@@ -114,9 +114,9 @@ export class GeoJSON {
 
     private computeOffset(v1: Vector2, v2: Vector2, lineWidth: number): Vector2 {
         const diff = v2.subtract(v1);
-        const perp = new Vector2(diff.y*-1.0,diff.x*1.0);
+        const perp = new Vector2(diff.y * -1.0, diff.x * 1.0);
         const perpNormalized = perp.normalize();
-        const halfLineWidth=lineWidth*0.5;
+        const halfLineWidth = lineWidth * 0.5;
         const offset = perpNormalized.multiplyByFloats(halfLineWidth, halfLineWidth); //TODO: Make this a parameter (ie line width)
 
         return offset;
@@ -127,34 +127,34 @@ export class GeoJSON {
 
         //if(doVerbose) console.log("original line has number of points: " + cs.length);
 
-        const newCS:coordinateSet=[];
+        const newCS: coordinateSet = [];
 
 
-        for (let p=0;p<cs.length-1;p++){ //go forward down the line
-            const v1=this.convertCoordinatePairToVector2(cs[p]);
-            const v2=this.convertCoordinatePairToVector2(cs[p+1]);
+        for (let p = 0; p < cs.length - 1; p++) { //go forward down the line
+            const v1 = this.convertCoordinatePairToVector2(cs[p]);
+            const v2 = this.convertCoordinatePairToVector2(cs[p + 1]);
 
-            const offset=this.computeOffset(v1,v2, lineWidth);
+            const offset = this.computeOffset(v1, v2, lineWidth);
 
-            const newV1=v1.add(offset);
-            const newV2=v2.add(offset);
+            const newV1 = v1.add(offset);
+            const newV2 = v2.add(offset);
 
             newCS.push(this.convertVector2ToCoordinatePair(newV1));
-            newCS.push(this.convertVector2ToCoordinatePair(newV2));            
+            newCS.push(this.convertVector2ToCoordinatePair(newV2));
         }
 
-        for (let p=cs.length-1;p>0;p--){ //now lets go back towards the start
+        for (let p = cs.length - 1; p > 0; p--) { //now lets go back towards the start
 
-            const v1=this.convertCoordinatePairToVector2(cs[p]);
-            const v2=this.convertCoordinatePairToVector2(cs[p-1]);
+            const v1 = this.convertCoordinatePairToVector2(cs[p]);
+            const v2 = this.convertCoordinatePairToVector2(cs[p - 1]);
 
-            const offset=this.computeOffset(v1,v2, lineWidth);
+            const offset = this.computeOffset(v1, v2, lineWidth);
 
-            const newV1=v1.add(offset);
-            const newV2=v2.add(offset);
+            const newV1 = v1.add(offset);
+            const newV2 = v2.add(offset);
 
             newCS.push(this.convertVector2ToCoordinatePair(newV1));
-            newCS.push(this.convertVector2ToCoordinatePair(newV2));            
+            newCS.push(this.convertVector2ToCoordinatePair(newV2));
         }
 
         newCS.push(newCS[0]); //add starting coord to close the loop
@@ -163,40 +163,47 @@ export class GeoJSON {
         return newPS;
     }
 
-    public generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, buildingMaterial: StandardMaterial, exaggeration: number, defaultBuildingHeight: number, flipWinding: boolean, lineWidth: number, pointDiameter: number) {
+    public generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, flipWinding: boolean, buildings: Buildings) {
+        const buildingMaterial: StandardMaterial = buildings.buildingMaterial;
+        const exaggeration: number = buildings.exaggeration;
+        const defaultBuildingHeight: number = buildings.defaultBuildingHeight;
+        const lineWidth: number = buildings.lineWidth;
+        const pointDiameter: number = buildings.pointDiameter;
+        const retrievalType: RetrievalType = buildings.retrievalType;
+
         let finalMesh: Mesh | null = null;
-        const arrayOfLines: coordinateArrayOfArrays=[];
+        const arrayOfLines: coordinateArrayOfArrays = [];
 
         let height = defaultBuildingHeight;
         if (f.properties.height !== undefined) {
             height = f.properties.height;
         }
-        if(f.properties.Story !== undefined){
-            let stories=Number(f.properties.Story); 
-            if(isNaN(stories)){
-                stories=0;
+        if (f.properties.Story !== undefined) {
+            let stories = Number(f.properties.Story);
+            if (isNaN(stories)) {
+                stories = 0;
             }
-            if(stories==0){ //0 just means undefined
-                stories=1;
+            if (stories == 0) { //0 just means undefined
+                stories = 1;
             }
-            height = (stories+0.5) * 3.0; //not sure if we should do this to account for roof height?
+            height = (stories + 0.5) * 3.0; //not sure if we should do this to account for roof height?
         }
 
         if (f.geometry.type == "Polygon") {
             const ps: polygonSet = f.geometry.coordinates as polygonSet;
             finalMesh = this.processSinglePolygon(ps, epsg, buildingMaterial, exaggeration, height, flipWinding);
         }
-        else if(f.geometry.type=="Point") {
+        else if (f.geometry.type == "Point") {
             const cp: coordinatePair = f.geometry.coordinates as coordinatePair;
             const v = new Vector2(cp[0], cp[1]);
             const pos = this.tileSet.ourTileMath.EPSG_to_Game(v, epsg);
 
             const sphere = MeshBuilder.CreateSphere("sphere", { diameter: pointDiameter }, this.scene);
-            
+
             sphere.position = pos;
-            finalMesh=sphere;
+            finalMesh = sphere;
         }
-        else if (f.geometry.type == "MultiPolygon" || f.geometry.type=="MultiLineString") {
+        else if (f.geometry.type == "MultiPolygon" || f.geometry.type == "MultiLineString") {
 
             const allMeshes: Mesh[] = [];
 
@@ -207,8 +214,8 @@ export class GeoJSON {
                     const singleMesh = this.processSinglePolygon(mp[i], epsg, buildingMaterial, exaggeration, height, flipWinding);
                     allMeshes.push(singleMesh);
                 }
-            } 
-            if(f.geometry.type=="MultiLineString"){
+            }
+            if (f.geometry.type == "MultiLineString") {
                 //console.log("NEW GEOMETRY TYPE: MultiLineString");
 
                 const ps: polygonSet = f.geometry.coordinates as polygonSet;
@@ -216,10 +223,10 @@ export class GeoJSON {
 
                 for (let i = 0; i < ps.length; i++) {
                     //console.log("  we are looking at lineset: " + i);
-                    const cs:coordinateSet=ps[i];
+                    const cs: coordinateSet = ps[i];
 
-                    const newPS: polygonSet=this.convertLineToPolygonSet(cs, lineWidth);     
-                    const lineArray: coordinateArray = this.convertLinetoArray(cs,epsg);
+                    const newPS: polygonSet = this.convertLineToPolygonSet(cs, lineWidth);
+                    const lineArray: coordinateArray = this.convertLinetoArray(cs, epsg);
                     arrayOfLines.push(lineArray);
 
                     const singleMesh = this.processSinglePolygon(newPS, epsg, buildingMaterial, exaggeration, height, flipWinding);
@@ -247,7 +254,7 @@ export class GeoJSON {
             console.error("unknown building geometry type: " + f.geometry.type);
         }
 
-        if(finalMesh==null){
+        if (finalMesh == null) {
             return;
         }
 
@@ -256,10 +263,6 @@ export class GeoJSON {
             finalMesh.metadata = f.properties; //store for user to use later!
             //console.dir(finalMesh.metadata, { depth: null });
         }
-
-        finalMesh.refreshBoundingInfo();
-        finalMesh.setParent(tile.mesh);
-        finalMesh.freezeWorldMatrix(); //optimization? might want to skip here? hmmm...
 
         finalMesh.name = "Building";
         if (f.id !== undefined) {
@@ -272,45 +275,72 @@ export class GeoJSON {
         if (f.properties.Name !== undefined) { //NOTE: this is not a mistake, look closely and you can see .name vs .Name
             finalMesh.name = f.properties.Name;
         }
+        
+        finalMesh.refreshBoundingInfo();
 
+        if (retrievalType == RetrievalType.AllData) { //if we get the data all at once, we don't know what tile it should go on!
+            let boundingInfo = finalMesh.getBoundingInfo();
 
-        const building=new TileBuilding(finalMesh,tile);
+            // Get the minimum and maximum points of the bounding box
+            let min = boundingInfo.boundingBox.minimumWorld;
+            let max = boundingInfo.boundingBox.maximumWorld;
 
-     
-        building.ShapeType=shapeType;
+            // Calculate the center as the midpoint between min and max
+            let center = Vector3.Center(min, max);
 
-        if(building.isBBoxContainedOnTile==false){
-            //TODO: check if building is a duplicate
-            if(this.tileSet.isBuildingDuplicate(building)){
-                console.log("building already exists on another tile! deleting!");
-                building.dispose();
-                return;
+            //console.log("looking to place: " + finalMesh.name);
+            //console.log("computed center: " + center);
+
+            const bestTile=this.tileSet.ourTileMath.findBestTile(center)
+
+            if(bestTile){
+                tile=bestTile;
             }
         }
 
-        console.log("building is an original, adding to tile!");
+        finalMesh.setParent(tile.mesh);
+        finalMesh.freezeWorldMatrix(); //optimization? might want to skip here? hmmm...
 
-        if(arrayOfLines.length>0){
-            building.LineArray=arrayOfLines;
+        
+
+
+        const building = new TileBuilding(finalMesh, tile);
+
+
+        building.ShapeType = shapeType;
+
+        if (retrievalType == RetrievalType.IndividualTiles) { //we only need to check for duplicates if pulling from individual tiles
+            if (building.isBBoxContainedOnTile == false) {
+                //TODO: check if building is a duplicate
+                if (this.tileSet.isBuildingDuplicate(building)) {
+                    console.log("building already exists on another tile! deleting!");
+                    building.dispose();
+                    return;
+                }
+            }
+            console.log("building is an original, adding to tile!");
+        }
+
+        if (arrayOfLines.length > 0) {
+            building.LineArray = arrayOfLines;
             building.computeLineSegments();
         }
 
         tile.buildings.push(building);
 
-
         console.log("created " + finalMesh.name);
     }
 
-    private convertLinetoArray (cs: coordinateSet, epsg: EPSG_Type): coordinateArray {
-        const vArray: coordinateArray=[];
+    private convertLinetoArray(cs: coordinateSet, epsg: EPSG_Type): coordinateArray {
+        const vArray: coordinateArray = [];
 
 
-        for (let p=0;p<cs.length;p++){ //go forward down the line
-            
-            const x=cs[p][0];
-            const y=cs[p][1];
+        for (let p = 0; p < cs.length; p++) { //go forward down the line
 
-            const v2=new Vector2(x,y);
+            const x = cs[p][0];
+            const y = cs[p][1];
+
+            const v2 = new Vector2(x, y);
 
             const coord = this.tileSet.ourTileMath.EPSG_to_Game(v2, epsg);
 
@@ -342,7 +372,7 @@ export class GeoJSON {
                     }
                 }
             } else {
-                for (let e = 0; e < ps[i].length-1; e++) {
+                for (let e = 0; e < ps[i].length - 1; e++) {
 
                     const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
                     const coord = this.tileSet.ourTileMath.EPSG_to_Game(v2, epsg);
@@ -371,7 +401,7 @@ export class GeoJSON {
             orientation = Mesh.DOUBLESIDE; //otherwise we see inside the holes
         }
 
-        const heightScaleFixer=exaggeration * this.tileSet.tileScale;
+        const heightScaleFixer = exaggeration * this.tileSet.tileScale;
 
         const ourMesh: Mesh = MeshBuilder.ExtrudePolygon("extruded polygon",
             {
@@ -387,6 +417,6 @@ export class GeoJSON {
         ourMesh.isPickable = false;
 
         return ourMesh;
-    }    
+    }
 }
 
