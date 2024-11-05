@@ -212,6 +212,7 @@ export default abstract class Buildings {
 
                 console.log("but we will try again!");
                 this.buildingRequests.push(request); //let's try again? maybe there should be a maximum number of retries?
+                request.inProgress=false;
                 this.timeStart=Date.now();
                 this.sleepRequested=true;
                 this.removePendingRequest(); //remove original request
@@ -237,10 +238,13 @@ export default abstract class Buildings {
         if (this.sleepRequested) { //lets take a nap for a bit (when we get a 500 server error)
             const timeDiff=Date.now()-this.timeStart;
             console.log("we've slept for: " + timeDiff);
-            
+
             if(timeDiff>this.sleepDuration){
                 console.log("done sleeping after: " + timeDiff);
+                console.log("building request queue length: " + this.buildingRequests.length);
                 this.sleepRequested=false;
+            } else{
+                return;
             }
         }
 
