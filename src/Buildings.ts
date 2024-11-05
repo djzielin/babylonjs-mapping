@@ -33,7 +33,7 @@ export interface BuildingRequest {
     flipWinding: boolean;
     feature?: GeoJSON.feature;
     epsgType?: EPSG_Type;
-    url?: string;    
+    url?: string;
 }
 
 interface GeoFileLoaded {
@@ -47,12 +47,12 @@ export default abstract class Buildings {
     public exaggeration = 1.0;
     public doMerge = false;
     public defaultBuildingHeight = 4.0;
-    public lineWidth=0.0001; //TODO: this needs to be different for EPSG:4326 vs EPSG:3857
-    public pointDiameter=0.5; //TODO: this is currently in game world units
+    public lineWidth = 0.0001; //TODO: this needs to be different for EPSG:4326 vs EPSG:3857
+    public pointDiameter = 0.5; //TODO: this is currently in game world units
     public buildingsCreatedPerFrame = 10; //TODO: is there a better way to do this?
     public cacheFiles = true;
     public buildingMaterial: StandardMaterial;
-    public retrievalType: RetrievalType=RetrievalType.IndividualTiles;
+    public retrievalType: RetrievalType = RetrievalType.IndividualTiles;
 
     protected buildingRequests: BuildingRequest[] = [];
     protected filesLoaded: GeoFileLoaded[] = [];
@@ -62,8 +62,12 @@ export default abstract class Buildings {
     private scene: Scene;
     public onCaughtUpObservable: Observable<boolean> = new Observable;
 
+    private sleepRequested = false;
+    private timeStart: number;
+    private sleepDuration=5000; //5 seconds
+
     constructor(public name: string, protected tileSet: TileSet) {
-        this.scene=this.tileSet.scene;
+        this.scene = this.tileSet.scene;
 
         this.buildingMaterial = new StandardMaterial("buildingMaterial", this.scene);
         this.buildingMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
@@ -78,8 +82,7 @@ export default abstract class Buildings {
     public abstract SubmitLoadTileRequest(tile: Tile): void;
     public abstract SubmitLoadAllRequest(): void;
 
-    public ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void
-    {
+    public ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void {
         if (request.tile.tileCoords.equals(request.tileCoords) == false) {
             console.warn(this.prettyName() + "tile coords have changed while we were loading, not adding buildings to queue!");
             return;
@@ -146,12 +149,12 @@ export default abstract class Buildings {
         return original;
     }
 
-    protected removePendingRequest(index=0) {
+    protected removePendingRequest(index = 0) {
         //console.log(this.prettyName() + "popping request off front of queue");
         this.requestsProcessedSinceCaughtUp++;
 
         //this.buildingRequests.shift(); //pop ourselves off the queue
-        this.buildingRequests.splice(index,1);
+        this.buildingRequests.splice(index, 1);
     }
 
     protected handleLoadTileRequest(request: BuildingRequest): void {
@@ -207,10 +210,11 @@ export default abstract class Buildings {
             } else if (res.status == 500) {
                 console.log("Error 500 requesting: " + request.url);
 
-                //console.log("but we will try again!");
-                //this.buildingRequests.push(request); //let's try again? maybe there should be a maximum number of retries?
-                
-                this.removePendingRequest();
+                console.log("but we will try again!");
+                this.buildingRequests.push(request); //let's try again? maybe there should be a maximum number of retries?
+                this.timeStart=Date.now();
+                this.sleepRequested=true;
+                this.removePendingRequest(); //remove original request
                 return;
             }
             else {
@@ -230,6 +234,16 @@ export default abstract class Buildings {
     }
 
     public processBuildingRequests() {
+        if (this.sleepRequested) { //lets take a nap for a bit (when we get a 500 server error)
+            const timeDiff=Date.now()-this.timeStart;
+            console.log("we've slept for: " + timeDiff);
+            
+            if(timeDiff>this.sleepDuration){
+                console.log("done sleeping after: " + timeDiff);
+                this.sleepRequested=false;
+            }
+        }
+
         if (this.buildingRequests.length == 0) {
             if (this.requestsProcessedSinceCaughtUp > 0) {
                 console.log(this.prettyName() + "caught up on all building generation requests! (processed " + this.requestsProcessedSinceCaughtUp + " requests)");
@@ -244,26 +258,26 @@ export default abstract class Buildings {
             if (this.buildingRequests.length == 0) {
                 return;
             }
-            let rIndex=0;
+            let rIndex = 0;
             let request = this.buildingRequests[rIndex]; //peek at front of queue
-            
-            let foundWork=false;
+
+            let foundWork = false;
             if (request.inProgress == true) {
 
                 //TODO: this is where we could do some work while waiting (maybe process some buildings?)
-                for(let e=1;e<this.buildingRequests.length;e++){
-                    request=this.buildingRequests[e];
-                    if(request.requestType==BuildingRequestType.CreateBuilding || request.requestType==BuildingRequestType.MergeAllBuildingsOnTile){
+                for (let e = 1; e < this.buildingRequests.length; e++) {
+                    request = this.buildingRequests[e];
+                    if (request.requestType == BuildingRequestType.CreateBuilding || request.requestType == BuildingRequestType.MergeAllBuildingsOnTile) {
                         console.log(this.prettyName() + "found some work to do while waiting!");
-                        foundWork=true;
-                        rIndex=e;
+                        foundWork = true;
+                        rIndex = e;
                         break;
                     }
                 }
-                if(foundWork==false){
+                if (foundWork == false) {
                     return; //nothing to do
                 }
-            }    
+            }
 
             if (request.tile.tileCoords.equals(request.tileCoords) == false) { //make sure tile still has same coords
                 console.warn(this.prettyName() + "tile coords: " + request.tileCoords + " are no longer around, we must have already changed tile");
@@ -272,7 +286,7 @@ export default abstract class Buildings {
                 return;
             }
 
-            if (request.requestType == BuildingRequestType.LoadTile) {  
+            if (request.requestType == BuildingRequestType.LoadTile) {
 
                 this.handleLoadTileRequest(request);
                 return;
@@ -315,8 +329,8 @@ export default abstract class Buildings {
                         }
                     }
                     //console.log("about to do big merge");
-                    const allMeshes: Mesh[]=request.tile.getAllBuildingMeshes();
-                    const merged = Mesh.MergeMeshes(allMeshes,false); //false=don't get rid of originals
+                    const allMeshes: Mesh[] = request.tile.getAllBuildingMeshes();
+                    const merged = Mesh.MergeMeshes(allMeshes, false); //false=don't get rid of originals
 
                     if (merged) {
                         merged.setParent(request.tile.mesh);
@@ -324,7 +338,7 @@ export default abstract class Buildings {
 
                         request.tile.hideIndividualBuildings();
 
-                        request.tile.mergedBuildingMesh=merged;
+                        request.tile.mergedBuildingMesh = merged;
                     } else {
                         console.error(this.prettyName() + "ERROR: unable to merge meshes!");
                     }
@@ -340,14 +354,14 @@ export default abstract class Buildings {
     public generateBuildings() {
         console.log(this.prettyName() + "user would like to generate buildings for all tiles in tileset");
 
-        if(this.retrievalType==RetrievalType.IndividualTiles){
+        if (this.retrievalType == RetrievalType.IndividualTiles) {
             console.log("we are going to issue a seperate request for each tile");
             for (const t of this.tileSet.ourTiles) {
-               this.SubmitLoadTileRequest(t);
-                 console.log(this.prettyName() + "submitting geojson load request for tile: " + t.tileCoords);
+                this.SubmitLoadTileRequest(t);
+                console.log(this.prettyName() + "submitting geojson load request for tile: " + t.tileCoords);
             }
         }
-        if(this.retrievalType==RetrievalType.AllData){
+        if (this.retrievalType == RetrievalType.AllData) {
             console.log("lets see if we can get all data pulled down at once");
             this.SubmitLoadAllRequest();
         }

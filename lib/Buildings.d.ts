@@ -46,6 +46,9 @@ export default abstract class Buildings {
     protected ourGeoJSON: GeoJSON.GeoJSON;
     private scene;
     onCaughtUpObservable: Observable<boolean>;
+    private sleepRequested;
+    private timeStart;
+    private sleepDuration;
     constructor(name: string, tileSet: TileSet);
     abstract SubmitLoadTileRequest(tile: Tile): void;
     abstract SubmitLoadAllRequest(): void;
