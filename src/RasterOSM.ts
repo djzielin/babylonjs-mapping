@@ -2,7 +2,7 @@ import { Vector2 } from "@babylonjs/core/Maths/math";
 import Raster from "./Raster";
 import TileSet from "./TileSet";
 
-export default class OpenStreetMap extends Raster {
+export default class RasterOSM extends Raster {
 
     private osmServers: string[] = ["https://a.tile.openstreetmap.org/", "https://b.tile.openstreetmap.org/", "https://c.tile.openstreetmap.org/"];
     private index=0;
