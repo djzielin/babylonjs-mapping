@@ -10,6 +10,7 @@ export default class RasterWMTS extends Raster {
     public extension = ".png";
     public baseURL = "";
     public layerName = "";
+    static downloadCount=0;
 
     constructor(ts: TileSet, retrievalLocation = RetrievalLocation.Remote_and_Save) {
         super("WMTS", ts, retrievalLocation);
@@ -55,6 +56,8 @@ export default class RasterWMTS extends Raster {
                     a.click();
                     window.URL.revokeObjectURL(url);
                     console.log("File downloaded successfully!");
+                    RasterWMTS.downloadCount++;
+                    console.log("  WMTS Download Count: " + RasterWMTS.downloadCount);
                     return; // Exit the function after successful download
                 } else {
                     console.warn(`Attempt ${attempts + 1}: HTTP status ${res.status}`);
