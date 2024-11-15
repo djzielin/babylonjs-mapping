@@ -126,6 +126,7 @@ class Game {
             RetrievalLocation.Remote_and_Save
             //RetrievalLocation.Local
         );
+        
         ourWMTS.setup("https://tiles.arcgis.com/tiles/XBhYkoXKJCRHbe7M/arcgis/rest/services/Mosaic_jpg/MapServer/WMTS",
             "Mosaic_jpg");
         this.ourTS.setRasterProvider(ourWMTS);
