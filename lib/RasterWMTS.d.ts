@@ -12,5 +12,5 @@ export default class RasterWMTS extends Raster {
     constructor(ts: TileSet, retrievalLocation?: RetrievalLocation);
     setup(url: string, layer: string): void;
     getRasterURL(tileCoords: Vector2, zoom: number): string;
-    doTileSave(request: TileRequest): void;
+    doTileSave(request: TileRequest): Promise<void>;
 }
