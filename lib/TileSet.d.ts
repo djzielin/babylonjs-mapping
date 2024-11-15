@@ -18,7 +18,7 @@ import TerrainMB from "./TerrainMB";
 declare enum TileRequestType {
     LoadTile = 0
 }
-interface TileRequest {
+export interface TileRequest {
     requestType: TileRequestType;
     tile: Tile;
     tileCoords: Vector3;

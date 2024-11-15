@@ -22,11 +22,11 @@ import Raster from "./Raster";
 import RasterOSM from "./RasterMB";
 import TerrainMB from "./TerrainMB";
 
-enum TileRequestType{
+enum TileRequestType {
     LoadTile,
 }
 
-interface TileRequest {
+export interface TileRequest {
     requestType: TileRequestType
     tile: Tile;
     tileCoords: Vector3;
@@ -51,22 +51,22 @@ export default class TileSet {
 
     private xmin: number;
     private zmin: number;
-    private xmax: number; 
+    private xmax: number;
     private zmax: number;
 
-    public ourTiles: Tile[]=[];
-    public ourTilesMap: Map<string,Tile>=new Map();
+    public ourTiles: Tile[] = [];
+    public ourTilesMap: Map<string, Tile> = new Map();
 
-    public doRasterResBoost=true;
-    public doTerrainResBoost=false;
+    public doRasterResBoost = true;
+    public doTerrainResBoost = false;
 
     public zoom = 0;
     private tileCorner: Vector2;
     public centerCoords: Vector2;
     public tileScale: number;
-    public hasAlpha=false;
+    public hasAlpha = false;
 
-    public streetExtensionAmount=0.25; //TODO; fix this to be in some sort of units that make sense, instead of game-world coordinates. 
+    public streetExtensionAmount = 0.25; //TODO; fix this to be in some sort of units that make sense, instead of game-world coordinates. 
 
     private ourRasterProvider: Raster;
     //private accessToken: string;
@@ -77,14 +77,14 @@ export default class TileSet {
     public ourAttribution: Attribution;
     public ourTileMath: TileMath;
 
-    protected tileRequests: TileRequest[]=[];
-    protected requestsProcessedSinceCaughtUp=0;
-    public onCaughtUpObservable: Observable<boolean>=new Observable;
+    protected tileRequests: TileRequest[] = [];
+    protected requestsProcessedSinceCaughtUp = 0;
+    public onCaughtUpObservable: Observable<boolean> = new Observable;
 
     public numTiles: Vector2;
     public tileWidth: number;
     public meshPrecision: number;
-    private isGeometrySetup: boolean=false;
+    private isGeometrySetup: boolean = false;
 
     /**
     * this doesn't do much, just sets up a linkage between our library and users main project
@@ -93,11 +93,11 @@ export default class TileSet {
     */
     constructor(public scene: Scene, private engine: Engine) {
 
-        EngineStore._LastCreatedScene=this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
+        EngineStore._LastCreatedScene = this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
         EngineStore.Instances.push(this.engine);
-      
+
         this.ourAttribution = new Attribution(this.scene);
-        this.ourTileMath= new TileMath(this); 
+        this.ourTileMath = new TileMath(this);
 
         this.setRasterProvider(new RasterOSM(this)); //set default raster basemap to OSM
         this.ourTerrainMB = new TerrainMB(this, this.scene); //TODO: this should really be a terrain provider, in case we can get terrain from more than just MapBox
@@ -105,7 +105,7 @@ export default class TileSet {
 
         const observer = this.scene.onBeforeRenderObservable.add(() => { //fire every frame
             this.processTileRequests(); //TODO: investigate WebWorker or other "threading" techniques, instead of calling every frame
-         });
+        });
     }
 
     /**
@@ -114,16 +114,15 @@ export default class TileSet {
     * @param tileWidth width in meters of a single tile
     * @param meshPrecision how many numTiles in each tile's mesh. need more for terrain type meshes, less if no height change on mesh. 
     */
-    public createGeometry( numTiles: Vector2,  tileWidth: number,  meshPrecision: number)
-    {        
+    public createGeometry(numTiles: Vector2, tileWidth: number, meshPrecision: number) {
         //inspiration from this example: https://www.babylonjs-playground.com/#866PVL#5
 
-        this.numTiles=numTiles;
-        this.tileWidth=tileWidth;
-        this.meshPrecision=meshPrecision;
+        this.numTiles = numTiles;
+        this.tileWidth = tileWidth;
+        this.meshPrecision = meshPrecision;
 
-        this.totalWidthMeters=tileWidth*numTiles.x;
-        this.totalHeightMeters=tileWidth*numTiles.y;
+        this.totalWidthMeters = tileWidth * numTiles.x;
+        this.totalHeightMeters = tileWidth * numTiles.y;
 
         this.xmin = -this.totalWidthMeters / 2;
         this.zmin = -this.totalHeightMeters / 2;
@@ -132,114 +131,117 @@ export default class TileSet {
 
         for (let y = 0; y < this.numTiles.y; y++) {
             for (let x = 0; x < this.numTiles.x; x++) {
-                const mesh=this.makeSingleTileMesh(x,y,this.meshPrecision);
+                const mesh = this.makeSingleTileMesh(x, y, this.meshPrecision);
                 const t = new Tile(mesh, this);
-                this.ourTiles.push(t);               
+                this.ourTiles.push(t);
             }
         }
 
-        this.isGeometrySetup=true;
-    }   
+        this.isGeometrySetup = true;
+    }
 
     protected prettyName(): string {
         return "[Tile] ";
     }
 
     public processTileRequests() {
-        if(this.isGeometrySetup==false){
-            return;
+    if (this.isGeometrySetup == false) {
+        return;
+    }
+
+    if (this.tileRequests.length == 0) {
+        if (this.requestsProcessedSinceCaughtUp > 0) {
+            console.log(this.prettyName() + "caught up on all tile generation requests! (processed " + this.requestsProcessedSinceCaughtUp + " requests)");
+            this.requestsProcessedSinceCaughtUp = 0;
+            this.onCaughtUpObservable.notifyObservers(true);
         }
+        return;
+    }
 
-        if (this.tileRequests.length == 0) {
-            if (this.requestsProcessedSinceCaughtUp > 0) {
-                console.log(this.prettyName() + "caught up on all tile generation requests! (processed " + this.requestsProcessedSinceCaughtUp + " requests)");
-                this.requestsProcessedSinceCaughtUp = 0;
-                this.onCaughtUpObservable.notifyObservers(true);
+    //console.log("tile requests remaining in queue: " + this.tileRequests.length);
+    const request = this.tileRequests[0];
+
+    if (request.requestType == TileRequestType.LoadTile) {
+        if (request.inProgress == false) {
+            console.log(this.prettyName() + "trying to load tile raster: " + request.url);
+            request.texture = new Texture(request.url, this.scene);
+            request.inProgress = true;
+
+            if (this.ourRasterProvider.retrievalLocation == RetrievalLocation.Remote_and_Save) {
+                this.ourRasterProvider.doTileSave(request)
             }
-            return;
         }
+        if (request.inProgress == true) {
+            if (request.texture) {
+                if (request.texture.isReady()) {
+                    console.log(this.prettyName() + "tile raster is ready: " + request.url);
 
-        //console.log("tile requests remaining in queue: " + this.tileRequests.length);
-        const request = this.tileRequests[0];
+                    const material = request.mesh.material as StandardMaterial;
+                    material.unfreeze();
 
-        if (request.requestType == TileRequestType.LoadTile) {
-            if (request.inProgress == false) {
-                console.log(this.prettyName() + "trying to load tile raster: " + request.url);
-                request.texture = new Texture(request.url, this.scene);
-                request.inProgress = true;
-                return;
-            }
-            if (request.inProgress == true) {
-                if (request.texture) {
-                    if (request.texture.isReady()) {
-                        console.log(this.prettyName() + "tile raster is ready: " + request.url);
+                    material.diffuseTexture = request.texture;
+                    material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
+                    material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
+                    material.diffuseTexture.hasAlpha = this.hasAlpha;
 
-                        const material = request.mesh.material as StandardMaterial;
-                        material.unfreeze();
+                    material.freeze(); //optimization
 
-                        material.diffuseTexture = request.texture;
-                        material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
-                        material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
-                        material.diffuseTexture.hasAlpha=this.hasAlpha;
+                    request.mesh.setEnabled(true); //show it!
+                    this.requestsProcessedSinceCaughtUp++;
+                    this.tileRequests.shift(); //pop request off front of queue
+                    return;
+                }
+                if (request.texture.loadingError) {
+                    console.warn(this.prettyName() + "error loading texture for: " + request.url);
 
-                        material.freeze(); //optimization
-
-                        request.mesh.setEnabled(true); //show it!
-                        this.requestsProcessedSinceCaughtUp++;
-                        this.tileRequests.shift(); //pop request off front of queue
-                        return;
-                    }
-                    if(request.texture.loadingError){
-                        console.warn(this.prettyName() + "error loading texture for: " + request.url);
-
-                        this.requestsProcessedSinceCaughtUp++;
-                        this.tileRequests.shift(); //pop request off front of queue
-                        return;
-                    }
+                    this.requestsProcessedSinceCaughtUp++;
+                    this.tileRequests.shift(); //pop request off front of queue
+                    return;
                 }
             }
         }
     }
+}
 
-    public getAdvancedDynamicTexture(): AdvancedDynamicTexture{
-        return this.ourAttribution.advancedTexture;
-    }
+    public getAdvancedDynamicTexture(): AdvancedDynamicTexture {
+    return this.ourAttribution.advancedTexture;
+}
 
     public makeSingleTileMesh(x: number, y: number, precision: number): Mesh {
-        const ground = MeshBuilder.CreateGround("tile", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
-        ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
-        ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
-       
-        //ground.bakeCurrentTransformIntoVertices(); //optimization
-        //ground.freezeWorldMatrix(); //optimization
+    const ground = MeshBuilder.CreateGround("tile", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
+    ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
+    ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
 
-        return ground;
-    }
+    //ground.bakeCurrentTransformIntoVertices(); //optimization
+    //ground.freezeWorldMatrix(); //optimization
 
-    public isBuildingDuplicate(newBuilding: TileBuilding){
-        for(let t of this.ourTiles){
-            for(let existingBuilding of t.buildings){
-                if(existingBuilding.isBBoxContainedOnTile){
-                    continue; //don't need to consider buildings fully contained on a tile
-                } else{
-                    if(existingBuilding.doVerticesMatch(newBuilding)){
-                        return true;
-                    }
+    return ground;
+}
+
+    public isBuildingDuplicate(newBuilding: TileBuilding) {
+    for (let t of this.ourTiles) {
+        for (let existingBuilding of t.buildings) {
+            if (existingBuilding.isBBoxContainedOnTile) {
+                continue; //don't need to consider buildings fully contained on a tile
+            } else {
+                if (existingBuilding.doVerticesMatch(newBuilding)) {
+                    return true;
                 }
             }
         }
-        return false;
     }
+    return false;
+}
 
-    public disableGroundCulling(){
-        for(let t of this.ourTiles){
-            t.mesh.alwaysSelectAsActiveMesh = true;
-        }
+    public disableGroundCulling() {
+    for (let t of this.ourTiles) {
+        t.mesh.alwaysSelectAsActiveMesh = true;
     }
+}
 
-    public setRasterProvider(rp:Raster){
-        this.ourRasterProvider=rp;  
-    }    
+    public setRasterProvider(rp: Raster) {
+    this.ourRasterProvider = rp;
+}
 
     /**
     * update all the tiles in the tileset
@@ -248,78 +250,78 @@ export default class TileSet {
     * @param zoom standard tile mapping zoom levels 0 (whole earth) - 20 (building)
     */
     public updateRaster(lat: number, lon: number, zoom: number) {
-        if(this.isGeometrySetup==false){
-            console.error("can't updateRaster! geometry not setup yet!");
-            return;
-        }
-
-        this.zoom = zoom;
-        this.centerCoords = new Vector2(lon, lat); 
-        this.tileCorner = this.ourTileMath.computeCornerTile(this.centerCoords,EPSG_Type.EPSG_4326,this.zoom);
-        this.tileScale=this.ourTileMath.computeTileScale();
-
-
-        this.ourAttribution.addAttribution(this.ourRasterProvider.name);
-
-        //console.log("Tile Base: " + this.tileCorner);
-
-        let tileIndex = 0;
-        for (let y = 0; y < this.numTiles.y; y++) {
-            for (let x = 0; x < this.numTiles.x; x++) {
-                const tileX = this.tileCorner.x + x;
-                const tileY = this.tileCorner.y - y;
-                const tile=this.ourTiles[tileIndex];
-                this.updateSingleRasterTile(tile,tileX,tileY);
-                tileIndex++;
-            }
-        }
+    if (this.isGeometrySetup == false) {
+        console.error("can't updateRaster! geometry not setup yet!");
+        return;
     }
 
-    private updateSingleRasterTile( tile: Tile, tileX: number, tileY: number) {
-        tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later     
-        this.ourTilesMap.set(tile.tileCoords.toString(),tile);
+    this.zoom = zoom;
+    this.centerCoords = new Vector2(lon, lat);
+    this.tileCorner = this.ourTileMath.computeCornerTile(this.centerCoords, EPSG_Type.EPSG_4326, this.zoom);
+    this.tileScale = this.ourTileMath.computeTileScale();
 
-        tile.mesh.setEnabled(false);
-        let material: StandardMaterial;
 
-        if (tile.material) {
-            material = tile.material;
-            material.unfreeze();
+    this.ourAttribution.addAttribution(this.ourRasterProvider.name);
 
-            const texture = material.diffuseTexture;
+    //console.log("Tile Base: " + this.tileCorner);
 
-            if (texture) { //get rid of texture if it already exists  
-                texture.dispose(); 
-            }
+    let tileIndex = 0;
+    for (let y = 0; y < this.numTiles.y; y++) {
+        for (let x = 0; x < this.numTiles.x; x++) {
+            const tileX = this.tileCorner.x + x;
+            const tileY = this.tileCorner.y - y;
+            const tile = this.ourTiles[tileIndex];
+            this.updateSingleRasterTile(tile, tileX, tileY);
+            tileIndex++;
         }
-        else {
-            material = new StandardMaterial("material" + tileX + "-" + tileY, this.scene);
-            material!.specularColor = new Color3(0, 0, 0);
-            material.alpha = 1.0;
-
-            tile.mesh.material = material;
-            tile.material = material;   
-            // material.backFaceCulling = false;
-        }
-
-        let url: string = "";
-
-        url = this.ourRasterProvider.getRasterURL(new Vector2(tileX, tileY), this.zoom);
-      
-        const request: TileRequest = {
-            requestType: TileRequestType.LoadTile,
-            tile: tile,
-            tileCoords: tile.tileCoords.clone(),
-            url: url,
-            mesh: tile.mesh,
-            texture: null,
-            inProgress: false           
-        }
-        this.tileRequests.push(request); 
-        console.log(this.prettyName() + "submitted tile raster load request for: " + tile.tileCoords + " URL: " + url);
-    
-        tile.mesh.name="Tile_"+tileX + "_"+tileY;
     }
+}
+
+    private updateSingleRasterTile(tile: Tile, tileX: number, tileY: number) {
+    tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later     
+    this.ourTilesMap.set(tile.tileCoords.toString(), tile);
+
+    tile.mesh.setEnabled(false);
+    let material: StandardMaterial;
+
+    if (tile.material) {
+        material = tile.material;
+        material.unfreeze();
+
+        const texture = material.diffuseTexture;
+
+        if (texture) { //get rid of texture if it already exists  
+            texture.dispose();
+        }
+    }
+    else {
+        material = new StandardMaterial("material" + tileX + "-" + tileY, this.scene);
+        material!.specularColor = new Color3(0, 0, 0);
+        material.alpha = 1.0;
+
+        tile.mesh.material = material;
+        tile.material = material;
+        // material.backFaceCulling = false;
+    }
+
+    let url: string = "";
+
+    url = this.ourRasterProvider.getRasterURL(new Vector2(tileX, tileY), this.zoom);
+
+    const request: TileRequest = {
+        requestType: TileRequestType.LoadTile,
+        tile: tile,
+        tileCoords: tile.tileCoords.clone(),
+        url: url,
+        mesh: tile.mesh,
+        texture: null,
+        inProgress: false
+    }
+    this.tileRequests.push(request);
+    console.log(this.prettyName() + "submitted tile raster load request for: " + tile.tileCoords + " URL: " + url);
+
+    tile.mesh.name = "Tile_" + tileX + "_" + tileY;
+}
 
     /**
     * moves all the tiles in the set. when a tile reaches the edge, it is moved
@@ -334,77 +336,77 @@ export default class TileSet {
     * @param doMerge should we merge all those OSM Buildings into one mesh? as an optimization
     */
     public moveAllTiles(movX: number, movZ: number, reloadLimitPerFrame: number, buildingCreator: Buildings | null) {
-        for (const t of this.ourTiles) {
-            t.mesh.position.x += movX;
-            t.mesh.position.z += movZ;
+    for (const t of this.ourTiles) {
+        t.mesh.position.x += movX;
+        t.mesh.position.z += movZ;
+    }
+
+    let tilesReloaded = 0;
+
+    for (const t of this.ourTiles) {
+        if (t.mesh.position.x < this.xmin) {
+            console.log("Tile: " + t.tileCoords + " is below xMin");
+            this.moveHelper(t, new Vector3(this.totalWidthMeters, 0, 0), new Vector3(this.numTiles.x, 0, 0), buildingCreator);
+
+            tilesReloaded++;
+            if (tilesReloaded < reloadLimitPerFrame) {
+                return;
+            }
         }
 
-        let tilesReloaded=0;
+        if (t.mesh.position.x > this.xmax) {
+            console.log("Tile: " + t.tileCoords + " is above xMax");
 
-        for (const t of this.ourTiles) {
-            if (t.mesh.position.x<this.xmin){
-                console.log("Tile: " + t.tileCoords + " is below xMin");
-                this.moveHelper(t, new Vector3(this.totalWidthMeters,0,0), new Vector3(this.numTiles.x,0,0), buildingCreator);
-                
-                tilesReloaded++;
-                if(tilesReloaded<reloadLimitPerFrame){
-                    return;
-                } 
+            this.moveHelper(t, new Vector3(-this.totalWidthMeters, 0, 0), new Vector3(-this.numTiles.x, 0, 0), buildingCreator);
+
+            tilesReloaded++;
+            if (tilesReloaded < reloadLimitPerFrame) {
+                return;
             }
+        }
+        if (t.mesh.position.z < this.zmin) {
+            console.log("Tile: " + t.tileCoords + " is below zmin");
 
-            if(t.mesh.position.x>this.xmax){
-                console.log("Tile: " + t.tileCoords + " is above xMax");
-                
-                this.moveHelper(t, new Vector3(-this.totalWidthMeters,0,0), new Vector3(-this.numTiles.x,0,0), buildingCreator);
-                
-                tilesReloaded++;
-                if(tilesReloaded<reloadLimitPerFrame){
-                    return;
-                }                
+            this.moveHelper(t, new Vector3(0, 0, this.totalHeightMeters), new Vector3(0, -this.numTiles.y, 0), buildingCreator);
+
+            tilesReloaded++;
+            if (tilesReloaded < reloadLimitPerFrame) {
+                return;
             }
-            if(t.mesh.position.z<this.zmin){
-                console.log("Tile: " + t.tileCoords + " is below zmin");
+        }
+        if (t.mesh.position.z > this.zmax) {
+            console.log("Tile: " + t.tileCoords + " is above zmax");
 
-                this.moveHelper(t, new Vector3(0,0,this.totalHeightMeters), new Vector3(0,-this.numTiles.y,0), buildingCreator);
-                
-                tilesReloaded++;
-                if(tilesReloaded<reloadLimitPerFrame){
-                    return;
-                }            
+            this.moveHelper(t, new Vector3(0, 0, -this.totalHeightMeters), new Vector3(0, this.numTiles.y, 0), buildingCreator);
+
+            tilesReloaded++;
+            if (tilesReloaded < reloadLimitPerFrame) {
+                return;
             }
-            if(t.mesh.position.z>this.zmax){
-                console.log("Tile: " + t.tileCoords + " is above zmax");
-
-                this.moveHelper(t, new Vector3(0,0,-this.totalHeightMeters), new Vector3(0,this.numTiles.y,0), buildingCreator);
-                
-                tilesReloaded++;
-                if(tilesReloaded<reloadLimitPerFrame){
-                    return;
-                }      
-            }           
         }
     }
+}
 
     private moveHelper(t: Tile, meshMoveAmount: Vector3, tileCoordAdjustment: Vector3, buildingCreator: Buildings | null) {
 
-        t.deleteBuildings();
+    t.deleteBuildings();
 
-        t.mesh.position = t.mesh.position.add(meshMoveAmount);
-        this.ourTilesMap.delete(t.tileCoords.toString());
+    t.mesh.position = t.mesh.position.add(meshMoveAmount);
+    this.ourTilesMap.delete(t.tileCoords.toString());
 
-        let newTileCoords = t.tileCoords.add(tileCoordAdjustment);
-        this.updateSingleRasterTile(t, newTileCoords.x, newTileCoords.y);
+    let newTileCoords = t.tileCoords.add(tileCoordAdjustment);
+    this.updateSingleRasterTile(t, newTileCoords.x, newTileCoords.y);
 
-        if (buildingCreator) {
-            buildingCreator.SubmitLoadTileRequest(t);
-        }
+    if (buildingCreator) {
+        buildingCreator.SubmitLoadTileRequest(t);
     }
+}
 
     public async generateTerrain(exaggeration: number) {
-        await this.ourTerrainMB.updateAllTerrainTiles(exaggeration);
-    }
+    await this.ourTerrainMB.updateAllTerrainTiles(exaggeration);
+}
 
     public getTerrainLowestY(): number {
-        return this.ourTerrainMB.globalMinHeight;
-    }
+    return this.ourTerrainMB.globalMinHeight;
+}
 }

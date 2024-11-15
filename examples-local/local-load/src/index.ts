@@ -29,6 +29,7 @@ import BuildingsWFS from "../../../lib/BuildingsWFS";
 import { RetrievalLocation} from "../../../lib/TileSet";
 import { RetrievalType } from "../../../lib/TileSet";
 import { EPSG_Type }     from "../../../lib/TileMath";
+import RasterWMTS from "../../../lib/RasterWMTS";
 
 export interface propertiesCharlotte {
     "Additional_Information": string;    
@@ -150,7 +151,13 @@ class Game {
         this.ourGreenMaterial.diffuseColor = new Color3(0.0, 1.0, 0.0);
 
         this.ourTS = new TileSet(this.scene,this.engine);
-        this.ourTS.setRasterProvider(new RasterOSM(this.ourTS)); //raster basemap to OSM
+        //this.ourTS.setRasterProvider(new RasterOSM(this.ourTS)); //raster basemap to OSM
+
+        const ourWMTS=new RasterWMTS(this.ourTS,RetrievalLocation.Local);
+        ourWMTS.setup("https://tiles.arcgis.com/tiles/XBhYkoXKJCRHbe7M/arcgis/rest/services/Mosaic_jpg/MapServer/WMTS",
+                      "Mosaic_jpg");
+        this.ourTS.setRasterProvider(ourWMTS);
+
         this.ourTS.createGeometry(new Vector2(4,4), 25, 2); //4x4 tile set, 20m width of each tile, and 2 divisions on each tile
         this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //lat, lon, zoom. takes us to charlotte. 
 
