@@ -5,7 +5,8 @@ import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { Scene } from "@babylonjs/core";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import Earcut from 'earcut';
-import Buildings, { RetrievalType } from "./Buildings";
+import Buildings from "./Buildings";
+import { RetrievalType } from "./TileSet";
 import Tile from './Tile';
 import TileSet from "./TileSet";
 import { EPSG_Type } from "./TileMath";

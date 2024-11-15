@@ -1,7 +1,7 @@
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import Raster from "./Raster";
 import TileSet from "./TileSet";
-export default class RasterOSM extends Raster {
+export default class RasterMB extends Raster {
     accessToken: string;
     doResBoost: boolean;
     mapType: string;

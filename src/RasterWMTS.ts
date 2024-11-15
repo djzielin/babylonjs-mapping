@@ -2,7 +2,7 @@ import { Vector2 } from "@babylonjs/core/Maths/math";
 import Raster from "./Raster";
 import TileSet from "./TileSet";
 
-export default class RasterAGOL extends Raster {
+export default class RasterWMTS extends Raster {
     public tileMatrixSet: string = "default028mm";
     public style = "default";
     public extension = ".png";

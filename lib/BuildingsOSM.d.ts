@@ -1,4 +1,4 @@
-import { RetrievalLocation } from "./Buildings";
+import { RetrievalLocation } from "./TileSet";
 import Tile from "./Tile";
 import TileSet from "./TileSet";
 import Buildings from "./Buildings";

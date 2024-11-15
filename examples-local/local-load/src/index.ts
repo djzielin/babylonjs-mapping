@@ -26,7 +26,8 @@ import TileSet from "../../../lib/TileSet"
 import BuildingsOSM from "../../../lib/BuildingsOSM";
 import RasterOSM from "../../../lib/RasterOSM";
 import BuildingsWFS from "../../../lib/BuildingsWFS";
-import { RetrievalLocation, RetrievalType } from "../../../lib/Buildings";
+import { RetrievalLocation} from "../../../lib/TileSet";
+import { RetrievalType } from "../../../lib/TileSet";
 import { EPSG_Type }     from "../../../lib/TileMath";
 
 export interface propertiesCharlotte {

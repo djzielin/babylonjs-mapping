@@ -9,7 +9,7 @@ import Tile from "./Tile";
 import TileSet from "./TileSet";
 import { EPSG_Type } from "./TileMath";
 import { Observable } from "@babylonjs/core";
-
+import { RetrievalLocation, RetrievalType } from "./TileSet";
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
@@ -18,11 +18,6 @@ export enum BuildingRequestType {
     LoadTile,
     CreateBuilding,
     MergeAllBuildingsOnTile
-}
-
-export enum RetrievalType {
-    IndividualTiles,
-    AllData
 }
 
 export interface BuildingRequest {
@@ -36,11 +31,7 @@ export interface BuildingRequest {
     url?: string;
 }
 
-export enum RetrievalLocation {
-    Remote,
-    Local,
-    Remote_and_Save
-}
+
 
 interface GeoFileLoaded {
     url: string;
