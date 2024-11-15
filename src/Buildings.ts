@@ -207,9 +207,8 @@ export default abstract class Buildings {
                         return;
                     }
                 );
-            } else if (res.status == 500) {
-                console.log("Error 500 requesting: " + request.url);
-
+            } else if (res.status >= 400 && res.status<600) {
+                console.log("Error code:" + res.status + " while requesting: " + request.url);
                 console.log("but we will try again!");
                 this.buildingRequests.push(request); //let's try again? maybe there should be a maximum number of retries?
                 request.inProgress=false;
