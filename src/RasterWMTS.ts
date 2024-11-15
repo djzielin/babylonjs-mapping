@@ -10,10 +10,29 @@ export default class RasterWMTS extends Raster {
     public extension = ".png";
     public baseURL = "";
     public layerName = "";
-    static downloadCount=0;
+    public downloadCount = 0;
+    public downloadComplete = true;
+
+    public downloadQueue: TileRequest[] = [];
 
     constructor(ts: TileSet, retrievalLocation = RetrievalLocation.Remote_and_Save) {
         super("WMTS", ts, retrievalLocation);
+
+        if (retrievalLocation == RetrievalLocation.Remote_and_Save) {
+            this.tileSet.scene.onBeforeRenderObservable.add(() => {
+                // Your code here
+                console.log("This runs before every frame.");
+                if (this.downloadComplete==true) {
+                    if (this.downloadQueue.length > 0) {
+                        this.downloadComplete = false;
+                        const request = this.downloadQueue.shift();
+                        if (request) {
+                            this.processSingleRequest(request);
+                        }
+                    }
+                }
+            });
+        }
     }
 
     public setup(url: string, layer: string) {
@@ -36,36 +55,41 @@ export default class RasterWMTS extends Raster {
         return url;
     }
 
-    //TODO, this should really be somewhere else so it works for all Raster subclasses, but we wanted to get the this.extension variable
-    public override async doTileSave(request: TileRequest) {
+    public override doTileSave(request: TileRequest){
+        this.downloadQueue.push(request);
+    }
+
+    public async processSingleRequest(request: TileRequest) {
         //now with retries per ChatGPT
-        const maxRetries=10;
-        const delay=1000;
+        const maxRetries = 10;
+        const delay = 1000;
 
         let attempts = 0;
         while (attempts < maxRetries) {
             try {
                 const res = await fetch(request.url);
-    
+
                 if (res.status === 200) {
                     const blob = await res.blob();
-                    const url = window.URL.createObjectURL(blob);
+                    const url = window.URL.createObjectURL(new Blob([blob], { type: blob.type }));
                     const a = document.createElement("a");
                     a.href = url;
                     a.download = `${request.tileCoords.z}_${request.tileCoords.y}_${request.tileCoords.x}${this.extension}`;
+                    await new Promise((resolve) => setTimeout(resolve, 250)); //wait for just a bit
                     a.click();
-                    window.URL.revokeObjectURL(url);
+
                     console.log("File downloaded successfully!");
-                    RasterWMTS.downloadCount++;
-                    console.log("  WMTS Download Count: " + RasterWMTS.downloadCount);
-                    return; // Exit the function after successful download
+                    this.downloadCount++;
+                    console.log("  WMTS Download Count: " + this.downloadCount);
+                    this.downloadComplete = true;
+                    return;
                 } else {
                     console.warn(`Attempt ${attempts + 1}: HTTP status ${res.status}`);
                 }
             } catch (error) {
                 console.error(`Attempt ${attempts + 1} failed:`, error);
             }
-    
+
             // Increment attempts and wait before retrying
             attempts++;
             if (attempts < maxRetries) {
@@ -73,19 +97,7 @@ export default class RasterWMTS extends Raster {
                 await new Promise((resolve) => setTimeout(resolve, delay));
             }
         }
-    
+
         console.error(`Failed to download file after ${maxRetries} attempts.`);
-
-
-        /*fetch(request.url).then((res) => {
-            if (res.status == 200) {
-                res.blob().then((blob) => {
-                    var a = document.createElement("a");
-                    a.href = window.URL.createObjectURL(blob);
-                    a.download = request.tileCoords.z + "_" + request.tileCoords.y+"_" + request.tileCoords.x + this.extension;
-                    a.click();
-                });
-            }
-        });*/
     }
 }

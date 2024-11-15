@@ -9,8 +9,12 @@ export default class RasterWMTS extends Raster {
     extension: string;
     baseURL: string;
     layerName: string;
+    downloadCount: number;
+    downloadComplete: boolean;
+    downloadQueue: TileRequest[];
     constructor(ts: TileSet, retrievalLocation?: RetrievalLocation);
     setup(url: string, layer: string): void;
     getRasterURL(tileCoords: Vector2, zoom: number): string;
-    doTileSave(request: TileRequest): Promise<void>;
+    doTileSave(request: TileRequest): void;
+    processSingleRequest(request: TileRequest): Promise<void>;
 }

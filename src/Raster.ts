@@ -13,7 +13,7 @@ export default class Raster {
        return "";
     }
 
-    public async doTileSave(request: TileRequest){
+    public doTileSave(request: TileRequest){
 
     }
 }

@@ -26,6 +26,7 @@ import TileSet from "../../../lib/TileSet"
 import BuildingsOSM from "../../../lib/BuildingsOSM";
 import RasterOSM from "../../../lib/RasterOSM";
 import RasterWMTS from "../../../lib/RasterWMTS";
+import { RetrievalLocation } from "../../../lib/TileSet";
 
 class Game {
     private canvas: HTMLCanvasElement;
@@ -121,13 +122,18 @@ class Game {
         this.ourTS = new TileSet(this.scene,this.engine);
         this.ourTS.hasAlpha=true; //this should get rid of black spots on edge of dataset
        
-        const ourWMTS=new RasterWMTS(this.ourTS);
+        const ourWMTS = new RasterWMTS(this.ourTS,
+            RetrievalLocation.Remote_and_Save
+            //RetrievalLocation.Local
+        );
         ourWMTS.setup("https://tiles.arcgis.com/tiles/XBhYkoXKJCRHbe7M/arcgis/rest/services/Mosaic_jpg/MapServer/WMTS",
-                      "Mosaic_jpg");
+            "Mosaic_jpg");
         this.ourTS.setRasterProvider(ourWMTS);
-        
-        this.ourTS.createGeometry(new Vector2(10,10), 20, 2); //4x4 tile set, 20m width of each tile, and 2 divisions on each tile
-        this.ourTS.updateRaster(35.2258461, -80.8400777, 19); //lat, lon, zoom. takes us to charlotte. 
+
+        const zoom = 19;
+        this.ourTS.createGeometry(new Vector2(24, 24), 6.25 * 0.5, 2);
+        this.ourTS.updateRaster(35.220625, -80.841318, zoom); //charlotte
+
 
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program 
