@@ -1,5 +1,5 @@
 import { EPSG_Type } from "./TileMath";
-import { BuildingRequest, RetrievalType } from "./Buildings";
+import { BuildingRequest, RetrievalLocation, RetrievalType } from "./Buildings";
 import { BuildingRequestType } from "./Buildings";
 import { Vector4 } from "@babylonjs/core";
 
@@ -14,8 +14,8 @@ export default class BuildingsWFS extends Buildings {
     public urlRequest = "&request=GetFeature";
     public flipWinding = false;
 
-    constructor(name: string, public url: string, public layerName: string, public epsg: EPSG_Type, tileSet: TileSet) {
-        super(name, tileSet);
+    constructor(name: string, public url: string, public layerName: string, public epsg: EPSG_Type, tileSet: TileSet, retrievalLocation=RetrievalLocation.Remote) {
+        super(name, tileSet, retrievalLocation);
 
         this.setupGeoServer();
     } 
@@ -53,14 +53,19 @@ export default class BuildingsWFS extends Buildings {
             bboxValues.w + "," +
             "urn:ogc:def:crs:EPSG:4326";
 
-        const urlWithBox = this.url + this.urlService + this.urlRequest + urlFeature + this.urlOutput + urlBox;
+        let requestURL = this.url + this.urlService + this.urlRequest + urlFeature + this.urlOutput + urlBox;
+
+        if(this.retrevialLocation==RetrievalLocation.Local && this.retrievalType==RetrievalType.AllData){
+            const baseUrl = window.location.href.replace(/\/[^/]*\.[^/]*$/, "").replace(/\/$/, "") + "/"; //TODO make this a util function
+            requestURL = baseUrl + "map_cache/"+this.name + ".json"; //override requestURL for local file
+        }
 
         const request: BuildingRequest = {
             requestType: BuildingRequestType.LoadTile,
             tile: tile, 
             tileCoords: tile.tileCoords.clone(),
             epsgType: this.epsg,
-            url: urlWithBox,
+            url: requestURL,
             inProgress: false,
             flipWinding: this.flipWinding
         }

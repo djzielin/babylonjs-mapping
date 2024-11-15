@@ -1,5 +1,5 @@
 import { EPSG_Type } from "./TileMath";
-import { BuildingRequest } from "./Buildings";
+import { BuildingRequest, RetrievalLocation } from "./Buildings";
 import { BuildingRequestType } from "./Buildings";
 
 import Tile from "./Tile";
@@ -10,8 +10,8 @@ export default class BuildingsOSM extends Buildings {
     private serverNum = 0;
     public accessToken: string = ""; //new for 2024 osmbuildings seem to now be onegeo
 
-    constructor(tileSet: TileSet) {
-        super("OSM", tileSet);
+    constructor(tileSet: TileSet, retrievalLocation=RetrievalLocation.Remote) {
+        super("OSM", tileSet,retrievalLocation);
     }
 
     public override generateBuildings() {

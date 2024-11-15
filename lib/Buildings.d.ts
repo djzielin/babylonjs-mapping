@@ -24,6 +24,11 @@ export interface BuildingRequest {
     epsgType?: EPSG_Type;
     url?: string;
 }
+export declare enum RetrievalLocation {
+    Remote = 0,
+    Local = 1,
+    Remote_and_Save = 2
+}
 interface GeoFileLoaded {
     url: string;
     topLevel: GeoJSON.topLevel;
@@ -31,6 +36,7 @@ interface GeoFileLoaded {
 export default abstract class Buildings {
     name: string;
     protected tileSet: TileSet;
+    retrevialLocation: RetrievalLocation;
     exaggeration: number;
     doMerge: boolean;
     defaultBuildingHeight: number;
@@ -49,7 +55,7 @@ export default abstract class Buildings {
     private sleepRequested;
     private timeStart;
     private sleepDuration;
-    constructor(name: string, tileSet: TileSet);
+    constructor(name: string, tileSet: TileSet, retrevialLocation: RetrievalLocation);
     abstract SubmitLoadTileRequest(tile: Tile): void;
     abstract SubmitLoadAllRequest(): void;
     ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void;
@@ -58,6 +64,7 @@ export default abstract class Buildings {
     private getFeatures;
     protected stripFilePrefix(original: string): string;
     protected removePendingRequest(index?: number): void;
+    protected doSave(text: string): void;
     protected handleLoadTileRequest(request: BuildingRequest): void;
     processBuildingRequests(): void;
     generateBuildings(): void;

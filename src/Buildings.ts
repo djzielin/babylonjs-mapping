@@ -36,6 +36,12 @@ export interface BuildingRequest {
     url?: string;
 }
 
+export enum RetrievalLocation {
+    Remote,
+    Local,
+    Remote_and_Save
+}
+
 interface GeoFileLoaded {
     url: string;
     topLevel: GeoJSON.topLevel;
@@ -66,7 +72,7 @@ export default abstract class Buildings {
     private timeStart: number;
     private sleepDuration=5000; //5 seconds
 
-    constructor(public name: string, protected tileSet: TileSet) {
+    constructor(public name: string, protected tileSet: TileSet, public retrevialLocation: RetrievalLocation) {
         this.scene = this.tileSet.scene;
 
         this.buildingMaterial = new StandardMaterial("buildingMaterial", this.scene);
@@ -157,6 +163,13 @@ export default abstract class Buildings {
         this.buildingRequests.splice(index, 1);
     }
 
+    protected doSave(text: string){
+        var a = document.createElement("a");
+        a.href = window.URL.createObjectURL(new Blob([text], {type: "text/plain"}));
+        a.download = this.name+".json";
+        a.click();
+    }
+
     protected handleLoadTileRequest(request: BuildingRequest): void {
         if (!request.url) {
             console.error(this.prettyName() + "no valid URL specified in GeoJSON load request");
@@ -185,10 +198,14 @@ export default abstract class Buildings {
             if (res.status == 200) {
                 res.text().then(
                     (text) => {
-                        console.log(this.prettyName() + "fetch completed for buildings for tile: " + request.tileCoords);
+                        console.log(this.prettyName() + "fetch completed for buildings for tile: " + request.tileCoords);                       
 
                         if (text.length > 0) {
                             //console.log(this.prettyName() + "about to json parse for tile: " + request.tileCoords);
+
+                            if(this.retrevialLocation==RetrievalLocation.Remote_and_Save && this.retrievalType==RetrievalType.AllData){
+                                this.doSave(text);
+                            }
 
                             const topLevel: GeoJSON.topLevel = JSON.parse(text);
 
