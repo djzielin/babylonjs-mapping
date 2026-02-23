@@ -107,3 +107,5 @@ dist
 .tern-port
 
 mapbox-key.txt
+osmb-key.txt
+.DS_Store
