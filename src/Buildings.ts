@@ -9,7 +9,7 @@ import Tile from "./Tile";
 import TileSet from "./TileSet";
 import { EPSG_Type } from "./TileMath";
 import { Observable } from "@babylonjs/core";
-import { RetrievalLocation, RetrievalType } from "./TileSet";
+import { RetrievalLocation, RetrievalType } from "./Retrieval";
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
@@ -378,4 +378,3 @@ export default abstract class Buildings {
         }
     }
 }
-

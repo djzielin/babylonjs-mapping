@@ -20,10 +20,12 @@
   },
   "devDependencies": {
     "@types/earcut": "^2.1.4",
-    "typescript": "~5.8.3"
+    "typescript": "~5.8.3",
+    "vitest": "^4.1.9"
   },
   "scripts": {
-    "test": "node --experimental-specifier-resolution=node tests.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "build": "tsc --build tsconfig.npm.json",
     "clean": "rimraf ./lib",
     "rebuild:playground": "npm run clean:playground && npm run build:playground && npm run fix:playground",

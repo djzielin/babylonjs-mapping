@@ -15,6 +15,7 @@ import "@babylonjs/inspector";
 import '@babylonjs/core/Debug/debugLayer';
 import Raster from "./Raster";
 import TerrainMB from "./TerrainMB";
+export { RetrievalLocation, RetrievalType } from "./Retrieval";
 declare enum TileRequestType {
     LoadTile = 0
 }
@@ -26,15 +27,6 @@ export interface TileRequest {
     mesh: Mesh;
     texture: Texture | null;
     inProgress: boolean;
-}
-export declare enum RetrievalType {
-    IndividualTiles = 0,
-    AllData = 1
-}
-export declare enum RetrievalLocation {
-    Remote = 0,
-    Local = 1,
-    Remote_and_Save = 2
 }
 export default class TileSet {
     scene: Scene;
@@ -111,4 +103,3 @@ export default class TileSet {
     generateTerrain(exaggeration: number): Promise<void>;
     getTerrainLowestY(): number;
 }
-export {};

@@ -1,8 +1,8 @@
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import Raster from "./Raster";
-import TileSet from "./TileSet";
-import { RetrievalLocation } from "./TileSet";
-import { TileRequest } from "./TileSet";
+import { RetrievalLocation } from "./Retrieval";
+import type TileSet from "./TileSet";
+import type { TileRequest } from "./TileSet";
 
 export default class RasterWMTS extends Raster {
     public tileMatrixSet: string = "default028mm";

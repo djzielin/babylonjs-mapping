@@ -2,7 +2,7 @@ import { EPSG_Type } from "./TileMath";
 import { BuildingRequest} from "./Buildings";
 import { BuildingRequestType } from "./Buildings";
 import { Vector4 } from "@babylonjs/core";
-import { RetrievalLocation, RetrievalType } from "./TileSet";
+import { RetrievalLocation, RetrievalType } from "./Retrieval";
 
 import Tile from "./Tile";
 import TileSet from "./TileSet";

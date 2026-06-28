@@ -1,7 +1,7 @@
 import { EPSG_Type } from "./TileMath";
 import { BuildingRequest } from "./Buildings";
 import { BuildingRequestType } from "./Buildings";
-import { RetrievalLocation, RetrievalType } from "./TileSet";
+import { RetrievalLocation } from "./Retrieval";
 
 import Tile from "./Tile";
 import TileSet from "./TileSet";
@@ -67,4 +67,3 @@ export default class BuildingsOSM extends Buildings {
         console.error("asking for all OSM data doesn't make sense, you should use the individual request type!");
     }
 }
-
