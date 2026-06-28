@@ -147,8 +147,7 @@ export default class TerrainMB {
             console.error("unable to read pixels from texture for terrain tile: " + tile.tileCoords);
         }
 
-        const buffer: ArrayBuffer = bufferView!.buffer;
-        const bufferUint: Uint8Array = new Uint8Array(buffer);
+        const bufferUint: Uint8Array = new Uint8Array(bufferView!.buffer, bufferView!.byteOffset, bufferView!.byteLength);
         //console.log("terrain buffer dimensions: " + bufferUint.byteLength)
 
         if(tile.tileCoords.equals(storedCoords)==false){

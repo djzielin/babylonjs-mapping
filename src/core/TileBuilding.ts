@@ -25,14 +25,16 @@ export default class TileBuilding {
     public LineArray: coordinateArrayOfArrays;
     public LineSegments: LineSegmentArray=[];
 
-    public verticies: Vector3[]=[];
+    public vertices: Vector3[]=[];
+    /** @deprecated Use vertices. */
+    public verticies: Vector3[]=this.vertices;
 
     private tm: TileMath;
 
     constructor(public mesh: Mesh, public tile: Tile) {
         this.tm=this.tile.tileSet.ourTileMath;
 
-        this.getVerticies();
+        this.getVertices();
         this.computeBuildingBoxInsideTile();     
     }
 
@@ -97,11 +99,12 @@ export default class TileBuilding {
 
     public dispose(){
         this.mesh.dispose();
-        this.verticies=[];
+        this.vertices=[];
+        this.verticies=this.vertices;
     }
 
     //https://forum.babylonjs.com/t/is-there-any-way-to-get-the-vertices-of-a-given-mesh-facet-or-get-neighbouring-facets/19888/4
-    public getVerticies() {
+    public getVertices() {
         const vd = this.mesh.getVerticesData(VertexBuffer.PositionKind);
         if (vd === null) {
             return;
@@ -112,13 +115,18 @@ export default class TileBuilding {
         for (var i = 0; i < vd.length; i += 3) {
             const x = vd[i + 0];
             const y = vd[i + 1];
-            const z = vd[+ 2];
+            const z = vd[i + 2];
 
             const localVector=new Vector3(x, y, z);
             const worldVector=Vector3.TransformCoordinates(localVector,worldMatrix);
 
-            this.verticies.push(worldVector);
+            this.vertices.push(worldVector);
         }
+    }
+
+    /** @deprecated Use getVertices. */
+    public getVerticies() {
+        this.getVertices();
     }
 
     public computeBuildingBoxInsideTile() {
@@ -147,15 +155,15 @@ export default class TileBuilding {
     }
 
     public doVerticesMatch( otherBuilding: TileBuilding): boolean{
-        if(this.verticies.length!=otherBuilding.verticies.length){
+        if(this.vertices.length!=otherBuilding.vertices.length){
             return false;
         }
 
         let accumulatedError=0.0;
 
-        for(let i=0;i<this.verticies.length;i++){
-            const v1=this.verticies[i];
-            const v2=otherBuilding.verticies[i];
+        for(let i=0;i<this.vertices.length;i++){
+            const v1=this.vertices[i];
+            const v2=otherBuilding.vertices[i];
 
             const diffVector=v1.subtract(v2);
             const length=diffVector.length();

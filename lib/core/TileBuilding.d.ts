@@ -20,6 +20,8 @@ export default class TileBuilding {
     ShapeType: String;
     LineArray: coordinateArrayOfArrays;
     LineSegments: LineSegmentArray;
+    vertices: Vector3[];
+    /** @deprecated Use vertices. */
     verticies: Vector3[];
     private tm;
     constructor(mesh: Mesh, tile: Tile);
@@ -27,6 +29,8 @@ export default class TileBuilding {
     private computeDir;
     findLineIntersectionPoint(otherStreet: TileBuilding): LineTestReturnPacket | false;
     dispose(): void;
+    getVertices(): void;
+    /** @deprecated Use getVertices. */
     getVerticies(): void;
     computeBuildingBoxInsideTile(): void;
     doVerticesMatch(otherBuilding: TileBuilding): boolean;

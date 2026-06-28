@@ -11,8 +11,6 @@ import Attribution from "./Attribution";
 import type Buildings from '../buildings/Buildings';
 import type TileBuilding from "./TileBuilding";
 import "@babylonjs/core/Materials/standardMaterial";
-import "@babylonjs/inspector";
-import '@babylonjs/core/Debug/debugLayer';
 import Raster from "../raster/Raster";
 import TerrainMB from "../terrain/TerrainMB";
 export { RetrievalLocation, RetrievalType } from "../shared/Retrieval";

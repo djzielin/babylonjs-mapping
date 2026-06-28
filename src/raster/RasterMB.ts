@@ -20,12 +20,12 @@ export default class RasterMB extends Raster{
     public override getRasterURL(tileCoords: Vector2, zoom: number): string {
         const prefix = this.mbServer;
         const boostParam = this.doResBoost ? "@2x" : "";
-        let extension = ".jpg90"; //can do jpg70 to reduce quality & bandwidth
-        const accessParam = "?access_token=" + this.accessToken;
-        const skuParam = "?sku=" + this.skuToken;
+        const extension = ".jpg90"; //can do jpg70 to reduce quality & bandwidth
+        const query = new URLSearchParams({
+            sku: this.skuToken,
+            access_token: this.accessToken
+        });
 
-        let url = prefix + this.mapType + "/" + zoom + "/" + (tileCoords.x) + "/" + (tileCoords.y) + boostParam + extension + accessParam;
-
-        return url;
+        return prefix + this.mapType + "/" + zoom + "/" + (tileCoords.x) + "/" + (tileCoords.y) + boostParam + extension + "?" + query.toString();
     }
 }

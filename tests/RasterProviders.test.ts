@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Vector2 } from "@babylonjs/core/Maths/math";
 
+import RasterMB from "../src/RasterMB";
 import RasterOSM from "../src/RasterOSM";
 import RasterWMTS from "../src/RasterWMTS";
 import { RetrievalLocation } from "../src/Retrieval";
@@ -19,6 +20,22 @@ describe("RasterOSM", () => {
 
     expect(raster.getRasterURL(new Vector2(25908, 18050), 16)).toBe(
       "https://tile.openstreetmap.org/16/25908/18050.png",
+    );
+  });
+});
+
+describe("RasterMB", () => {
+  it("builds Mapbox raster URLs with sku and access token query parameters", () => {
+    const raster = new RasterMB({
+      ourTileMath: {
+        generateSKU: () => "101abcDEF42",
+      },
+    } as never);
+    raster.accessToken = "pk.test-token";
+    raster.doResBoost = true;
+
+    expect(raster.getRasterURL(new Vector2(1, 2), 3)).toBe(
+      "https://api.mapbox.com/v4/mapbox.satellite/3/1/2@2x.jpg90?sku=101abcDEF42&access_token=pk.test-token",
     );
   });
 });

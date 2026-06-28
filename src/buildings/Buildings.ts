@@ -62,8 +62,10 @@ export default abstract class Buildings {
     private sleepRequested = false;
     private timeStart: number;
     private sleepDuration=5000; //5 seconds
+    private _retrievalLocation: RetrievalLocation;
 
-    constructor(public name: string, protected tileSet: TileSet, public retrevialLocation: RetrievalLocation) {
+    constructor(public name: string, protected tileSet: TileSet, retrievalLocation: RetrievalLocation) {
+        this._retrievalLocation = retrievalLocation;
         this.scene = this.tileSet.scene;
 
         this.buildingMaterial = new StandardMaterial("buildingMaterial", this.scene);
@@ -74,6 +76,23 @@ export default abstract class Buildings {
         const observer = this.scene.onBeforeRenderObservable.add(() => { //fire every frame
             this.processBuildingRequests();
         });
+    }
+
+    public get retrievalLocation(): RetrievalLocation {
+        return this._retrievalLocation;
+    }
+
+    public set retrievalLocation(value: RetrievalLocation) {
+        this._retrievalLocation = value;
+    }
+
+    /** @deprecated Use retrievalLocation. */
+    public get retrevialLocation(): RetrievalLocation {
+        return this._retrievalLocation;
+    }
+
+    public set retrevialLocation(value: RetrievalLocation) {
+        this._retrievalLocation = value;
     }
 
     public abstract SubmitLoadTileRequest(tile: Tile): void;
@@ -194,7 +213,7 @@ export default abstract class Buildings {
                         if (text.length > 0) {
                             //console.log(this.prettyName() + "about to json parse for tile: " + request.tileCoords);
 
-                            if(this.retrevialLocation==RetrievalLocation.Remote_and_Save && this.retrievalType==RetrievalType.AllData){
+                            if(this.retrievalLocation==RetrievalLocation.Remote_and_Save && this.retrievalType==RetrievalType.AllData){
                                 this.doSave(text);
                             }
 

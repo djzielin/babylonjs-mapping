@@ -56,7 +56,7 @@ export default class BuildingsWFS extends Buildings {
 
         let requestURL = this.url + this.urlService + this.urlRequest + urlFeature + this.urlOutput + urlBox;
 
-        if(this.retrevialLocation==RetrievalLocation.Local && this.retrievalType==RetrievalType.AllData){
+        if(this.retrievalLocation==RetrievalLocation.Local && this.retrievalType==RetrievalType.AllData){
             const baseUrl = window.location.href.replace(/\/[^/]*\.[^/]*$/, "").replace(/\/$/, "") + "/"; //TODO make this a util function
             requestURL = baseUrl + "map_cache/"+this.name + ".json"; //override requestURL for local file
         }

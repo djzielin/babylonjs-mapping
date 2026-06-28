@@ -15,10 +15,8 @@ import type Buildings from '../buildings/Buildings';
 import type TileBuilding from "./TileBuilding";
 
 import "@babylonjs/core/Materials/standardMaterial"
-import "@babylonjs/inspector";
-import '@babylonjs/core/Debug/debugLayer';
 import Raster from "../raster/Raster";
-import RasterOSM from "../raster/RasterMB";
+import RasterOSM from "../raster/RasterOSM";
 import TerrainMB from "../terrain/TerrainMB";
 import { RetrievalLocation } from "../shared/Retrieval";
 

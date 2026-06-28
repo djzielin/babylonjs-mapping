@@ -28,7 +28,6 @@ interface GeoFileLoaded {
 export default abstract class Buildings {
     name: string;
     protected tileSet: TileSet;
-    retrevialLocation: RetrievalLocation;
     exaggeration: number;
     doMerge: boolean;
     defaultBuildingHeight: number;
@@ -47,7 +46,13 @@ export default abstract class Buildings {
     private sleepRequested;
     private timeStart;
     private sleepDuration;
-    constructor(name: string, tileSet: TileSet, retrevialLocation: RetrievalLocation);
+    private _retrievalLocation;
+    constructor(name: string, tileSet: TileSet, retrievalLocation: RetrievalLocation);
+    get retrievalLocation(): RetrievalLocation;
+    set retrievalLocation(value: RetrievalLocation);
+    /** @deprecated Use retrievalLocation. */
+    get retrevialLocation(): RetrievalLocation;
+    set retrevialLocation(value: RetrievalLocation);
     abstract SubmitLoadTileRequest(tile: Tile): void;
     abstract SubmitLoadAllRequest(): void;
     ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void;
