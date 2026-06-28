@@ -1,6 +1,6 @@
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Scene } from "@babylonjs/core";
-import Buildings from "./Buildings";
+import type Buildings from "./Buildings";
 import type Tile from '../core/Tile';
 import type TileSet from "../core/TileSet";
 import { EPSG_Type } from "../core/TileMath";

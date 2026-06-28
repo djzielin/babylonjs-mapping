@@ -5,12 +5,11 @@ import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { Scene } from "@babylonjs/core";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import Earcut from 'earcut';
-import Buildings from "./Buildings";
+import type Buildings from "./Buildings";
 import { RetrievalType } from "../shared/Retrieval";
 import type Tile from '../core/Tile';
 import type TileSet from "../core/TileSet";
 import { EPSG_Type } from "../core/TileMath";
-import TileMath from "../core/TileMath";
 import TileBuilding from "../core/TileBuilding";
 
 export interface topLevel {

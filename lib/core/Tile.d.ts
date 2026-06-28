@@ -2,7 +2,7 @@ import { Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import TileBuilding from "./TileBuilding";
+import type TileBuilding from "./TileBuilding";
 import { BoundingBox } from "@babylonjs/core/Culling/boundingBox";
 import type TileSet from "./TileSet";
 export default class Tile {
@@ -26,5 +26,5 @@ export default class Tile {
     deleteBuildings(): void;
     hideIndividualBuildings(): void;
     getAllBuildingMeshes(): Mesh[];
-    isBuildingInsideTileBoundingBox(m: Mesh): Boolean;
+    isBuildingInsideTileBoundingBox(m: Mesh): boolean;
 }

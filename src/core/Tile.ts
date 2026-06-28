@@ -2,15 +2,10 @@ import { Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import { BoundingInfo } from "@babylonjs/core/Culling/boundingInfo";
-import TileBuilding from "./TileBuilding";
+import type TileBuilding from "./TileBuilding";
 
 import { BoundingBox } from "@babylonjs/core/Culling/boundingBox";
 
-import { FloatArray, Material, Rotate2dBlock, VertexBuffer } from "@babylonjs/core";
-import Earcut from 'earcut';
-import { fetch } from 'cross-fetch'
-import type Buildings from "../buildings/Buildings";
 import type TileSet from "./TileSet";
 import { MeshBuilder } from "@babylonjs/core";
 
@@ -99,9 +94,15 @@ export default class Tile {
         return ourMeshes;
     }   
 
-    public isBuildingInsideTileBoundingBox(m: Mesh): Boolean {
-        const b: BoundingInfo = m.getBoundingInfo();
-   
+    public isBuildingInsideTileBoundingBox(m: Mesh): boolean {
+        const bounds = m.getBoundingInfo().boundingBox;
+
+        for (const v of bounds.vectorsWorld) {
+            if (!this.box2D.intersectsPoint(new Vector3(v.x, 0, v.z))) {
+                return false;
+            }
+        }
+
         return true;
     }
 }
