@@ -1,0 +1,9 @@
+import { Vector2 } from "@babylonjs/core/Maths/math";
+import Raster from "./Raster";
+import type TileSet from "../core/TileSet";
+export default class RasterOSM extends Raster {
+    private osmServers;
+    private index;
+    constructor(ts: TileSet);
+    getRasterURL(tileCoords: Vector2, zoom: number): string;
+}
