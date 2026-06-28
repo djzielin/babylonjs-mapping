@@ -27,11 +27,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "tsc --build tsconfig.npm.json",
-    "clean": "rimraf ./lib",
-    "rebuild:playground": "npm run clean:playground && npm run build:playground && npm run fix:playground",
-    "clean:playground": "rimraf ./lib_playground",
-    "build:playground": "tsc --build tsconfig.playground.json",
-    "fix:playground": "node fix_lib_playground.js"
+    "clean": "rimraf ./lib"
   },
   "repository": {
     "type": "git",
