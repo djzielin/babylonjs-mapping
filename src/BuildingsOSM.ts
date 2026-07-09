@@ -1,1 +1,1 @@
-export { default } from "./buildings/BuildingsOSM";
+export { default } from "./buildings/BuildingsOSM.js";

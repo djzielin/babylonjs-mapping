@@ -1,1 +1,1 @@
-export { default } from "./core/Attribution";
+export { default } from "./core/Attribution.js";

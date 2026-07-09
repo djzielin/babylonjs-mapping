@@ -1,1 +1,1 @@
-{"version":3,"file":"TileMath.js","sourceRoot":"","sources":["../src/TileMath.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,SAAS,EAAE,MAAM,iBAAiB,CAAC","sourcesContent":["export { default, EPSG_Type } from \"./core/TileMath\";\n"]}
+{"version":3,"file":"TileMath.js","sourceRoot":"","sources":["../src/TileMath.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,SAAS,EAAE,MAAM,oBAAoB,CAAC","sourcesContent":["export { default, EPSG_Type } from \"./core/TileMath.js\";\n"]}

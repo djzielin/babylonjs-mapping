@@ -1,16 +1,16 @@
-import { Vector3 } from "@babylonjs/core/Maths/math";
-import { Vector2 } from "@babylonjs/core/Maths/math";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
-import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
+import { Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Vector2 } from "@babylonjs/core/Maths/math.js";
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
 import { Scene } from "@babylonjs/core";
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import Earcut from 'earcut';
-import type Buildings from "./Buildings";
-import { RetrievalType } from "../shared/Retrieval";
-import type Tile from '../core/Tile';
-import type TileSet from "../core/TileSet";
-import { EPSG_Type } from "../core/TileMath";
-import TileBuilding from "../core/TileBuilding";
+import type Buildings from "./Buildings.js";
+import { RetrievalType } from "../shared/Retrieval.js";
+import type Tile from '../core/Tile.js';
+import type TileSet from "../core/TileSet.js";
+import { EPSG_Type } from "../core/TileMath.js";
+import TileBuilding from "../core/TileBuilding.js";
 
 export interface topLevel {
     "type": string;

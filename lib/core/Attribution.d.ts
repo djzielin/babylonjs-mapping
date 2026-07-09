@@ -1,5 +1,5 @@
-import { Scene } from "@babylonjs/core/scene";
-import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/";
+import { Scene } from "@babylonjs/core/scene.js";
+import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/index.js";
 export default class Attribution {
     private scene;
     advancedTexture: AdvancedDynamicTexture;

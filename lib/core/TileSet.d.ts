@@ -1,19 +1,19 @@
-import { Scene } from "@babylonjs/core/scene";
+import { Scene } from "@babylonjs/core/scene.js";
 import { Engine } from "@babylonjs/core";
-import { Vector2, Vector3 } from "@babylonjs/core/Maths/math";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
-import { Texture } from '@babylonjs/core/Materials/Textures/texture';
+import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { AdvancedDynamicTexture } from "@babylonjs/gui";
 import { Observable } from "@babylonjs/core";
-import Tile from './Tile';
-import TileMath from './TileMath';
-import Attribution from "./Attribution";
-import type Buildings from '../buildings/Buildings';
-import type TileBuilding from "./TileBuilding";
-import "@babylonjs/core/Materials/standardMaterial";
-import Raster from "../raster/Raster";
-import TerrainMB from "../terrain/TerrainMB";
-export { RetrievalLocation, RetrievalType } from "../shared/Retrieval";
+import Tile from './Tile.js';
+import TileMath from './TileMath.js';
+import Attribution from "./Attribution.js";
+import type Buildings from '../buildings/Buildings.js';
+import type TileBuilding from "./TileBuilding.js";
+import "@babylonjs/core/Materials/standardMaterial.js";
+import Raster from "../raster/Raster.js";
+import TerrainMB from "../terrain/TerrainMB.js";
+export { RetrievalLocation, RetrievalType } from "../shared/Retrieval.js";
 declare enum TileRequestType {
     LoadTile = 0
 }

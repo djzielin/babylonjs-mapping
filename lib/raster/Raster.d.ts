@@ -1,7 +1,7 @@
-import { Vector2 } from "@babylonjs/core/Maths/math";
-import { RetrievalLocation } from "../shared/Retrieval";
-import type TileSet from "../core/TileSet";
-import type { TileRequest } from "../core/TileSet";
+import { Vector2 } from "@babylonjs/core/Maths/math.js";
+import { RetrievalLocation } from "../shared/Retrieval.js";
+import type TileSet from "../core/TileSet.js";
+import type { TileRequest } from "../core/TileSet.js";
 export default class Raster {
     name: string;
     tileSet: TileSet;

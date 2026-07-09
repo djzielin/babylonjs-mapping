@@ -1,12 +1,12 @@
-import { EPSG_Type } from "../core/TileMath";
-import { BuildingRequest} from "./Buildings";
-import { BuildingRequestType } from "./Buildings";
+import { EPSG_Type } from "../core/TileMath.js";
+import { BuildingRequest} from "./Buildings.js";
+import { BuildingRequestType } from "./Buildings.js";
 import { Vector4 } from "@babylonjs/core";
-import { RetrievalLocation, RetrievalType } from "../shared/Retrieval";
+import { RetrievalLocation, RetrievalType } from "../shared/Retrieval.js";
 
-import type Tile from "../core/Tile";
-import type TileSet from "../core/TileSet";
-import Buildings from "./Buildings";
+import type Tile from "../core/Tile.js";
+import type TileSet from "../core/TileSet.js";
+import Buildings from "./Buildings.js";
 
 export default class BuildingsWFS extends Buildings {
     public urlService = "service=WFS";

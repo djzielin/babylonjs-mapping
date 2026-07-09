@@ -1,11 +1,11 @@
-import { EPSG_Type } from "../core/TileMath";
-import { BuildingRequest } from "./Buildings";
-import { BuildingRequestType } from "./Buildings";
-import { RetrievalLocation } from "../shared/Retrieval";
+import { EPSG_Type } from "../core/TileMath.js";
+import { BuildingRequest } from "./Buildings.js";
+import { BuildingRequestType } from "./Buildings.js";
+import { RetrievalLocation } from "../shared/Retrieval.js";
 
-import type Tile from "../core/Tile";
-import type TileSet from "../core/TileSet";
-import Buildings from "./Buildings";
+import type Tile from "../core/Tile.js";
+import type TileSet from "../core/TileSet.js";
+import Buildings from "./Buildings.js";
 
 export default class BuildingsOSM extends Buildings {
     private serverNum = 0;

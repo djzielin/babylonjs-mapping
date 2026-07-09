@@ -1,1 +1,1 @@
-{"version":3,"file":"TerrainMB.js","sourceRoot":"","sources":["../src/TerrainMB.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,qBAAqB,CAAC","sourcesContent":["export { default } from \"./terrain/TerrainMB\";\n"]}
+{"version":3,"file":"TerrainMB.js","sourceRoot":"","sources":["../src/TerrainMB.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,wBAAwB,CAAC","sourcesContent":["export { default } from \"./terrain/TerrainMB.js\";\n"]}

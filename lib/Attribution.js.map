@@ -1,1 +1,1 @@
-{"version":3,"file":"Attribution.js","sourceRoot":"","sources":["../src/Attribution.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,oBAAoB,CAAC","sourcesContent":["export { default } from \"./core/Attribution\";\n"]}
+{"version":3,"file":"Attribution.js","sourceRoot":"","sources":["../src/Attribution.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,uBAAuB,CAAC","sourcesContent":["export { default } from \"./core/Attribution.js\";\n"]}

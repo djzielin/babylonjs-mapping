@@ -1,1 +1,1 @@
-export { default } from "./buildings/BuildingsWFS";
+export { default } from "./buildings/BuildingsWFS.js";

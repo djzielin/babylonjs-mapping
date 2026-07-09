@@ -1,9 +1,9 @@
-import { Vector3 } from "@babylonjs/core/Maths/math";
+import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Scene } from "@babylonjs/core";
-import type Buildings from "./Buildings";
-import type Tile from '../core/Tile';
-import type TileSet from "../core/TileSet";
-import { EPSG_Type } from "../core/TileMath";
+import type Buildings from "./Buildings.js";
+import type Tile from '../core/Tile.js';
+import type TileSet from "../core/TileSet.js";
+import { EPSG_Type } from "../core/TileMath.js";
 export interface topLevel {
     "type": string;
     "features": feature[];

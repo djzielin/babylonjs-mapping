@@ -1,8 +1,8 @@
-import { Vector2 } from "@babylonjs/core/Maths/math";
-import Raster from "./Raster";
-import { RetrievalLocation } from "../shared/Retrieval";
-import type TileSet from "../core/TileSet";
-import type { TileRequest } from "../core/TileSet";
+import { Vector2 } from "@babylonjs/core/Maths/math.js";
+import Raster from "./Raster.js";
+import { RetrievalLocation } from "../shared/Retrieval.js";
+import type TileSet from "../core/TileSet.js";
+import type { TileRequest } from "../core/TileSet.js";
 export default class RasterWMTS extends Raster {
     tileMatrixSet: string;
     style: string;

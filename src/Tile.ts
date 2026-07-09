@@ -1,1 +1,1 @@
-export { default } from "./core/Tile";
+export { default } from "./core/Tile.js";
