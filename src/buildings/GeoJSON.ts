@@ -99,68 +99,49 @@ export class GeoJSON {
         return new Vector3(tileXY.x, tileXY.y, zoom);
     }*/
 
-    private convertCoordinatePairToVector2(cp: coordinatePair): Vector2 {
-        const v1 = new Vector2(cp[0], cp[1]);
-        return v1;
-    }
+    private computeOffset(v1: Vector3, v2: Vector3, lineWidth: number): Vector2 {
+        const dx = v2.x - v1.x;
+        const dz = v2.z - v1.z;
+        const length = Math.hypot(dx, dz);
 
-    private convertVector2ToCoordinatePair(v: Vector2): coordinatePair {
-        const cp: coordinatePair = [];
-        cp.push(v.x);
-        cp.push(v.y);
+        if (length <= Number.EPSILON) {
+            return Vector2.Zero();
+        }
 
-        return cp;
-    }
-
-    private computeOffset(v1: Vector2, v2: Vector2, lineWidth: number): Vector2 {
-        const diff = v2.subtract(v1);
-        const perp = new Vector2(diff.y * -1.0, diff.x * 1.0);
-        const perpNormalized = perp.normalize();
         const halfLineWidth = lineWidth * 0.5;
-        const offset = perpNormalized.multiplyByFloats(halfLineWidth, halfLineWidth); //TODO: Make this a parameter (ie line width)
-
-        return offset;
+        return new Vector2((-dz / length) * halfLineWidth, (dx / length) * halfLineWidth);
     }
 
-    private convertLineToPolygonSet(cs: coordinateSet, lineWidth: number): polygonSet {
-        const newPS: polygonSet = [];
-
-        //if(doVerbose) console.log("original line has number of points: " + cs.length);
-
-        const newCS: coordinateSet = [];
-
-
-        for (let p = 0; p < cs.length - 1; p++) { //go forward down the line
-            const v1 = this.convertCoordinatePairToVector2(cs[p]);
-            const v2 = this.convertCoordinatePairToVector2(cs[p + 1]);
-
-            const offset = this.computeOffset(v1, v2, lineWidth);
-
-            const newV1 = v1.add(offset);
-            const newV2 = v2.add(offset);
-
-            newCS.push(this.convertVector2ToCoordinatePair(newV1));
-            newCS.push(this.convertVector2ToCoordinatePair(newV2));
+    /**
+     * Converts a source-coordinate line into a polygon in game coordinates.
+     * Doing the offset after projection makes lineWidth mean the same thing for
+     * EPSG:4326 and EPSG:3857 inputs.
+     */
+    private convertLineToGamePolygon(cs: coordinateSet, epsg: EPSG_Type, lineWidth: number): coordinateArrayOfArrays {
+        if (cs.length < 2) {
+            return [];
         }
 
-        for (let p = cs.length - 1; p > 0; p--) { //now lets go back towards the start
+        const points = cs.map((coordinate) => {
+            const source = new Vector2(coordinate[0], coordinate[1]);
+            return this.tileSet.ourTileMath.EPSG_to_Game(source, epsg);
+        });
+        const outline: coordinateArray = [];
 
-            const v1 = this.convertCoordinatePairToVector2(cs[p]);
-            const v2 = this.convertCoordinatePairToVector2(cs[p - 1]);
-
-            const offset = this.computeOffset(v1, v2, lineWidth);
-
-            const newV1 = v1.add(offset);
-            const newV2 = v2.add(offset);
-
-            newCS.push(this.convertVector2ToCoordinatePair(newV1));
-            newCS.push(this.convertVector2ToCoordinatePair(newV2));
+        for (let p = 0; p < points.length - 1; p++) {
+            const offset = this.computeOffset(points[p], points[p + 1], lineWidth);
+            outline.push(new Vector3(points[p].x + offset.x, 0, points[p].z + offset.y));
+            outline.push(new Vector3(points[p + 1].x + offset.x, 0, points[p + 1].z + offset.y));
         }
 
-        newCS.push(newCS[0]); //add starting coord to close the loop
-        newPS.push(newCS);
+        for (let p = points.length - 1; p > 0; p--) {
+            const offset = this.computeOffset(points[p], points[p - 1], lineWidth);
+            outline.push(new Vector3(points[p].x + offset.x, 0, points[p].z + offset.y));
+            outline.push(new Vector3(points[p - 1].x + offset.x, 0, points[p - 1].z + offset.y));
+        }
 
-        return newPS;
+        outline.push(outline[0].clone());
+        return [outline];
     }
 
     public generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, flipWinding: boolean, buildings: Buildings) {
@@ -194,6 +175,9 @@ export class GeoJSON {
             finalMesh = this.processSinglePolygon(ps, epsg, buildingMaterial, exaggeration, height, flipWinding);
         }
         else if (f.geometry.type == "Point") {
+            if (!Number.isFinite(pointDiameter) || pointDiameter <= 0) {
+                throw new RangeError("pointDiameter must be a finite number greater than zero.");
+            }
             const cp: coordinatePair = f.geometry.coordinates as coordinatePair;
             const v = new Vector2(cp[0], cp[1]);
             const pos = this.tileSet.ourTileMath.EPSG_to_Game(v, epsg);
@@ -218,6 +202,10 @@ export class GeoJSON {
             if (f.geometry.type == "MultiLineString") {
                 //console.log("NEW GEOMETRY TYPE: MultiLineString");
 
+                if (!Number.isFinite(lineWidth) || lineWidth <= 0) {
+                    throw new RangeError("lineWidth must be a finite number greater than zero.");
+                }
+
                 const ps: polygonSet = f.geometry.coordinates as polygonSet;
                 //console.log("lineset set of length: " + ps.length);              
 
@@ -225,11 +213,14 @@ export class GeoJSON {
                     //console.log("  we are looking at lineset: " + i);
                     const cs: coordinateSet = ps[i];
 
-                    const newPS: polygonSet = this.convertLineToPolygonSet(cs, lineWidth);
+                    const newPS = this.convertLineToGamePolygon(cs, epsg, lineWidth);
                     const lineArray: coordinateArray = this.convertLinetoArray(cs, epsg);
+                    if (newPS.length === 0) {
+                        continue;
+                    }
                     arrayOfLines.push(lineArray);
 
-                    const singleMesh = this.processSinglePolygon(newPS, epsg, buildingMaterial, exaggeration, height, flipWinding);
+                    const singleMesh = this.processSinglePolygonInGameCoordinates(newPS, buildingMaterial, exaggeration, height, flipWinding);
                     allMeshes.push(singleMesh);
                 }
             }
@@ -350,6 +341,15 @@ export class GeoJSON {
     }
 
     private processSinglePolygon(ps: polygonSet, epsg: EPSG_Type, buildingMaterial: StandardMaterial, exaggeration: number, height: number, flipWinding: boolean): Mesh {
+        const gameCoordinates: coordinateArrayOfArrays = ps.map((ring) => ring.map((coordinate) => {
+            const source = new Vector2(coordinate[0], coordinate[1]);
+            return this.tileSet.ourTileMath.EPSG_to_Game(source, epsg);
+        }));
+
+        return this.processSinglePolygonInGameCoordinates(gameCoordinates, buildingMaterial, exaggeration, height, flipWinding);
+    }
+
+    private processSinglePolygonInGameCoordinates(ps: coordinateArrayOfArrays, buildingMaterial: StandardMaterial, exaggeration: number, height: number, flipWinding: boolean): Mesh {
         const holeArray: Vector3[][] = [];
         const positions3D: Vector3[] = [];
 
@@ -361,9 +361,7 @@ export class GeoJSON {
 
             if (flipWinding == false) {
                 for (let e = ps[i].length - 2; e >= 0; e--) {
-
-                    const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
-                    const coord = this.tileSet.ourTileMath.EPSG_to_Game(v2, epsg);
+                    const coord = ps[i][e];
 
                     if (i == 0) {
                         positions3D.push(coord);
@@ -373,9 +371,7 @@ export class GeoJSON {
                 }
             } else {
                 for (let e = 0; e < ps[i].length - 1; e++) {
-
-                    const v2 = new Vector2(ps[i][e][0], ps[i][e][1]);
-                    const coord = this.tileSet.ourTileMath.EPSG_to_Game(v2, epsg);
+                    const coord = ps[i][e];
 
                     if (i == 0) {
                         positions3D.push(coord);
@@ -394,7 +390,7 @@ export class GeoJSON {
             }
         }
 
-        (window as any).earcut = Earcut;
+        (globalThis as { earcut?: unknown }).earcut = Earcut;
 
         var orientation = Mesh.DEFAULTSIDE;
         if (holeArray.length > 0) {

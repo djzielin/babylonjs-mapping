@@ -74,6 +74,7 @@ export default class TileSet {
     public tileWidth: number;
     public meshPrecision: number;
     private isGeometrySetup: boolean = false;
+    private isRasterSetup: boolean = false;
 
     /**
     * this doesn't do much, just sets up a linkage between our library and users main project
@@ -98,6 +99,32 @@ export default class TileSet {
     }
 
     /**
+     * Returns whether the tile meshes have been created and are ready for use.
+     */
+    public get isGeometryCreated(): boolean {
+        return this.isGeometrySetup;
+    }
+
+    /**
+     * Guard operations that require createGeometry() to have run first.
+     */
+    public assertGeometrySetup(operation = "this operation"): void {
+        if (!this.isGeometrySetup) {
+            throw new Error(`Cannot ${operation} before createGeometry() has been called.`);
+        }
+    }
+
+    /**
+     * Guard operations that also require tile coordinates from updateRaster().
+     */
+    public assertRasterSetup(operation = "this operation"): void {
+        this.assertGeometrySetup(operation);
+        if (!this.isRasterSetup) {
+            throw new Error(`Cannot ${operation} before updateRaster() has been called.`);
+        }
+    }
+
+    /**
     * setup a ground plane tile set. this sets up just the underlying meshes, but doesn't populate them with content yet
     * @param numTiles how many tiles in the x and y directions
     * @param tileWidth width in meters of a single tile
@@ -105,6 +132,27 @@ export default class TileSet {
     */
     public createGeometry(numTiles: Vector2, tileWidth: number, meshPrecision: number) {
         //inspiration from this example: https://www.babylonjs-playground.com/#866PVL#5
+
+        if (!Number.isInteger(numTiles.x) || !Number.isInteger(numTiles.y) || numTiles.x <= 0 || numTiles.y <= 0) {
+            throw new RangeError("numTiles.x and numTiles.y must be positive integers.");
+        }
+        if (!Number.isFinite(tileWidth) || tileWidth <= 0) {
+            throw new RangeError("tileWidth must be a finite number greater than zero.");
+        }
+        if (!Number.isInteger(meshPrecision) || meshPrecision <= 0) {
+            throw new RangeError("meshPrecision must be a positive integer.");
+        }
+
+        if (this.isGeometrySetup) {
+            for (const tile of this.ourTiles) {
+                tile.deleteBuildings();
+                tile.mesh.dispose();
+            }
+            this.ourTiles = [];
+            this.ourTilesMap.clear();
+            this.tileRequests = [];
+        }
+        this.isRasterSetup = false;
 
         this.numTiles = numTiles;
         this.tileWidth = tileWidth;
@@ -223,6 +271,7 @@ export default class TileSet {
 }
 
     public disableGroundCulling() {
+    this.assertGeometrySetup("disable ground culling");
     for (let t of this.ourTiles) {
         t.mesh.alwaysSelectAsActiveMesh = true;
     }
@@ -239,15 +288,13 @@ export default class TileSet {
     * @param zoom standard tile mapping zoom levels 0 (whole earth) - 20 (building)
     */
     public updateRaster(lat: number, lon: number, zoom: number) {
-    if (this.isGeometrySetup == false) {
-        console.error("can't updateRaster! geometry not setup yet!");
-        return;
-    }
+    this.assertGeometrySetup("update raster");
 
     this.zoom = zoom;
     this.centerCoords = new Vector2(lon, lat);
     this.tileCorner = this.ourTileMath.computeCornerTile(this.centerCoords, EPSG_Type.EPSG_4326, this.zoom);
     this.tileScale = this.ourTileMath.computeTileScale();
+    this.isRasterSetup = true;
 
 
     this.ourAttribution.addAttribution(this.ourRasterProvider.name);
@@ -325,6 +372,7 @@ export default class TileSet {
     * @param doMerge should we merge all those OSM Buildings into one mesh? as an optimization
     */
     public moveAllTiles(movX: number, movZ: number, reloadLimitPerFrame: number, buildingCreator: Buildings | null) {
+    this.assertRasterSetup("move tiles");
     for (const t of this.ourTiles) {
         t.mesh.position.x += movX;
         t.mesh.position.z += movZ;
@@ -392,6 +440,7 @@ export default class TileSet {
 }
 
     public async generateTerrain(exaggeration: number) {
+    this.assertRasterSetup("generate terrain");
     await this.ourTerrainMB.updateAllTerrainTiles(exaggeration);
 }
 
