@@ -1,1 +1,1 @@
-export { default } from "./terrain/TerrainMB";
+export { default } from "./terrain/TerrainMB.js";

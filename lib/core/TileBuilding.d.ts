@@ -1,7 +1,7 @@
-import { Vector2, Vector3 } from "@babylonjs/core/Maths/math";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
-import Tile from "./Tile";
-import { coordinateArrayOfArrays } from "../buildings/GeoJSON";
+import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import Tile from "./Tile.js";
+import { coordinateArrayOfArrays } from "../buildings/GeoJSON.js";
 export interface LineSegment {
     p1: Vector2;
     p2: Vector2;

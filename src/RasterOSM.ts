@@ -1,1 +1,1 @@
-export { default } from "./raster/RasterOSM";
+export { default } from "./raster/RasterOSM.js";

@@ -1,8 +1,8 @@
-import { Vector2, Vector4 } from "@babylonjs/core/Maths/math";
-import { Vector3 } from "@babylonjs/core/Maths/math";
+import { Vector2, Vector4 } from "@babylonjs/core/Maths/math.js";
+import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import { BoundingBox } from "@babylonjs/core";
 import Tile from './Tile';
-import TileSet from "./TileSet";
+import TileSet from "./TileSet.js";
 
 export enum EPSG_Type{
     EPSG_3857,

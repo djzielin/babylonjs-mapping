@@ -1,1 +1,1 @@
-{"version":3,"file":"RasterMB.js","sourceRoot":"","sources":["../src/RasterMB.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,mBAAmB,CAAC","sourcesContent":["export { default } from \"./raster/RasterMB\";\n"]}
+{"version":3,"file":"RasterMB.js","sourceRoot":"","sources":["../src/RasterMB.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,sBAAsB,CAAC","sourcesContent":["export { default } from \"./raster/RasterMB.js\";\n"]}

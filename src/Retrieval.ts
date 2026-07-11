@@ -1,1 +1,1 @@
-export * from "./shared/Retrieval";
+export * from "./shared/Retrieval.js";

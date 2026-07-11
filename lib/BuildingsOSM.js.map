@@ -1,1 +1,1 @@
-{"version":3,"file":"BuildingsOSM.js","sourceRoot":"","sources":["../src/BuildingsOSM.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,0BAA0B,CAAC","sourcesContent":["export { default } from \"./buildings/BuildingsOSM\";\n"]}
+{"version":3,"file":"BuildingsOSM.js","sourceRoot":"","sources":["../src/BuildingsOSM.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,6BAA6B,CAAC","sourcesContent":["export { default } from \"./buildings/BuildingsOSM.js\";\n"]}

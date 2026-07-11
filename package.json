@@ -4,9 +4,23 @@
   "author": "David Zielinski <djzielin@gmail.com>",
   "license": "MIT",
   "description": "module to help display map content from OpenStreetMaps, Mapbox, and AGOL natively in Babylon.js",
-  "main": "lib/TileSet.js",
+  "main": "lib/index.js",
   "type": "module",
-  "types": "lib/TileSet.d.ts",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json",
+    "./lib/*": "./lib/*.js",
+    "./lib/core/*": "./lib/core/*.js",
+    "./lib/raster/*": "./lib/raster/*.js",
+    "./lib/buildings/*": "./lib/buildings/*.js",
+    "./lib/terrain/*": "./lib/terrain/*.js",
+    "./lib/shared/*": "./lib/shared/*.js"
+  },
   "dependencies": {
     "@babylonjs/core": "^6.49.0",
     "@babylonjs/gui": "^6.49.0",

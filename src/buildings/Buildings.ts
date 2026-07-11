@@ -1,15 +1,15 @@
-import { Scene } from "@babylonjs/core/scene";
-import { Vector3 } from "@babylonjs/core/Maths/math";
-import { Color3 } from "@babylonjs/core/Maths/math";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { Scene } from "@babylonjs/core/scene.js";
+import { Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Color3 } from "@babylonjs/core/Maths/math.js";
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 
-import * as GeoJSON from './GeoJSON';
-import type Tile from "../core/Tile";
-import type TileSet from "../core/TileSet";
-import { EPSG_Type } from "../core/TileMath";
+import * as GeoJSON from './GeoJSON.js';
+import type Tile from "../core/Tile.js";
+import type TileSet from "../core/TileSet.js";
+import { EPSG_Type } from "../core/TileMath.js";
 import { Observable } from "@babylonjs/core";
-import { RetrievalLocation, RetrievalType } from "../shared/Retrieval";
+import { RetrievalLocation, RetrievalType } from "../shared/Retrieval.js";
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";

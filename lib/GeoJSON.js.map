@@ -1,1 +1,1 @@
-{"version":3,"file":"GeoJSON.js","sourceRoot":"","sources":["../src/GeoJSON.ts"],"names":[],"mappings":"AAAA,cAAc,qBAAqB,CAAC","sourcesContent":["export * from \"./buildings/GeoJSON\";\n"]}
+{"version":3,"file":"GeoJSON.js","sourceRoot":"","sources":["../src/GeoJSON.ts"],"names":[],"mappings":"AAAA,cAAc,wBAAwB,CAAC","sourcesContent":["export * from \"./buildings/GeoJSON.js\";\n"]}

@@ -1,12 +1,12 @@
-import { Vector2 } from "@babylonjs/core/Maths/math";
-import { Vector3 } from "@babylonjs/core/Maths/math";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import type TileBuilding from "./TileBuilding";
+import { Vector2 } from "@babylonjs/core/Maths/math.js";
+import { Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import type TileBuilding from "./TileBuilding.js";
 
-import { BoundingBox } from "@babylonjs/core/Culling/boundingBox";
+import { BoundingBox } from "@babylonjs/core/Culling/boundingBox.js";
 
-import type TileSet from "./TileSet";
+import type TileSet from "./TileSet.js";
 import { MeshBuilder } from "@babylonjs/core";
 
 //import "@babylonjs/core/Materials/standardMaterial"

@@ -1,26 +1,26 @@
-import { Scene } from "@babylonjs/core/scene";
+import { Scene } from "@babylonjs/core/scene.js";
 import { Engine, EngineStore, BoundingBox } from "@babylonjs/core";
-import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math";
-import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import { Texture } from '@babylonjs/core/Materials/Textures/texture';
+import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math.js";
+import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { AdvancedDynamicTexture } from "@babylonjs/gui";
 import { Observable } from "@babylonjs/core";
 
-import Tile from './Tile';
-import TileMath, { EPSG_Type } from './TileMath';
-import Attribution from "./Attribution";
-import type Buildings from '../buildings/Buildings';
-import type TileBuilding from "./TileBuilding";
+import Tile from './Tile.js';
+import TileMath, { EPSG_Type } from './TileMath.js';
+import Attribution from "./Attribution.js";
+import type Buildings from '../buildings/Buildings.js';
+import type TileBuilding from "./TileBuilding.js";
 
-import "@babylonjs/core/Materials/standardMaterial"
-import Raster from "../raster/Raster";
-import RasterOSM from "../raster/RasterOSM";
-import TerrainMB from "../terrain/TerrainMB";
-import { RetrievalLocation } from "../shared/Retrieval";
+import "@babylonjs/core/Materials/standardMaterial.js"
+import Raster from "../raster/Raster.js";
+import RasterOSM from "../raster/RasterOSM.js";
+import TerrainMB from "../terrain/TerrainMB.js";
+import { RetrievalLocation } from "../shared/Retrieval.js";
 
-export { RetrievalLocation, RetrievalType } from "../shared/Retrieval";
+export { RetrievalLocation, RetrievalType } from "../shared/Retrieval.js";
 
 enum TileRequestType {
     LoadTile,

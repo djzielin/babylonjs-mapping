@@ -1,0 +1,43 @@
+name: Smoke Builds
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  example-smoke-build:
+    name: Smoke build ${{ matrix.example }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        example:
+          - examples-local/hello-world
+          - examples-local/local-load
+          - examples-local/multisource
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Build root package
+        run: npm run build
+
+      - name: Install example dependencies
+        working-directory: ${{ matrix.example }}
+        run: npm install
+
+      - name: Build example
+        working-directory: ${{ matrix.example }}
+        run: npm run build

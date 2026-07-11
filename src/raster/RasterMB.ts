@@ -1,6 +1,6 @@
-import { Vector2 } from "@babylonjs/core/Maths/math";
-import Raster from "./Raster";
-import type TileSet from "../core/TileSet";
+import { Vector2 } from "@babylonjs/core/Maths/math.js";
+import Raster from "./Raster.js";
+import type TileSet from "../core/TileSet.js";
 
 export default class RasterMB extends Raster{
     public accessToken: string = "";
