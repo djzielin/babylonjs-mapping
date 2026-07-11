@@ -44,8 +44,10 @@ export default abstract class Buildings {
     public exaggeration = 1.0;
     public doMerge = false;
     public defaultBuildingHeight = 4.0;
-    public lineWidth = 0.0001; //TODO: this needs to be different for EPSG:4326 vs EPSG:3857
-    public pointDiameter = 0.5; //TODO: this is currently in game world units
+    /** Width of MultiLineString extrusions in Babylon world units. */
+    public lineWidth = 0.25;
+    /** Diameter of Point features in Babylon world units. */
+    public pointDiameter = 0.5;
     public buildingsCreatedPerFrame = 10; //TODO: is there a better way to do this?
     public cacheFiles = true;
     public buildingMaterial: StandardMaterial;
@@ -382,6 +384,7 @@ export default abstract class Buildings {
     }
 
     public generateBuildings() {
+        this.tileSet.assertRasterSetup("generate buildings");
         console.log(this.prettyName() + "user would like to generate buildings for all tiles in tileset");
 
         if (this.retrievalType == RetrievalType.IndividualTiles) {

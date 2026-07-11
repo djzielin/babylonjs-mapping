@@ -56,12 +56,25 @@ export default class TileSet {
     tileWidth: number;
     meshPrecision: number;
     private isGeometrySetup;
+    private isRasterSetup;
     /**
     * this doesn't do much, just sets up a linkage between our library and users main project
     * @param scene the babylonjs scene, helps us get around a bug, where the main app and the library are in 2 different contexts
     * @param engine see above description for scene
     */
     constructor(scene: Scene, engine: Engine);
+    /**
+     * Returns whether the tile meshes have been created and are ready for use.
+     */
+    get isGeometryCreated(): boolean;
+    /**
+     * Guard operations that require createGeometry() to have run first.
+     */
+    assertGeometrySetup(operation?: string): void;
+    /**
+     * Guard operations that also require tile coordinates from updateRaster().
+     */
+    assertRasterSetup(operation?: string): void;
     /**
     * setup a ground plane tile set. this sets up just the underlying meshes, but doesn't populate them with content yet
     * @param numTiles how many tiles in the x and y directions

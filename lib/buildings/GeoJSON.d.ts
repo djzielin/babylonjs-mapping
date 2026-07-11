@@ -40,11 +40,15 @@ export declare class GeoJSON {
     private tileSet;
     private scene;
     constructor(tileSet: TileSet, scene: Scene);
-    private convertCoordinatePairToVector2;
-    private convertVector2ToCoordinatePair;
     private computeOffset;
-    private convertLineToPolygonSet;
+    /**
+     * Converts a source-coordinate line into a polygon in game coordinates.
+     * Doing the offset after projection makes lineWidth mean the same thing for
+     * EPSG:4326 and EPSG:3857 inputs.
+     */
+    private convertLineToGamePolygon;
     generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, flipWinding: boolean, buildings: Buildings): void;
     private convertLinetoArray;
     private processSinglePolygon;
+    private processSinglePolygonInGameCoordinates;
 }

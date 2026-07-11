@@ -31,7 +31,9 @@ export default abstract class Buildings {
     exaggeration: number;
     doMerge: boolean;
     defaultBuildingHeight: number;
+    /** Width of MultiLineString extrusions in Babylon world units. */
     lineWidth: number;
+    /** Diameter of Point features in Babylon world units. */
     pointDiameter: number;
     buildingsCreatedPerFrame: number;
     cacheFiles: boolean;

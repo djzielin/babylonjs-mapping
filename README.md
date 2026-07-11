@@ -26,3 +26,16 @@ https://people.duke.edu/~djzielin/babylonjs-mapping/Terrain/
 
 Tested with:
 Node 20.10.0 LTS
+
+## Building geometry options
+
+Call `createGeometry` and `updateRaster` before generating buildings. The library throws
+a descriptive error when a geometry-dependent operation is called out of order.
+
+Line and point feature sizes are specified in Babylon world units, regardless of whether
+the source data uses EPSG:4326 or EPSG:3857:
+
+```ts
+streets.lineWidth = 0.25;
+points.pointDiameter = 0.5;
+```
