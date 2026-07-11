@@ -1,0 +1,51 @@
+name: Package Health
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  package-health:
+    name: Package health checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run build
+
+      - name: Inspect packed files
+        run: |
+          PACK_JSON="$(npm pack --json)" node --input-type=module --eval '
+            const pack = JSON.parse(process.env.PACK_JSON)[0];
+            const required = [
+              "package.json",
+              "lib/index.js",
+              "lib/index.d.ts",
+              "lib/core/TileSet.js",
+              "lib/raster/RasterOSM.js",
+            ];
+
+            const files = new Set(pack.files.map((file) => file.path));
+            const missing = required.filter((file) => !files.has(file));
+
+            if (missing.length > 0) {
+              console.error(`Missing packed files: ${missing.join(", ")}`);
+              process.exit(1);
+            }
+          '
+
+      - name: Dry-run publish
+        run: npm publish --dry-run --ignore-scripts
