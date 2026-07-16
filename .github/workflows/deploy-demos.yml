@@ -1,0 +1,93 @@
+name: Build and deploy demo environments
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo-deployment-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  build:
+    name: Build ${{ matrix.demo }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        demo:
+          - OpenStreetMap-Endless
+          - OpenStreetMap-HelloWorld
+          - OpenStreetMap-UserData-RealScale
+          - mapbox-terrain
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # The npm demos do not have lockfiles yet, so npm install is intentional.
+      - name: Install demo dependencies
+        working-directory: examples-npm/${{ matrix.demo }}
+        run: npm install --no-package-lock --no-audit --no-fund
+
+      - name: Build demo
+        working-directory: examples-npm/${{ matrix.demo }}
+        run: npm run build
+
+      - name: Upload built demo
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-${{ matrix.demo }}
+          path: examples-npm/${{ matrix.demo }}/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  # This job is deliberately gated until a hosting provider and credentials are
+  # available. It provides the provider-neutral handoff point for the deployer.
+  deploy:
+    name: Deploy ${{ matrix.demo }}
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && vars.DEMO_DEPLOY_ENABLED == 'true' }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        demo:
+          - OpenStreetMap-Endless
+          - OpenStreetMap-HelloWorld
+          - OpenStreetMap-UserData-RealScale
+          - mapbox-terrain
+    environment:
+      name: demos
+
+    steps:
+      - name: Download built demo
+        uses: actions/download-artifact@v4
+        with:
+          name: demo-${{ matrix.demo }}
+          path: dist
+
+      - name: Deploy demo (provider hook)
+        env:
+          DEMO_NAME: ${{ matrix.demo }}
+          DEMO_DIST: ${{ github.workspace }}/dist
+          DEMO_DEPLOY_HOST: ${{ vars.DEMO_DEPLOY_HOST }}
+          DEMO_DEPLOY_TOKEN: ${{ secrets.DEMO_DEPLOY_TOKEN }}
+        run: |
+          echo "::error::No demo deployment provider is configured yet for ${DEMO_NAME}."
+          echo "Replace this provider hook after DEMO_DEPLOY_HOST and DEMO_DEPLOY_TOKEN are available."
+          exit 1
