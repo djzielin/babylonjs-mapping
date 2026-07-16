@@ -48,6 +48,8 @@ export declare class GeoJSON {
      */
     private convertLineToGamePolygon;
     generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, flipWinding: boolean, buildings: Buildings): void;
+    private addBuildingLOD;
+    private validateBuildingLODOptions;
     private convertLinetoArray;
     private processSinglePolygon;
     private processSinglePolygonInGameCoordinates;

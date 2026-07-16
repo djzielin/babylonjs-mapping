@@ -31,6 +31,15 @@ export interface BuildingRequest {
     url?: string;
 }
 
+export interface BuildingLODOptions {
+    /** Enables a rectangle billboard for each generated feature at a distance. */
+    enabled?: boolean;
+    /** Distance in Babylon world units at which the billboard is selected. */
+    distance?: number;
+    /** Babylon billboard mode, such as Mesh.BILLBOARDMODE_Y or Mesh.BILLBOARDMODE_ALL. */
+    billboardMode?: number;
+}
+
 
 
 interface GeoFileLoaded {
@@ -43,6 +52,15 @@ export default abstract class Buildings {
     //things the user might be interested in changing
     public exaggeration = 1.0;
     public doMerge = false;
+    /**
+     * Optional per-feature rectangle billboards for distant buildings.
+     * LOD is disabled by default and should be configured before generation.
+     */
+    public buildingLOD: BuildingLODOptions = {
+        enabled: false,
+        distance: 100,
+        billboardMode: Mesh.BILLBOARDMODE_Y,
+    };
     public defaultBuildingHeight = 4.0;
     /** Width of MultiLineString extrusions in Babylon world units. */
     public lineWidth = 0.25;
@@ -123,7 +141,11 @@ export default abstract class Buildings {
             addedBuildings++;
         }
 
-        if (this.doMerge) {
+        if (this.doMerge && this.buildingLOD.enabled) {
+            console.warn(this.prettyName() + "building LOD is enabled, so individual buildings will be kept instead of merged.");
+        }
+
+        if (this.doMerge && !this.buildingLOD.enabled) {
             //console.log("queueing up merge request for tile: " + tile.tileCoords);
             const mrequest: BuildingRequest = {
                 requestType: BuildingRequestType.MergeAllBuildingsOnTile, //request a merge
