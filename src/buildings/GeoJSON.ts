@@ -6,6 +6,7 @@ import { Scene } from "@babylonjs/core";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import Earcut from 'earcut';
 import type Buildings from "./Buildings.js";
+import type { BuildingLODOptions } from "./Buildings.js";
 import { RetrievalType } from "../shared/Retrieval.js";
 import type Tile from '../core/Tile.js';
 import type TileSet from "../core/TileSet.js";
@@ -145,6 +146,8 @@ export class GeoJSON {
     }
 
     public generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, flipWinding: boolean, buildings: Buildings) {
+        this.validateBuildingLODOptions(buildings.buildingLOD);
+
         const buildingMaterial: StandardMaterial = buildings.buildingMaterial;
         const exaggeration: number = buildings.exaggeration;
         const defaultBuildingHeight: number = buildings.defaultBuildingHeight;
@@ -290,6 +293,9 @@ export class GeoJSON {
         }
 
         finalMesh.setParent(tile.mesh);
+        finalMesh.computeWorldMatrix(true);
+        finalMesh.refreshBoundingInfo();
+        this.addBuildingLOD(finalMesh, buildingMaterial, buildings.buildingLOD);
         finalMesh.freezeWorldMatrix(); //optimization? might want to skip here? hmmm...
 
         
@@ -320,6 +326,56 @@ export class GeoJSON {
         tile.buildings.push(building);
 
         console.log("created " + finalMesh.name);
+    }
+
+    private addBuildingLOD(finalMesh: Mesh, buildingMaterial: StandardMaterial, lodOptions: BuildingLODOptions | undefined): void {
+        if (!lodOptions?.enabled) {
+            return;
+        }
+
+        const distance = lodOptions.distance ?? 100;
+        const billboardMode = lodOptions.billboardMode ?? Mesh.BILLBOARDMODE_Y;
+
+        const boundingBox = finalMesh.getBoundingInfo().boundingBox;
+        const width = Math.max(boundingBox.extendSizeWorld.x, boundingBox.extendSizeWorld.z) * 2;
+        const height = boundingBox.extendSizeWorld.y * 2;
+
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= Number.EPSILON || height <= Number.EPSILON) {
+            return;
+        }
+
+        const billboard = MeshBuilder.CreatePlane(
+            `${finalMesh.name}_LOD`,
+            {
+                width,
+                height,
+                sideOrientation: Mesh.DOUBLESIDE,
+            },
+            this.scene,
+        );
+        billboard.material = buildingMaterial;
+        billboard.isPickable = false;
+        billboard.position = boundingBox.centerWorld.clone();
+        billboard.setParent(finalMesh);
+        billboard.billboardMode = billboardMode;
+
+        finalMesh.addLODLevel(distance, billboard);
+    }
+
+    private validateBuildingLODOptions(lodOptions: BuildingLODOptions | undefined): void {
+        if (!lodOptions?.enabled) {
+            return;
+        }
+
+        const distance = lodOptions.distance ?? 100;
+        if (!Number.isFinite(distance) || distance <= 0) {
+            throw new RangeError("buildingLOD.distance must be a finite number greater than zero.");
+        }
+
+        const billboardMode = lodOptions.billboardMode ?? Mesh.BILLBOARDMODE_Y;
+        if (!Number.isInteger(billboardMode) || billboardMode < 0) {
+            throw new RangeError("buildingLOD.billboardMode must be a non-negative integer.");
+        }
     }
 
     private convertLinetoArray(cs: coordinateSet, epsg: EPSG_Type): coordinateArray {
