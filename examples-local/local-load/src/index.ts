@@ -176,6 +176,10 @@ class Game {
         customBuildingGenerator.retrievalType=RetrievalType.AllData; //NEW: lets try and pull all the data at once!
         customBuildingGenerator.doMerge = false;
         customBuildingGenerator.buildingMaterial=this.ourBlueMaterial;
+        customBuildingGenerator.buildingLOD = {
+            enabled: true,
+            distance: 60,
+        };
         customBuildingGenerator.generateBuildings();
 
         customBuildingGenerator.onCaughtUpObservable.addOnce(() => {

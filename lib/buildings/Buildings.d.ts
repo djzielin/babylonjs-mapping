@@ -27,6 +27,14 @@ export interface BuildingRequest {
     pagination?: BuildingRequestPagination;
     mergeAfterLoad?: boolean;
 }
+export interface BuildingLODOptions {
+    /** Enables a rectangle billboard for each generated feature at a distance. */
+    enabled?: boolean;
+    /** Distance in Babylon world units at which the billboard is selected. */
+    distance?: number;
+    /** Babylon billboard mode, such as Mesh.BILLBOARDMODE_Y or Mesh.BILLBOARDMODE_ALL. */
+    billboardMode?: number;
+}
 interface GeoFileLoaded {
     url: string;
     topLevel: GeoJSON.topLevel;
@@ -36,6 +44,11 @@ export default abstract class Buildings {
     protected tileSet: TileSet;
     exaggeration: number;
     doMerge: boolean;
+    /**
+     * Optional per-feature rectangle billboards for distant buildings.
+     * LOD is disabled by default and should be configured before generation.
+     */
+    buildingLOD: BuildingLODOptions;
     defaultBuildingHeight: number;
     /** Width of MultiLineString extrusions in Babylon world units. */
     lineWidth: number;
