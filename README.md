@@ -84,3 +84,17 @@ buildings.generateBuildings();
 
 `maxFeaturesPerRequest` defaults to `3000` and can be lowered when testing or
 when a service advertises a smaller page limit.
+
+## Building LOD
+
+Building billboards are opt-in. Configure them before generating buildings:
+
+```ts
+this.ourOSM.buildingLOD = {
+    enabled: true,
+    distance: 100, // Babylon world units
+};
+this.ourOSM.generateBuildings();
+```
+
+At the configured distance, Babylon.js swaps each detailed building for a double-sided rectangle sized from its world-space bounds and billboarded around the vertical axis. Set `billboardMode` to `Mesh.BILLBOARDMODE_ALL` when full camera-facing rotation is preferred. Per-building LOD requires individual meshes, so `buildingLOD.enabled` keeps buildings separate even when `doMerge` is also true.
