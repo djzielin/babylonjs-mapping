@@ -39,3 +39,26 @@ the source data uses EPSG:4326 or EPSG:3857:
 streets.lineWidth = 0.25;
 points.pointDiameter = 0.5;
 ```
+
+## ArcGIS Online WFS pagination
+
+`BuildingsWFS.setupAGOL()` enables WFS 2.0 result paging automatically. Each
+request is limited to 3,000 features and subsequent requests use a zero-based
+`startIndex`, so large hosted WFS layers can be loaded without silently losing
+features. Geometry creation and optional merging continue after the final page.
+
+```ts
+const buildings = new BuildingsWFS(
+    "buildings",
+    "https://your-org.arcgis.com/.../WFSServer?",
+    "your-layer:your-feature-type",
+    EPSG_Type.EPSG_4326,
+    tileSet,
+);
+
+buildings.setupAGOL(); // enables count=3000/startIndex pagination
+buildings.generateBuildings();
+```
+
+`maxFeaturesPerRequest` defaults to `3000` and can be lowered when testing or
+when a service advertises a smaller page limit.
