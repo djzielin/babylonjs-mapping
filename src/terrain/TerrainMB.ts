@@ -2,7 +2,8 @@ import { Scene } from "@babylonjs/core/scene.js";
 import { Vector2 } from "@babylonjs/core/Maths/math.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
-import { FloatArray, VertexBuffer } from "@babylonjs/core";
+import type { FloatArray } from "@babylonjs/core/types.js";
+import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import type Tile from '../core/Tile';
 import type TileSet from "../core/TileSet.js";
 

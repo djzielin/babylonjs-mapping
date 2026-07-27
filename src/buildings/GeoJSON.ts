@@ -2,7 +2,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Vector2 } from "@babylonjs/core/Maths/math.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
-import { Scene } from "@babylonjs/core";
+import { Scene } from "@babylonjs/core/scene.js";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import Earcut from 'earcut';
 import type Buildings from "./Buildings.js";

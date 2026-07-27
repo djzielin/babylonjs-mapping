@@ -15,10 +15,11 @@ import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { ActionManager, KeyboardEventTypes, KeyboardInfo } from "@babylonjs/core";
+import { ActionManager } from "@babylonjs/core/Actions/actionManager";
+import { KeyboardEventTypes, KeyboardInfo } from "@babylonjs/core/Events/keyboardEvents";
 
-import { TextBlock } from "@babylonjs/gui";
-import { Control } from "@babylonjs/gui";
+import { TextBlock } from "@babylonjs/gui/2D/controls/textBlock";
+import { Control } from "@babylonjs/gui/2D/controls/control";
 
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
