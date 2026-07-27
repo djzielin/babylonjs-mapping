@@ -32,7 +32,7 @@ import { EPSG_Type }     from "../../../lib/TileMath";
 import RasterWMTS from "../../../lib/RasterWMTS";
 
 export interface propertiesCharlotte {
-    "Additional_Information": string;    
+    "Additional_Information": string;
     "Address": string;
     "Block_Number": string;
     "Date": string
@@ -66,7 +66,7 @@ class Game {
     public buildingDumpCSV="";
 
     constructor() {
-        // Get the canvas element 
+        // Get the canvas element
         this.canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 
         // Generate the BABYLON 3D engine
@@ -81,7 +81,7 @@ class Game {
        this.createScene().then(() => {
 
            // Register a render loop to repeatedly render the scene
-           this.engine.runRenderLoop(() => { 
+           this.engine.runRenderLoop(() => {
                this.update();
                this.scene.render();
            });
@@ -119,11 +119,11 @@ class Game {
         textBlock.textHorizontalAlignment=Control.HORIZONTAL_ALIGNMENT_LEFT;
 
         textBlock.left = "10px";
-        textBlock.top = "10px"; 
+        textBlock.top = "10px";
 
         // Add the text block to the texture
-        ourOverlay.addControl(textBlock);    
-        */    
+        ourOverlay.addControl(textBlock);
+        */
     }
 
     private async createScene() {
@@ -134,7 +134,7 @@ class Game {
         camera.attachControl(this.canvas, true);
         camera.speed=0.5;
         camera.angularSensibility=8000;
-        
+
         var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.5;
 
@@ -159,7 +159,7 @@ class Game {
         this.ourTS.setRasterProvider(ourWMTS);
 
         this.ourTS.createGeometry(new Vector2(4,4), 25, 2); //4x4 tile set, 20m width of each tile, and 2 divisions on each tile
-        this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //lat, lon, zoom. takes us to charlotte. 
+        this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //lat, lon, zoom. takes us to charlotte.
 
         const url2a = "https://dservices1.arcgis.com/XBhYkoXKJCRHbe7M/arcgis/services/Building_Union_ExportFeatures_Corrected_Data_Sep_3/WFSServer?";
         const layer2a = "Building_Union_ExportFeatures_Corrected_Data_Sep_3:Building_Union_ExportFeatures1"
@@ -176,18 +176,22 @@ class Game {
         customBuildingGenerator.retrievalType=RetrievalType.AllData; //NEW: lets try and pull all the data at once!
         customBuildingGenerator.doMerge = false;
         customBuildingGenerator.buildingMaterial=this.ourBlueMaterial;
+        customBuildingGenerator.buildingLOD = {
+            enabled: true,
+            distance: 60,
+        };
         customBuildingGenerator.generateBuildings();
 
         customBuildingGenerator.onCaughtUpObservable.addOnce(() => {
-              
-        });        
-        
-       
+
+        });
+
+
         this.scene.debugLayer.show();
-        
+
         this.setupHelpText();
     }
-   
+
     private update(): void {
 
     }
