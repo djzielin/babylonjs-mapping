@@ -23,9 +23,7 @@ import { Control } from "@babylonjs/gui";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 
-import BuildingsOSM from "babylonjs-mapping/lib/BuildingsOSM";
-import TileSet from "babylonjs-mapping";
-import RasterOSM from "babylonjs-mapping/lib/RasterOSM";
+import { BuildingsOSM, RasterOSM, TileSet } from "babylonjs-mapping";
 
 class Game {
     private canvas: HTMLCanvasElement;

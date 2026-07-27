@@ -34,10 +34,7 @@ import CsvData from "./CsvData";
 //import OpenStreetMap from "./babylonjs-mapping/OpenStreetMap";
 //import MapBox from "./babylonjs-mapping/MapBox";
 
-import TileSet from "babylonjs-mapping";
-import BuildingsOSM from "babylonjs-mapping/lib/BuildingsOSM";
-import { EPSG_Type } from "babylonjs-mapping/lib/TileMath";
-import RasterOSM from "babylonjs-mapping/lib/RasterOSM";
+import { BuildingsOSM, EPSG_Type, RasterOSM, TileSet } from "babylonjs-mapping";
 
 class Game {
     private canvas: HTMLCanvasElement;
