@@ -13,7 +13,11 @@ export default class TerrainMB {
     constructor(tileSet: TileSet, scene: Scene);
     setExaggeration(tileScale: number, exaggeration: number): void;
     private GetAsyncTexture;
-    updateAllTerrainTiles(exaggeration: number): void;
+    updateAllTerrainTiles(exaggeration: number): Promise<void>;
+    setupTerrainLOD(precisions: number[], distances: number[], skirtDepth?: number): void;
+    private validateTerrainLOD;
+    private applyDetailedTerrainToMesh;
+    private addTerrainSkirt;
     updateSingleTerrainTile(tile: Tile): Promise<void>;
     private fixTileSeams;
     private convertRGBtoDEM;
