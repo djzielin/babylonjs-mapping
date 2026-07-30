@@ -344,6 +344,11 @@ class Game {
             this.overviewBuildings.exaggeration = 1;
             this.overviewBuildings.doMerge = true;
             this.overviewBuildings.buildingsCreatedPerFrame = 500;
+            this.configureBuildingTerrainAlignment(
+                this.overviewBuildings,
+                this.overviewBuildingTileSet,
+                LANDSCAPE_CENTER,
+            );
             this.overviewBuildings.excludedTileKeys.add(
                 new Vector3(
                     tokyoLandscapeTile.x,
@@ -360,6 +365,11 @@ class Game {
             this.midBuildings.exaggeration = 1;
             this.midBuildings.doMerge = true;
             this.midBuildings.buildingsCreatedPerFrame = 500;
+            this.configureBuildingTerrainAlignment(
+                this.midBuildings,
+                this.midBuildingTileSet,
+                midCenter,
+            );
             this.midBuildings.excludedTileKeys.add(
                 new Vector3(
                     tokyoMidTile.x,
@@ -376,6 +386,11 @@ class Game {
             this.nearBuildings.exaggeration = 1;
             this.nearBuildings.doMerge = true;
             this.nearBuildings.buildingsCreatedPerFrame = 500;
+            this.configureBuildingTerrainAlignment(
+                this.nearBuildings,
+                this.nearBuildingTileSet,
+                detailCenter,
+            );
             this.nearBuildings.excludedTileKeys.add(
                 new Vector3(
                     tokyoDetailTile.x,
@@ -397,6 +412,11 @@ class Game {
             this.innerBuildings.exaggeration = 1;
             this.innerBuildings.doMerge = true;
             this.innerBuildings.buildingsCreatedPerFrame = 500;
+            this.configureBuildingTerrainAlignment(
+                this.innerBuildings,
+                this.innerBuildingTileSet,
+                innerCenter,
+            );
             this.innerBuildings.excludedTileKeys.add(
                 new Vector3(
                     tokyoInnerTile.x,
@@ -443,85 +463,74 @@ class Game {
                 });
         }
 
-        let overviewReady = Promise.resolve();
-        if (this.overviewBuildings) {
-            overviewReady = new Promise((resolve) => {
-                this.overviewBuildings.onCaughtUpObservable.addOnce(() => resolve());
-            });
-            this.overviewBuildings.generateBuildings();
-        }
+        const generateAfterTerrain = (buildings: Buildings): Promise<void> =>
+            terrainReady.then(() => new Promise<void>((resolve) => {
+                buildings.onCaughtUpObservable.addOnce(() => resolve());
+                buildings.generateBuildings();
+            }));
 
-        let midReady = Promise.resolve();
-        if (this.midBuildings) {
-            midReady = new Promise((resolve) => {
-                this.midBuildings.onCaughtUpObservable.addOnce(() => resolve());
-            });
-            this.midBuildings.generateBuildings();
-        }
-
+        const overviewReady = this.overviewBuildings ?
+            generateAfterTerrain(this.overviewBuildings) :
+            Promise.resolve();
+        const midReady = this.midBuildings ?
+            generateAfterTerrain(this.midBuildings) :
+            Promise.resolve();
+        const nearReady = this.nearBuildings ?
+            generateAfterTerrain(this.nearBuildings) :
+            Promise.resolve();
+        const innerReady = this.innerBuildings ?
+            generateAfterTerrain(this.innerBuildings) :
+            Promise.resolve();
         let detailsReady = Promise.resolve();
-        let nearReady = Promise.resolve();
-        if (this.nearBuildings) {
-            nearReady = new Promise((resolve) => {
-                this.nearBuildings.onCaughtUpObservable.addOnce(() => resolve());
-            });
-            this.nearBuildings.generateBuildings();
-        }
-
-        let innerReady = Promise.resolve();
-        if (this.innerBuildings) {
-            innerReady = new Promise((resolve) => {
-                this.innerBuildings.onCaughtUpObservable.addOnce(() => resolve());
-            });
-            this.innerBuildings.generateBuildings();
-        }
 
         if (this.detailBuildings) {
             this.detailBuildings.buildingMaterial = buildingMaterial;
             this.detailBuildings.exaggeration = 1;
             this.detailBuildings.buildingsCreatedPerFrame = 100;
+            this.configureBuildingTerrainAlignment(
+                this.detailBuildings,
+                this.detailBuildingTileSet,
+                TOKYO,
+            );
             this.detailBuildings.buildingLOD = {
                 enabled: true,
                 distance: 20,
             };
-            detailsReady = new Promise((resolve) => {
-                this.detailBuildings.onCaughtUpObservable.addOnce(() => resolve());
-            });
-            this.detailBuildings.generateBuildings();
+            detailsReady = generateAfterTerrain(this.detailBuildings);
         }
 
-        void Promise.all([terrainReady, overviewReady]).then(() => {
-            this.alignMergedTierToTerrain(
+        void overviewReady.then(() => {
+            this.alignMergedTierHorizontally(
                 this.overviewBuildingTileSet,
                 LANDSCAPE_CENTER,
                 500,
             );
         });
-        void Promise.all([terrainReady, midReady]).then(() => {
-            this.alignMergedTierToTerrain(
+        void midReady.then(() => {
+            this.alignMergedTierHorizontally(
                 this.midBuildingTileSet,
                 midCenter,
                 250,
             );
         });
-        void Promise.all([terrainReady, nearReady]).then(() => {
-            this.alignMergedTierToTerrain(
+        void nearReady.then(() => {
+            this.alignMergedTierHorizontally(
                 this.nearBuildingTileSet,
                 detailCenter,
                 160,
             );
             this.setTileSetVisibility(this.nearBuildingTileSet, 1);
         });
-        void Promise.all([terrainReady, innerReady]).then(() => {
-            this.alignMergedTierToTerrain(
+        void innerReady.then(() => {
+            this.alignMergedTierHorizontally(
                 this.innerBuildingTileSet,
                 innerCenter,
                 100,
             );
             this.setTileSetVisibility(this.innerBuildingTileSet, 1);
         });
-        void Promise.all([terrainReady, detailsReady]).then(() => {
-            this.alignDetailsToTerrain(tokyoWorld);
+        void detailsReady.then(() => {
+            this.alignDetailsHorizontally(tokyoWorld);
             this.setTileSetVisibility(this.detailBuildingTileSet, 1);
         });
         void Promise.all([terrainReady, landmarksReady]).then(() => {
@@ -573,7 +582,35 @@ class Game {
         );
     }
 
-    private alignMergedTierToTerrain(
+    private configureBuildingTerrainAlignment(
+        buildings: Buildings,
+        tileSet: TileSet,
+        reference: Vector2,
+    ): void {
+        const terrainReference = this.terrainTileSet.ourTileMath.EPSG_to_Game(
+            reference,
+            EPSG_Type.EPSG_4326,
+        );
+        const tierReference = tileSet.ourTileMath.EPSG_to_Game(
+            reference,
+            EPSG_Type.EPSG_4326,
+        );
+        const alignment = terrainReference.subtract(tierReference);
+
+        buildings.buildingMeshTransform = (mesh) => {
+            mesh.unfreezeWorldMatrix();
+            mesh.computeWorldMatrix(true);
+            mesh.refreshBoundingInfo();
+            const bounds = mesh.getBoundingInfo().boundingBox;
+            const terrainSample = bounds.centerWorld.add(alignment);
+            mesh.position.y += this.sampleTerrainHeight(terrainSample) -
+                bounds.minimumWorld.y + 0.01;
+            mesh.computeWorldMatrix(true);
+            mesh.refreshBoundingInfo();
+        };
+    }
+
+    private alignMergedTierHorizontally(
         tileSet: TileSet,
         reference: Vector2,
         cullDistance: number,
@@ -597,17 +634,12 @@ class Game {
             mesh.position.addInPlace(alignment);
             mesh.computeWorldMatrix(true);
             mesh.refreshBoundingInfo();
-            const bounds = mesh.getBoundingInfo().boundingBox;
-            mesh.position.y += this.sampleTerrainHeight(bounds.centerWorld) -
-                bounds.minimumWorld.y + 0.01;
-            mesh.computeWorldMatrix(true);
-            mesh.refreshBoundingInfo();
             mesh.addLODLevel(cullDistance, null);
             mesh.freezeWorldMatrix();
         }
     }
 
-    private alignDetailsToTerrain(tokyoWorld: Vector3): void {
+    private alignDetailsHorizontally(tokyoWorld: Vector3): void {
         const buildingTokyoWorld = this.detailBuildingTileSet.ourTileMath.EPSG_to_Game(TOKYO, EPSG_Type.EPSG_4326);
         const alignment = tokyoWorld.subtract(buildingTokyoWorld);
 
@@ -616,12 +648,6 @@ class Game {
                 const mesh = building.mesh;
                 mesh.unfreezeWorldMatrix();
                 mesh.position.addInPlace(alignment);
-                mesh.computeWorldMatrix(true);
-                mesh.refreshBoundingInfo();
-
-                const bounds = mesh.getBoundingInfo().boundingBox;
-                const terrainHeight = this.sampleTerrainHeight(bounds.centerWorld);
-                mesh.position.y += terrainHeight - bounds.minimumWorld.y + 0.01;
                 mesh.computeWorldMatrix(true);
                 mesh.refreshBoundingInfo();
                 mesh.addLODLevel(60, null);
@@ -659,6 +685,18 @@ class Game {
             tile.root.computeWorldMatrix(true);
             for (const mesh of tile.asset.meshes) {
                 if (mesh.getTotalVertices() > 0) {
+                    mesh.computeWorldMatrix(true);
+                    mesh.refreshBoundingInfo();
+                    const bounds = mesh.getBoundingInfo().boundingBox;
+                    const groundHeight = this.sampleTerrainHeight(bounds.centerWorld);
+                    const elevationOffset = groundHeight - bounds.minimumWorld.y + 0.01;
+                    mesh.setAbsolutePosition(
+                        mesh.getAbsolutePosition().add(
+                            new Vector3(0, elevationOffset, 0),
+                        ),
+                    );
+                    mesh.computeWorldMatrix(true);
+                    mesh.refreshBoundingInfo();
                     mesh.material = landmarkMaterial;
                     mesh.isPickable = false;
                 }
@@ -718,7 +756,9 @@ class Game {
     }
 
     private sampleTerrainHeight(worldPosition: Vector3): number {
-        const exactTile = this.terrainTileSet.ourTileMath.Game_to_Tile(worldPosition);
+        const exactTile = this.terrainTileSet.ourTileMath.Game_to_Tile(
+            worldPosition.clone(),
+        );
         const tileX = Math.floor(exactTile.x);
         const tileY = Math.floor(exactTile.y);
         const tile = this.terrainTileSet.ourTilesMap.get(

@@ -76,6 +76,11 @@ export default abstract class Buildings {
     public buildingsCreatedPerFrame = 10; //TODO: is there a better way to do this?
     public cacheFiles = true;
     public buildingMaterial: StandardMaterial;
+    /**
+     * Optional transform applied to each completed building mesh before LOD
+     * generation, duplicate detection, and tile merging.
+     */
+    public buildingMeshTransform?: (mesh: Mesh) => void;
     public retrievalType: RetrievalType = RetrievalType.IndividualTiles;
 
     protected buildingRequests: BuildingRequest[] = [];
