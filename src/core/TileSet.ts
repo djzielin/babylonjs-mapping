@@ -1,12 +1,14 @@
 import { Scene } from "@babylonjs/core/scene.js";
-import { Engine, EngineStore, BoundingBox } from "@babylonjs/core";
+import { Engine } from "@babylonjs/core/Engines/engine.js";
+import { EngineStore } from "@babylonjs/core/Engines/engineStore.js";
+import { BoundingBox } from "@babylonjs/core/Culling/boundingBox.js";
 import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
-import { AdvancedDynamicTexture } from "@babylonjs/gui";
-import { Observable } from "@babylonjs/core";
+import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture.js";
+import { Observable } from "@babylonjs/core/Misc/observable.js";
 
 import Tile from './Tile.js';
 import TileMath, { EPSG_Type } from './TileMath.js';
