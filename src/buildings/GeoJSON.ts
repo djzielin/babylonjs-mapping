@@ -383,7 +383,6 @@ export class GeoJSON {
                     return;
                 }
             }
-            console.log("building is an original, adding to tile!");
         }
 
         if (arrayOfLines.length > 0) {
@@ -393,7 +392,6 @@ export class GeoJSON {
 
         tile.buildings.push(building);
 
-        console.log("created " + finalMesh.name);
     }
 
     private addBuildingLOD(finalMesh: Mesh, buildingMaterial: StandardMaterial, lodOptions: BuildingLODOptions | undefined): void {

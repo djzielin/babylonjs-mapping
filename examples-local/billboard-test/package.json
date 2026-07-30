@@ -1,7 +1,7 @@
 {
-    "name": "OpenStreetMap-BillboardTest",
+    "name": "Tokyo-Fuji-LOD",
     "version": "1.0.0",
-    "description": "illustrate building and terrain LOD with a local copy of babylonjs-mapping",
+    "description": "show dense Tokyo building LOD with Mount Fuji terrain LOD",
     "main": "index.ts",
     "dependencies": {
         "@babylonjs/core": "^6.49.0",
