@@ -1,4 +1,5 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import * as GeoJSON from './GeoJSON.js';
 import type Tile from "../core/Tile.js";
@@ -57,6 +58,11 @@ export default abstract class Buildings {
     buildingsCreatedPerFrame: number;
     cacheFiles: boolean;
     buildingMaterial: StandardMaterial;
+    /**
+     * Optional transform applied to each completed building mesh before LOD
+     * generation, duplicate detection, and tile merging.
+     */
+    buildingMeshTransform?: (mesh: Mesh) => void;
     retrievalType: RetrievalType;
     protected buildingRequests: BuildingRequest[];
     protected filesLoaded: GeoFileLoaded[];
