@@ -21,9 +21,11 @@ export default class Tile {
     eastSeamFixed: boolean;
     northSeamFixed: boolean;
     northEastSeamFixed: boolean;
+    terrainLODMeshes: Array<Mesh | null>;
     constructor(mesh: Mesh, tileSet: TileSet);
     private makeSphere;
     deleteBuildings(): void;
+    clearTerrainLOD(): void;
     hideIndividualBuildings(): void;
     getAllBuildingMeshes(): Mesh[];
     isBuildingInsideTileBoundingBox(m: Mesh): boolean;
