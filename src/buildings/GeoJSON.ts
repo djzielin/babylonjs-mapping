@@ -12,10 +12,21 @@ import type Tile from '../core/Tile.js';
 import type TileSet from "../core/TileSet.js";
 import { EPSG_Type } from "../core/TileMath.js";
 import TileBuilding from "../core/TileBuilding.js";
+import { createRoofMesh, resolveRoofSpec, type RoofSpec } from "./RoofBuilder.js";
 
 export interface topLevel {
     "type": string;
     "features": feature[];
+    "crs"?: coordinateReferenceSystem | string | null;
+}
+
+export interface coordinateReferenceSystem {
+    "type"?: string;
+    "properties"?: {
+        "name"?: string;
+        "href"?: string;
+        "code"?: string | number;
+    };
 }
 
 export interface feature {
@@ -30,6 +41,10 @@ export interface propertiesOSM {
     "type": string;
     "height": number;
     "levels": number;
+    "roofShape"?: string;
+    "roofHeight"?: number;
+    "roofLevels"?: number;
+    "roofDirection"?: number;
 }
 
 export interface geometry {
@@ -44,6 +59,55 @@ export interface coordinatePair extends Array<number> { }
 
 export interface coordinateArray extends Array<Vector3> { }
 export interface coordinateArrayOfArrays extends Array<coordinateArray> { }
+
+function projectionFromIdentifier(identifier: unknown): EPSG_Type | undefined {
+    if (typeof identifier === "number") {
+        if (identifier === 4326) {
+            return EPSG_Type.EPSG_4326;
+        }
+        if (identifier === 3857 || identifier === 900913 || identifier === 3785 || identifier === 102100 || identifier === 102113) {
+            return EPSG_Type.EPSG_3857;
+        }
+        return undefined;
+    }
+
+    if (typeof identifier !== "string") {
+        return undefined;
+    }
+
+    const normalized = identifier.trim().toUpperCase();
+    if (normalized === "CRS84" || normalized.endsWith("CRS84")) {
+        return EPSG_Type.EPSG_4326;
+    }
+
+    const codeMatch = normalized.match(/(?:^|[^0-9])(4326|3857|900913|3785|102100|102113)(?:$|[^0-9])/);
+    if (!codeMatch) {
+        return undefined;
+    }
+
+    return projectionFromIdentifier(Number(codeMatch[1]));
+}
+
+/**
+ * Detects the supported coordinate system declared by a GeoJSON CRS entry.
+ * Returns undefined for missing or unsupported CRS declarations so callers can
+ * preserve their existing explicit-projection fallback.
+ */
+export function detectProjection(document: Pick<topLevel, "crs">): EPSG_Type | undefined {
+    const crs = document.crs;
+    if (typeof crs === "string") {
+        return projectionFromIdentifier(crs);
+    }
+    if (crs === null || crs === undefined) {
+        return undefined;
+    }
+
+    const properties = crs.properties;
+    return projectionFromIdentifier(properties?.name)
+        ?? projectionFromIdentifier(properties?.href)
+        ?? projectionFromIdentifier(properties?.code)
+        ?? projectionFromIdentifier(crs.type);
+}
 
 export class GeoJSON {
     constructor(private tileSet: TileSet, private scene: Scene) {
@@ -160,7 +224,10 @@ export class GeoJSON {
 
         let height = defaultBuildingHeight;
         if (f.properties.height !== undefined) {
-            height = f.properties.height;
+            const providedHeight = Number(f.properties.height);
+            if (Number.isFinite(providedHeight)) {
+                height = providedHeight;
+            }
         }
         if (f.properties.Story !== undefined) {
             let stories = Number(f.properties.Story);
@@ -172,10 +239,11 @@ export class GeoJSON {
             }
             height = (stories + 0.5) * 3.0; //not sure if we should do this to account for roof height?
         }
+        const roofSpec = resolveRoofSpec(f.properties ?? {}, height);
 
         if (f.geometry.type == "Polygon") {
             const ps: polygonSet = f.geometry.coordinates as polygonSet;
-            finalMesh = this.processSinglePolygon(ps, epsg, buildingMaterial, exaggeration, height, flipWinding);
+            finalMesh = this.processSinglePolygon(ps, epsg, buildingMaterial, exaggeration, height, flipWinding, roofSpec);
         }
         else if (f.geometry.type == "Point") {
             if (!Number.isFinite(pointDiameter) || pointDiameter <= 0) {
@@ -198,7 +266,7 @@ export class GeoJSON {
                 const mp: multiPolygonSet = f.geometry.coordinates as multiPolygonSet;
 
                 for (let i = 0; i < mp.length; i++) {
-                    const singleMesh = this.processSinglePolygon(mp[i], epsg, buildingMaterial, exaggeration, height, flipWinding);
+                    const singleMesh = this.processSinglePolygon(mp[i], epsg, buildingMaterial, exaggeration, height, flipWinding, roofSpec);
                     allMeshes.push(singleMesh);
                 }
             }
@@ -394,16 +462,16 @@ export class GeoJSON {
         return vArray;
     }
 
-    private processSinglePolygon(ps: polygonSet, epsg: EPSG_Type, buildingMaterial: StandardMaterial, exaggeration: number, height: number, flipWinding: boolean): Mesh {
+    private processSinglePolygon(ps: polygonSet, epsg: EPSG_Type, buildingMaterial: StandardMaterial, exaggeration: number, height: number, flipWinding: boolean, roofSpec?: RoofSpec): Mesh {
         const gameCoordinates: coordinateArrayOfArrays = ps.map((ring) => ring.map((coordinate) => {
             const source = new Vector2(coordinate[0], coordinate[1]);
             return this.tileSet.ourTileMath.EPSG_to_Game(source, epsg);
         }));
 
-        return this.processSinglePolygonInGameCoordinates(gameCoordinates, buildingMaterial, exaggeration, height, flipWinding);
+        return this.processSinglePolygonInGameCoordinates(gameCoordinates, buildingMaterial, exaggeration, height, flipWinding, roofSpec);
     }
 
-    private processSinglePolygonInGameCoordinates(ps: coordinateArrayOfArrays, buildingMaterial: StandardMaterial, exaggeration: number, height: number, flipWinding: boolean): Mesh {
+    private processSinglePolygonInGameCoordinates(ps: coordinateArrayOfArrays, buildingMaterial: StandardMaterial, exaggeration: number, height: number, flipWinding: boolean, roofSpec?: RoofSpec): Mesh {
         const holeArray: Vector3[][] = [];
         const positions3D: Vector3[] = [];
 
@@ -452,19 +520,45 @@ export class GeoJSON {
         }
 
         const heightScaleFixer = exaggeration * this.tileSet.tileScale;
+        let wallHeight = Math.max(height - (roofSpec?.height ?? 0), 0);
+        const roofMesh = roofSpec === undefined
+            ? undefined
+            : createRoofMesh(
+                ps,
+                roofSpec,
+                wallHeight,
+                heightScaleFixer,
+                buildingMaterial,
+                this.scene,
+            );
 
-        const ourMesh: Mesh = MeshBuilder.ExtrudePolygon("extruded polygon",
+        // Unsupported footprint details (for example a pyramidal roof with a
+        // courtyard) retain the previous full-height flat extrusion.
+        if (roofSpec !== undefined && roofMesh === undefined) {
+            wallHeight = height;
+        }
+
+        let ourMesh: Mesh = MeshBuilder.ExtrudePolygon("extruded polygon",
             {
                 shape: positions3D,
-                depth: height * heightScaleFixer,
+                depth: wallHeight * heightScaleFixer,
                 holes: holeArray,
                 sideOrientation: orientation
             },
             this.scene);
 
-        ourMesh.position.y = height * heightScaleFixer;
+        ourMesh.position.y = wallHeight * heightScaleFixer;
         ourMesh.material = buildingMaterial; //all buildings will use same material
         ourMesh.isPickable = false;
+
+        if (roofMesh !== undefined) {
+            const mergedMesh = Mesh.MergeMeshes([ourMesh, roofMesh]);
+            if (mergedMesh !== null) {
+                ourMesh = mergedMesh;
+                ourMesh.material = buildingMaterial;
+                ourMesh.isPickable = false;
+            }
+        }
 
         return ourMesh;
     }

@@ -1,6 +1,11 @@
 export { default as Attribution } from "./core/Attribution.js";
 export { default as Buildings, BuildingRequestType } from "./buildings/Buildings.js";
 export type { BuildingLODOptions, BuildingRequest } from "./buildings/Buildings.js";
+export { default as BuildingsMB } from "./buildings/BuildingsMB.js";
+export type {
+    LoadedMapboxModelTile,
+    MapboxModelTileLoader,
+} from "./buildings/BuildingsMB.js";
 export { default as BuildingsOSM } from "./buildings/BuildingsOSM.js";
 export {
     default as BuildingsOverture,
