@@ -4,7 +4,7 @@ import * as GeoJSON from './GeoJSON.js';
 import type Tile from "../core/Tile.js";
 import type TileSet from "../core/TileSet.js";
 import { EPSG_Type } from "../core/TileMath.js";
-import { Observable } from "@babylonjs/core";
+import { Observable } from "@babylonjs/core/Misc/observable.js";
 import { RetrievalLocation, RetrievalType } from "../shared/Retrieval.js";
 export declare enum BuildingRequestType {
     LoadTile = 0,

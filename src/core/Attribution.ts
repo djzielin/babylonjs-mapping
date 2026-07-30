@@ -48,6 +48,10 @@ export default class Attribution {
             this.addAttributionMapbox();           
         }
 
+        if (provider == "MBMODEL") {
+            this.addAttributionMapbox();
+        }
+
         if (provider == "OSM") {
             this.addAttributionOSM();
         }

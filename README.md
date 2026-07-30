@@ -40,6 +40,28 @@ streets.lineWidth = 0.25;
 points.pointDiameter = 0.5;
 ```
 
+OSM Buildings roof metadata is applied automatically. `gabled`, `hipped`,
+`pyramidal`/`pyramid`, and `skillion` roof shapes honor `roofHeight`,
+`roofLevels`, and `roofDirection` (as well as the equivalent raw
+`roof:*` property names). Complex footprints that cannot be roofed without
+changing their topology keep the existing full-height flat extrusion.
+
+## Mapbox landmark buildings
+
+Mapbox's detailed landmark models can be loaded after the tileset raster
+coordinates are initialized. The provider automatically requests and places
+the fixed zoom-14 model tiles that overlap the current tileset:
+
+```ts
+const landmarks = new BuildingsMB(tileSet);
+landmarks.accessToken = mapboxAccessToken;
+await landmarks.generateBuildings();
+```
+
+Call `generateBuildings()` again after `updateRaster()` to reuse overlapping
+model tiles and dispose models that moved out of view. Call `dispose()` when
+the provider is no longer needed.
+
 ## ArcGIS Online WFS pagination
 
 `BuildingsWFS.setupAGOL()` enables WFS 2.0 result paging automatically. Each

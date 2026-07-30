@@ -1,0 +1,1 @@
+{"version":3,"file":"BuildingsMB.js","sourceRoot":"","sources":["../src/BuildingsMB.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,4BAA4B,CAAC","sourcesContent":["export { default } from \"./buildings/BuildingsMB.js\";\nexport type {\n    LoadedMapboxModelTile,\n    MapboxModelTileLoader,\n} from \"./buildings/BuildingsMB.js\";\n"]}
