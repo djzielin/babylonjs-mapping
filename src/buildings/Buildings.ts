@@ -20,6 +20,11 @@ export enum BuildingRequestType {
     MergeAllBuildingsOnTile
 }
 
+export interface BuildingRequestPagination {
+    pageSize: number;
+    startIndex: number;
+}
+
 export interface BuildingRequest {
     requestType: BuildingRequestType;
     tile: Tile;
@@ -29,6 +34,8 @@ export interface BuildingRequest {
     feature?: GeoJSON.feature;
     epsgType?: EPSG_Type;
     url?: string;
+    pagination?: BuildingRequestPagination;
+    mergeAfterLoad?: boolean;
 }
 
 
@@ -123,18 +130,41 @@ export default abstract class Buildings {
             addedBuildings++;
         }
 
-        if (this.doMerge) {
-            //console.log("queueing up merge request for tile: " + tile.tileCoords);
-            const mrequest: BuildingRequest = {
-                requestType: BuildingRequestType.MergeAllBuildingsOnTile, //request a merge
-                tile: request.tile,
-                tileCoords: request.tile.tileCoords.clone(),
-                inProgress: false,
-                flipWinding: request.flipWinding
-            }
-            this.buildingRequests.push(mrequest)
+        if (request.mergeAfterLoad !== false) {
+            this.enqueueMergeRequest(request);
         }
         console.log(this.prettyName() + addedBuildings + " building generation requests queued for tile: " + request.tile.tileCoords);
+    }
+
+    /**
+     * Providers can override this to create the next request after a full
+     * paginated response has been processed.
+     */
+    protected createNextPageRequest(_request: BuildingRequest, _featuresReturned: number): BuildingRequest | undefined {
+        return undefined;
+    }
+
+    /**
+     * Some paginated services report that an exact final page is out of range
+     * instead of returning an empty FeatureCollection.
+     */
+    protected isPaginationEndResponse(_request: BuildingRequest, _response: Response): boolean {
+        return false;
+    }
+
+    protected enqueueMergeRequest(request: BuildingRequest): void {
+        if (!this.doMerge) {
+            return;
+        }
+
+        const mergeRequest: BuildingRequest = {
+            requestType: BuildingRequestType.MergeAllBuildingsOnTile,
+            tile: request.tile,
+            tileCoords: request.tile.tileCoords.clone(),
+            inProgress: false,
+            flipWinding: request.flipWinding
+        };
+        this.buildingRequests.push(mergeRequest);
     }
 
     protected prettyName(): string {
@@ -182,11 +212,32 @@ export default abstract class Buildings {
         a.click();
     }
 
-    protected handleLoadTileRequest(request: BuildingRequest): void {
+    private processLoadedGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel, requestIndex: number): void {
+        if (request.tile.tileCoords.equals(request.tileCoords) == false) {
+            console.warn(this.prettyName() + "tile coords have changed while we were loading, not adding buildings to queue!");
+            this.removePendingRequest(requestIndex);
+            return;
+        }
+
+        let nextRequest: BuildingRequest | undefined;
+        if (request.pagination && topLevel.features.length >= request.pagination.pageSize) {
+            nextRequest = this.createNextPageRequest(request, topLevel.features.length);
+        }
+
+        request.mergeAfterLoad = nextRequest === undefined;
+        this.ProcessGeoJSON(request, topLevel);
+        this.removePendingRequest(requestIndex);
+
+        if (nextRequest) {
+            this.buildingRequests.push(nextRequest);
+        }
+    }
+
+    protected handleLoadTileRequest(request: BuildingRequest, requestIndex = 0): void {
         if (!request.url) {
             console.error(this.prettyName() + "no valid URL specified in GeoJSON load request");
 
-            this.removePendingRequest();
+            this.removePendingRequest(requestIndex);
             return;
         }
 
@@ -194,68 +245,72 @@ export default abstract class Buildings {
             console.log(this.prettyName() + "we already have this GeoJSON loaded: " + this.stripFilePrefix(request.url));
             const topLevel = this.getFeatures(request.url);
             if (topLevel) {
-                this.ProcessGeoJSON(request, topLevel);
+                this.processLoadedGeoJSON(request, topLevel, requestIndex);
             } else {
                 console.error(this.prettyName() + "can't find topLevel in already loaded geojson file!");
+                this.removePendingRequest(requestIndex);
             }
-
-            this.removePendingRequest();
             return;
         }
 
         console.log(this.prettyName() + "trying to fetch: " + request.url);
         request.inProgress = true;
 
-        fetch(request.url).then((res) => {
+        fetch(request.url).then(async (res) => {
             if (res.status == 200) {
-                res.text().then(
-                    (text) => {
-                        console.log(this.prettyName() + "fetch completed for buildings for tile: " + request.tileCoords);                       
+                console.log(this.prettyName() + "fetch completed for buildings for tile: " + request.tileCoords);
 
-                        if (text.length > 0) {
-                            //console.log(this.prettyName() + "about to json parse for tile: " + request.tileCoords);
-
-                            if(this.retrievalLocation==RetrievalLocation.Remote_and_Save && this.retrievalType==RetrievalType.AllData){
-                                this.doSave(text);
-                            }
-
-                            const topLevel: GeoJSON.topLevel = JSON.parse(text);
-
-                            if (this.cacheFiles) {
-                                const floaded: GeoFileLoaded = {
-                                    url: this.stripFilePrefix(request.url!),
-                                    topLevel: topLevel
-                                };
-                                this.filesLoaded.push(floaded);
-                            }
-
-                            this.ProcessGeoJSON(request, topLevel);
-                        }
-
-                        this.removePendingRequest();
-                        return;
+                const text = await res.text();
+                if (text.length > 0) {
+                    if(this.retrievalLocation==RetrievalLocation.Remote_and_Save && this.retrievalType==RetrievalType.AllData){
+                        this.doSave(text);
                     }
-                );
-            } else if (res.status >= 400 && res.status<600) {
+
+                    const topLevel: GeoJSON.topLevel = JSON.parse(text);
+
+                    if (this.cacheFiles) {
+                        const floaded: GeoFileLoaded = {
+                            url: this.stripFilePrefix(request.url!),
+                            topLevel: topLevel
+                        };
+                        this.filesLoaded.push(floaded);
+                    }
+
+                    this.processLoadedGeoJSON(request, topLevel, requestIndex);
+                } else {
+                    this.enqueueMergeRequest(request);
+                    this.removePendingRequest(requestIndex);
+                }
+                return;
+            }
+
+            if (this.isPaginationEndResponse(request, res)) {
+                console.log(this.prettyName() + "pagination has no more pages after: " + request.tileCoords);
+                this.enqueueMergeRequest(request);
+                this.removePendingRequest(requestIndex);
+                return;
+            }
+
+            if (res.status >= 400 && res.status<600) {
                 console.log("Error code:" + res.status + " while requesting: " + request.url);
                 console.log("but we will try again!");
                 this.buildingRequests.push(request); //let's try again? maybe there should be a maximum number of retries?
                 request.inProgress=false;
                 this.timeStart=Date.now();
                 this.sleepRequested=true;
-                this.removePendingRequest(); //remove original request
+                this.removePendingRequest(requestIndex); //remove original request
                 return;
             }
             else {
                 console.error(this.prettyName() + "unable to fetch: " + request.url + " error code: " + res.status);
-                this.removePendingRequest();
+                this.removePendingRequest(requestIndex);
                 return;
             }
         }
         ).catch((error) => {
             console.error(this.prettyName() + "error during fetch! " + error);
 
-            this.removePendingRequest();
+            this.removePendingRequest(requestIndex);
             return;
         });
 
@@ -320,7 +375,7 @@ export default abstract class Buildings {
 
             if (request.requestType == BuildingRequestType.LoadTile) {
 
-                this.handleLoadTileRequest(request);
+                this.handleLoadTileRequest(request, rIndex);
                 return;
             }
 
