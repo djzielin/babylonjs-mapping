@@ -7,6 +7,11 @@ export type {
     MapboxModelTileLoader,
 } from "./buildings/BuildingsMB.js";
 export { default as BuildingsOSM } from "./buildings/BuildingsOSM.js";
+export {
+    default as BuildingsOverture,
+    OVERTURE_TILES_BASE_URL,
+    resolveLatestOvertureBuildingsURL,
+} from "./buildings/BuildingsOverture.js";
 export { default as BuildingsWFS } from "./buildings/BuildingsWFS.js";
 export * as GeoJSON from "./buildings/GeoJSON.js";
 export { default as Raster } from "./raster/Raster.js";
