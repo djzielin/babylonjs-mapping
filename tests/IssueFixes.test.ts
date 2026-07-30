@@ -281,6 +281,18 @@ describe("OSM roof shapes", () => {
     });
   });
 
+  it("accepts Overture roof schema property names", () => {
+    expect(resolveRoofSpec({
+      roof_shape: "hipped",
+      roof_height: 5,
+      roof_direction: 135,
+    }, 20)).toEqual({
+      shape: "hipped",
+      height: 5,
+      direction: 135,
+    });
+  });
+
   it("keeps a full-height flat roof when a shaped roof cannot preserve a courtyard", () => {
     const { engine, scene, tileSet } = createTileSet();
     const geoJson = new GeoJSON(tileSet, scene);

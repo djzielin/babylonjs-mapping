@@ -18,6 +18,9 @@ This scene uses live data at two aligned resolutions:
 - Overture Maps supplies the credential-free corridor and is the default
   detailed provider; ONEGEO/OSM Buildings remains available for the innermost
   tile as an optional alternative.
+- Overture's `roof_shape`, `roof_height`, and `roof_direction` fields produce
+  shaped roof geometry. Mapbox landmark model tiles add the detailed Tokyo
+  Skytree and Tokyo Tower models over the building LOD layers.
 - Terrain starts at 64 subdivisions per tile and transitions through 48, 32,
   16, 8, 4, and 2 subdivisions before the final cull distance. The 32-step
   tier is retained through Mount Fuji so its cone stays recognizable. Stitched
