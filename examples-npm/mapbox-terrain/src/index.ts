@@ -27,8 +27,7 @@ import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 import '@babylonjs/core/Debug/debugLayer';
 
-import TileSet from "babylonjs-mapping";
-import RasterMB from "babylonjs-mapping/lib/RasterMB";
+import { RasterMB, TileSet } from "babylonjs-mapping";
 
 class Game {
     private canvas: HTMLCanvasElement;
