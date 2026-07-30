@@ -1,6 +1,16 @@
-# Building billboard LOD example
+# Building and terrain LOD example
 
-This example demonstrates the opt-in building billboard LOD configuration from a local copy of babylonjs-mapping. Detailed building meshes are replaced with camera-facing rectangles at the configured distance.
+This example demonstrates both LOD systems from a local copy of
+`babylonjs-mapping`:
+
+- Detailed building meshes become camera-facing rectangles after 60 world units.
+- Terrain tiles step from 32 subdivisions to 8, then 2, and are hidden at the
+  final distance. Stitched borders and skirts cover transitions between tiles
+  using different terrain levels.
+
+Terrain elevation comes from Mapbox. Create `public/mapbox-key.txt` containing
+your Mapbox access token to enable it. Without that file, the example continues
+with the building LOD demonstration only.
 
 To work with this sample, you should have Node (and in particular, npm and npx) installed, which you can retrieve from [nodejs.org](http://nodejs.org).
 
