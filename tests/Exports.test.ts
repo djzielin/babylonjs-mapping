@@ -12,6 +12,7 @@ function assertImportsResolve() {
   return `
     const root = await import("babylonjs-mapping");
     const flat = await import("babylonjs-mapping/lib/RasterOSM");
+    const landmarks = await import("babylonjs-mapping/lib/BuildingsMB");
     const nested = await import("babylonjs-mapping/lib/core/TileSet");
 
     if (typeof root.TileSet !== "function") {
@@ -20,6 +21,10 @@ function assertImportsResolve() {
 
     if (typeof flat.default !== "function") {
       throw new Error("compatibility subpath lib/RasterOSM did not resolve");
+    }
+
+    if (typeof root.BuildingsMB !== "function" || typeof landmarks.default !== "function") {
+      throw new Error("Mapbox landmark building exports did not resolve");
     }
 
     if (typeof nested.default !== "function") {
