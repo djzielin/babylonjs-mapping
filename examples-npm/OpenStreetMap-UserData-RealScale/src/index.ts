@@ -20,12 +20,12 @@ import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { ActionManager } from "@babylonjs/core";
-import { ExecuteCodeAction } from "@babylonjs/core";
+import { ActionManager } from "@babylonjs/core/Actions/actionManager";
+import { ExecuteCodeAction } from "@babylonjs/core/Actions/directActions";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
 import { Button } from "@babylonjs/gui/2D/controls/button";
-import { TextBlock } from "@babylonjs/gui";
-import { Control } from "@babylonjs/gui";
+import { TextBlock } from "@babylonjs/gui/2D/controls/textBlock";
+import { Control } from "@babylonjs/gui/2D/controls/control";
 
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
@@ -34,10 +34,7 @@ import CsvData from "./CsvData";
 //import OpenStreetMap from "./babylonjs-mapping/OpenStreetMap";
 //import MapBox from "./babylonjs-mapping/MapBox";
 
-import TileSet from "babylonjs-mapping";
-import BuildingsOSM from "babylonjs-mapping/lib/BuildingsOSM";
-import { EPSG_Type } from "babylonjs-mapping/lib/TileMath";
-import RasterOSM from "babylonjs-mapping/lib/RasterOSM";
+import { BuildingsOSM, EPSG_Type, RasterOSM, TileSet } from "babylonjs-mapping";
 
 class Game {
     private canvas: HTMLCanvasElement;

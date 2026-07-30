@@ -14,7 +14,7 @@ The "Hello World" of creating an OpenStreetMap tileset, along with extruded buil
     this.ourTS = new TileSet(this.scene,this.engine);
     this.ourTS.setRasterProvider(new RasterOSM(this.ourTS)); //set basemap to pull from Open Street Maps
     this.ourTS.createGeometry(new Vector2(4,4), 20, 2); //4x4 tile set, 20m width of each tile, and 2 divisions on each tile
-    this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //lat, lon, zoom. takes us to charlotte. 
+    this.ourTS.updateRaster(36.0014, -78.9382, 16); //lat, lon, zoom. takes us to Duke University in Durham.
 
     this.ourOSM=new BuildingsOSM(this.ourTS); //lets pull building footprints from Open Street Map Buildings
     this.ourOSM.accessToken=accessToken;      //now requires Auth token
@@ -53,3 +53,26 @@ this.ourOSM.generateBuildings();
 ```
 
 At the configured distance, Babylon.js swaps each detailed building for a double-sided rectangle sized from its world-space bounds and billboarded around the vertical axis. Set `billboardMode` to `Mesh.BILLBOARDMODE_ALL` when full camera-facing rotation is preferred. Per-building LOD requires individual meshes, so `buildingLOD.enabled` keeps buildings separate even when `doMerge` is also true.
+
+## ArcGIS Online WFS pagination
+
+`BuildingsWFS.setupAGOL()` enables WFS 2.0 result paging automatically. Each
+request is limited to 3,000 features and subsequent requests use a zero-based
+`startIndex`, so large hosted WFS layers can be loaded without silently losing
+features. Geometry creation and optional merging continue after the final page.
+
+```ts
+const buildings = new BuildingsWFS(
+    "buildings",
+    "https://your-org.arcgis.com/.../WFSServer?",
+    "your-layer:your-feature-type",
+    EPSG_Type.EPSG_4326,
+    tileSet,
+);
+
+buildings.setupAGOL(); // enables count=3000/startIndex pagination
+buildings.generateBuildings();
+```
+
+`maxFeaturesPerRequest` defaults to `3000` and can be lowered when testing or
+when a service advertises a smaller page limit.

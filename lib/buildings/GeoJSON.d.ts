@@ -1,5 +1,5 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
-import { Scene } from "@babylonjs/core";
+import { Scene } from "@babylonjs/core/scene.js";
 import type Buildings from "./Buildings.js";
 import type Tile from '../core/Tile.js';
 import type TileSet from "../core/TileSet.js";

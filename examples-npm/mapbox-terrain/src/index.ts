@@ -7,7 +7,7 @@
 
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
-import { EngineStore } from "@babylonjs/core";
+import { EngineStore } from "@babylonjs/core/Engines/engineStore";
 import { Vector2 } from "@babylonjs/core/Maths/math";
 import { Vector3 } from "@babylonjs/core/Maths/math";
 import { Color3 } from "@babylonjs/core/Maths/math";
@@ -19,16 +19,15 @@ import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder"
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
-import { TextBlock } from "@babylonjs/gui";
-import { Control } from "@babylonjs/gui";
+import { TextBlock } from "@babylonjs/gui/2D/controls/textBlock";
+import { Control } from "@babylonjs/gui/2D/controls/control";
 
 //import { AdvancedDynamicTexture } from "@babylonjs/gui/2D";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 import '@babylonjs/core/Debug/debugLayer';
 
-import TileSet from "babylonjs-mapping";
-import RasterMB from "babylonjs-mapping/lib/RasterMB";
+import { RasterMB, TileSet } from "babylonjs-mapping";
 
 class Game {
     private canvas: HTMLCanvasElement;

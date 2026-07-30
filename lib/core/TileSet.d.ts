@@ -1,10 +1,10 @@
 import { Scene } from "@babylonjs/core/scene.js";
-import { Engine } from "@babylonjs/core";
+import { Engine } from "@babylonjs/core/Engines/engine.js";
 import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
-import { AdvancedDynamicTexture } from "@babylonjs/gui";
-import { Observable } from "@babylonjs/core";
+import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture.js";
+import { Observable } from "@babylonjs/core/Misc/observable.js";
 import Tile from './Tile.js';
 import TileMath from './TileMath.js';
 import Attribution from "./Attribution.js";

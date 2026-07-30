@@ -7,7 +7,7 @@ import type TileBuilding from "./TileBuilding.js";
 import { BoundingBox } from "@babylonjs/core/Culling/boundingBox.js";
 
 import type TileSet from "./TileSet.js";
-import { MeshBuilder } from "@babylonjs/core";
+import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
