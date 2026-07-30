@@ -84,3 +84,32 @@ buildings.generateBuildings();
 
 `maxFeaturesPerRequest` defaults to `3000` and can be lowered when testing or
 when a service advertises a smaller page limit.
+
+## Credits
+
+<img align="left" height="120" src="doc/vic_thumb.jpeg" alt="Vic Szabo">
+
+**[Vic Szabo](https://scholars.duke.edu/person/ves4)**  
+Principal Investigator  
+Research Professor of Art, Art History & Visual Studies, Duke University  
+Chair of Art, Art History & Visual Studies, Duke University
+
+<br clear="left">
+
+<img align="left" height="120" src="doc/dave_thumb.jpg" alt="David J. Zielinski">
+
+**[David J. Zielinski](https://people.duke.edu/~djzielin/)**  
+Senior AR/VR Technology Specialist, Duke University  
+Developer, 2022–2025  
+Project Manager, 2026–present
+
+<br clear="left">
+
+<img align="left" height="120" src="doc/thomas_thumb.jpeg" alt="Thomas Hines">
+
+**[Thomas Hines](https://www.linkedin.com/in/thethomashines/)**  
+Lead Developer, 2026–present  
+Undergraduate, Computer Science / Electrical & Computer Engineering, Duke University
+
+<br clear="left">
+
