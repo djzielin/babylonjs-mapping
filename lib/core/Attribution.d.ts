@@ -8,6 +8,7 @@ export default class Attribution {
     private buttonMBLogo;
     private buttonImprov;
     private buttonOSMBuildings;
+    private buttonOverture;
     private attributionList;
     private ourRightPanel;
     private ourLeftPanel;
@@ -15,5 +16,6 @@ export default class Attribution {
     addAttribution(provider: string): void;
     private addAttributionOSM;
     private addAttributionOSMBuildings;
+    private addAttributionOverture;
     private addAttributionMapbox;
 }

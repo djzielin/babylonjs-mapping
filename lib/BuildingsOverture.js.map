@@ -1,0 +1,1 @@
+{"version":3,"file":"BuildingsOverture.js","sourceRoot":"","sources":["../src/BuildingsOverture.ts"],"names":[],"mappings":"AAAA,OAAO,EACH,OAAO,EACP,uBAAuB,EACvB,iCAAiC,GACpC,MAAM,kCAAkC,CAAC","sourcesContent":["export {\n    default,\n    OVERTURE_TILES_BASE_URL,\n    resolveLatestOvertureBuildingsURL,\n} from \"./buildings/BuildingsOverture.js\";\n"]}

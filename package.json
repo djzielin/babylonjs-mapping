@@ -24,7 +24,10 @@
   "dependencies": {
     "@babylonjs/core": "^6.49.0",
     "@babylonjs/gui": "^6.49.0",
-    "earcut": "^2.2.4"
+    "@mapbox/vector-tile": "^3.0.0",
+    "earcut": "^2.2.4",
+    "pbf": "^5.1.2",
+    "pmtiles": "^4.4.1"
   },
   "devDependencies": {
     "@types/earcut": "^2.1.4",

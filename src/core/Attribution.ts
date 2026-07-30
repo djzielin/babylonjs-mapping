@@ -10,6 +10,7 @@ export default class Attribution {
     private buttonMBLogo: Button;
     private buttonImprov: Button;
     private buttonOSMBuildings: Button;
+    private buttonOverture: Button;
 
     private attributionList: string[]=[];
     private ourRightPanel: StackPanel;
@@ -56,6 +57,11 @@ export default class Attribution {
             this.addAttributionOSMBuildings();
         }
 
+        if (provider == "OVERTURE") {
+            this.addAttributionOSM();
+            this.addAttributionOverture();
+        }
+
         this.attributionList.push(provider);
     }
     
@@ -94,6 +100,24 @@ export default class Attribution {
 
         this.ourRightPanel.addControl(this.buttonOSMBuildings);
     }    
+
+    private addAttributionOverture() {
+        this.buttonOverture = Button.CreateSimpleButton("button_overture", "© Overture Maps");
+        this.buttonOverture.width = "105px";
+        this.buttonOverture.height = "25px";
+        this.buttonOverture.color = "blue";
+        this.buttonOverture.alpha = 0.75;
+        this.buttonOverture.thickness = 0;
+        this.buttonOverture.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.buttonOverture.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.buttonOverture.fontSize = "12px";
+        this.buttonOverture.background = "";
+        this.buttonOverture.onPointerUpObservable.add(function () {
+            window.open("https://docs.overturemaps.org/attribution/");
+        });
+
+        this.ourRightPanel.addControl(this.buttonOverture);
+    }
 
 
     /* 
