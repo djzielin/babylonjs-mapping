@@ -173,6 +173,36 @@ describe("GeoJSON projection detection", () => {
 });
 
 describe("GeoJSON geometry sizing", () => {
+  it("applies a per-building transform before the mesh is stored or merged", () => {
+    const { engine, scene, tileSet } = createTileSet();
+    const geoJson = new GeoJSON(tileSet, scene);
+    const buildings = new TestBuildings("test", tileSet, RetrievalLocation.Local);
+    buildings.buildingMeshTransform = vi.fn((mesh) => {
+      mesh.position.y += 5;
+    });
+
+    geoJson.generateSingleBuilding(
+      "test",
+      createFeature({
+        type: "Polygon",
+        coordinates: [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]],
+      }, {
+        height: 12,
+      }),
+      EPSG_Type.EPSG_3857,
+      tileSet.ourTiles[0],
+      false,
+      buildings,
+    );
+
+    const mesh = tileSet.ourTiles[0].buildings[0].mesh;
+    expect(buildings.buildingMeshTransform).toHaveBeenCalledOnce();
+    expect(mesh.getBoundingInfo().boundingBox.minimumWorld.y).toBeCloseTo(5, 5);
+
+    scene.dispose();
+    engine.dispose();
+  });
+
   it("uses the requested line width in world units for both supported projections", () => {
     const widths: number[] = [];
 
@@ -278,6 +308,18 @@ describe("OSM roof shapes", () => {
       shape: "gabled",
       height: 6,
       direction: 45,
+    });
+  });
+
+  it("accepts Overture roof schema property names", () => {
+    expect(resolveRoofSpec({
+      roof_shape: "hipped",
+      roof_height: 5,
+      roof_direction: 135,
+    }, 20)).toEqual({
+      shape: "hipped",
+      height: 5,
+      direction: 135,
     });
   });
 
