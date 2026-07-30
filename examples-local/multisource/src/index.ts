@@ -16,9 +16,9 @@ import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Button } from "@babylonjs/gui/2D/controls/button";
-import { TextBlock } from "@babylonjs/gui";
-import { Control } from "@babylonjs/gui";
-import { StandardMaterial } from "@babylonjs/core";
+import { TextBlock } from "@babylonjs/gui/2D/controls/textBlock";
+import { Control } from "@babylonjs/gui/2D/controls/control";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 

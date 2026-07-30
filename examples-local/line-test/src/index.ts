@@ -15,11 +15,11 @@ import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Button } from "@babylonjs/gui/2D/controls/button";
-import { TextBlock } from "@babylonjs/gui";
-import { Control } from "@babylonjs/gui";
-import { StandardMaterial } from "@babylonjs/core";
+import { TextBlock } from "@babylonjs/gui/2D/controls/textBlock";
+import { Control } from "@babylonjs/gui/2D/controls/control";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math";
-import { DynamicTexture } from "@babylonjs/core";
+import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture";
 import { Matrix } from "@babylonjs/core/Maths/math";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
@@ -32,7 +32,7 @@ import BuildingsWFS from "../../../lib/BuildingsWFS";
 import { EPSG_Type } from "../../../lib/TileMath";
 import TileBuilding from "../../../lib/TileBuilding";
 import { coordinateArray, coordinateArrayOfArrays } from "../../../lib/GeoJSON";
-import { MeshBuilder } from "@babylonjs/core";
+import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import {LineTestReturnPacket} from "../../../lib/TileBuilding";
 
 class Game {

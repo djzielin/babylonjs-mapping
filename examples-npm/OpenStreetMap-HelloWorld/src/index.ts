@@ -15,15 +15,13 @@ import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Button } from "@babylonjs/gui/2D/controls/button";
-import { TextBlock } from "@babylonjs/gui";
-import { Control } from "@babylonjs/gui";
+import { TextBlock } from "@babylonjs/gui/2D/controls/textBlock";
+import { Control } from "@babylonjs/gui/2D/controls/control";
 
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 
-import TileSet from "babylonjs-mapping";
-import BuildingsOSM from "babylonjs-mapping/lib/BuildingsOSM";
-import RasterOSM from "babylonjs-mapping/lib/RasterOSM";
+import { BuildingsOSM, RasterOSM, TileSet } from "babylonjs-mapping";
 
 class Game {
     private canvas: HTMLCanvasElement;
@@ -117,7 +115,7 @@ class Game {
         this.ourTS = new TileSet(this.scene,this.engine);
         this.ourTS.setRasterProvider(new RasterOSM(this.ourTS)); //raster basemap to OSM
         this.ourTS.createGeometry(new Vector2(4,4), 20, 2); //4x4 tile set, 20m width of each tile, and 2 divisions on each tile
-        this.ourTS.updateRaster(35.2258461, -80.8400777, 16); //lat, lon, zoom. takes us to charlotte. 
+        this.ourTS.updateRaster(36.0014, -78.9382, 16); //lat, lon, zoom. takes us to Duke University in Durham.
 
         const accessToken=await this.getKey("osmb-key.txt");
         this.ourOSM=new BuildingsOSM(this.ourTS);

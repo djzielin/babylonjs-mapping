@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { NullEngine, Scene, StandardMaterial, Vector2, VertexBuffer } from "@babylonjs/core";
 
-import { GeoJSON, type feature } from "../src/GeoJSON";
+import { detectProjection, GeoJSON, type feature, type topLevel } from "../src/GeoJSON";
 import { resolveRoofSpec } from "../src/buildings/RoofBuilder";
-import Buildings from "../src/Buildings";
+import Buildings, { BuildingRequestType, type BuildingRequest } from "../src/Buildings";
 import TileSet from "../src/TileSet";
 import { EPSG_Type } from "../src/TileMath";
 import { RetrievalLocation, RetrievalType } from "../src/Retrieval";
@@ -22,6 +22,10 @@ class TestBuildings extends Buildings {
 
   public SubmitLoadAllRequest(): void {
     // The request queue is not part of these lifecycle tests.
+  }
+
+  public getQueuedRequests(): BuildingRequest[] {
+    return this.buildingRequests;
   }
 }
 
@@ -94,6 +98,74 @@ describe("geometry lifecycle safeguards", () => {
     expect(() => buildings.generateBuildings()).toThrow(
       "Cannot generate buildings before updateRaster() has been called.",
     );
+
+    scene.dispose();
+    engine.dispose();
+  });
+});
+
+describe("GeoJSON projection detection", () => {
+  it("recognizes common CRS declarations", () => {
+    const declarations: Array<[topLevel["crs"], EPSG_Type | undefined]> = [
+      [{ type: "name", properties: { name: "EPSG:4326" } }, EPSG_Type.EPSG_4326],
+      [{ type: "name", properties: { href: "https://www.opengis.net/def/crs/EPSG/0/3857" } }, EPSG_Type.EPSG_3857],
+      [{ type: "EPSG", properties: { code: 4326 } }, EPSG_Type.EPSG_4326],
+      [{ type: "name", properties: { name: "EPSG:9999" } }, undefined],
+      [undefined, undefined],
+    ];
+
+    for (const [crs, expected] of declarations) {
+      expect(detectProjection({ crs })).toBe(expected);
+    }
+  });
+
+  it("uses the detected CRS when queuing features without an explicit projection", () => {
+    const { engine, scene, tileSet } = createTileSet();
+    const buildings = new TestBuildings("test", tileSet, RetrievalLocation.Local);
+    const tile = tileSet.ourTiles[0];
+    const request: BuildingRequest = {
+      requestType: BuildingRequestType.LoadTile,
+      tile,
+      tileCoords: tile.tileCoords.clone(),
+      inProgress: false,
+      flipWinding: false,
+    };
+    const document: topLevel = {
+      type: "FeatureCollection",
+      crs: { type: "name", properties: { name: "EPSG:3857" } },
+      features: [createFeature({ type: "Point", coordinates: [0, 0] })],
+    };
+
+    buildings.ProcessGeoJSON(request, document);
+
+    expect(buildings.getQueuedRequests()).toHaveLength(1);
+    expect(buildings.getQueuedRequests()[0].epsgType).toBe(EPSG_Type.EPSG_3857);
+
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it("keeps an explicitly supplied projection ahead of the CRS declaration", () => {
+    const { engine, scene, tileSet } = createTileSet();
+    const buildings = new TestBuildings("test", tileSet, RetrievalLocation.Local);
+    const tile = tileSet.ourTiles[0];
+    const request: BuildingRequest = {
+      requestType: BuildingRequestType.LoadTile,
+      tile,
+      tileCoords: tile.tileCoords.clone(),
+      inProgress: false,
+      flipWinding: false,
+      epsgType: EPSG_Type.EPSG_4326,
+    };
+    const document: topLevel = {
+      type: "FeatureCollection",
+      crs: { type: "name", properties: { name: "EPSG:3857" } },
+      features: [createFeature({ type: "Point", coordinates: [0, 0] })],
+    };
+
+    buildings.ProcessGeoJSON(request, document);
+
+    expect(buildings.getQueuedRequests()[0].epsgType).toBe(EPSG_Type.EPSG_4326);
 
     scene.dispose();
     engine.dispose();

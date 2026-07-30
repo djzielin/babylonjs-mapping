@@ -1,5 +1,5 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
-import { Scene } from "@babylonjs/core";
+import { Scene } from "@babylonjs/core/scene.js";
 import type Buildings from "./Buildings.js";
 import type Tile from '../core/Tile.js';
 import type TileSet from "../core/TileSet.js";
@@ -7,6 +7,15 @@ import { EPSG_Type } from "../core/TileMath.js";
 export interface topLevel {
     "type": string;
     "features": feature[];
+    "crs"?: coordinateReferenceSystem | string | null;
+}
+export interface coordinateReferenceSystem {
+    "type"?: string;
+    "properties"?: {
+        "name"?: string;
+        "href"?: string;
+        "code"?: string | number;
+    };
 }
 export interface feature {
     "id": string;
@@ -40,6 +49,12 @@ export interface coordinateArray extends Array<Vector3> {
 }
 export interface coordinateArrayOfArrays extends Array<coordinateArray> {
 }
+/**
+ * Detects the supported coordinate system declared by a GeoJSON CRS entry.
+ * Returns undefined for missing or unsupported CRS declarations so callers can
+ * preserve their existing explicit-projection fallback.
+ */
+export declare function detectProjection(document: Pick<topLevel, "crs">): EPSG_Type | undefined;
 export declare class GeoJSON {
     private tileSet;
     private scene;

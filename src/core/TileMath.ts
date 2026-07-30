@@ -1,6 +1,6 @@
 import { Vector2, Vector4 } from "@babylonjs/core/Maths/math.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
-import { BoundingBox } from "@babylonjs/core";
+import { BoundingBox } from "@babylonjs/core/Culling/boundingBox.js";
 import Tile from './Tile';
 import TileSet from "./TileSet.js";
 

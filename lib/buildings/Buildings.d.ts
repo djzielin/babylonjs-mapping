@@ -4,12 +4,16 @@ import * as GeoJSON from './GeoJSON.js';
 import type Tile from "../core/Tile.js";
 import type TileSet from "../core/TileSet.js";
 import { EPSG_Type } from "../core/TileMath.js";
-import { Observable } from "@babylonjs/core";
+import { Observable } from "@babylonjs/core/Misc/observable.js";
 import { RetrievalLocation, RetrievalType } from "../shared/Retrieval.js";
 export declare enum BuildingRequestType {
     LoadTile = 0,
     CreateBuilding = 1,
     MergeAllBuildingsOnTile = 2
+}
+export interface BuildingRequestPagination {
+    pageSize: number;
+    startIndex: number;
 }
 export interface BuildingRequest {
     requestType: BuildingRequestType;
@@ -20,6 +24,8 @@ export interface BuildingRequest {
     feature?: GeoJSON.feature;
     epsgType?: EPSG_Type;
     url?: string;
+    pagination?: BuildingRequestPagination;
+    mergeAfterLoad?: boolean;
 }
 interface GeoFileLoaded {
     url: string;
@@ -58,13 +64,25 @@ export default abstract class Buildings {
     abstract SubmitLoadTileRequest(tile: Tile): void;
     abstract SubmitLoadAllRequest(): void;
     ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void;
+    /**
+     * Providers can override this to create the next request after a full
+     * paginated response has been processed.
+     */
+    protected createNextPageRequest(_request: BuildingRequest, _featuresReturned: number): BuildingRequest | undefined;
+    /**
+     * Some paginated services report that an exact final page is out of range
+     * instead of returning an empty FeatureCollection.
+     */
+    protected isPaginationEndResponse(_request: BuildingRequest, _response: Response): boolean;
+    protected enqueueMergeRequest(request: BuildingRequest): void;
     protected prettyName(): string;
     private isURLLoaded;
     private getFeatures;
     protected stripFilePrefix(original: string): string;
     protected removePendingRequest(index?: number): void;
     protected doSave(text: string): void;
-    protected handleLoadTileRequest(request: BuildingRequest): void;
+    private processLoadedGeoJSON;
+    protected handleLoadTileRequest(request: BuildingRequest, requestIndex?: number): void;
     processBuildingRequests(): void;
     generateBuildings(): void;
 }
