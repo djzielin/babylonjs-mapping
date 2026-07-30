@@ -178,9 +178,17 @@ class Game {
         this.terrainTileSet.updateRaster(LANDSCAPE_CENTER.y, LANDSCAPE_CENTER.x, LANDSCAPE_ZOOM);
 
         const tokyoWorld = this.terrainTileSet.ourTileMath.EPSG_to_Game(TOKYO, EPSG_Type.EPSG_4326);
+        const skytreeWorld = this.terrainTileSet.ourTileMath.EPSG_to_Game(
+            TOKYO_SKYTREE,
+            EPSG_Type.EPSG_4326,
+        );
+        const towerWorld = this.terrainTileSet.ourTileMath.EPSG_to_Game(
+            TOKYO_TOWER,
+            EPSG_Type.EPSG_4326,
+        );
         const fujiWorld = this.terrainTileSet.ourTileMath.EPSG_to_Game(MOUNT_FUJI, EPSG_Type.EPSG_4326);
-        camera.position.copyFrom(tokyoWorld.add(new Vector3(12, 10, 12)));
-        camera.setTarget(fujiWorld.add(new Vector3(0, 2, 0)));
+        camera.position.copyFrom(skytreeWorld.add(new Vector3(8, 13, 8)));
+        camera.setTarget(towerWorld.add(new Vector3(0, 2.5, 0)));
 
         this.overviewBuildingTileSet = this.createTransparentTileSet(
             new Vector2(8, 6),
@@ -299,20 +307,15 @@ class Game {
                     [100, 250, 800, 1100, 1400, 1650, 1900],
                     2,
                 );
-                const tokyoHeight = this.sampleTerrainHeight(tokyoWorld);
+                const skytreeHeight = this.sampleTerrainHeight(skytreeWorld);
+                const towerHeight = this.sampleTerrainHeight(towerWorld);
                 const fujiHeight = this.sampleTerrainHeight(fujiWorld);
-                camera.position.copyFrom(
-                    tokyoWorld.add(new Vector3(10, tokyoHeight + 14, 10)),
-                );
-                camera.setTarget(
-                    fujiWorld.add(new Vector3(0, fujiHeight * 0.25, 0)),
-                );
                 this.setupCameraPresets(
                     camera,
-                    tokyoWorld,
-                    fujiWorld,
-                    tokyoHeight,
-                    fujiHeight,
+                    skytreeWorld,
+                    towerWorld,
+                    skytreeHeight,
+                    towerHeight,
                 );
                 this.canvas.dataset.fujiHeight = fujiHeight.toFixed(1);
                 console.log("Tokyo–Fuji terrain and terrain LOD are ready.");
@@ -641,28 +644,43 @@ class Game {
             EPSG_Type.EPSG_4326,
         );
         const alignment = terrainReference.subtract(landmarkReference);
+        const landmarkMaterial = new StandardMaterial(
+            "tokyo-landmark-models",
+            this.scene,
+        );
+        landmarkMaterial.diffuseColor = new Color3(0.92, 0.93, 0.95);
+        landmarkMaterial.emissiveColor = new Color3(0.16, 0.16, 0.17);
+        landmarkMaterial.specularColor = new Color3(0.15, 0.15, 0.15);
+        landmarkMaterial.backFaceCulling = false;
+        landmarkMaterial.freeze();
 
         for (const tile of this.landmarkBuildings.loadedModelTiles) {
             tile.root.position.addInPlace(alignment);
             tile.root.computeWorldMatrix(true);
+            for (const mesh of tile.asset.meshes) {
+                if (mesh.getTotalVertices() > 0) {
+                    mesh.material = landmarkMaterial;
+                    mesh.isPickable = false;
+                }
+            }
         }
     }
 
     private setupCameraPresets(
         camera: UniversalCamera,
-        tokyoWorld: Vector3,
-        fujiWorld: Vector3,
-        tokyoHeight: number,
-        fujiHeight: number,
+        skytreeWorld: Vector3,
+        towerWorld: Vector3,
+        skytreeHeight: number,
+        towerHeight: number,
     ): void {
         const showWideView = () => {
             camera.upVector.set(0, 1, 0);
             camera.rotation.z = 0;
             camera.position.copyFrom(
-                tokyoWorld.add(new Vector3(10, tokyoHeight + 14, 10)),
+                skytreeWorld.add(new Vector3(8, skytreeHeight + 13, 8)),
             );
             camera.setTarget(
-                fujiWorld.add(new Vector3(0, fujiHeight * 0.25, 0)),
+                towerWorld.add(new Vector3(0, towerHeight + 2.5, 0)),
             );
         };
         const showLandmark = (
@@ -696,6 +714,7 @@ class Game {
                 showLandmark(TOKYO_TOWER, 333);
             }
         });
+        showWideView();
     }
 
     private sampleTerrainHeight(worldPosition: Vector3): number {
