@@ -130,7 +130,6 @@ export default class TileBuilding {
     }
 
     public computeBuildingBoxInsideTile() {
-        console.log("trying to compute if: " + this.mesh.name + " is completely inside tile: " + this.tile.mesh.name);
         const mBounds=this.mesh.getBoundingInfo().boundingBox;
 
         let bboxPointsInsideTile=0;

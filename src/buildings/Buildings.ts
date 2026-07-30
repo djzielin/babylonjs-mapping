@@ -378,7 +378,6 @@ export default abstract class Buildings {
                 for (let e = 1; e < this.buildingRequests.length; e++) {
                     request = this.buildingRequests[e];
                     if (request.requestType == BuildingRequestType.CreateBuilding || request.requestType == BuildingRequestType.MergeAllBuildingsOnTile) {
-                        console.log(this.prettyName() + "found some work to do while waiting!");
                         foundWork = true;
                         rIndex = e;
                         break;
@@ -440,13 +439,15 @@ export default abstract class Buildings {
                     }
                     //console.log("about to do big merge");
                     const allMeshes: Mesh[] = request.tile.getAllBuildingMeshes();
-                    const merged = Mesh.MergeMeshes(allMeshes, false); //false=don't get rid of originals
+                    const merged = Mesh.MergeMeshes(
+                        allMeshes,
+                        true,
+                        true,
+                    ); //dispose source meshes and allow dense 32-bit index buffers
 
                     if (merged) {
                         merged.setParent(request.tile.mesh);
                         merged.name = "all_buildings_merged";
-
-                        request.tile.hideIndividualBuildings();
 
                         request.tile.mergedBuildingMesh = merged;
                     } else {
