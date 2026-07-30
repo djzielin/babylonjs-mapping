@@ -19,6 +19,10 @@ export interface propertiesOSM {
     "type": string;
     "height": number;
     "levels": number;
+    "roofShape"?: string;
+    "roofHeight"?: number;
+    "roofLevels"?: number;
+    "roofDirection"?: number;
 }
 export interface geometry {
     "type": string;

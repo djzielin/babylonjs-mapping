@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { NullEngine, Scene, StandardMaterial, Vector2 } from "@babylonjs/core";
+import { NullEngine, Scene, StandardMaterial, Vector2, VertexBuffer } from "@babylonjs/core";
 
 import { GeoJSON, type feature } from "../src/GeoJSON";
+import { resolveRoofSpec } from "../src/buildings/RoofBuilder";
 import Buildings from "../src/Buildings";
 import TileSet from "../src/TileSet";
 import { EPSG_Type } from "../src/TileMath";
@@ -45,13 +46,13 @@ function createBuildingSettings(scene: Scene, lineWidth = 6, pointDiameter = 8) 
   } as unknown as Buildings;
 }
 
-function createFeature(geometry: feature["geometry"]): feature {
-  return {
-    id: "test-feature",
-    type: "Feature",
-    properties: {},
-    geometry,
-  };
+function createFeature(geometry: feature["geometry"], properties: Record<string, unknown> = {}): feature {
+    return {
+        id: "test-feature",
+        type: "Feature",
+        properties,
+        geometry,
+    };
 }
 
 describe("geometry lifecycle safeguards", () => {
@@ -148,6 +149,93 @@ describe("GeoJSON geometry sizing", () => {
 
     const mesh = tileSet.ourTiles[0].buildings[0].mesh;
     expect(mesh.getBoundingInfo().boundingBox.extendSizeWorld.x * 2).toBeCloseTo(8, 3);
+
+    scene.dispose();
+    engine.dispose();
+  });
+});
+
+describe("OSM roof shapes", () => {
+  const footprint = {
+    type: "Polygon",
+    coordinates: [[[0, 0], [20, 0], [20, 10], [0, 10], [0, 0]]],
+  };
+
+  it.each(["gabled", "hipped", "pyramidal", "skillion"])(
+    "builds a %s roof without changing the tagged total height",
+    (roofShape) => {
+      const { engine, scene, tileSet } = createTileSet();
+      const geoJson = new GeoJSON(tileSet, scene);
+      const feature = createFeature(footprint, {
+        height: 12,
+        roofShape,
+        roofHeight: 4,
+        roofDirection: 90,
+      });
+
+      geoJson.generateSingleBuilding(
+        "test",
+        feature,
+        EPSG_Type.EPSG_3857,
+        tileSet.ourTiles[0],
+        false,
+        createBuildingSettings(scene),
+      );
+
+      const mesh = tileSet.ourTiles[0].buildings[0].mesh;
+      const positions = mesh.getVerticesData(VertexBuffer.PositionKind) ?? [];
+      const yCoordinates = positions.filter((_, index) => index % 3 === 1);
+      const expectedWallHeight = 8 * tileSet.tileScale;
+      const expectedTotalHeight = 12 * tileSet.tileScale;
+
+      expect(Math.max(...yCoordinates)).toBeCloseTo(expectedTotalHeight, 5);
+      expect(yCoordinates.some((height) => Math.abs(height - expectedWallHeight) < 1e-5)).toBe(true);
+      expect(mesh.metadata.roofShape).toBe(roofShape);
+
+      scene.dispose();
+      engine.dispose();
+    },
+  );
+
+  it("uses roof levels and accepts raw Simple 3D Buildings property names", () => {
+    expect(resolveRoofSpec({
+      "roof:shape": "gabled",
+      "roof:levels": "2",
+      "roof:direction": "45",
+    }, 20)).toEqual({
+      shape: "gabled",
+      height: 6,
+      direction: 45,
+    });
+  });
+
+  it("keeps a full-height flat roof when a shaped roof cannot preserve a courtyard", () => {
+    const { engine, scene, tileSet } = createTileSet();
+    const geoJson = new GeoJSON(tileSet, scene);
+    const feature = createFeature({
+      type: "Polygon",
+      coordinates: [
+        [[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]],
+        [[5, 5], [5, 15], [15, 15], [15, 5], [5, 5]],
+      ],
+    }, {
+      height: 12,
+      roofShape: "pyramidal",
+      roofHeight: 4,
+    });
+
+    geoJson.generateSingleBuilding(
+      "test",
+      feature,
+      EPSG_Type.EPSG_3857,
+      tileSet.ourTiles[0],
+      false,
+      createBuildingSettings(scene),
+    );
+
+    const mesh = tileSet.ourTiles[0].buildings[0].mesh;
+    mesh.computeWorldMatrix(true);
+    expect(mesh.getBoundingInfo().boundingBox.maximumWorld.y).toBeCloseTo(12 * tileSet.tileScale, 5);
 
     scene.dispose();
     engine.dispose();

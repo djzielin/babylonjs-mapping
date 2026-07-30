@@ -39,3 +39,9 @@ the source data uses EPSG:4326 or EPSG:3857:
 streets.lineWidth = 0.25;
 points.pointDiameter = 0.5;
 ```
+
+OSM Buildings roof metadata is applied automatically. `gabled`, `hipped`,
+`pyramidal`/`pyramid`, and `skillion` roof shapes honor `roofHeight`,
+`roofLevels`, and `roofDirection` (as well as the equivalent raw
+`roof:*` property names). Complex footprints that cannot be roofed without
+changing their topology keep the existing full-height flat extrusion.
