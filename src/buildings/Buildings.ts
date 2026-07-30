@@ -115,6 +115,7 @@ export default abstract class Buildings {
 
         let index = 0;
         let addedBuildings = 0;
+        const detectedEpsgType = request.epsgType ?? GeoJSON.detectProjection(topLevel);
         const meshArray: Mesh[] = [];
         for (const f of topLevel.features) {
             const brequest: BuildingRequest = {
@@ -122,7 +123,7 @@ export default abstract class Buildings {
                 tile: request.tile,
                 tileCoords: request.tile.tileCoords.clone(),
                 inProgress: false,
-                epsgType: request.epsgType,
+                epsgType: detectedEpsgType,
                 feature: f,
                 flipWinding: request.flipWinding
             }

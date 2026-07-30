@@ -15,6 +15,16 @@ import TileBuilding from "../core/TileBuilding.js";
 export interface topLevel {
     "type": string;
     "features": feature[];
+    "crs"?: coordinateReferenceSystem | string | null;
+}
+
+export interface coordinateReferenceSystem {
+    "type"?: string;
+    "properties"?: {
+        "name"?: string;
+        "href"?: string;
+        "code"?: string | number;
+    };
 }
 
 export interface feature {
@@ -43,6 +53,55 @@ export interface coordinatePair extends Array<number> { }
 
 export interface coordinateArray extends Array<Vector3> { }
 export interface coordinateArrayOfArrays extends Array<coordinateArray> { }
+
+function projectionFromIdentifier(identifier: unknown): EPSG_Type | undefined {
+    if (typeof identifier === "number") {
+        if (identifier === 4326) {
+            return EPSG_Type.EPSG_4326;
+        }
+        if (identifier === 3857 || identifier === 900913 || identifier === 3785 || identifier === 102100 || identifier === 102113) {
+            return EPSG_Type.EPSG_3857;
+        }
+        return undefined;
+    }
+
+    if (typeof identifier !== "string") {
+        return undefined;
+    }
+
+    const normalized = identifier.trim().toUpperCase();
+    if (normalized === "CRS84" || normalized.endsWith("CRS84")) {
+        return EPSG_Type.EPSG_4326;
+    }
+
+    const codeMatch = normalized.match(/(?:^|[^0-9])(4326|3857|900913|3785|102100|102113)(?:$|[^0-9])/);
+    if (!codeMatch) {
+        return undefined;
+    }
+
+    return projectionFromIdentifier(Number(codeMatch[1]));
+}
+
+/**
+ * Detects the supported coordinate system declared by a GeoJSON CRS entry.
+ * Returns undefined for missing or unsupported CRS declarations so callers can
+ * preserve their existing explicit-projection fallback.
+ */
+export function detectProjection(document: Pick<topLevel, "crs">): EPSG_Type | undefined {
+    const crs = document.crs;
+    if (typeof crs === "string") {
+        return projectionFromIdentifier(crs);
+    }
+    if (crs === null || crs === undefined) {
+        return undefined;
+    }
+
+    const properties = crs.properties;
+    return projectionFromIdentifier(properties?.name)
+        ?? projectionFromIdentifier(properties?.href)
+        ?? projectionFromIdentifier(properties?.code)
+        ?? projectionFromIdentifier(crs.type);
+}
 
 export class GeoJSON {
     constructor(private tileSet: TileSet, private scene: Scene) {
