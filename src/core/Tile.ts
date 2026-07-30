@@ -35,6 +35,7 @@ export default class Tile {
     public eastSeamFixed = false;
     public northSeamFixed = false;
     public northEastSeamFixed = false;
+    public terrainLODMeshes: Array<Mesh | null> = [];
 
     constructor(public mesh: Mesh, public tileSet: TileSet) {
         mesh.computeWorldMatrix(true); //we were previously missing this, which caused a bug in the computation of the tile bounds! 
@@ -76,6 +77,14 @@ export default class Tile {
         if(this.mergedBuildingMesh!==undefined){
             this.mergedBuildingMesh.dispose();
         }
+    }
+
+    public clearTerrainLOD() {
+        for (const lodMesh of this.terrainLODMeshes) {
+            this.mesh.removeLODLevel(lodMesh);
+            lodMesh?.dispose();
+        }
+        this.terrainLODMeshes = [];
     }
 
     public hideIndividualBuildings(){

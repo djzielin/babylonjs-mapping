@@ -3,6 +3,8 @@ import { Vector2 } from "@babylonjs/core/Maths/math.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { FloatArray, VertexBuffer } from "@babylonjs/core";
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import type Tile from '../core/Tile';
 import type TileSet from "../core/TileSet.js";
 
@@ -51,12 +53,11 @@ export default class TerrainMB {
         })
     }
 
-    public updateAllTerrainTiles(exaggeration: number) {
+    public async updateAllTerrainTiles(exaggeration: number): Promise<void> {
         this.setExaggeration(this.tileSet.ourTileMath.computeTileScale(), exaggeration);
+        this.globalMinHeight = Number.POSITIVE_INFINITY;
 
-        for (let t of this.tileSet.ourTiles) {
-            this.updateSingleTerrainTile(t);         
-        }
+        await Promise.all(this.tileSet.ourTiles.map((tile) => this.updateSingleTerrainTile(tile)));
 
         //Fix Seams Here
         /*for (let t of this.ourTiles) {
@@ -82,30 +83,163 @@ export default class TerrainMB {
         //this.ourMB.getTileTerrain(this.ourTiles[0]); //just one for testing
     }
 
-    /*public setupTerrainLOD(precisions: number[], distances:number[]) {
-        for (let t of this.ourTiles) {
+    public setupTerrainLOD(precisions: number[], distances: number[], skirtDepth = this.tileSet.tileWidth): void {
+        this.validateTerrainLOD(precisions, distances, skirtDepth);
 
-            for (let i = 0; i < precisions.length; i++) {
-                const precision = precisions[i];
-                const distance = distances[i];
-
-                if(precision>0){
-                    const loadMesh = this.makeSingleTileMesh(t.colRow.x, t.colRow.y, precision);
-                    this.ourMB.applyHeightArrayToMesh(loadMesh, t, precision, -this.globalMinHeight);
-                    loadMesh.material = t.material;
-                    t.mesh.addLODLevel(distance, loadMesh);
-                }
-                else{
-                    t.mesh.addLODLevel(distance,null);
-                }
+        for (const tile of this.tileSet.ourTiles) {
+            if (!tile.terrainLoaded) {
+                throw new Error("Cannot set up terrain LOD before every tile has loaded terrain.");
             }
         }
-    }*/
+
+        for (const tile of this.tileSet.ourTiles) {
+            tile.clearTerrainLOD();
+
+            for (let levelIndex = 0; levelIndex < precisions.length; levelIndex++) {
+                const precision = precisions[levelIndex];
+                const distance = distances[levelIndex];
+
+                if (precision === 0) {
+                    tile.mesh.addLODLevel(distance, null);
+                    tile.terrainLODMeshes.push(null);
+                    continue;
+                }
+
+                const lodMesh = this.tileSet.makeSingleTileMesh(0, 0, precision);
+                lodMesh.position.copyFrom(tile.mesh.position);
+                lodMesh.name = `${tile.mesh.name}_LOD_${precision}`;
+                lodMesh.material = tile.material;
+                lodMesh.isPickable = false;
+
+                this.applyDetailedTerrainToMesh(lodMesh, tile, precision);
+                this.addTerrainSkirt(lodMesh, precision, skirtDepth);
+
+                tile.mesh.addLODLevel(distance, lodMesh);
+                tile.terrainLODMeshes.push(lodMesh);
+            }
+        }
+    }
+
+    private validateTerrainLOD(precisions: number[], distances: number[], skirtDepth: number): void {
+        if (precisions.length === 0 || precisions.length !== distances.length) {
+            throw new RangeError("Terrain LOD precisions and distances must be non-empty arrays of equal length.");
+        }
+        if (!Number.isFinite(skirtDepth) || skirtDepth <= 0) {
+            throw new RangeError("Terrain LOD skirtDepth must be a finite number greater than zero.");
+        }
+
+        for (let index = 0; index < precisions.length; index++) {
+            const precision = precisions[index];
+            const distance = distances[index];
+
+            if (!Number.isInteger(precision) || precision < 0 || precision >= this.tileSet.meshPrecision) {
+                throw new RangeError(`Terrain LOD precision at index ${index} must be an integer from 0 to ${this.tileSet.meshPrecision - 1}.`);
+            }
+            if (!Number.isFinite(distance) || distance <= 0 || (index > 0 && distance <= distances[index - 1])) {
+                throw new RangeError("Terrain LOD distances must be finite, greater than zero, and strictly increasing.");
+            }
+            if (precision === 0 && index !== precisions.length - 1) {
+                throw new RangeError("A terrain LOD precision of 0 must be the final level.");
+            }
+            if (index > 0 && precision !== 0 && precision >= precisions[index - 1]) {
+                throw new RangeError("Terrain LOD precisions must strictly decrease with distance.");
+            }
+        }
+    }
+
+    private applyDetailedTerrainToMesh(lodMesh: Mesh, tile: Tile, precision: number): void {
+        const sourcePositions = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
+        const lodPositions = lodMesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
+        const sourcePrecision = this.tileSet.meshPrecision;
+        const lodSubdivisions = precision + 1;
+        const sourceSubdivisions = sourcePrecision + 1;
+
+        for (let y = 0; y < lodSubdivisions; y++) {
+            for (let x = 0; x < lodSubdivisions; x++) {
+                const sourceX = x * sourcePrecision / precision;
+                const sourceY = y * sourcePrecision / precision;
+                const x0 = Math.floor(sourceX);
+                const x1 = Math.min(Math.ceil(sourceX), sourcePrecision);
+                const y0 = Math.floor(sourceY);
+                const y1 = Math.min(Math.ceil(sourceY), sourcePrecision);
+                const tx = sourceX - x0;
+                const ty = sourceY - y0;
+                const height00 = sourcePositions[1 + (x0 + y0 * sourceSubdivisions) * 3];
+                const height10 = sourcePositions[1 + (x1 + y0 * sourceSubdivisions) * 3];
+                const height01 = sourcePositions[1 + (x0 + y1 * sourceSubdivisions) * 3];
+                const height11 = sourcePositions[1 + (x1 + y1 * sourceSubdivisions) * 3];
+                const topHeight = height00 + (height10 - height00) * tx;
+                const bottomHeight = height01 + (height11 - height01) * tx;
+                const lodIndex = 1 + (x + y * lodSubdivisions) * 3;
+
+                lodPositions[lodIndex] = topHeight + (bottomHeight - topHeight) * ty;
+            }
+        }
+
+        lodMesh.updateVerticesData(VertexBuffer.PositionKind, lodPositions);
+    }
+
+    private addTerrainSkirt(mesh: Mesh, precision: number, skirtDepth: number): void {
+        const positions = Array.from(mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray);
+        const normals = Array.from(mesh.getVerticesData(VertexBuffer.NormalKind) as FloatArray);
+        const uvs = Array.from(mesh.getVerticesData(VertexBuffer.UVKind) as FloatArray);
+        const indices = Array.from(mesh.getIndices() ?? []);
+        const subdivisions = precision + 1;
+        const boundary: number[] = [];
+
+        for (let x = 0; x < subdivisions; x++) boundary.push(x);
+        for (let y = 1; y < subdivisions; y++) boundary.push((subdivisions - 1) + y * subdivisions);
+        for (let x = subdivisions - 2; x >= 0; x--) boundary.push(x + (subdivisions - 1) * subdivisions);
+        for (let y = subdivisions - 2; y > 0; y--) boundary.push(y * subdivisions);
+
+        const skirtTopStart = positions.length / 3;
+        for (const vertexIndex of boundary) {
+            positions.push(
+                positions[vertexIndex * 3],
+                positions[vertexIndex * 3 + 1],
+                positions[vertexIndex * 3 + 2],
+            );
+            uvs.push(uvs[vertexIndex * 2], uvs[vertexIndex * 2 + 1]);
+        }
+
+        const skirtBottomStart = positions.length / 3;
+        for (const vertexIndex of boundary) {
+            positions.push(
+                positions[vertexIndex * 3],
+                positions[vertexIndex * 3 + 1] - skirtDepth,
+                positions[vertexIndex * 3 + 2],
+            );
+            uvs.push(uvs[vertexIndex * 2], uvs[vertexIndex * 2 + 1]);
+        }
+
+        for (let index = 0; index < boundary.length; index++) {
+            const next = (index + 1) % boundary.length;
+            const topA = skirtTopStart + index;
+            const topB = skirtTopStart + next;
+            const bottomA = skirtBottomStart + index;
+            const bottomB = skirtBottomStart + next;
+
+            indices.push(topA, bottomA, topB, topB, bottomA, bottomB);
+        }
+
+        normals.length = positions.length;
+        normals.fill(0);
+        VertexData.ComputeNormals(positions, indices, normals);
+        mesh.setVerticesData(VertexBuffer.PositionKind, positions, true);
+        mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
+        mesh.setVerticesData(VertexBuffer.UVKind, uvs, true);
+        mesh.setIndices(indices);
+        mesh.refreshBoundingInfo();
+    }
 
 
     //https://docs.mapbox.com/data/tilesets/reference/mapbox-terrain-dem-v1/
     public async updateSingleTerrainTile(tile: Tile) {
+        tile.clearTerrainLOD();
         tile.terrainLoaded=false;
+        tile.eastSeamFixed = false;
+        tile.northSeamFixed = false;
+        tile.northEastSeamFixed = false;
 
         if(tile.tileCoords.z>15 && this.tileSet.doTerrainResBoost==false){            
             console.log("DEM not supported beyond level 15 (if not doing res boost)");

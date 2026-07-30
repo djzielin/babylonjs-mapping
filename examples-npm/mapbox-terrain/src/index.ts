@@ -143,9 +143,12 @@ class Game {
 
         this.ourTS.updateRaster(36.10054279295824, -112.11265952053303, zoom); //grand canyon
 
-        this.ourTS.generateTerrain(1.0).then(() => {
-            console.log("all terrain ready!");
-        });
+        await this.ourTS.generateTerrain(1.0);
+        this.ourTS.setupTerrainLOD(
+            [16, 4, 1, 0],
+            [this.maxPrecision * 2, this.maxPrecision * 4, this.maxPrecision * 8, this.maxPrecision * 16],
+        );
+        console.log("all terrain ready!");
 
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program 

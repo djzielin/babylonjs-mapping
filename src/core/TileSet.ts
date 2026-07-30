@@ -146,6 +146,7 @@ export default class TileSet {
         if (this.isGeometrySetup) {
             for (const tile of this.ourTiles) {
                 tile.deleteBuildings();
+                tile.clearTerrainLOD();
                 tile.mesh.dispose();
             }
             this.ourTiles = [];
@@ -442,6 +443,19 @@ export default class TileSet {
     public async generateTerrain(exaggeration: number) {
     this.assertRasterSetup("generate terrain");
     await this.ourTerrainMB.updateAllTerrainTiles(exaggeration);
+}
+
+    /**
+     * Adds distance-based terrain LOD levels. Reduced meshes inherit the
+     * stitched borders of the detailed terrain and use skirts to hide cracks
+     * where adjacent tiles select different LOD levels.
+     *
+     * A precision of 0 hides the tile at that distance and must be the final
+     * level. Existing terrain LOD levels created by this method are replaced.
+     */
+    public setupTerrainLOD(precisions: number[], distances: number[], skirtDepth = this.tileWidth) {
+    this.assertGeometrySetup("set up terrain LOD");
+    this.ourTerrainMB.setupTerrainLOD(precisions, distances, skirtDepth);
 }
 
     public getTerrainLowestY(): number {

@@ -112,5 +112,14 @@ export default class TileSet {
     moveAllTiles(movX: number, movZ: number, reloadLimitPerFrame: number, buildingCreator: Buildings | null): void;
     private moveHelper;
     generateTerrain(exaggeration: number): Promise<void>;
+    /**
+     * Adds distance-based terrain LOD levels. Reduced meshes inherit the
+     * stitched borders of the detailed terrain and use skirts to hide cracks
+     * where adjacent tiles select different LOD levels.
+     *
+     * A precision of 0 hides the tile at that distance and must be the final
+     * level. Existing terrain LOD levels created by this method are replaced.
+     */
+    setupTerrainLOD(precisions: number[], distances: number[], skirtDepth?: number): void;
     getTerrainLowestY(): number;
 }

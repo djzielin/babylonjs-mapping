@@ -2,6 +2,22 @@
 Do get this working you will need a mapbox-key.txt file in your /assets directory.
 This contains the access token you can get when registering with mapbox.
 
+The example also enables stitched terrain LOD after the elevation tiles load:
+
+```ts
+await tileSet.generateTerrain(1.0);
+tileSet.setupTerrainLOD(
+  [16, 4, 1, 0],
+  [128, 256, 512, 1024],
+);
+```
+
+Each precision is the number of subdivisions per tile at the corresponding
+distance. A final precision of `0` hides terrain beyond that distance. Reduced
+meshes reuse the detailed tile borders and add skirts to cover transitions
+where neighboring tiles select different levels. An optional third argument
+sets the skirt depth; it defaults to one tile width.
+
 # IEEE VR 2021 Web-Based VR Tutorial
 
 This is a simple example of a Babylon.js project.
