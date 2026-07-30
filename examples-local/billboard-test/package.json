@@ -1,7 +1,7 @@
 {
     "name": "OpenStreetMap-BillboardTest",
     "version": "1.0.0",
-    "description": "illustrate building billboard LOD with a local copy of babylonjs-mapping",
+    "description": "illustrate building and terrain LOD with a local copy of babylonjs-mapping",
     "main": "index.ts",
     "dependencies": {
         "@babylonjs/core": "^6.49.0",
