@@ -13,6 +13,7 @@ function assertImportsResolve() {
     const root = await import("babylonjs-mapping");
     const flat = await import("babylonjs-mapping/lib/RasterOSM");
     const landmarks = await import("babylonjs-mapping/lib/BuildingsMB");
+    const overture = await import("babylonjs-mapping/lib/BuildingsOverture");
     const nested = await import("babylonjs-mapping/lib/core/TileSet");
 
     if (typeof root.TileSet !== "function") {
@@ -25,6 +26,13 @@ function assertImportsResolve() {
 
     if (typeof root.BuildingsMB !== "function" || typeof landmarks.default !== "function") {
       throw new Error("Mapbox landmark building exports did not resolve");
+    }
+
+    if (
+      typeof root.BuildingsOverture !== "function" ||
+      typeof overture.resolveLatestOvertureBuildingsURL !== "function"
+    ) {
+      throw new Error("Overture building provider exports did not resolve");
     }
 
     if (typeof nested.default !== "function") {
