@@ -7,9 +7,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 concurrency:
   group: demo-deployment-${{ github.ref }}
   cancel-in-progress: true
@@ -19,16 +16,10 @@ env:
 
 jobs:
   build:
-    name: Build ${{ matrix.demo }}
+    name: Build demos
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        demo:
-          - OpenStreetMap-Endless
-          - OpenStreetMap-HelloWorld
-          - OpenStreetMap-UserData-RealScale
-          - mapbox-terrain
+    permissions:
+      contents: read
 
     steps:
       - name: Check out repository
@@ -39,55 +30,67 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # The npm demos do not have lockfiles yet, so npm install is intentional.
-      - name: Install demo dependencies
-        working-directory: examples-npm/${{ matrix.demo }}
-        run: npm install --no-package-lock --no-audit --no-fund
+      - name: Build and pack current library
+        run: |
+          npm ci
+          npm run build
+          npm pack --pack-destination "${RUNNER_TEMP}"
 
-      - name: Build demo
-        working-directory: examples-npm/${{ matrix.demo }}
-        run: npm run build
+      - name: Build demo site
+        env:
+          OSMB_ACCESS_TOKEN: ${{ secrets.OSMB_ACCESS_TOKEN }}
+          MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p site
+          package_tarball="$(find "${RUNNER_TEMP}" -maxdepth 1 -name 'babylonjs-mapping-*.tgz' -print -quit)"
+          test -n "${package_tarball}"
 
-      - name: Upload built demo
-        uses: actions/upload-artifact@v4
+          demos=(
+            OpenStreetMap-Endless
+            OpenStreetMap-HelloWorld
+            OpenStreetMap-UserData-RealScale
+            mapbox-terrain
+          )
+
+          for demo in "${demos[@]}"; do
+            cd "${GITHUB_WORKSPACE}/examples-npm/${demo}"
+            npm install --no-package-lock --no-audit --no-fund
+            npm install "${package_tarball}" --no-save --no-package-lock --no-audit --no-fund
+            npm run build
+
+            mkdir -p "${GITHUB_WORKSPACE}/site/${demo}"
+            cp -R dist/. "${GITHUB_WORKSPACE}/site/${demo}/"
+
+            if [[ -n "${OSMB_ACCESS_TOKEN}" && "${demo}" != "mapbox-terrain" ]]; then
+              printf '%s' "${OSMB_ACCESS_TOKEN}" > "${GITHUB_WORKSPACE}/site/${demo}/osmb-key.txt"
+            fi
+            if [[ -n "${MAPBOX_ACCESS_TOKEN}" && "${demo}" == "mapbox-terrain" ]]; then
+              printf '%s' "${MAPBOX_ACCESS_TOKEN}" > "${GITHUB_WORKSPACE}/site/${demo}/mapbox-key.txt"
+            fi
+          done
+
+          cp "${GITHUB_WORKSPACE}/.github/pages/index.html" "${GITHUB_WORKSPACE}/site/index.html"
+          touch "${GITHUB_WORKSPACE}/site/.nojekyll"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: demo-${{ matrix.demo }}
-          path: examples-npm/${{ matrix.demo }}/dist
-          if-no-files-found: error
-          retention-days: 7
+          path: site
 
-  # This job is deliberately gated until a hosting provider and credentials are
-  # available. It provides the provider-neutral handoff point for the deployer.
   deploy:
-    name: Deploy ${{ matrix.demo }}
-    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && vars.DEMO_DEPLOY_ENABLED == 'true' }}
+    name: Deploy demos to GitHub Pages
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
     needs: build
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        demo:
-          - OpenStreetMap-Endless
-          - OpenStreetMap-HelloWorld
-          - OpenStreetMap-UserData-RealScale
-          - mapbox-terrain
+    permissions:
+      pages: write
+      id-token: write
     environment:
-      name: demos
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Download built demo
-        uses: actions/download-artifact@v4
-        with:
-          name: demo-${{ matrix.demo }}
-          path: dist
-
-      - name: Deploy demo (provider hook)
-        env:
-          DEMO_NAME: ${{ matrix.demo }}
-          DEMO_DIST: ${{ github.workspace }}/dist
-          DEMO_DEPLOY_HOST: ${{ vars.DEMO_DEPLOY_HOST }}
-          DEMO_DEPLOY_TOKEN: ${{ secrets.DEMO_DEPLOY_TOKEN }}
-        run: |
-          echo "::error::No demo deployment provider is configured yet for ${DEMO_NAME}."
-          echo "Replace this provider hook after DEMO_DEPLOY_HOST and DEMO_DEPLOY_TOKEN are available."
-          exit 1
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
