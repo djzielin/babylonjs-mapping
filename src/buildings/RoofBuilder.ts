@@ -35,11 +35,14 @@ function finiteNumber(value: unknown): number | undefined {
 }
 
 /**
- * Resolve the subset of Simple 3D Buildings roof tags that can be generated
- * from a footprint alone. OSM Buildings exposes the source tags in camelCase.
+ * Resolve the subset of roof tags that can be generated from a footprint
+ * alone. OSM Buildings uses camelCase/raw OSM keys, while Overture uses
+ * snake_case schema fields.
  */
 export function resolveRoofSpec(properties: Record<string, unknown>, totalHeight: number): RoofSpec | undefined {
-    const rawShape = properties.roofShape ?? properties["roof:shape"];
+    const rawShape = properties.roofShape ??
+        properties["roof:shape"] ??
+        properties.roof_shape;
     if (typeof rawShape !== "string") {
         return undefined;
     }
@@ -53,8 +56,16 @@ export function resolveRoofSpec(properties: Record<string, unknown>, totalHeight
         return undefined;
     }
 
-    const explicitHeight = finiteNumber(properties.roofHeight ?? properties["roof:height"]);
-    const roofLevels = finiteNumber(properties.roofLevels ?? properties["roof:levels"]);
+    const explicitHeight = finiteNumber(
+        properties.roofHeight ??
+        properties["roof:height"] ??
+        properties.roof_height,
+    );
+    const roofLevels = finiteNumber(
+        properties.roofLevels ??
+        properties["roof:levels"] ??
+        properties.roof_levels,
+    );
     const requestedHeight = explicitHeight ?? (roofLevels === undefined ? METERS_PER_LEVEL : roofLevels * METERS_PER_LEVEL);
     const height = Math.min(Math.max(requestedHeight, 0), Math.max(totalHeight, 0));
 
@@ -62,7 +73,11 @@ export function resolveRoofSpec(properties: Record<string, unknown>, totalHeight
         return undefined;
     }
 
-    const direction = finiteNumber(properties.roofDirection ?? properties["roof:direction"]);
+    const direction = finiteNumber(
+        properties.roofDirection ??
+        properties["roof:direction"] ??
+        properties.roof_direction,
+    );
     return { shape, height, direction };
 }
 

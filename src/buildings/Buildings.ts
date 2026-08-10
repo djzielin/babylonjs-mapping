@@ -38,6 +38,15 @@ export interface BuildingRequest {
     mergeAfterLoad?: boolean;
 }
 
+export interface BuildingLODOptions {
+    /** Enables a rectangle billboard for each generated feature at a distance. */
+    enabled?: boolean;
+    /** Distance in Babylon world units at which the billboard is selected. */
+    distance?: number;
+    /** Babylon billboard mode, such as Mesh.BILLBOARDMODE_Y or Mesh.BILLBOARDMODE_ALL. */
+    billboardMode?: number;
+}
+
 
 
 interface GeoFileLoaded {
@@ -50,6 +59,15 @@ export default abstract class Buildings {
     //things the user might be interested in changing
     public exaggeration = 1.0;
     public doMerge = false;
+    /**
+     * Optional per-feature rectangle billboards for distant buildings.
+     * LOD is disabled by default and should be configured before generation.
+     */
+    public buildingLOD: BuildingLODOptions = {
+        enabled: false,
+        distance: 100,
+        billboardMode: Mesh.BILLBOARDMODE_Y,
+    };
     public defaultBuildingHeight = 4.0;
     /** Width of MultiLineString extrusions in Babylon world units. */
     public lineWidth = 0.25;
@@ -58,6 +76,11 @@ export default abstract class Buildings {
     public buildingsCreatedPerFrame = 10; //TODO: is there a better way to do this?
     public cacheFiles = true;
     public buildingMaterial: StandardMaterial;
+    /**
+     * Optional transform applied to each completed building mesh before LOD
+     * generation, duplicate detection, and tile merging.
+     */
+    public buildingMeshTransform?: (mesh: Mesh) => void;
     public retrievalType: RetrievalType = RetrievalType.IndividualTiles;
 
     protected buildingRequests: BuildingRequest[] = [];
@@ -132,7 +155,11 @@ export default abstract class Buildings {
         }
 
         if (request.mergeAfterLoad !== false) {
-            this.enqueueMergeRequest(request);
+            if (this.doMerge && this.buildingLOD.enabled) {
+                console.warn(this.prettyName() + "building LOD is enabled, so individual buildings will be kept instead of merged.");
+            } else {
+                this.enqueueMergeRequest(request);
+            }
         }
         console.log(this.prettyName() + addedBuildings + " building generation requests queued for tile: " + request.tile.tileCoords);
     }
@@ -356,7 +383,6 @@ export default abstract class Buildings {
                 for (let e = 1; e < this.buildingRequests.length; e++) {
                     request = this.buildingRequests[e];
                     if (request.requestType == BuildingRequestType.CreateBuilding || request.requestType == BuildingRequestType.MergeAllBuildingsOnTile) {
-                        console.log(this.prettyName() + "found some work to do while waiting!");
                         foundWork = true;
                         rIndex = e;
                         break;
@@ -418,13 +444,15 @@ export default abstract class Buildings {
                     }
                     //console.log("about to do big merge");
                     const allMeshes: Mesh[] = request.tile.getAllBuildingMeshes();
-                    const merged = Mesh.MergeMeshes(allMeshes, false); //false=don't get rid of originals
+                    const merged = Mesh.MergeMeshes(
+                        allMeshes,
+                        true,
+                        true,
+                    ); //dispose source meshes and allow dense 32-bit index buffers
 
                     if (merged) {
                         merged.setParent(request.tile.mesh);
                         merged.name = "all_buildings_merged";
-
-                        request.tile.hideIndividualBuildings();
 
                         request.tile.mergedBuildingMesh = merged;
                     } else {
