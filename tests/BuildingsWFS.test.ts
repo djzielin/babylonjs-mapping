@@ -76,6 +76,27 @@ function installFetchPages(pages: Record<number, { features?: feature[]; status?
   return requestedURLs;
 }
 
+function installFeatureServicePages(pages: Record<number, { features?: feature[]; status?: number }>) {
+  const requestedURLs: string[] = [];
+  const fetchMock = vi.fn((requestURL: string) => {
+    requestedURLs.push(requestURL);
+    const offset = Number(new URL(requestURL).searchParams.get("resultOffset") ?? "0");
+    const page = pages[offset] ?? { features: [] };
+    const status = page.status ?? 200;
+    const text = status === 200
+      ? JSON.stringify({ type: "FeatureCollection", features: page.features ?? [] })
+      : "";
+
+    return Promise.resolve({
+      status,
+      text: () => Promise.resolve(text),
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  return requestedURLs;
+}
+
 async function drainRequests(buildings: TestBuildingsWFS): Promise<void> {
   for (let i = 0; i < 100; i++) {
     buildings.processBuildingRequests();
@@ -95,6 +116,49 @@ afterEach(() => {
 });
 
 describe("BuildingsWFS pagination", () => {
+  it("queries an ArcGIS Feature Service directly with GeoJSON and spatial paging", async () => {
+    const { engine, scene, tileSet, buildings } = createBuildings();
+    const features = [1, 2, 3, 4, 5].map((id) => pointFeature(String(id)));
+    const requestedURLs = installFeatureServicePages({
+      0: { features: features.slice(0, 2) },
+      2: { features: features.slice(2, 4) },
+      4: { features: features.slice(4) },
+    });
+
+    try {
+      buildings.setupAGOLFeatureService(
+        "https://example.test/FeatureServer?token=test-token",
+        0,
+      );
+      buildings.generateBuildings();
+      await drainRequests(buildings);
+
+      expect(requestedURLs).toHaveLength(3);
+      expect(requestedURLs.map((url) => new URL(url).pathname)).toEqual([
+        "/FeatureServer/0/query",
+        "/FeatureServer/0/query",
+        "/FeatureServer/0/query",
+      ]);
+      expect(requestedURLs.map((url) => new URL(url).searchParams.get("resultOffset"))).toEqual(["0", "2", "4"]);
+      expect(requestedURLs.map((url) => new URL(url).searchParams.get("resultRecordCount"))).toEqual(["2", "2", "2"]);
+
+      const firstQuery = new URL(requestedURLs[0]).searchParams;
+      expect(firstQuery.get("token")).toBe("test-token");
+      expect(firstQuery.get("f")).toBe("geojson");
+      expect(firstQuery.get("where")).toBe("1=1");
+      expect(firstQuery.get("outFields")).toBe("*");
+      expect(firstQuery.get("geometryType")).toBe("esriGeometryEnvelope");
+      expect(firstQuery.get("inSR")).toBe("4326");
+      expect(firstQuery.get("outSR")).toBe("4326");
+      expect(firstQuery.get("spatialRel")).toBe("esriSpatialRelIntersects");
+      expect(firstQuery.get("geometry")?.split(",")).toHaveLength(4);
+      expect(tileSet.ourTiles[0].buildings).toHaveLength(5);
+    } finally {
+      scene.dispose();
+      engine.dispose();
+    }
+  });
+
   it("paginates ArcGIS Online requests and generates every returned feature", async () => {
     const { engine, scene, tileSet, buildings } = createBuildings();
     const features = [1, 2, 3, 4, 5].map((id) => pointFeature(String(id)));
