@@ -85,6 +85,26 @@ buildings.generateBuildings();
 `maxFeaturesPerRequest` defaults to `3000` and can be lowered when testing or
 when a service advertises a smaller page limit.
 
+For ArcGIS Feature Services, the REST query API can be used directly instead of
+creating a WFS share. The provider sends a GeoJSON query constrained to each
+map tile and uses `resultOffset`/`resultRecordCount` paging:
+
+```ts
+const buildings = new BuildingsWFS(
+    "buildings",
+    "https://services.arcgis.com/.../FeatureServer",
+    "0",
+    EPSG_Type.EPSG_4326,
+    tileSet,
+);
+
+buildings.setupAGOLFeatureService();
+buildings.generateBuildings();
+```
+
+You can also pass a complete `/query` URL or preserve a service token in the
+URL query string.
+
 ## Building LOD
 
 Building billboards are opt-in. Configure them before generating buildings:

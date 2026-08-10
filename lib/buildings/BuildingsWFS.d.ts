@@ -17,9 +17,16 @@ export default class BuildingsWFS extends Buildings {
     paginateRequests: boolean;
     /** ArcGIS Online's hosted WFS feature limit; can be lowered for testing or smaller services. */
     maxFeaturesPerRequest: number;
+    /** ArcGIS Feature Service query URL, set by setupAGOLFeatureService(). */
+    private agolFeatureServiceQueryURL;
     constructor(name: string, url: string, layerName: string, epsg: EPSG_Type, tileSet: TileSet, retrievalLocation?: RetrievalLocation);
     setupAGOL(): void;
     setupGeoServer(): void;
+    /**
+     * Uses ArcGIS Feature Service's REST query API instead of its WFS facade.
+     * Pass a FeatureServer root and layer id, or pass a complete `/query` URL.
+     */
+    setupAGOLFeatureService(serviceURL?: string, layerId?: string | number): void;
     SubmitLoadTileRequest(tile: Tile): void;
     SubmitLoadAllRequest(): void;
     protected createNextPageRequest(request: BuildingRequest, featuresReturned: number): BuildingRequest | undefined;
@@ -27,4 +34,6 @@ export default class BuildingsWFS extends Buildings {
     private loadHelper;
     private getPageSize;
     private withPaginationParameters;
+    private createFeatureServiceQueryURL;
+    private withFeatureServicePagination;
 }
