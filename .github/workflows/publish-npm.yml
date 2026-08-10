@@ -1,0 +1,49 @@
+name: Publish package
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish babylonjs-mapping
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          registry-url: https://registry.npmjs.org
+
+      - name: Set up npm trusted publishing client
+        run: npm install --global npm@11.5.1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build package
+        run: npm run build
+
+      - name: Match the release tag to package.json
+        if: ${{ github.event_name == 'release' }}
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          package_version="$(node --input-type=module --eval 'import { readFileSync } from "node:fs"; console.log(JSON.parse(readFileSync("package.json", "utf8")).version)')"
+          expected_tag="v${package_version}"
+          test "${RELEASE_TAG}" = "${expected_tag}"
+
+      - name: Publish to npm with provenance
+        run: npm publish --provenance --access public
