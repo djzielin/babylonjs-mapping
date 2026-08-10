@@ -1,6 +1,7 @@
 import { Vector2 } from "@babylonjs/core/Maths/math.js";
 import Raster from "./Raster.js";
 import { RetrievalLocation } from "../shared/Retrieval.js";
+import { getLocalResourceURL } from "../shared/LocalRetrieval.js";
 import type TileSet from "../core/TileSet.js";
 import type { TileRequest } from "../core/TileSet.js";
 
@@ -48,8 +49,10 @@ export default class RasterWMTS extends Raster {
         let url: string = baseURL + "/" + zoom + "/" + (tileCoords.y) + "/" + (tileCoords.x) + this.extension;
 
         if (this.retrievalLocation == RetrievalLocation.Local) {
-            const baseUrl = window.location.href.replace(/\/[^/]*\.[^/]*$/, "").replace(/\/$/, "") + "/"; //TODO make this a util function
-            url = baseUrl + "map_cache/" + zoom + "_" + (tileCoords.y) + "_" + (tileCoords.x) + this.extension;
+            url = getLocalResourceURL(
+                this.localPathPrefix,
+                zoom + "_" + tileCoords.y + "_" + tileCoords.x + this.extension,
+            );
         }
 
         return url;

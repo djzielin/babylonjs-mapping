@@ -144,6 +144,17 @@ this.ourOSM.generateBuildings();
 
 At the configured distance, Babylon.js swaps each detailed building for a double-sided rectangle sized from its world-space bounds and billboarded around the vertical axis. Set `billboardMode` to `Mesh.BILLBOARDMODE_ALL` when full camera-facing rotation is preferred. Per-building LOD requires individual meshes, so `buildingLOD.enabled` keeps buildings separate even when `doMerge` is also true.
 
+## Local cache paths
+
+WMTS raster providers and all-data WFS building providers use `map_cache/` by
+default when `RetrievalLocation.Local` is selected. Set `localPathPrefix` to
+serve the cache below another relative directory or an absolute URL path:
+
+```ts
+raster.localPathPrefix = "assets/map_cache/";
+buildings.localPathPrefix = "assets/map_cache/";
+```
+
 ## Credits
 
 <img align="left" height="120" src="doc/vic_thumb.jpeg" alt="Vic Szabo">

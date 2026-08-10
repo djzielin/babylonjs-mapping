@@ -43,6 +43,8 @@ interface GeoFileLoaded {
 export default abstract class Buildings {
     name: string;
     protected tileSet: TileSet;
+    /** Directory or URL prefix used for local cached building assets. */
+    localPathPrefix: string;
     exaggeration: number;
     doMerge: boolean;
     /**

@@ -3,6 +3,7 @@ import { BuildingRequest} from "./Buildings.js";
 import { BuildingRequestType } from "./Buildings.js";
 import { Vector4 } from "@babylonjs/core/Maths/math.js";
 import { RetrievalLocation, RetrievalType } from "../shared/Retrieval.js";
+import { getLocalResourceURL } from "../shared/LocalRetrieval.js";
 
 import type Tile from "../core/Tile.js";
 import type TileSet from "../core/TileSet.js";
@@ -119,8 +120,7 @@ export default class BuildingsWFS extends Buildings {
         let pagination: BuildingRequest["pagination"];
 
         if(this.retrievalLocation==RetrievalLocation.Local && this.retrievalType==RetrievalType.AllData){
-            const baseUrl = window.location.href.replace(/\/[^/]*\.[^/]*$/, "").replace(/\/$/, "") + "/"; //TODO make this a util function
-            requestURL = baseUrl + "map_cache/"+this.name + ".json"; //override requestURL for local file
+            requestURL = getLocalResourceURL(this.localPathPrefix, this.name + ".json");
         } else if (this.agolFeatureServiceQueryURL) {
             const pageSize = this.getPageSize();
             pagination = {

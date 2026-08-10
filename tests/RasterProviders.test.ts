@@ -67,4 +67,19 @@ describe("RasterWMTS", () => {
       "https://example.test/viewers/wmts-local/map_cache/16_18050_25908.png",
     );
   });
+
+  it("supports a custom local cache prefix", () => {
+    vi.stubGlobal("window", {
+      location: {
+        href: "https://example.test/viewers/wmts-local/index.html",
+      },
+    });
+
+    const raster = new RasterWMTS(tileSetStub as never, RetrievalLocation.Local);
+    raster.localPathPrefix = "assets/map_cache/";
+
+    expect(raster.getRasterURL(new Vector2(1, 2), 3)).toBe(
+      "https://example.test/viewers/wmts-local/assets/map_cache/3_2_1.png",
+    );
+  });
 });
