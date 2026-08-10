@@ -1,6 +1,6 @@
 {
   "name": "babylonjs-mapping",
-  "version": "1.1.43",
+  "version": "1.1.44",
   "author": "David Zielinski <djzielin@gmail.com>",
   "license": "MIT",
   "description": "module to help display map content from OpenStreetMaps, Mapbox, and AGOL natively in Babylon.js",
@@ -40,7 +40,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "tsc --build tsconfig.npm.json",
-    "clean": "rimraf ./lib"
+    "clean": "rimraf ./lib",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "repository": {
     "type": "git",

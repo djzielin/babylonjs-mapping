@@ -27,6 +27,14 @@ https://people.duke.edu/~djzielin/babylonjs-mapping/Terrain/
 Tested with:
 Node 20.10.0 LTS
 
+## Releasing
+
+The package is published by `.github/workflows/publish-npm.yml` when a GitHub
+release is published with a matching `v<package version>` tag. The workflow
+runs the tests and build first, then publishes with npm provenance. Before
+creating the release, configure npm's trusted publisher for repository
+`djzielin/babylonjs-mapping` and workflow file `publish-npm.yml`.
+
 ## Building geometry options
 
 Call `createGeometry` and `updateRaster` before generating buildings. The library throws
@@ -112,4 +120,3 @@ Lead Developer, 2026–present
 Undergraduate, Computer Science / Electrical & Computer Engineering, Duke University
 
 <br clear="left">
-
