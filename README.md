@@ -144,6 +144,24 @@ this.ourOSM.generateBuildings();
 
 At the configured distance, Babylon.js swaps each detailed building for a double-sided rectangle sized from its world-space bounds and billboarded around the vertical axis. Set `billboardMode` to `Mesh.BILLBOARDMODE_ALL` when full camera-facing rotation is preferred. Per-building LOD requires individual meshes, so `buildingLOD.enabled` keeps buildings separate even when `doMerge` is also true.
 
+## Endless terrain recycling
+
+`moveAllTiles` can reload Mapbox terrain for tiles that are recycled at the edge
+of an endless tileset. Pass `true` as the optional fifth argument after terrain
+has been configured:
+
+```ts
+await tileSet.generateTerrain(1);
+
+scene.onBeforeRenderObservable.add(() => {
+    tileSet.moveAllTiles(dx, dz, 2, buildings, true);
+});
+```
+
+Terrain seam repair is re-applied for every loaded cardinal and diagonal
+neighbor whenever a tile finishes loading, so recycled DEM data does not retain
+stale seam state.
+
 ## Credits
 
 <img align="left" height="120" src="doc/vic_thumb.jpeg" alt="Vic Szabo">

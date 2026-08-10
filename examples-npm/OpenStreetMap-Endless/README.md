@@ -16,6 +16,11 @@ After that, you can compile and run a server with:
 npm run start
 ```
 
+To enable endless terrain, add a Mapbox access token to
+`public/mapbox-key.txt`. The OSM raster/building demo remains usable without
+that optional file; when it is present, recycled tiles request fresh Mapbox
+Terrain-DEM data as they move around the endless grid.
+
 For those familiar with Typescript, you do not have to run ```tsc``` to build the .js files from the .ts files;  ```npx``` builds them on the fly as part of running webpack.
 
 You can run the sample by pointing your web browser at ```https://localhost:8080/index.html```
