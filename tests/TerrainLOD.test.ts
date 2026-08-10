@@ -84,6 +84,12 @@ describe("terrain LOD stitching", () => {
       expect(leftY).toBe(rightY);
     }
 
+    const originalCenter = leftLOD.getBoundingInfo().boundingBox.centerWorld.clone();
+    tileSet.ourTiles[0].mesh.position.x += 25;
+    leftLOD.computeWorldMatrix(true);
+    const movedCenter = leftLOD.getBoundingInfo().boundingBox.centerWorld;
+    expect(movedCenter.x - originalCenter.x).toBeCloseTo(25);
+
     scene.dispose();
     engine.dispose();
   });

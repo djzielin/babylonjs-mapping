@@ -103,6 +103,18 @@ describe("building billboard LOD", () => {
     const expectedHeight = detailedBounds.extendSizeWorld.y * 2;
     expect(Math.max(...xValues) - Math.min(...xValues)).toBeCloseTo(expectedWidth, 6);
     expect(Math.max(...yValues) - Math.min(...yValues)).toBeCloseTo(expectedHeight, 6);
+    expect(lodMesh.getBoundingInfo().boundingBox.centerWorld.x).toBeCloseTo(
+      detailedBounds.centerWorld.x,
+      6,
+    );
+    expect(lodMesh.getBoundingInfo().boundingBox.centerWorld.y).toBeCloseTo(
+      detailedBounds.centerWorld.y,
+      6,
+    );
+    expect(lodMesh.getBoundingInfo().boundingBox.centerWorld.z).toBeCloseTo(
+      detailedBounds.centerWorld.z,
+      6,
+    );
     expect(mesh.getLODLevelAtDistance(25)).toBe(lodMesh);
 
     const buildingCenter = mesh.getBoundingInfo().boundingSphere.centerWorld.clone();
