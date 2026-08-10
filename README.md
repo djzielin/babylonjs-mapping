@@ -144,6 +144,48 @@ this.ourOSM.generateBuildings();
 
 At the configured distance, Babylon.js swaps each detailed building for a double-sided rectangle sized from its world-space bounds and billboarded around the vertical axis. Set `billboardMode` to `Mesh.BILLBOARDMODE_ALL` when full camera-facing rotation is preferred. Per-building LOD requires individual meshes, so `buildingLOD.enabled` keeps buildings separate even when `doMerge` is also true.
 
+## Performance controls and measurements
+
+Optimization choices are explicit on both `Buildings` and `TileSet` providers. Building
+world matrices remain live by default because the endless example moves its tile parents;
+static scenes can freeze them after generation. The shared building material is frozen by
+default, while picking, collisions, and distance-based request prioritization can be
+changed independently:
+
+```ts
+buildings.setOptimizationOptions({
+    freezeWorldMatrices: true,       // static tiles only
+    freezeMaterials: false,          // allow selection/highlight material edits
+    disablePicking: true,
+    disableCollisions: true,
+    prioritizeRequestsByDistance: true,
+});
+
+tileSet.setOptimizationOptions({
+    freezeRasterMaterials: true,
+    freezeTileWorldMatrices: false,  // keep false when moveAllTiles() is used
+    disableTilePicking: false,
+    disableTileCollisions: true,
+});
+```
+
+Distance prioritization keeps one network request in flight, processes the closest
+available tile first, and never merges a tile while its building-creation requests are
+still pending. This is useful for endless scenes where nearby content should appear first.
+
+For a before/after comparison, enable frame sampling and inspect the cumulative geometry
+and LOD counters:
+
+```ts
+buildings.setPerformanceMonitoringEnabled(true);
+// ...render a representative camera path...
+console.log(buildings.getPerformanceStats());
+```
+
+The returned data includes detailed/billboard vertex counts, estimated vertex reduction,
+LOD selections, queue depth, and average/min/max frame times. Call
+`resetPerformanceStats()` between test runs.
+
 ## Credits
 
 <img align="left" height="120" src="doc/vic_thumb.jpeg" alt="Vic Szabo">

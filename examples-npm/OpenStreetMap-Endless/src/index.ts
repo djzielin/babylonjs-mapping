@@ -138,6 +138,10 @@ class Game {
         this.ourOSM.accessToken = accessToken;
         this.ourOSM.doMerge = true;
         this.ourOSM.exaggeration = 3;
+        this.ourOSM.setOptimizationOptions({
+            prioritizeRequestsByDistance: true,
+            freezeWorldMatrices: false,
+        });
         this.ourOSM.generateBuildings();
 
         // Show the debug scene explorer and object inspector

@@ -38,6 +38,17 @@ export interface TilePositionUpdate {
     previousTileCoords: Vector3;
     tileCoords: Vector3;
 }
+export interface TileSetOptimizationOptions {
+    /** Freeze raster materials after their texture is ready. */
+    freezeRasterMaterials?: boolean;
+    /** Freeze tile world matrices. Only use this when tiles never move. */
+    freezeTileWorldMatrices?: boolean;
+    /** Disable picking on raster tile meshes. */
+    disableTilePicking?: boolean;
+    /** Disable collision checks on raster tile meshes. */
+    disableTileCollisions?: boolean;
+}
+export declare const DEFAULT_TILESET_OPTIMIZATION_OPTIONS: Readonly<Required<TileSetOptimizationOptions>>;
 export default class TileSet {
     scene: Scene;
     private engine;
@@ -69,6 +80,8 @@ export default class TileSet {
     numTiles: Vector2;
     tileWidth: number;
     meshPrecision: number;
+    /** Controls optional raster/tile mesh optimizations. */
+    optimizationOptions: Required<TileSetOptimizationOptions>;
     private isGeometrySetup;
     private isRasterSetup;
     /**
@@ -89,6 +102,10 @@ export default class TileSet {
      * Guard operations that also require tile coordinates from updateRaster().
      */
     assertRasterSetup(operation?: string): void;
+    /** Merges tile optimization settings and applies them to existing tiles. */
+    setOptimizationOptions(options: TileSetOptimizationOptions): void;
+    /** Applies picking, collision, world-matrix, and material settings. */
+    applyOptimizationOptions(): void;
     /**
     * setup a ground plane tile set. this sets up just the underlying meshes, but doesn't populate them with content yet
     * @param numTiles how many tiles in the x and y directions

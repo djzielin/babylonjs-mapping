@@ -60,7 +60,7 @@ export default class BuildingsOSM extends Buildings {
             inProgress: false,
             flipWinding: true
         }
-        this.buildingRequests.push(request);
+        this.enqueueBuildingRequest(request);
     }       
 
     public SubmitLoadAllRequest() {

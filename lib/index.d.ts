@@ -1,6 +1,6 @@
 export { default as Attribution } from "./core/Attribution.js";
 export { default as Buildings, BuildingRequestType } from "./buildings/Buildings.js";
-export type { BuildingLODOptions, BuildingRequest } from "./buildings/Buildings.js";
+export type { BuildingLODOptions, BuildingOptimizationOptions, BuildingPerformanceStats, BuildingRequest, } from "./buildings/Buildings.js";
 export { default as BuildingsMB } from "./buildings/BuildingsMB.js";
 export type { LoadedMapboxModelTile, MapboxModelTileLoader, } from "./buildings/BuildingsMB.js";
 export { default as BuildingsOSM } from "./buildings/BuildingsOSM.js";
@@ -18,4 +18,4 @@ export { default as TileBuilding } from "./core/TileBuilding.js";
 export type { LineSegment, LineSegmentArray, LineTestReturnPacket } from "./core/TileBuilding.js";
 export { default as TileMath, EPSG_Type } from "./core/TileMath.js";
 export { default as TileSet } from "./core/TileSet.js";
-export type { TilePositionUpdate, TileRequest } from "./core/TileSet.js";
+export type { TilePositionUpdate, TileRequest, TileSetOptimizationOptions, } from "./core/TileSet.js";

@@ -73,7 +73,7 @@ export default class BuildingsOverture extends Buildings {
             inProgress: false,
             flipWinding: false,
         };
-        this.buildingRequests.push(request);
+        this.enqueueBuildingRequest(request);
     }
 
     public override SubmitLoadAllRequest(): void {
@@ -99,12 +99,12 @@ export default class BuildingsOverture extends Buildings {
             const tileResponse = await this.archive.getZxy(z, x, y);
 
             if (request.tile.tileCoords.equals(request.tileCoords) === false) {
-                this.removePendingRequest(requestIndex);
+                this.removePendingRequest(requestIndex, request);
                 return;
             }
 
             if (!tileResponse) {
-                this.removePendingRequest(requestIndex);
+                this.removePendingRequest(requestIndex, request);
                 return;
             }
 
@@ -119,10 +119,10 @@ export default class BuildingsOverture extends Buildings {
                 features,
             };
             this.ProcessGeoJSON(request, collection);
-            this.removePendingRequest(requestIndex);
+            this.removePendingRequest(requestIndex, request);
         } catch (error) {
             console.error(this.prettyName() + "unable to load PMTiles building data:", error);
-            this.removePendingRequest(requestIndex);
+            this.removePendingRequest(requestIndex, request);
         }
     }
 
