@@ -18,4 +18,4 @@ export { default as TileBuilding } from "./core/TileBuilding.js";
 export type { LineSegment, LineSegmentArray, LineTestReturnPacket } from "./core/TileBuilding.js";
 export { default as TileMath, EPSG_Type } from "./core/TileMath.js";
 export { default as TileSet } from "./core/TileSet.js";
-export type { TileRequest } from "./core/TileSet.js";
+export type { TilePositionUpdate, TileRequest } from "./core/TileSet.js";

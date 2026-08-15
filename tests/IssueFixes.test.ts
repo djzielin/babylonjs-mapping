@@ -104,6 +104,42 @@ describe("geometry lifecycle safeguards", () => {
   });
 });
 
+describe("endless tile lifecycle", () => {
+  it("reports the old and new coordinates when a tile is recycled", () => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const tileSet = new TileSet(scene, engine);
+    tileSet.createGeometry(new Vector2(2, 1), 10, 1);
+    tileSet.updateRaster(0, 0, 2);
+
+    const recycledTile = tileSet.ourTiles[1];
+    const previousTileCoords = recycledTile.tileCoords.clone();
+    const updates: Array<{
+      tile: typeof recycledTile;
+      previousTileCoords: typeof previousTileCoords;
+      tileCoords: typeof previousTileCoords;
+    }> = [];
+
+    tileSet.onTilePositionUpdatedObservable.add((update) => updates.push(update));
+    tileSet.moveAllTiles(11, 0, 100, null);
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0].tile).toBe(recycledTile);
+    expect(updates[0].previousTileCoords).toEqual(previousTileCoords);
+    expect(updates[0].tileCoords).toEqual(recycledTile.tileCoords);
+    expect(updates[0].tileCoords).not.toBe(recycledTile.tileCoords);
+    expect(tileSet.ourTilesMap.get(recycledTile.tileCoords.toString())).toBe(recycledTile);
+    expect(tileSet.ourTilesMap.has(previousTileCoords.toString())).toBe(false);
+
+    updates[0].previousTileCoords.x = -999;
+    updates[0].tileCoords.x = -999;
+    expect(recycledTile.tileCoords.x).not.toBe(-999);
+
+    scene.dispose();
+    engine.dispose();
+  });
+});
+
 describe("GeoJSON projection detection", () => {
   it("recognizes common CRS declarations", () => {
     const declarations: Array<[topLevel["crs"], EPSG_Type | undefined]> = [

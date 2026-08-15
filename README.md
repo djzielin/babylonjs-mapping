@@ -70,6 +70,23 @@ Call `generateBuildings()` again after `updateRaster()` to reuse overlapping
 model tiles and dispose models that moved out of view. Call `dispose()` when
 the provider is no longer needed.
 
+## Endless tile lifecycle
+
+When `moveAllTiles()` recycles a tile, `onTilePositionUpdatedObservable`
+provides the tile plus snapshots of its previous and new coordinates. This lets
+an endless-world application remove user-owned objects for the old tile and
+create replacements for the new one:
+
+```ts
+tileSet.onTilePositionUpdatedObservable.add(({ tile, previousTileCoords, tileCoords }) => {
+    removeItemsForTile(previousTileCoords);
+    addItemsForTile(tileCoords, tile);
+});
+```
+
+The notification is sent after the tile's raster request and optional building
+request have been submitted.
+
 ## ArcGIS Online WFS pagination
 
 `BuildingsWFS.setupAGOL()` enables WFS 2.0 result paging automatically. Each
