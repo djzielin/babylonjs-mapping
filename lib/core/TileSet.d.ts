@@ -26,6 +26,18 @@ export interface TileRequest {
     texture: Texture | null;
     inProgress: boolean;
 }
+/**
+ * Describes a tile that was recycled by moveAllTiles().
+ *
+ * The coordinate vectors are snapshots. Consumers can use the old coordinate
+ * to remove their content and the new coordinate to create replacement
+ * content without retaining mutable TileSet state.
+ */
+export interface TilePositionUpdate {
+    tile: Tile;
+    previousTileCoords: Vector3;
+    tileCoords: Vector3;
+}
 export default class TileSet {
     scene: Scene;
     private engine;
@@ -52,6 +64,8 @@ export default class TileSet {
     protected tileRequests: TileRequest[];
     protected requestsProcessedSinceCaughtUp: number;
     onCaughtUpObservable: Observable<boolean>;
+    /** Notifies after moveAllTiles() assigns a recycled tile its new coordinates. */
+    onTilePositionUpdatedObservable: Observable<TilePositionUpdate>;
     numTiles: Vector2;
     tileWidth: number;
     meshPrecision: number;

@@ -38,6 +38,19 @@ export interface TileRequest {
     inProgress: boolean;
 }
 
+/**
+ * Describes a tile that was recycled by moveAllTiles().
+ *
+ * The coordinate vectors are snapshots. Consumers can use the old coordinate
+ * to remove their content and the new coordinate to create replacement
+ * content without retaining mutable TileSet state.
+ */
+export interface TilePositionUpdate {
+    tile: Tile;
+    previousTileCoords: Vector3;
+    tileCoords: Vector3;
+}
+
 export default class TileSet {
 
     private xmin: number;
@@ -71,6 +84,8 @@ export default class TileSet {
     protected tileRequests: TileRequest[] = [];
     protected requestsProcessedSinceCaughtUp = 0;
     public onCaughtUpObservable: Observable<boolean> = new Observable;
+    /** Notifies after moveAllTiles() assigns a recycled tile its new coordinates. */
+    public onTilePositionUpdatedObservable: Observable<TilePositionUpdate> = new Observable;
 
     public numTiles: Vector2;
     public tileWidth: number;
@@ -432,6 +447,7 @@ export default class TileSet {
     t.deleteBuildings();
 
     t.mesh.position = t.mesh.position.add(meshMoveAmount);
+    const previousTileCoords = t.tileCoords.clone();
     this.ourTilesMap.delete(t.tileCoords.toString());
 
     let newTileCoords = t.tileCoords.add(tileCoordAdjustment);
@@ -440,6 +456,12 @@ export default class TileSet {
     if (buildingCreator) {
         buildingCreator.SubmitLoadTileRequest(t);
     }
+
+    this.onTilePositionUpdatedObservable.notifyObservers({
+        tile: t,
+        previousTileCoords,
+        tileCoords: t.tileCoords.clone(),
+    });
 }
 
     public async generateTerrain(exaggeration: number) {
