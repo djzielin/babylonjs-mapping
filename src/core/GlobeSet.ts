@@ -12,7 +12,10 @@ import TileSet from "./TileSet.js";
 
 const DEGREES_TO_RADIANS = Math.PI / 180;
 const DEFAULT_GLOBE_RADIUS = 100;
-const BACKING_SURFACE_SCALE = 0.995;
+// Tile patches are triangulated chords between points on the sphere. Keep the
+// backing surface far enough inside the chords that it cannot occlude them at
+// the default mesh precision.
+const BACKING_SURFACE_SCALE = 0.98;
 
 export interface GlobeSetOptions {
     /** Radius of the globe in Babylon world units. */
