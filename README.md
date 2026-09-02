@@ -8,6 +8,7 @@ Currently supported data sources include:
 ![grand canyon with river at bottom](https://raw.githubusercontent.com/djzielin/babylonjs-mapping/main/doc/grand_canyon.jpg "Mapbox Terrain Demo")
 * GEBCO's global bathymetric grid as colour-shaded WMS imagery
 * Custom Buildings from GeoServer and ArcGIS Online (WFS)
+* Globe mode for spherical raster displays
 
 The "Hello World" of creating an OpenStreetMap tileset, along with extruded buildings is:
 
@@ -98,6 +99,27 @@ tileSet.updateRaster(11.35, 142.2, 6); // Mariana Trench region
 The provider uses GEBCO's WMS imagery, which is intended for visualization and
 not navigation or safety-at-sea purposes. The full downloadable grids are
 available from [GEBCO's data download service](https://download.gebco.net/).
+
+## Globe mode
+
+`GlobeSet` keeps the existing raster-provider API while curving each Web
+Mercator tile onto a configurable sphere. The `tileWidth` argument remains
+part of `createGeometry` for TileSet compatibility; use `radius` to control
+the visible globe size.
+
+```ts
+const globe = new GlobeSet(this.scene, this.engine, { radius: 50 });
+globe.setRasterProvider(new RasterOSM(globe));
+globe.createGeometry(new Vector2(4, 4), 20, 8);
+globe.updateRaster(40.98, 0, 2);
+
+const marker = globe.getSurfacePosition(35.2271, -80.8431, 1);
+```
+
+`getSurfacePosition`, `getSurfaceNormal`, and `getTileSurfacePosition` help
+place custom markers and overlays on the globe. Raster providers work directly;
+the existing planar building and terrain providers are not automatically
+reprojected for globe mode yet.
 
 ## Endless tile lifecycle
 

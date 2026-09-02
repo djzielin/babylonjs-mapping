@@ -23,3 +23,5 @@ export type { LineSegment, LineSegmentArray, LineTestReturnPacket } from "./core
 export { default as TileMath, EPSG_Type } from "./core/TileMath.js";
 export { default as TileSet } from "./core/TileSet.js";
 export type { TilePositionUpdate, TileRequest, TileSetOptimizationOptions, } from "./core/TileSet.js";
+export { default as GlobeSet } from "./core/GlobeSet.js";
+export type { GlobeSetOptions } from "./core/GlobeSet.js";

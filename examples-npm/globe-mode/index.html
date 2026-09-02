@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1"/>
+        <title>Babylon.js Mapping Globe Mode</title>
+        <style>
+            html, body {
+                overflow: hidden;
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+                background: #050a16;
+                color: white;
+                font-family: system-ui, sans-serif;
+            }
+
+            #renderCanvas {
+                width: 100%;
+                height: 100%;
+                touch-action: none;
+            }
+
+            #help {
+                position: absolute;
+                top: 16px;
+                left: 16px;
+                padding: 10px 14px;
+                border-radius: 6px;
+                background: rgba(5, 10, 22, 0.72);
+                line-height: 1.4;
+                pointer-events: none;
+            }
+
+            #help strong {
+                display: block;
+                margin-bottom: 3px;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="help">
+            <strong>Globe mode</strong>
+            Drag to orbit · scroll to zoom<br/>
+            Red marker: Charlotte, NC
+        </div>
+        <canvas id="renderCanvas" touch-action="none"></canvas>
+    </body>
+</html>

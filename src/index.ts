@@ -50,3 +50,5 @@ export type {
     TileRequest,
     TileSetOptimizationOptions,
 } from "./core/TileSet.js";
+export { default as GlobeSet } from "./core/GlobeSet.js";
+export type { GlobeSetOptions } from "./core/GlobeSet.js";
