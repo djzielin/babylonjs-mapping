@@ -121,6 +121,44 @@ place custom markers and overlays on the globe. Raster providers work directly;
 the existing planar building and terrain providers are not automatically
 reprojected for globe mode yet.
 
+### Globe navigation and raster streaming
+
+`GlobeNavigator` connects an `ArcRotateCamera` to a detail `GlobeSet`. Native
+Babylon mouse, touch, and wheel inputs continue to orbit and zoom the camera;
+the navigator calculates the visible latitude/longitude and updates a moving
+raster window as the camera crosses tile or zoom boundaries.
+
+Keep a zoom-2 globe underneath the moving detail layer so imagery remains
+visible while higher-resolution tiles load:
+
+```ts
+const detail = new GlobeSet(scene, engine, {
+    radius: 50.05,
+    backingSurface: false,
+});
+detail.setRasterProvider(new RasterOSM(detail));
+detail.createGeometry(new Vector2(5, 5), 20, 12);
+
+const camera = new ArcRotateCamera("globe camera", 0, Math.PI / 2, 150, Vector3.Zero(), scene);
+camera.attachControl(canvas, true);
+
+const navigator = new GlobeNavigator(detail, camera, {
+    minZoom: 3,
+    maxZoom: 18,
+});
+navigator.setView(35.2271, -80.8431, { zoom: 3 });
+navigator.flyTo(36.1069, -112.1129, { zoom: 11, durationMs: 1400 });
+```
+
+`getView()` reports the live center coordinate, altitude, and raster zoom.
+`getAltitudeForZoom()` is useful for custom zoom controls, while
+`getSurfaceCoordinates()` converts picked world positions back to geographic
+coordinates for click-to-fly interactions.
+
+This is the navigation and raster-LOD foundation for a Google-Earth-style
+viewer. Globe-projected 3D terrain/buildings, geocoding, historical imagery,
+and annotation layers remain separate follow-up features.
+
 ## Endless tile lifecycle
 
 When `moveAllTiles()` recycles a tile, `onTilePositionUpdatedObservable`

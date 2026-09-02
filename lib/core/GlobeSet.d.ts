@@ -6,6 +6,15 @@ import TileSet from "./TileSet.js";
 export interface GlobeSetOptions {
     /** Radius of the globe in Babylon world units. */
     radius?: number;
+    /** Creates a recessed fill sphere behind raster tiles. Defaults to true. */
+    backingSurface?: boolean;
+    /** Shows this layer's raster attribution. Defaults to true. */
+    attribution?: boolean;
+}
+export interface GlobeCoordinates {
+    latitude: number;
+    longitude: number;
+    elevation: number;
 }
 /**
  * A spherical TileSet for globe-centric map displays.
@@ -23,6 +32,8 @@ export interface GlobeSetOptions {
 export default class GlobeSet extends TileSet {
     private _radius;
     private backingMesh?;
+    private polarCapMeshes;
+    private attributionEnabled;
     constructor(scene: Scene, engine: Engine, options?: GlobeSetOptions);
     /** Radius of the globe in Babylon world units. */
     get radius(): number;
@@ -35,6 +46,8 @@ export default class GlobeSet extends TileSet {
     getSurfacePosition(latitude: number, longitude: number, elevation?: number): Vector3;
     /** Return the outward unit normal at a longitude/latitude location. */
     getSurfaceNormal(latitude: number, longitude: number): Vector3;
+    /** Convert a Babylon world position back to globe coordinates. */
+    getSurfaceCoordinates(position: Vector3): GlobeCoordinates;
     /**
      * Return a point on a raster tile's curved surface. `u` runs west to east
      * and `v` runs north to south, both in the inclusive range 0..1.
@@ -47,6 +60,9 @@ export default class GlobeSet extends TileSet {
      */
     makeSingleTileMesh(_x: number, _y: number, precision: number): Mesh;
     updateRaster(lat: number, lon: number, zoom: number): void;
+    protected reuseRasterTilesOnUpdate(): boolean;
+    protected showRasterAttribution(): boolean;
     private createBackingMesh;
+    private createPolarCap;
     private updateTileGeometry;
 }

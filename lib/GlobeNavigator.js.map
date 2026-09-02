@@ -1,0 +1,1 @@
+{"version":3,"file":"GlobeNavigator.js","sourceRoot":"","sources":["../src/GlobeNavigator.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,0BAA0B,CAAC","sourcesContent":["export { default } from \"./core/GlobeNavigator.js\";\nexport type {\n    GlobeFlyToOptions,\n    GlobeNavigatorOptions,\n    GlobeView,\n} from \"./core/GlobeNavigator.js\";\n"]}

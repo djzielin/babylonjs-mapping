@@ -37,6 +37,8 @@ describe("GlobeSet", () => {
         globe.updateRaster(0, 0, 2);
 
         const tile = globe.ourTiles[0];
+        expect(scene.getMeshByName("globe north polar cap")).not.toBeNull();
+        expect(scene.getMeshByName("globe south polar cap")).not.toBeNull();
         const positions = tile.mesh.getVerticesData(VertexBuffer.PositionKind);
         const normals = tile.mesh.getVerticesData(VertexBuffer.NormalKind);
 
@@ -79,6 +81,13 @@ describe("GlobeSet", () => {
         expect(normal.y).toBeCloseTo(0);
         expect(normal.z).toBeCloseTo(0);
 
+        const coordinates = globe.getSurfaceCoordinates(
+            globe.getSurfacePosition(35.2271, -80.8431, 2),
+        );
+        expect(coordinates.latitude).toBeCloseTo(35.2271, 8);
+        expect(coordinates.longitude).toBeCloseTo(-80.8431, 8);
+        expect(coordinates.elevation).toBeCloseTo(2, 8);
+
         const tilePoint = globe.getTileSurfacePosition(new Vector3(2, 2, 2));
         expect(tilePoint.length()).toBeCloseTo(10);
 
@@ -101,6 +110,24 @@ describe("GlobeSet", () => {
         expect(() => globe.getSurfacePosition(0, 0, -100)).toThrow(
             "elevation must keep the resulting globe radius positive",
         );
+        expect(() => globe.getSurfaceCoordinates(Vector3.Zero())).toThrow(
+            "position must be a finite, non-zero vector",
+        );
+
+        scene.dispose();
+        engine.dispose();
+    });
+
+    it("can omit the backing surface for a higher-resolution overlay", () => {
+        const { engine, scene, globe } = createGlobe({
+            backingSurface: false,
+            attribution: false,
+        });
+
+        expect(scene.getMeshByName("globe backing")).toBeNull();
+        expect(scene.getMeshByName("globe north polar cap")).toBeNull();
+        globe.updateRaster(0, 0, 2);
+        expect(globe.ourAttribution.addAttribution).not.toHaveBeenCalled();
 
         scene.dispose();
         engine.dispose();

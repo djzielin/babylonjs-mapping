@@ -1,10 +1,15 @@
 # Globe mode
 
-This example uses `GlobeSet` with the OpenStreetMap raster provider to render
-Web-Mercator tiles as curved patches on a sphere. It does not need an API key.
+This example combines a permanent zoom-2 `GlobeSet` with a camera-following
+detail layer managed by `GlobeNavigator`. The detail layer automatically
+requests higher-resolution OpenStreetMap tiles as the camera approaches the
+surface. It does not need an API key.
 
-Drag to orbit the globe and scroll to zoom. The red marker demonstrates
-`GlobeSet.getSurfacePosition()` by placing a point at Charlotte, North Carolina.
+Use mouse/touch drag to orbit, scroll or pinch to zoom, and double-click a map
+location to fly closer. The control panel includes named destinations,
+latitude/longitude fly-to, home, zoom controls, and a live center-coordinate
+and zoom readout. The red marker demonstrates `GlobeSet.getSurfacePosition()`
+at Charlotte, North Carolina.
 
 Run it with:
 

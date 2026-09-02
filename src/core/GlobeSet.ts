@@ -12,6 +12,8 @@ import TileSet from "./TileSet.js";
 
 const DEGREES_TO_RADIANS = Math.PI / 180;
 const DEFAULT_GLOBE_RADIUS = 100;
+const MAX_MERCATOR_LATITUDE = 85.05112878;
+const POLAR_CAP_SCALE = 1.0001;
 // Tile patches are triangulated chords between points on the sphere. Keep the
 // backing surface far enough inside the chords that it cannot occlude them at
 // the default mesh precision.
@@ -20,6 +22,16 @@ const BACKING_SURFACE_SCALE = 0.98;
 export interface GlobeSetOptions {
     /** Radius of the globe in Babylon world units. */
     radius?: number;
+    /** Creates a recessed fill sphere behind raster tiles. Defaults to true. */
+    backingSurface?: boolean;
+    /** Shows this layer's raster attribution. Defaults to true. */
+    attribution?: boolean;
+}
+
+export interface GlobeCoordinates {
+    latitude: number;
+    longitude: number;
+    elevation: number;
 }
 
 /**
@@ -38,16 +50,21 @@ export interface GlobeSetOptions {
 export default class GlobeSet extends TileSet {
     private _radius: number;
     private backingMesh?: Mesh;
+    private polarCapMeshes: Mesh[] = [];
+    private attributionEnabled = true;
 
     public constructor(scene: Scene, engine: Engine, options: GlobeSetOptions = {}) {
         super(scene, engine);
         this._radius = DEFAULT_GLOBE_RADIUS;
+        this.attributionEnabled = options.attribution !== false;
 
         if (options.radius !== undefined) {
             this.radius = options.radius;
         }
 
-        this.createBackingMesh();
+        if (options.backingSurface !== false) {
+            this.createBackingMesh();
+        }
     }
 
     /** Radius of the globe in Babylon world units. */
@@ -65,6 +82,10 @@ export default class GlobeSet extends TileSet {
         if (this.backingMesh !== undefined) {
             const backingScale = this.radius * BACKING_SURFACE_SCALE;
             this.backingMesh.scaling.set(backingScale, backingScale, backingScale);
+        }
+        const polarCapScale = this.radius * POLAR_CAP_SCALE;
+        for (const polarCap of this.polarCapMeshes) {
+            polarCap.scaling.set(polarCapScale, polarCapScale, polarCapScale);
         }
 
         if (this.isGeometryCreated) {
@@ -107,6 +128,20 @@ export default class GlobeSet extends TileSet {
     /** Return the outward unit normal at a longitude/latitude location. */
     public getSurfaceNormal(latitude: number, longitude: number): Vector3 {
         return this.getSurfacePosition(latitude, longitude).normalize();
+    }
+
+    /** Convert a Babylon world position back to globe coordinates. */
+    public getSurfaceCoordinates(position: Vector3): GlobeCoordinates {
+        const radialDistance = position.length();
+        if (!Number.isFinite(radialDistance) || radialDistance === 0) {
+            throw new RangeError("position must be a finite, non-zero vector.");
+        }
+
+        return {
+            latitude: Math.asin(position.y / radialDistance) / DEGREES_TO_RADIANS,
+            longitude: Math.atan2(position.x, position.z) / DEGREES_TO_RADIANS,
+            elevation: radialDistance - this.radius,
+        };
     }
 
     /**
@@ -156,6 +191,14 @@ export default class GlobeSet extends TileSet {
         }
     }
 
+    protected override reuseRasterTilesOnUpdate(): boolean {
+        return true;
+    }
+
+    protected override showRasterAttribution(): boolean {
+        return this.attributionEnabled;
+    }
+
     private createBackingMesh(): void {
         this.backingMesh = MeshBuilder.CreateSphere(
             "globe backing",
@@ -165,12 +208,70 @@ export default class GlobeSet extends TileSet {
         this.backingMesh.isPickable = false;
 
         const material = new StandardMaterial("globe backing material", this.scene);
-        material.diffuseColor = new Color3(0.015, 0.03, 0.07);
+        material.diffuseColor = new Color3(0.17, 0.42, 0.52);
+        material.emissiveColor = new Color3(0.02, 0.05, 0.07);
         material.specularColor = Color3.Black();
+        material.disableLighting = true;
+        material.backFaceCulling = false;
         this.backingMesh.material = material;
 
         const backingScale = this.radius * BACKING_SURFACE_SCALE;
         this.backingMesh.scaling.set(backingScale, backingScale, backingScale);
+
+        this.polarCapMeshes = [
+            this.createPolarCap("globe north polar cap", true, material),
+            this.createPolarCap("globe south polar cap", false, material),
+        ];
+    }
+
+    private createPolarCap(name: string, north: boolean, material: StandardMaterial): Mesh {
+        const segments = 64;
+        const rings = 4;
+        const columns = segments + 1;
+        const positions: number[] = [];
+        const normals: number[] = [];
+        const indices: number[] = [];
+
+        for (let row = 0; row <= rings; row++) {
+            const progress = row / rings;
+            const latitude = north
+                ? 90 - (90 - MAX_MERCATOR_LATITUDE) * progress
+                : -MAX_MERCATOR_LATITUDE - (90 - MAX_MERCATOR_LATITUDE) * progress;
+            const latitudeRadians = latitude * DEGREES_TO_RADIANS;
+            const horizontalDistance = Math.cos(latitudeRadians);
+
+            for (let column = 0; column <= segments; column++) {
+                const longitude = column / segments * 2 * Math.PI;
+                const x = horizontalDistance * Math.sin(longitude);
+                const y = Math.sin(latitudeRadians);
+                const z = horizontalDistance * Math.cos(longitude);
+                positions.push(x, y, z);
+                normals.push(x, y, z);
+            }
+        }
+
+        for (let row = 0; row < rings; row++) {
+            for (let column = 0; column < segments; column++) {
+                const topLeft = row * columns + column;
+                const topRight = topLeft + 1;
+                const bottomLeft = topLeft + columns;
+                const bottomRight = bottomLeft + 1;
+                indices.push(topLeft, topRight, bottomLeft, topRight, bottomRight, bottomLeft);
+            }
+        }
+
+        const mesh = new Mesh(name, this.scene);
+        const vertexData = new VertexData();
+        vertexData.positions = positions;
+        vertexData.normals = normals;
+        vertexData.indices = indices;
+        vertexData.applyToMesh(mesh, false);
+
+        const scale = this.radius * POLAR_CAP_SCALE;
+        mesh.scaling.set(scale, scale, scale);
+        mesh.material = material;
+        mesh.isPickable = false;
+        return mesh;
     }
 
     private updateTileGeometry(tile: Tile): void {

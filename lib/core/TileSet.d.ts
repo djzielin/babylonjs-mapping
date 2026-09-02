@@ -114,6 +114,14 @@ export default class TileSet {
     */
     createGeometry(numTiles: Vector2, tileWidth: number, meshPrecision: number): void;
     protected prettyName(): string;
+    /**
+     * Globe tiles can be reassigned by coordinate because their mesh position
+     * is derived from the coordinate itself. Planar tile sets keep their
+     * fixed slot assignment for backwards compatibility.
+     */
+    protected reuseRasterTilesOnUpdate(): boolean;
+    /** Allows multi-layer tile sets to nominate a single attribution owner. */
+    protected showRasterAttribution(): boolean;
     processTileRequests(): void;
     getAdvancedDynamicTexture(): AdvancedDynamicTexture;
     makeSingleTileMesh(x: number, y: number, precision: number): Mesh;
@@ -127,6 +135,7 @@ export default class TileSet {
     * @param zoom standard tile mapping zoom levels 0 (whole earth) - 20 (building)
     */
     updateRaster(lat: number, lon: number, zoom: number): void;
+    private cancelPendingRasterRequests;
     private updateSingleRasterTile;
     /**
     * moves all the tiles in the set. when a tile reaches the edge, it is moved
