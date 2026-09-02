@@ -197,6 +197,17 @@ Terrain seam repair is re-applied for every loaded cardinal and diagonal
 neighbor whenever a tile finishes loading, so recycled DEM data does not retain
 stale seam state.
 
+## Local cache paths
+
+WMTS raster providers and all-data WFS building providers use `map_cache/` by
+default when `RetrievalLocation.Local` is selected. Set `localPathPrefix` to
+serve the cache below another relative directory or an absolute URL path:
+
+```ts
+raster.localPathPrefix = "assets/map_cache/";
+buildings.localPathPrefix = "assets/map_cache/";
+```
+
 ## Credits
 
 <img align="left" height="120" src="doc/vic_thumb.jpeg" alt="Vic Szabo">
