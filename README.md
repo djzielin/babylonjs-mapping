@@ -95,6 +95,33 @@ tileSet.onTilePositionUpdatedObservable.add(({ tile, previousTileCoords, tileCoo
 The notification is sent after the tile's raster request and optional building
 request have been submitted.
 
+## Mapbox vector roads
+
+`BuildingsVectorTile` loads Mapbox Streets v8 vector tiles and feeds selected
+source layers into the existing GeoJSON geometry pipeline. Its default layer
+is `road`; line features are converted to low-profile extrusions, and their
+source properties remain available on the generated mesh metadata:
+
+```ts
+const roads = new BuildingsVectorTile(tileSet);
+roads.accessToken = mapboxAccessToken;
+roads.lineWidth = 0.25;
+roads.sourceLayers = ["road"];
+roads.generateBuildings();
+```
+
+The provider also accepts a custom `{z}/{x}/{y}` vector-tile URL and a list of
+source layers, which can be used with traffic or other compatible MVT data:
+
+```ts
+const traffic = new BuildingsVectorTile(
+    tileSet,
+    "https://tiles.example/{z}/{x}/{y}.pbf",
+    ["traffic"],
+);
+traffic.generateBuildings();
+```
+
 ## ArcGIS Online WFS pagination
 
 `BuildingsWFS.setupAGOL()` enables WFS 2.0 result paging automatically. Each
