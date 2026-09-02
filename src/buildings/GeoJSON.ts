@@ -5,8 +5,9 @@ import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
 import { Scene } from "@babylonjs/core/scene.js";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import Earcut from 'earcut';
+import { DEFAULT_BUILDING_OPTIMIZATION_OPTIONS } from "./Buildings.js";
 import type Buildings from "./Buildings.js";
-import type { BuildingLODOptions } from "./Buildings.js";
+import type { BuildingLODOptions, BuildingOptimizationOptions } from "./Buildings.js";
 import { RetrievalType } from "../shared/Retrieval.js";
 import type Tile from '../core/Tile.js';
 import type TileSet from "../core/TileSet.js";
@@ -212,6 +213,20 @@ export class GeoJSON {
     public generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, flipWinding: boolean, buildings: Buildings) {
         this.validateBuildingLODOptions(buildings.buildingLOD);
 
+        // GeoJSON generation is also used directly by a few integrations and
+        // tests with a Buildings-shaped settings object, so keep these hooks
+        // optional at runtime while the public Buildings class exposes them.
+        const optimizationHooks = buildings as unknown as {
+            optimizationOptions?: Required<BuildingOptimizationOptions>;
+            applyOptimizationOptions?: () => void;
+            applyBuildingMeshOptions?: (mesh: Mesh, freezeWorldMatrix?: boolean) => void;
+            recordDetailedBuilding?: (mesh: Mesh) => void;
+            recordBuildingBillboard?: (mesh: Mesh) => void;
+            recordLODSelection?: (selectedLevel: Mesh | null, detailedMesh: Mesh, billboardMesh: Mesh) => void;
+        };
+        optimizationHooks.applyOptimizationOptions?.();
+        const optimizationOptions = optimizationHooks.optimizationOptions ?? DEFAULT_BUILDING_OPTIMIZATION_OPTIONS;
+
         const buildingMaterial: StandardMaterial = buildings.buildingMaterial;
         const exaggeration: number = buildings.exaggeration;
         const defaultBuildingHeight: number = buildings.defaultBuildingHeight;
@@ -366,8 +381,20 @@ export class GeoJSON {
         buildings.buildingMeshTransform?.(finalMesh);
         finalMesh.computeWorldMatrix(true);
         finalMesh.refreshBoundingInfo();
-        this.addBuildingLOD(finalMesh, buildingMaterial, buildings.buildingLOD);
-        finalMesh.freezeWorldMatrix(); //optimization? might want to skip here? hmmm...
+        this.addBuildingLOD(finalMesh, buildingMaterial, buildings.buildingLOD, optimizationOptions, optimizationHooks);
+        if (optimizationHooks.applyBuildingMeshOptions) {
+            optimizationHooks.applyBuildingMeshOptions(finalMesh);
+        } else {
+            finalMesh.isPickable = !optimizationOptions.disablePicking;
+            finalMesh.checkCollisions = !optimizationOptions.disableCollisions;
+            finalMesh.computeWorldMatrix(true);
+            if (optimizationOptions.freezeWorldMatrices) {
+                finalMesh.freezeWorldMatrix();
+            } else {
+                finalMesh.unfreezeWorldMatrix();
+            }
+        }
+        optimizationHooks.recordDetailedBuilding?.(finalMesh);
 
         
 
@@ -397,7 +424,17 @@ export class GeoJSON {
 
     }
 
-    private addBuildingLOD(finalMesh: Mesh, buildingMaterial: StandardMaterial, lodOptions: BuildingLODOptions | undefined): void {
+    private addBuildingLOD(
+        finalMesh: Mesh,
+        buildingMaterial: StandardMaterial,
+        lodOptions: BuildingLODOptions | undefined,
+        optimizationOptions: Required<BuildingOptimizationOptions>,
+        optimizationHooks: {
+            applyBuildingMeshOptions?: (mesh: Mesh, freezeWorldMatrix?: boolean) => void;
+            recordBuildingBillboard?: (mesh: Mesh) => void;
+            recordLODSelection?: (selectedLevel: Mesh | null, detailedMesh: Mesh, billboardMesh: Mesh) => void;
+        },
+    ): void {
         if (!lodOptions?.enabled) {
             return;
         }
@@ -423,7 +460,6 @@ export class GeoJSON {
             this.scene,
         );
         billboard.material = buildingMaterial;
-        billboard.isPickable = false;
         billboard.setParent(finalMesh);
         // `setParent` keeps the node's local position; the bounding box center
         // is already expressed in the detailed mesh's local coordinates.
@@ -431,6 +467,28 @@ export class GeoJSON {
         // second time and move the billboard away from its building.
         billboard.position = boundingBox.center.clone();
         billboard.billboardMode = billboardMode;
+
+        // Billboard world matrices must remain live so Babylon can rotate the
+        // rectangle toward the camera. The detailed mesh may be frozen for a
+        // static map, but freezing this child would defeat billboard LOD.
+        if (optimizationHooks.applyBuildingMeshOptions) {
+            optimizationHooks.applyBuildingMeshOptions(billboard, false);
+        } else {
+            billboard.isPickable = !optimizationOptions.disablePicking;
+            billboard.checkCollisions = !optimizationOptions.disableCollisions;
+        }
+        // Billboards have historically been presentation-only LOD meshes.
+        // Keep them out of picking and collision queries even when those
+        // features are enabled for detailed building meshes.
+        billboard.isPickable = false;
+        billboard.checkCollisions = false;
+        optimizationHooks.recordBuildingBillboard?.(billboard);
+
+        const previousLODCallback = finalMesh.onLODLevelSelection;
+        finalMesh.onLODLevelSelection = (distance, mesh, selectedLevel) => {
+            previousLODCallback?.(distance, mesh, selectedLevel);
+            optimizationHooks.recordLODSelection?.(selectedLevel, finalMesh, billboard);
+        };
 
         finalMesh.addLODLevel(distance, billboard);
     }

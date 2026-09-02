@@ -47,6 +47,50 @@ export interface BuildingLODOptions {
     billboardMode?: number;
 }
 
+export interface BuildingOptimizationOptions {
+    /** Freeze completed building world matrices. Disable this for moving tiles. */
+    freezeWorldMatrices?: boolean;
+    /** Freeze the shared building material after it is configured. */
+    freezeMaterials?: boolean;
+    /** Disable picking on generated detailed building meshes. Billboards remain non-pickable. */
+    disablePicking?: boolean;
+    /** Disable collision checks on generated building and billboard meshes. */
+    disableCollisions?: boolean;
+    /** Process requests nearest to the active camera instead of FIFO order. */
+    prioritizeRequestsByDistance?: boolean;
+}
+
+export const DEFAULT_BUILDING_OPTIMIZATION_OPTIONS: Readonly<Required<BuildingOptimizationOptions>> = {
+    // Tile meshes move in the endless demo. Keeping this off by default makes
+    // the safe behavior the default while still allowing static maps to opt in.
+    freezeWorldMatrices: false,
+    freezeMaterials: true,
+    // Preserve Babylon's existing pickable-by-default behavior; callers can
+    // disable picking explicitly for fully static scenes.
+    disablePicking: false,
+    disableCollisions: true,
+    prioritizeRequestsByDistance: false,
+};
+
+export interface BuildingPerformanceStats {
+    requestsProcessed: number;
+    peakQueueLength: number;
+    detailedBuildingCount: number;
+    billboardCount: number;
+    detailedVertexCount: number;
+    billboardVertexCount: number;
+    estimatedVertexReductionPercent: number;
+    lodSelections: number;
+    detailedSelections: number;
+    billboardSelections: number;
+    culledSelections: number;
+    frameSamples: number;
+    totalFrameTimeMs: number;
+    averageFrameTimeMs: number;
+    minFrameTimeMs: number;
+    maxFrameTimeMs: number;
+}
+
 
 
 interface GeoFileLoaded {
@@ -78,6 +122,12 @@ export default abstract class Buildings {
     public buildingsCreatedPerFrame = 10; //TODO: is there a better way to do this?
     public cacheFiles = true;
     public buildingMaterial: StandardMaterial;
+    /** Controls optional mesh/material and request-queue optimizations. */
+    public optimizationOptions: Required<BuildingOptimizationOptions> = {
+        ...DEFAULT_BUILDING_OPTIMIZATION_OPTIONS,
+    };
+    /** Collect frame-time samples in getPerformanceStats(). */
+    public performanceMonitoringEnabled = false;
     /**
      * Optional transform applied to each completed building mesh before LOD
      * generation, duplicate detection, and tile merging.
@@ -97,6 +147,24 @@ export default abstract class Buildings {
     private timeStart: number;
     private sleepDuration=5000; //5 seconds
     private _retrievalLocation: RetrievalLocation;
+    private performanceStats: BuildingPerformanceStats = {
+        requestsProcessed: 0,
+        peakQueueLength: 0,
+        detailedBuildingCount: 0,
+        billboardCount: 0,
+        detailedVertexCount: 0,
+        billboardVertexCount: 0,
+        estimatedVertexReductionPercent: 0,
+        lodSelections: 0,
+        detailedSelections: 0,
+        billboardSelections: 0,
+        culledSelections: 0,
+        frameSamples: 0,
+        totalFrameTimeMs: 0,
+        averageFrameTimeMs: 0,
+        minFrameTimeMs: 0,
+        maxFrameTimeMs: 0,
+    };
 
     constructor(public name: string, protected tileSet: TileSet, retrievalLocation: RetrievalLocation) {
         this._retrievalLocation = retrievalLocation;
@@ -104,12 +172,130 @@ export default abstract class Buildings {
 
         this.buildingMaterial = new StandardMaterial("buildingMaterial", this.scene);
         this.buildingMaterial.diffuseColor = new Color3(0.8, 0.8, 0.8);
-        this.buildingMaterial.freeze();
+        this.applyOptimizationOptions();
         this.ourGeoJSON = new GeoJSON.GeoJSON(tileSet, this.scene);
 
-        const observer = this.scene.onBeforeRenderObservable.add(() => { //fire every frame
+        this.scene.onBeforeRenderObservable.add(() => { //fire every frame
             this.processBuildingRequests();
         });
+        this.scene.onAfterRenderObservable.add(() => {
+            if (!this.performanceMonitoringEnabled) {
+                return;
+            }
+
+            const frameTimeMs = this.scene.getEngine().getDeltaTime();
+            this.performanceStats.frameSamples++;
+            this.performanceStats.totalFrameTimeMs += frameTimeMs;
+            if (this.performanceStats.frameSamples === 1) {
+                this.performanceStats.minFrameTimeMs = frameTimeMs;
+                this.performanceStats.maxFrameTimeMs = frameTimeMs;
+            } else {
+                this.performanceStats.minFrameTimeMs = Math.min(this.performanceStats.minFrameTimeMs, frameTimeMs);
+                this.performanceStats.maxFrameTimeMs = Math.max(this.performanceStats.maxFrameTimeMs, frameTimeMs);
+            }
+        });
+    }
+
+    /**
+     * Merges optimization settings and applies the material setting immediately.
+     * Mesh settings are applied to newly generated meshes and can be refreshed
+     * on existing meshes with applyBuildingMeshOptions().
+     */
+    public setOptimizationOptions(options: BuildingOptimizationOptions): void {
+        this.optimizationOptions = {
+            ...this.optimizationOptions,
+            ...options,
+        };
+        this.applyOptimizationOptions();
+    }
+
+    /** Applies the current material optimization setting. */
+    public applyOptimizationOptions(): void {
+        if (this.optimizationOptions.freezeMaterials) {
+            this.buildingMaterial.freeze();
+        } else {
+            this.buildingMaterial.unfreeze();
+        }
+    }
+
+    /** Applies picking, collision, and world-matrix settings to a mesh. */
+    public applyBuildingMeshOptions(mesh: Mesh, freezeWorldMatrix = this.optimizationOptions.freezeWorldMatrices): void {
+        mesh.isPickable = !this.optimizationOptions.disablePicking;
+        mesh.checkCollisions = !this.optimizationOptions.disableCollisions;
+        mesh.computeWorldMatrix(true);
+
+        if (freezeWorldMatrix) {
+            mesh.freezeWorldMatrix();
+        } else {
+            mesh.unfreezeWorldMatrix();
+        }
+    }
+
+    /** Enables or disables collection of engine frame-time samples. */
+    public setPerformanceMonitoringEnabled(enabled: boolean): void {
+        this.performanceMonitoringEnabled = enabled;
+    }
+
+    /** Returns cumulative generation, LOD, queue, and optional frame metrics. */
+    public getPerformanceStats(): BuildingPerformanceStats {
+        const detailedVertices = this.performanceStats.detailedVertexCount;
+        const estimatedVertexReductionPercent = detailedVertices === 0 || this.performanceStats.billboardCount === 0
+            ? 0
+            : Math.max(0, (1 - this.performanceStats.billboardVertexCount / detailedVertices) * 100);
+
+        return {
+            ...this.performanceStats,
+            estimatedVertexReductionPercent,
+            averageFrameTimeMs: this.performanceStats.frameSamples === 0
+                ? 0
+                : this.performanceStats.totalFrameTimeMs / this.performanceStats.frameSamples,
+        };
+    }
+
+    /** Clears cumulative performance counters without changing optimization settings. */
+    public resetPerformanceStats(): void {
+        this.performanceStats = {
+            requestsProcessed: 0,
+            peakQueueLength: this.buildingRequests.length,
+            detailedBuildingCount: 0,
+            billboardCount: 0,
+            detailedVertexCount: 0,
+            billboardVertexCount: 0,
+            estimatedVertexReductionPercent: 0,
+            lodSelections: 0,
+            detailedSelections: 0,
+            billboardSelections: 0,
+            culledSelections: 0,
+            frameSamples: 0,
+            totalFrameTimeMs: 0,
+            averageFrameTimeMs: 0,
+            minFrameTimeMs: 0,
+            maxFrameTimeMs: 0,
+        };
+    }
+
+    /** @internal Records a generated detailed mesh for performance reporting. */
+    public recordDetailedBuilding(mesh: Mesh): void {
+        this.performanceStats.detailedBuildingCount++;
+        this.performanceStats.detailedVertexCount += mesh.getTotalVertices();
+    }
+
+    /** @internal Records a generated billboard for performance reporting. */
+    public recordBuildingBillboard(mesh: Mesh): void {
+        this.performanceStats.billboardCount++;
+        this.performanceStats.billboardVertexCount += mesh.getTotalVertices();
+    }
+
+    /** @internal Records a Babylon LOD callback selection. */
+    public recordLODSelection(selectedLevel: Mesh | null, detailedMesh: Mesh, billboardMesh: Mesh): void {
+        this.performanceStats.lodSelections++;
+        if (selectedLevel === null) {
+            this.performanceStats.culledSelections++;
+        } else if (selectedLevel === detailedMesh) {
+            this.performanceStats.detailedSelections++;
+        } else if (selectedLevel === billboardMesh) {
+            this.performanceStats.billboardSelections++;
+        }
     }
 
     public get retrievalLocation(): RetrievalLocation {
@@ -152,7 +338,7 @@ export default abstract class Buildings {
                 feature: f,
                 flipWinding: request.flipWinding
             }
-            this.buildingRequests.push(brequest);
+            this.enqueueBuildingRequest(brequest);
             addedBuildings++;
         }
 
@@ -194,7 +380,15 @@ export default abstract class Buildings {
             inProgress: false,
             flipWinding: request.flipWinding
         };
-        this.buildingRequests.push(mergeRequest);
+        this.enqueueBuildingRequest(mergeRequest);
+    }
+
+    protected enqueueBuildingRequest(request: BuildingRequest): void {
+        this.buildingRequests.push(request);
+        this.performanceStats.peakQueueLength = Math.max(
+            this.performanceStats.peakQueueLength,
+            this.buildingRequests.length,
+        );
     }
 
     protected prettyName(): string {
@@ -227,12 +421,18 @@ export default abstract class Buildings {
         return original;
     }
 
-    protected removePendingRequest(index = 0) {
+    protected removePendingRequest(index = 0, request?: BuildingRequest) {
         //console.log(this.prettyName() + "popping request off front of queue");
+        const actualIndex = request ? this.buildingRequests.indexOf(request) : index;
+        if (actualIndex < 0 || actualIndex >= this.buildingRequests.length) {
+            return;
+        }
+
         this.requestsProcessedSinceCaughtUp++;
+        this.performanceStats.requestsProcessed++;
 
         //this.buildingRequests.shift(); //pop ourselves off the queue
-        this.buildingRequests.splice(index, 1);
+        this.buildingRequests.splice(actualIndex, 1);
     }
 
     protected doSave(text: string){
@@ -245,7 +445,7 @@ export default abstract class Buildings {
     private processLoadedGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel, requestIndex: number): void {
         if (request.tile.tileCoords.equals(request.tileCoords) == false) {
             console.warn(this.prettyName() + "tile coords have changed while we were loading, not adding buildings to queue!");
-            this.removePendingRequest(requestIndex);
+            this.removePendingRequest(requestIndex, request);
             return;
         }
 
@@ -256,10 +456,10 @@ export default abstract class Buildings {
 
         request.mergeAfterLoad = nextRequest === undefined;
         this.ProcessGeoJSON(request, topLevel);
-        this.removePendingRequest(requestIndex);
+        this.removePendingRequest(requestIndex, request);
 
         if (nextRequest) {
-            this.buildingRequests.push(nextRequest);
+            this.enqueueBuildingRequest(nextRequest);
         }
     }
 
@@ -267,7 +467,7 @@ export default abstract class Buildings {
         if (!request.url) {
             console.error(this.prettyName() + "no valid URL specified in GeoJSON load request");
 
-            this.removePendingRequest(requestIndex);
+            this.removePendingRequest(requestIndex, request);
             return;
         }
 
@@ -278,7 +478,7 @@ export default abstract class Buildings {
                 this.processLoadedGeoJSON(request, topLevel, requestIndex);
             } else {
                 console.error(this.prettyName() + "can't find topLevel in already loaded geojson file!");
-                this.removePendingRequest(requestIndex);
+                this.removePendingRequest(requestIndex, request);
             }
             return;
         }
@@ -309,7 +509,7 @@ export default abstract class Buildings {
                     this.processLoadedGeoJSON(request, topLevel, requestIndex);
                 } else {
                     this.enqueueMergeRequest(request);
-                    this.removePendingRequest(requestIndex);
+                    this.removePendingRequest(requestIndex, request);
                 }
                 return;
             }
@@ -317,34 +517,99 @@ export default abstract class Buildings {
             if (this.isPaginationEndResponse(request, res)) {
                 console.log(this.prettyName() + "pagination has no more pages after: " + request.tileCoords);
                 this.enqueueMergeRequest(request);
-                this.removePendingRequest(requestIndex);
+                this.removePendingRequest(requestIndex, request);
                 return;
             }
 
             if (res.status >= 400 && res.status<600) {
                 console.log("Error code:" + res.status + " while requesting: " + request.url);
                 console.log("but we will try again!");
-                this.buildingRequests.push(request); //let's try again? maybe there should be a maximum number of retries?
+                this.enqueueBuildingRequest(request); //let's try again? maybe there should be a maximum number of retries?
                 request.inProgress=false;
                 this.timeStart=Date.now();
                 this.sleepRequested=true;
-                this.removePendingRequest(requestIndex); //remove original request
+                this.removePendingRequest(requestIndex, request); //remove original request
                 return;
             }
             else {
                 console.error(this.prettyName() + "unable to fetch: " + request.url + " error code: " + res.status);
-                this.removePendingRequest(requestIndex);
+                this.removePendingRequest(requestIndex, request);
                 return;
             }
         }
         ).catch((error) => {
             console.error(this.prettyName() + "error during fetch! " + error);
 
-            this.removePendingRequest(requestIndex);
+            this.removePendingRequest(requestIndex, request);
             return;
         });
 
         return;
+    }
+
+    private selectBuildingRequestIndex(): number | undefined {
+        if (this.buildingRequests.length === 0) {
+            return undefined;
+        }
+
+        if (!this.optimizationOptions.prioritizeRequestsByDistance) {
+            if (!this.buildingRequests[0].inProgress) {
+                return 0;
+            }
+
+            for (let index = 1; index < this.buildingRequests.length; index++) {
+                const request = this.buildingRequests[index];
+                if (!request.inProgress && (
+                    request.requestType === BuildingRequestType.CreateBuilding ||
+                    request.requestType === BuildingRequestType.MergeAllBuildingsOnTile
+                )) {
+                    return index;
+                }
+            }
+            return undefined;
+        }
+
+        const loadInProgress = this.buildingRequests.some((request) =>
+            request.requestType === BuildingRequestType.LoadTile && request.inProgress,
+        );
+        const activeCamera = this.scene.activeCamera;
+        let bestIndex: number | undefined;
+        let bestDistance = Number.POSITIVE_INFINITY;
+
+        for (let index = 0; index < this.buildingRequests.length; index++) {
+            const request = this.buildingRequests[index];
+            if (request.inProgress) {
+                continue;
+            }
+            if (request.requestType === BuildingRequestType.LoadTile && loadInProgress) {
+                continue;
+            }
+            if (request.requestType === BuildingRequestType.MergeAllBuildingsOnTile) {
+                const hasPendingCreate = this.buildingRequests.some((candidate) =>
+                    candidate.requestType === BuildingRequestType.CreateBuilding &&
+                    !candidate.inProgress &&
+                    candidate.tile === request.tile,
+                );
+                if (hasPendingCreate) {
+                    continue;
+                }
+            }
+
+            let distance = 0;
+            if (activeCamera) {
+                request.tile.mesh.computeWorldMatrix(true);
+                const center = request.tile.mesh.getBoundingInfo().boundingSphere.centerWorld;
+                distance = Vector3.DistanceSquared(center, activeCamera.globalPosition);
+            }
+
+            // Strictly less-than preserves queue order when distances tie.
+            if (bestIndex === undefined || distance < bestDistance) {
+                bestIndex = index;
+                bestDistance = distance;
+            }
+        }
+
+        return bestIndex;
     }
 
     public processBuildingRequests() {
@@ -375,25 +640,11 @@ export default abstract class Buildings {
             if (this.buildingRequests.length == 0) {
                 return;
             }
-            let rIndex = 0;
-            let request = this.buildingRequests[rIndex]; //peek at front of queue
-
-            let foundWork = false;
-            if (request.inProgress == true) {
-
-                //TODO: this is where we could do some work while waiting (maybe process some buildings?)
-                for (let e = 1; e < this.buildingRequests.length; e++) {
-                    request = this.buildingRequests[e];
-                    if (request.requestType == BuildingRequestType.CreateBuilding || request.requestType == BuildingRequestType.MergeAllBuildingsOnTile) {
-                        foundWork = true;
-                        rIndex = e;
-                        break;
-                    }
-                }
-                if (foundWork == false) {
-                    return; //nothing to do
-                }
+            const rIndex = this.selectBuildingRequestIndex();
+            if (rIndex === undefined) {
+                return;
             }
+            const request = this.buildingRequests[rIndex];
 
             if (request.tile.tileCoords.equals(request.tileCoords) == false) { //make sure tile still has same coords
                 console.warn(this.prettyName() + "tile coords: " + request.tileCoords + " are no longer around, we must have already changed tile");
@@ -455,6 +706,7 @@ export default abstract class Buildings {
                     if (merged) {
                         merged.setParent(request.tile.mesh);
                         merged.name = "all_buildings_merged";
+                        this.applyBuildingMeshOptions(merged);
 
                         request.tile.mergedBuildingMesh = merged;
                     } else {

@@ -51,6 +51,23 @@ export interface TilePositionUpdate {
     tileCoords: Vector3;
 }
 
+export interface TileSetOptimizationOptions {
+    /** Freeze raster materials after their texture is ready. */
+    freezeRasterMaterials?: boolean;
+    /** Freeze tile world matrices. Only use this when tiles never move. */
+    freezeTileWorldMatrices?: boolean;
+    /** Disable picking on raster tile meshes. */
+    disableTilePicking?: boolean;
+    /** Disable collision checks on raster tile meshes. */
+    disableTileCollisions?: boolean;
+}
+
+export const DEFAULT_TILESET_OPTIMIZATION_OPTIONS: Readonly<Required<TileSetOptimizationOptions>> = {
+    freezeRasterMaterials: true,
+    freezeTileWorldMatrices: false,
+    disableTilePicking: false,
+    disableTileCollisions: false,
+};
 export default class TileSet {
 
     private xmin: number;
@@ -90,6 +107,10 @@ export default class TileSet {
     public numTiles: Vector2;
     public tileWidth: number;
     public meshPrecision: number;
+    /** Controls optional raster/tile mesh optimizations. */
+    public optimizationOptions: Required<TileSetOptimizationOptions> = {
+        ...DEFAULT_TILESET_OPTIMIZATION_OPTIONS,
+    };
     private isGeometrySetup: boolean = false;
     private isRasterSetup: boolean = false;
 
@@ -138,6 +159,38 @@ export default class TileSet {
         this.assertGeometrySetup(operation);
         if (!this.isRasterSetup) {
             throw new Error(`Cannot ${operation} before updateRaster() has been called.`);
+        }
+    }
+
+    /** Merges tile optimization settings and applies them to existing tiles. */
+    public setOptimizationOptions(options: TileSetOptimizationOptions): void {
+        this.optimizationOptions = {
+            ...this.optimizationOptions,
+            ...options,
+        };
+        this.applyOptimizationOptions();
+    }
+
+    /** Applies picking, collision, world-matrix, and material settings. */
+    public applyOptimizationOptions(): void {
+        for (const tile of this.ourTiles) {
+            tile.mesh.isPickable = !this.optimizationOptions.disableTilePicking;
+            tile.mesh.checkCollisions = !this.optimizationOptions.disableTileCollisions;
+            tile.mesh.computeWorldMatrix(true);
+
+            if (this.optimizationOptions.freezeTileWorldMatrices) {
+                tile.mesh.freezeWorldMatrix();
+            } else {
+                tile.mesh.unfreezeWorldMatrix();
+            }
+
+            if (tile.material) {
+                if (this.optimizationOptions.freezeRasterMaterials) {
+                    tile.material.freeze();
+                } else {
+                    tile.material.unfreeze();
+                }
+            }
         }
     }
 
@@ -193,6 +246,7 @@ export default class TileSet {
         }
 
         this.isGeometrySetup = true;
+        this.applyOptimizationOptions();
     }
 
     protected prettyName(): string {
@@ -239,7 +293,11 @@ export default class TileSet {
                     material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
                     material.diffuseTexture.hasAlpha = this.hasAlpha;
 
-                    material.freeze(); //optimization
+                    if (this.optimizationOptions.freezeRasterMaterials) {
+                        material.freeze();
+                    } else {
+                        material.unfreeze();
+                    }
 
                     request.mesh.setEnabled(true); //show it!
                     this.requestsProcessedSinceCaughtUp++;
@@ -266,9 +324,6 @@ export default class TileSet {
     const ground = MeshBuilder.CreateGround("tile", { width: this.tileWidth, height: this.tileWidth, updatable: true, subdivisions: precision }, this.scene);
     ground.position.z = this.zmin + (y + 0.5) * this.tileWidth;
     ground.position.x = this.xmin + (x + 0.5) * this.tileWidth;
-
-    //ground.bakeCurrentTransformIntoVertices(); //optimization
-    //ground.freezeWorldMatrix(); //optimization
 
     return ground;
 }

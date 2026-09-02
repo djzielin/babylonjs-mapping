@@ -152,7 +152,7 @@ export default class BuildingsWFS extends Buildings {
             flipWinding: this.flipWinding,
             pagination
         }
-        this.buildingRequests.push(request);
+        this.enqueueBuildingRequest(request);
     }
 
     private getPageSize(): number {

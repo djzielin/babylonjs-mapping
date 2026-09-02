@@ -36,6 +36,37 @@ export interface BuildingLODOptions {
     /** Babylon billboard mode, such as Mesh.BILLBOARDMODE_Y or Mesh.BILLBOARDMODE_ALL. */
     billboardMode?: number;
 }
+export interface BuildingOptimizationOptions {
+    /** Freeze completed building world matrices. Disable this for moving tiles. */
+    freezeWorldMatrices?: boolean;
+    /** Freeze the shared building material after it is configured. */
+    freezeMaterials?: boolean;
+    /** Disable picking on generated detailed building meshes. Billboards remain non-pickable. */
+    disablePicking?: boolean;
+    /** Disable collision checks on generated building and billboard meshes. */
+    disableCollisions?: boolean;
+    /** Process requests nearest to the active camera instead of FIFO order. */
+    prioritizeRequestsByDistance?: boolean;
+}
+export declare const DEFAULT_BUILDING_OPTIMIZATION_OPTIONS: Readonly<Required<BuildingOptimizationOptions>>;
+export interface BuildingPerformanceStats {
+    requestsProcessed: number;
+    peakQueueLength: number;
+    detailedBuildingCount: number;
+    billboardCount: number;
+    detailedVertexCount: number;
+    billboardVertexCount: number;
+    estimatedVertexReductionPercent: number;
+    lodSelections: number;
+    detailedSelections: number;
+    billboardSelections: number;
+    culledSelections: number;
+    frameSamples: number;
+    totalFrameTimeMs: number;
+    averageFrameTimeMs: number;
+    minFrameTimeMs: number;
+    maxFrameTimeMs: number;
+}
 interface GeoFileLoaded {
     url: string;
     topLevel: GeoJSON.topLevel;
@@ -60,6 +91,10 @@ export default abstract class Buildings {
     buildingsCreatedPerFrame: number;
     cacheFiles: boolean;
     buildingMaterial: StandardMaterial;
+    /** Controls optional mesh/material and request-queue optimizations. */
+    optimizationOptions: Required<BuildingOptimizationOptions>;
+    /** Collect frame-time samples in getPerformanceStats(). */
+    performanceMonitoringEnabled: boolean;
     /**
      * Optional transform applied to each completed building mesh before LOD
      * generation, duplicate detection, and tile merging.
@@ -76,7 +111,30 @@ export default abstract class Buildings {
     private timeStart;
     private sleepDuration;
     private _retrievalLocation;
+    private performanceStats;
     constructor(name: string, tileSet: TileSet, retrievalLocation: RetrievalLocation);
+    /**
+     * Merges optimization settings and applies the material setting immediately.
+     * Mesh settings are applied to newly generated meshes and can be refreshed
+     * on existing meshes with applyBuildingMeshOptions().
+     */
+    setOptimizationOptions(options: BuildingOptimizationOptions): void;
+    /** Applies the current material optimization setting. */
+    applyOptimizationOptions(): void;
+    /** Applies picking, collision, and world-matrix settings to a mesh. */
+    applyBuildingMeshOptions(mesh: Mesh, freezeWorldMatrix?: boolean): void;
+    /** Enables or disables collection of engine frame-time samples. */
+    setPerformanceMonitoringEnabled(enabled: boolean): void;
+    /** Returns cumulative generation, LOD, queue, and optional frame metrics. */
+    getPerformanceStats(): BuildingPerformanceStats;
+    /** Clears cumulative performance counters without changing optimization settings. */
+    resetPerformanceStats(): void;
+    /** @internal Records a generated detailed mesh for performance reporting. */
+    recordDetailedBuilding(mesh: Mesh): void;
+    /** @internal Records a generated billboard for performance reporting. */
+    recordBuildingBillboard(mesh: Mesh): void;
+    /** @internal Records a Babylon LOD callback selection. */
+    recordLODSelection(selectedLevel: Mesh | null, detailedMesh: Mesh, billboardMesh: Mesh): void;
     get retrievalLocation(): RetrievalLocation;
     set retrievalLocation(value: RetrievalLocation);
     /** @deprecated Use retrievalLocation. */
@@ -96,14 +154,16 @@ export default abstract class Buildings {
      */
     protected isPaginationEndResponse(_request: BuildingRequest, _response: Response): boolean;
     protected enqueueMergeRequest(request: BuildingRequest): void;
+    protected enqueueBuildingRequest(request: BuildingRequest): void;
     protected prettyName(): string;
     private isURLLoaded;
     private getFeatures;
     protected stripFilePrefix(original: string): string;
-    protected removePendingRequest(index?: number): void;
+    protected removePendingRequest(index?: number, request?: BuildingRequest): void;
     protected doSave(text: string): void;
     private processLoadedGeoJSON;
     protected handleLoadTileRequest(request: BuildingRequest, requestIndex?: number): void;
+    private selectBuildingRequestIndex;
     processBuildingRequests(): void;
     generateBuildings(): void;
 }
