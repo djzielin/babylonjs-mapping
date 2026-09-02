@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1"/>
+        <title>Babylon.js Mapping Globe Navigator</title>
+        <style>
+            :root {
+                color-scheme: dark;
+                font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+            }
+
+            html, body {
+                overflow: hidden;
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                background: #050a16;
+                color: white;
+            }
+
+            #renderCanvas {
+                width: 100%;
+                height: 100%;
+                touch-action: none;
+            }
+
+            #controlPanel {
+                position: absolute;
+                top: 16px;
+                left: 16px;
+                width: min(340px, calc(100vw - 64px));
+                padding: 14px;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 12px;
+                background: rgba(5, 10, 22, 0.88);
+                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+                backdrop-filter: blur(12px);
+            }
+
+            #controlPanel h1 {
+                margin: 0 0 4px;
+                font-size: 17px;
+            }
+
+            #controlPanel p {
+                margin: 0 0 12px;
+                color: #b9c6dc;
+                font-size: 12px;
+                line-height: 1.45;
+            }
+
+            #locationForm {
+                display: grid;
+                grid-template-columns: 1fr 1fr auto;
+                gap: 8px;
+            }
+
+            #locationPreset {
+                grid-column: 1 / -1;
+            }
+
+            input, select, button {
+                box-sizing: border-box;
+                min-width: 0;
+                height: 36px;
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 8px;
+                background: #111a2b;
+                color: white;
+                font: inherit;
+            }
+
+            input, select {
+                padding: 0 10px;
+            }
+
+            button {
+                padding: 0 12px;
+                cursor: pointer;
+                font-weight: 650;
+            }
+
+            button:hover {
+                background: #20304d;
+            }
+
+            #navigationButtons {
+                display: flex;
+                gap: 8px;
+                margin-top: 8px;
+            }
+
+            #navigationButtons button {
+                min-width: 42px;
+            }
+
+            #home {
+                margin-left: auto;
+            }
+
+            #viewReadout {
+                margin-top: 10px;
+                color: #80c7ff;
+                font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+            }
+
+            .sr-only {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                padding: 0;
+                margin: -1px;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                white-space: nowrap;
+                border: 0;
+            }
+
+            @media (max-width: 600px) {
+                #controlPanel {
+                    top: 8px;
+                    left: 8px;
+                    width: calc(100vw - 44px);
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <aside id="controlPanel">
+            <h1>Globe navigator</h1>
+            <p>Drag to orbit · scroll or pinch to zoom · double-click a place to fly closer</p>
+            <form id="locationForm">
+                <label class="sr-only" for="locationPreset">Preset location</label>
+                <select id="locationPreset" aria-label="Preset location"></select>
+                <label class="sr-only" for="latitude">Latitude</label>
+                <input id="latitude" type="number" min="-90" max="90" step="any" required placeholder="Latitude"/>
+                <label class="sr-only" for="longitude">Longitude</label>
+                <input id="longitude" type="number" step="any" required placeholder="Longitude"/>
+                <button type="submit">Fly</button>
+            </form>
+            <div id="navigationButtons">
+                <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
+                <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
+                <button id="home" type="button">Home</button>
+            </div>
+            <div id="viewReadout" aria-live="polite"></div>
+        </aside>
+        <canvas id="renderCanvas" touch-action="none"></canvas>
+    </body>
+</html>

@@ -58,7 +58,9 @@
     "mapping",
     "openstreetmaps",
     "OSM",
-    "mapbox"
+    "mapbox",
+    "globe",
+    "spherical maps"
   ],
   "homepage": "https://github.com/djzielin/babylonjs-mapping#readme",
   "files": [
