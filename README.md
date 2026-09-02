@@ -35,6 +35,14 @@ runs the tests and build first, then publishes with npm provenance. Before
 creating the release, configure npm's trusted publisher for repository
 `djzielin/babylonjs-mapping` and workflow file `publish-npm.yml`.
 
+## GitHub Pages demos
+
+The four npm examples are built and published to GitHub Pages from `main` by
+GitHub Actions. The workflow keeps the demos under separate paths and exposes
+an index page linking to each one. Add the repository's `OSMB_ACCESS_TOKEN` and
+`MAPBOX_ACCESS_TOKEN` Actions secrets if the live building and terrain data
+should be enabled; builds remain useful without those optional credentials.
+
 ## Building geometry options
 
 Call `createGeometry` and `updateRaster` before generating buildings. The library throws
