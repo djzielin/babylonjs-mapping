@@ -148,9 +148,9 @@ At the configured distance, Babylon.js swaps each detailed building for a double
 
 Optimization choices are explicit on both `Buildings` and `TileSet` providers. Building
 world matrices remain live by default because the endless example moves its tile parents;
-static scenes can freeze them after generation. The shared building material is frozen by
-default, while picking, collisions, and distance-based request prioritization can be
-changed independently:
+static scenes can freeze them after generation. Building meshes remain pickable by default
+for compatibility, while the shared building material is frozen by default. Picking,
+collisions, and distance-based request prioritization can be changed independently:
 
 ```ts
 buildings.setOptimizationOptions({

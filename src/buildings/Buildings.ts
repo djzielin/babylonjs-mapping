@@ -52,7 +52,7 @@ export interface BuildingOptimizationOptions {
     freezeWorldMatrices?: boolean;
     /** Freeze the shared building material after it is configured. */
     freezeMaterials?: boolean;
-    /** Disable picking on generated building and billboard meshes. */
+    /** Disable picking on generated detailed building meshes. Billboards remain non-pickable. */
     disablePicking?: boolean;
     /** Disable collision checks on generated building and billboard meshes. */
     disableCollisions?: boolean;
@@ -65,7 +65,9 @@ export const DEFAULT_BUILDING_OPTIMIZATION_OPTIONS: Readonly<Required<BuildingOp
     // the safe behavior the default while still allowing static maps to opt in.
     freezeWorldMatrices: false,
     freezeMaterials: true,
-    disablePicking: true,
+    // Preserve Babylon's existing pickable-by-default behavior; callers can
+    // disable picking explicitly for fully static scenes.
+    disablePicking: false,
     disableCollisions: true,
     prioritizeRequestsByDistance: false,
 };
@@ -235,7 +237,7 @@ export default abstract class Buildings {
     /** Returns cumulative generation, LOD, queue, and optional frame metrics. */
     public getPerformanceStats(): BuildingPerformanceStats {
         const detailedVertices = this.performanceStats.detailedVertexCount;
-        const estimatedVertexReductionPercent = detailedVertices === 0
+        const estimatedVertexReductionPercent = detailedVertices === 0 || this.performanceStats.billboardCount === 0
             ? 0
             : Math.max(0, (1 - this.performanceStats.billboardVertexCount / detailedVertices) * 100);
 

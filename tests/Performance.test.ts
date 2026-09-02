@@ -186,6 +186,27 @@ describe("mapping performance controls", () => {
     engine.dispose();
   });
 
+  it("preserves picking and reports no LOD reduction when billboards are disabled", () => {
+    const { engine, scene, tileSet } = createTileSet();
+    const buildings = new TestBuildings("test", tileSet, RetrievalLocation.Local);
+    const geoJson = new GeoJSON(tileSet, scene);
+
+    geoJson.generateSingleBuilding(
+      "test",
+      pointFeature("default-options"),
+      EPSG_Type.EPSG_3857,
+      tileSet.ourTiles[0],
+      false,
+      buildings,
+    );
+
+    expect(tileSet.ourTiles[0].buildings[0].mesh.isPickable).toBe(true);
+    expect(buildings.getPerformanceStats().estimatedVertexReductionPercent).toBe(0);
+
+    scene.dispose();
+    engine.dispose();
+  });
+
   it("surfaces raster tile optimization settings", () => {
     const { engine, scene, tileSet } = createTileSet();
     const tile = tileSet.ourTiles[0];
