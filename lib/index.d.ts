@@ -4,6 +4,8 @@ export type { BuildingLODOptions, BuildingRequest } from "./buildings/Buildings.
 export { default as BuildingsMB } from "./buildings/BuildingsMB.js";
 export type { LoadedMapboxModelTile, MapboxModelTileLoader, } from "./buildings/BuildingsMB.js";
 export { default as BuildingsOSM } from "./buildings/BuildingsOSM.js";
+export { default as BuildingsVectorTile, MAPBOX_STREETS_ROAD_LAYER, MAPBOX_STREETS_VECTOR_TILE_URL, } from "./buildings/BuildingsVectorTile.js";
+export type { VectorTileDataLoader, VectorTileDecoder, } from "./buildings/BuildingsVectorTile.js";
 export { default as BuildingsOverture, OVERTURE_TILES_BASE_URL, resolveLatestOvertureBuildingsURL, } from "./buildings/BuildingsOverture.js";
 export { default as BuildingsWFS } from "./buildings/BuildingsWFS.js";
 export * as GeoJSON from "./buildings/GeoJSON.js";
