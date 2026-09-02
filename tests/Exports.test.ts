@@ -14,6 +14,7 @@ function assertImportsResolve() {
     const flat = await import("babylonjs-mapping/lib/RasterOSM");
     const gebco = await import("babylonjs-mapping/lib/RasterGEBCO");
     const landmarks = await import("babylonjs-mapping/lib/BuildingsMB");
+    const googleTiles = await import("babylonjs-mapping/lib/Google3DTiles");
     const overture = await import("babylonjs-mapping/lib/BuildingsOverture");
     const vectorTiles = await import("babylonjs-mapping/lib/BuildingsVectorTile");
     const nested = await import("babylonjs-mapping/lib/core/TileSet");
@@ -36,6 +37,10 @@ function assertImportsResolve() {
 
     if (typeof root.BuildingsMB !== "function" || typeof landmarks.default !== "function") {
       throw new Error("Mapbox landmark building exports did not resolve");
+    }
+
+    if (typeof root.Google3DTiles !== "function" || typeof googleTiles.default !== "function") {
+      throw new Error("Google 3D Tiles exports did not resolve");
     }
 
     if (

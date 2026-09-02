@@ -7,6 +7,7 @@ Currently supported data sources include:
 * Mapbox (satellite and terrain)
 ![grand canyon with river at bottom](https://raw.githubusercontent.com/djzielin/babylonjs-mapping/main/doc/grand_canyon.jpg "Mapbox Terrain Demo")
 * GEBCO's global bathymetric grid as colour-shaded WMS imagery
+* Google Photorealistic 3D Tiles
 * Custom Buildings from GeoServer and ArcGIS Online (WFS)
 
 The "Hello World" of creating an OpenStreetMap tileset, along with extruded buildings is:
@@ -98,6 +99,32 @@ tileSet.updateRaster(11.35, 142.2, 6); // Mariana Trench region
 The provider uses GEBCO's WMS imagery, which is intended for visualization and
 not navigation or safety-at-sea purposes. The full downloadable grids are
 available from [GEBCO's data download service](https://download.gebco.net/).
+
+## Google Photorealistic 3D Tiles
+
+Google's Photorealistic 3D Tiles can be loaded directly into the Babylon scene
+without adding Cesium. The provider follows the authenticated Google 3D Tiles
+hierarchy for the current `TileSet` extent, loads the selected GLB content, and
+re-bases the Earth-centered coordinates around the map center:
+
+```ts
+const googleTiles = new Google3DTiles(tileSet, {
+    apiKey: googleMapsApiKey,
+    maxDepth: 6,
+    maxTiles: 64,
+});
+await googleTiles.load();
+```
+
+The API key must have the Google Maps Platform Map Tiles API enabled and billing
+configured. Call `load()` again after `updateRaster()` when the map moves; the
+provider reuses the root/session response and disposes content outside the new
+extent. `maxDepth` and `maxTiles` are the main quality/memory controls, and
+`exaggeration` adjusts the local vertical axis. Google data credits returned by
+the GLB tiles are aggregated and displayed through the library attribution UI.
+Review Google's [Photorealistic 3D Tiles documentation](https://developers.google.com/maps/documentation/tile/3d-tiles)
+and [Map Tiles API policies](https://developers.google.com/maps/documentation/tile/policies)
+before using the service.
 
 ## Endless tile lifecycle
 
