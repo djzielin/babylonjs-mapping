@@ -12,6 +12,7 @@ function assertImportsResolve() {
   return `
     const root = await import("babylonjs-mapping");
     const flat = await import("babylonjs-mapping/lib/RasterOSM");
+    const gebco = await import("babylonjs-mapping/lib/RasterGEBCO");
     const landmarks = await import("babylonjs-mapping/lib/BuildingsMB");
     const overture = await import("babylonjs-mapping/lib/BuildingsOverture");
     const vectorTiles = await import("babylonjs-mapping/lib/BuildingsVectorTile");
@@ -23,6 +24,14 @@ function assertImportsResolve() {
 
     if (typeof flat.default !== "function") {
       throw new Error("compatibility subpath lib/RasterOSM did not resolve");
+    }
+
+    if (
+      typeof root.RasterGEBCO !== "function" ||
+      typeof gebco.default !== "function" ||
+      typeof gebco.GEBCO_WMS_URL !== "string"
+    ) {
+      throw new Error("GEBCO raster provider exports did not resolve");
     }
 
     if (typeof root.BuildingsMB !== "function" || typeof landmarks.default !== "function") {

@@ -9,6 +9,7 @@ export default class Attribution {
     private buttonImprov;
     private buttonOSMBuildings;
     private buttonOverture;
+    private buttonGEBCO;
     private attributionList;
     private ourRightPanel;
     private ourLeftPanel;
@@ -17,5 +18,6 @@ export default class Attribution {
     private addAttributionOSM;
     private addAttributionOSMBuildings;
     private addAttributionOverture;
+    private addAttributionGEBCO;
     private addAttributionMapbox;
 }

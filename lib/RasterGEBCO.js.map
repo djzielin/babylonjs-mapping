@@ -1,0 +1,1 @@
+{"version":3,"file":"RasterGEBCO.js","sourceRoot":"","sources":["../src/RasterGEBCO.ts"],"names":[],"mappings":"AAAA,OAAO,EACH,OAAO,EACP,mBAAmB,EACnB,aAAa,GAChB,MAAM,yBAAyB,CAAC","sourcesContent":["export {\n    default,\n    GEBCO_DEFAULT_LAYER,\n    GEBCO_WMS_URL,\n} from \"./raster/RasterGEBCO.js\";\nexport type { RasterGEBCOOptions } from \"./raster/RasterGEBCO.js\";\n"]}

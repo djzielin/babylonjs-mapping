@@ -12,6 +12,8 @@ export * as GeoJSON from "./buildings/GeoJSON.js";
 export { default as Raster } from "./raster/Raster.js";
 export { default as RasterMB } from "./raster/RasterMB.js";
 export { default as RasterOSM } from "./raster/RasterOSM.js";
+export { default as RasterGEBCO, GEBCO_DEFAULT_LAYER, GEBCO_WMS_URL, } from "./raster/RasterGEBCO.js";
+export type { RasterGEBCOOptions } from "./raster/RasterGEBCO.js";
 export { default as RasterWMTS } from "./raster/RasterWMTS.js";
 export { RetrievalLocation, RetrievalType } from "./shared/Retrieval.js";
 export { default as TerrainMB } from "./terrain/TerrainMB.js";
