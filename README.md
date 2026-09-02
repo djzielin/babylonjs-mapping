@@ -248,6 +248,34 @@ npm test
 Report bugs and request features through
 [GitHub Issues](https://github.com/djzielin/babylonjs-mapping/issues).
 
+## Credits
+
+<img align="left" height="120" src="doc/vic_thumb.jpeg" alt="Vic Szabo">
+
+**[Vic Szabo](https://scholars.duke.edu/person/ves4)**<br>
+Principal Investigator<br>
+Research Professor of Art, Art History & Visual Studies, Duke University<br>
+Chair of Art, Art History & Visual Studies, Duke University
+
+<br clear="left">
+
+<img align="left" height="120" src="doc/dave_thumb.jpg" alt="David J. Zielinski">
+
+**[David J. Zielinski](https://people.duke.edu/~djzielin/)**<br>
+Senior AR/VR Technology Specialist, Duke University<br>
+Developer, 2022–2025<br>
+Project Manager, 2026–present
+
+<br clear="left">
+
+<img align="left" height="120" src="doc/thomas_thumb.jpeg" alt="Thomas Hines">
+
+**[Thomas Hines](https://www.linkedin.com/in/thethomashines/)**<br>
+Lead Developer, 2026–present<br>
+Undergraduate, Computer Science / Electrical & Computer Engineering, Duke University
+
+<br clear="left">
+
 ## License
 
 [MIT](LICENSE.md)
