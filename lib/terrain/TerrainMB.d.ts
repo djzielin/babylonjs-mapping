@@ -19,7 +19,9 @@ export default class TerrainMB {
     private applyDetailedTerrainToMesh;
     private addTerrainSkirt;
     updateSingleTerrainTile(tile: Tile): Promise<void>;
-    private fixTileSeams;
+    /** Re-applies every available cardinal and diagonal seam. */
+    fixTileSeams(): void;
+    private invalidateTileSeams;
     private convertRGBtoDEM;
     applyDEMToMesh(tile: Tile, meshPrecision: number): void;
     private computeIndexByPercent;
