@@ -10,14 +10,19 @@ export default class Attribution {
     private buttonOSMBuildings;
     private buttonOverture;
     private buttonGEBCO;
+    private buttonGoogle;
+    private googleDataAttribution;
     private attributionList;
     private ourRightPanel;
     private ourLeftPanel;
     constructor(scene: Scene);
     addAttribution(provider: string): void;
+    /** Updates the sorted data credits returned by Google's 3D Tiles. */
+    setGoogleAttributions(attributions: readonly string[]): void;
     private addAttributionOSM;
     private addAttributionOSMBuildings;
     private addAttributionOverture;
     private addAttributionGEBCO;
+    private addAttributionGoogle;
     private addAttributionMapbox;
 }

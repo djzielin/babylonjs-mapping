@@ -12,6 +12,8 @@ export default class Attribution {
     private buttonOSMBuildings: Button;
     private buttonOverture: Button;
     private buttonGEBCO: Button;
+    private buttonGoogle: Button;
+    private googleDataAttribution: TextBlock;
 
     private attributionList: string[]=[];
     private ourRightPanel: StackPanel;
@@ -71,7 +73,29 @@ export default class Attribution {
             this.addAttributionGEBCO();
         }
 
+        if (provider == "GOOGLE") {
+            this.addAttributionGoogle();
+        }
+
         this.attributionList.push(provider);
+    }
+
+    /** Updates the sorted data credits returned by Google's 3D Tiles. */
+    public setGoogleAttributions(attributions: readonly string[]): void {
+        if (!this.googleDataAttribution) {
+            this.googleDataAttribution = new TextBlock("google data attribution");
+            this.googleDataAttribution.width = "500px";
+            this.googleDataAttribution.height = "25px";
+            this.googleDataAttribution.color = "white";
+            this.googleDataAttribution.alpha = 0.9;
+            this.googleDataAttribution.fontSize = "11px";
+            this.googleDataAttribution.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            this.googleDataAttribution.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            this.ourRightPanel.addControl(this.googleDataAttribution);
+        }
+        this.googleDataAttribution.text = attributions.length > 0
+            ? attributions.join("; ")
+            : "";
     }
     
     private addAttributionOSM() {
@@ -144,6 +168,22 @@ export default class Attribution {
         });
 
         this.ourRightPanel.addControl(this.buttonGEBCO);
+    }
+
+    private addAttributionGoogle() {
+        this.buttonGoogle = Button.CreateSimpleButton("button_google", "Google");
+        this.buttonGoogle.width = "60px";
+        this.buttonGoogle.height = "25px";
+        this.buttonGoogle.color = "white";
+        this.buttonGoogle.alpha = 0.9;
+        this.buttonGoogle.thickness = 0;
+        this.buttonGoogle.fontSize = "12px";
+        this.buttonGoogle.background = "";
+        this.buttonGoogle.onPointerUpObservable.add(function () {
+            window.open("https://developers.google.com/maps/documentation/tile/policies");
+        });
+
+        this.ourRightPanel.addControl(this.buttonGoogle);
     }
 
 

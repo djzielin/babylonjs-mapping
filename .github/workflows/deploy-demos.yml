@@ -40,6 +40,7 @@ jobs:
         env:
           OSMB_ACCESS_TOKEN: ${{ secrets.OSMB_ACCESS_TOKEN }}
           MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
         run: |
           set -euo pipefail
           mkdir -p site
@@ -52,6 +53,7 @@ jobs:
             OpenStreetMap-UserData-RealScale
             mapbox-terrain
             gebco-bathymetry
+            google-3d-tiles
           )
 
           for demo in "${demos[@]}"; do
@@ -67,6 +69,9 @@ jobs:
             fi
             if [[ -n "${MAPBOX_ACCESS_TOKEN}" && "${demo}" == "mapbox-terrain" ]]; then
               printf '%s' "${MAPBOX_ACCESS_TOKEN}" > "${GITHUB_WORKSPACE}/site/${demo}/mapbox-key.txt"
+            fi
+            if [[ -n "${GOOGLE_MAPS_API_KEY}" && "${demo}" == "google-3d-tiles" ]]; then
+              printf '%s' "${GOOGLE_MAPS_API_KEY}" > "${GITHUB_WORKSPACE}/site/${demo}/google-key.txt"
             fi
           done
 

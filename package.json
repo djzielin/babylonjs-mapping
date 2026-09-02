@@ -18,6 +18,7 @@
     "./lib/core/*": "./lib/core/*.js",
     "./lib/raster/*": "./lib/raster/*.js",
     "./lib/buildings/*": "./lib/buildings/*.js",
+    "./lib/google/*": "./lib/google/*.js",
     "./lib/terrain/*": "./lib/terrain/*.js",
     "./lib/shared/*": "./lib/shared/*.js"
   },
@@ -58,7 +59,9 @@
     "mapping",
     "openstreetmaps",
     "OSM",
-    "mapbox"
+    "mapbox",
+    "google maps",
+    "3d tiles"
   ],
   "homepage": "https://github.com/djzielin/babylonjs-mapping#readme",
   "files": [

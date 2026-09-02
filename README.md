@@ -70,6 +70,7 @@ provider.
 | Mapbox or custom MVT features | `BuildingsVectorTile` | Token for Mapbox; URL and source layers for custom services |
 | Overture Maps buildings | `BuildingsOverture` | PMTiles source; defaults to the latest public release |
 | GeoServer, WFS, or ArcGIS features | `BuildingsWFS` | Service URL, layer, and source CRS |
+| Google Photorealistic 3D Tiles | `Google3DTiles` | Google Maps Platform API key with Map Tiles API access |
 | Mapbox terrain | `TerrainMB` through `TileSet` | Mapbox access token |
 
 External services retain their own usage terms, attribution requirements,
@@ -118,6 +119,38 @@ features.generateBuildings();
 `setupAGOL()` supports an ArcGIS WFS endpoint, while `setupGeoServer()`
 configures GeoServer-style requests. Both WFS and ArcGIS Feature Service
 loading handle paginated results.
+
+## Google Photorealistic 3D Tiles
+
+Google's Photorealistic 3D Tiles can be loaded directly into the Babylon scene
+without adding Cesium. The provider follows the authenticated tile hierarchy
+for the current `TileSet` extent, loads GLB content, and rebases Earth-centered
+coordinates around the map center:
+
+```ts
+import { Google3DTiles } from "babylonjs-mapping";
+
+const googleTiles = new Google3DTiles(tiles, {
+    apiKey: googleMapsApiKey,
+    maxDepth: 6,
+    maxTiles: 64,
+});
+await googleTiles.load();
+```
+
+The API key must have the Google Maps Platform Map Tiles API enabled and billing
+configured. Call `load()` again after `updateRaster()` when the map moves.
+`maxDepth` and `maxTiles` control quality and memory use; `exaggeration` adjusts
+the local vertical axis. Google data credits returned by loaded tiles are
+displayed through the library attribution UI. Review Google's
+[Photorealistic 3D Tiles documentation](https://developers.google.com/maps/documentation/tile/3d-tiles)
+and [Map Tiles API policies](https://developers.google.com/maps/documentation/tile/policies)
+before using the service.
+
+The [Google 3D Tiles demo](./examples-npm/google-3d-tiles) reads its browser key
+from an ignored `public/google-key.txt` file. The Pages workflow supplies that
+file from the `GOOGLE_MAPS_API_KEY` repository secret, keeping credentials out
+of Git history.
 
 ## Add Mapbox terrain
 

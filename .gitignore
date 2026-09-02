@@ -158,3 +158,4 @@ temp/
 # Local API keys used by examples
 mapbox-key.txt
 osmb-key.txt
+google-key.txt
