@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Google Photorealistic 3D Tiles · Babylon.js</title>
+        <style>
+            :root {
+                color-scheme: dark;
+                font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+            }
+
+            * { box-sizing: border-box; }
+
+            html, body {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                overflow: hidden;
+                background: #07101c;
+            }
+
+            #renderCanvas {
+                width: 100%;
+                height: 100%;
+                display: block;
+                touch-action: none;
+                outline: none;
+            }
+
+            .panel {
+                position: fixed;
+                z-index: 2;
+                top: 20px;
+                left: 20px;
+                width: min(390px, calc(100vw - 40px));
+                padding: 18px;
+                border: 1px solid #6cc7ff66;
+                border-radius: 14px;
+                background: #071321e8;
+                box-shadow: 0 18px 60px #0008;
+                backdrop-filter: blur(12px);
+            }
+
+            h1 {
+                margin: 0 0 5px;
+                font-size: 20px;
+            }
+
+            p {
+                margin: 0 0 14px;
+                color: #a8bdd0;
+                font-size: 13px;
+                line-height: 1.45;
+            }
+
+            label {
+                display: block;
+                margin: 10px 0 5px;
+                color: #cfe8f8;
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: .04em;
+                text-transform: uppercase;
+            }
+
+            input, select, button {
+                width: 100%;
+                min-height: 40px;
+                border: 1px solid #476179;
+                border-radius: 8px;
+                background: #0d2032;
+                color: #fff;
+                font: inherit;
+            }
+
+            input, select { padding: 0 11px; }
+
+            button {
+                margin-top: 12px;
+                border-color: #3eaff1;
+                background: #0879bd;
+                cursor: pointer;
+                font-weight: 750;
+            }
+
+            button:hover { background: #0994e6; }
+            button:disabled { cursor: wait; opacity: .6; }
+
+            #status {
+                min-height: 34px;
+                margin-top: 12px;
+                padding: 9px 10px;
+                border-radius: 8px;
+                background: #102438;
+                color: #b7d2e5;
+                font-size: 13px;
+            }
+
+            #status[data-state="ready"] { color: #80efb5; }
+            #status[data-state="error"] { color: #ff9b9b; }
+
+            .controls {
+                margin: 10px 0 0;
+                color: #849db0;
+                font-size: 12px;
+            }
+
+            @media (max-height: 570px) {
+                .panel { top: 10px; left: 10px; padding: 12px; }
+                .panel p, .controls { display: none; }
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="renderCanvas" tabindex="0" aria-label="Interactive Google 3D Tiles scene"></canvas>
+        <form class="panel" id="loadForm">
+            <h1>Google Photorealistic 3D Tiles</h1>
+            <p>Direct Google Maps Platform tiles in Babylon.js—no Cesium runtime.</p>
+
+            <label for="location">Location</label>
+            <select id="location" name="location">
+                <option value="40.7484,-73.9857">New York · Empire State Building</option>
+                <option value="35.6762,139.6503">Tokyo · Shinjuku</option>
+                <option value="48.8584,2.2945">Paris · Eiffel Tower</option>
+                <option value="37.8199,-122.4783">San Francisco · Golden Gate</option>
+            </select>
+
+            <button id="loadButton" type="submit">Load selected location</button>
+            <div id="status" role="status" aria-live="polite" data-state="idle">Loading configuration…</div>
+            <div class="controls">Drag to orbit · scroll or pinch to zoom</div>
+        </form>
+    </body>
+</html>

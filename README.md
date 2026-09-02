@@ -147,6 +147,11 @@ displayed through the library attribution UI. Review Google's
 and [Map Tiles API policies](https://developers.google.com/maps/documentation/tile/policies)
 before using the service.
 
+The [Google 3D Tiles demo](./examples-npm/google-3d-tiles) reads its browser key
+from an ignored `public/google-key.txt` file. The Pages workflow supplies that
+file from the `GOOGLE_MAPS_API_KEY` repository secret, keeping credentials out
+of Git history.
+
 ## Add Mapbox terrain
 
 Use a sufficiently high mesh precision when terrain detail matters. Terrain
