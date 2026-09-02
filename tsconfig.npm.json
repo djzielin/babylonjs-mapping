@@ -18,7 +18,7 @@
     "skipLibCheck": true,
     "removeComments": false,
     "preserveConstEnums": true,
-    "lib": ["es5", "dom", "es2015.promise", "es2015.collection", "es2015.iterable", "es2015.symbol.wellknown", "es2020.bigint", "es2017"],
+    "lib": ["es5", "dom", "es2015.promise", "es2015.collection", "es2015.iterable", "es2015.symbol.wellknown", "es2018.promise", "es2020.bigint", "es2020.string", "es2017"],
     "outDir": "./lib"
   },
   "include": [
