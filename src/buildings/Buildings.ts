@@ -101,6 +101,8 @@ interface GeoFileLoaded {
 export default abstract class Buildings {
 
     //things the user might be interested in changing
+    /** Directory or URL prefix used for local cached building assets. */
+    public localPathPrefix = "map_cache/";
     public exaggeration = 1.0;
     public doMerge = false;
     /**

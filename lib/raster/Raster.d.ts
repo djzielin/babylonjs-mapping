@@ -6,6 +6,8 @@ export default class Raster {
     name: string;
     tileSet: TileSet;
     retrievalLocation: RetrievalLocation;
+    /** Directory or URL prefix used for local cached raster assets. */
+    localPathPrefix: string;
     constructor(name: string, tileSet: TileSet, retrievalLocation?: RetrievalLocation);
     getRasterURL(tileCoords: Vector2, zoom: number): string;
     doTileSave(request: TileRequest): void;

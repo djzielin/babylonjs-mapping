@@ -41,7 +41,7 @@ export interface BuildingOptimizationOptions {
     freezeWorldMatrices?: boolean;
     /** Freeze the shared building material after it is configured. */
     freezeMaterials?: boolean;
-    /** Disable picking on generated building and billboard meshes. */
+    /** Disable picking on generated detailed building meshes. Billboards remain non-pickable. */
     disablePicking?: boolean;
     /** Disable collision checks on generated building and billboard meshes. */
     disableCollisions?: boolean;
@@ -74,6 +74,8 @@ interface GeoFileLoaded {
 export default abstract class Buildings {
     name: string;
     protected tileSet: TileSet;
+    /** Directory or URL prefix used for local cached building assets. */
+    localPathPrefix: string;
     exaggeration: number;
     doMerge: boolean;
     /**

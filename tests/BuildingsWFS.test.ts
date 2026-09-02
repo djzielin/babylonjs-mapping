@@ -116,6 +116,28 @@ afterEach(() => {
 });
 
 describe("BuildingsWFS pagination", () => {
+  it("supports a custom local cache prefix for all-data retrieval", () => {
+    const { engine, scene, buildings } = createBuildings();
+    vi.stubGlobal("window", {
+      location: {
+        href: "https://example.test/viewers/local-load/index.html",
+      },
+    });
+
+    try {
+      buildings.retrievalLocation = RetrievalLocation.Local;
+      buildings.localPathPrefix = "assets/map_cache/";
+      buildings.generateBuildings();
+
+      expect(buildings.getRequests()[0].url).toBe(
+        "https://example.test/viewers/local-load/assets/map_cache/test-buildings.json",
+      );
+    } finally {
+      scene.dispose();
+      engine.dispose();
+    }
+  });
+
   it("queries an ArcGIS Feature Service directly with GeoJSON and spatial paging", async () => {
     const { engine, scene, tileSet, buildings } = createBuildings();
     const features = [1, 2, 3, 4, 5].map((id) => pointFeature(String(id)));

@@ -35,6 +35,14 @@ runs the tests and build first, then publishes with npm provenance. Before
 creating the release, configure npm's trusted publisher for repository
 `djzielin/babylonjs-mapping` and workflow file `publish-npm.yml`.
 
+## GitHub Pages demos
+
+The four npm examples are built and published to GitHub Pages from `main` by
+GitHub Actions. The workflow keeps the demos under separate paths and exposes
+an index page linking to each one. Add the repository's `OSMB_ACCESS_TOKEN` and
+`MAPBOX_ACCESS_TOKEN` Actions secrets if the live building and terrain data
+should be enabled; builds remain useful without those optional credentials.
+
 ## Building geometry options
 
 Call `createGeometry` and `updateRaster` before generating buildings. The library throws
@@ -86,6 +94,33 @@ tileSet.onTilePositionUpdatedObservable.add(({ tile, previousTileCoords, tileCoo
 
 The notification is sent after the tile's raster request and optional building
 request have been submitted.
+
+## Mapbox vector roads
+
+`BuildingsVectorTile` loads Mapbox Streets v8 vector tiles and feeds selected
+source layers into the existing GeoJSON geometry pipeline. Its default layer
+is `road`; line features are converted to low-profile extrusions, and their
+source properties remain available on the generated mesh metadata:
+
+```ts
+const roads = new BuildingsVectorTile(tileSet);
+roads.accessToken = mapboxAccessToken;
+roads.lineWidth = 0.25;
+roads.sourceLayers = ["road"];
+roads.generateBuildings();
+```
+
+The provider also accepts a custom `{z}/{x}/{y}` vector-tile URL and a list of
+source layers, which can be used with traffic or other compatible MVT data:
+
+```ts
+const traffic = new BuildingsVectorTile(
+    tileSet,
+    "https://tiles.example/{z}/{x}/{y}.pbf",
+    ["traffic"],
+);
+traffic.generateBuildings();
+```
 
 ## ArcGIS Online WFS pagination
 
@@ -185,6 +220,35 @@ console.log(buildings.getPerformanceStats());
 The returned data includes detailed/billboard vertex counts, estimated vertex reduction,
 LOD selections, queue depth, and average/min/max frame times. Call
 `resetPerformanceStats()` between test runs.
+
+## Endless terrain recycling
+
+`moveAllTiles` can reload Mapbox terrain for tiles that are recycled at the edge
+of an endless tileset. Pass `true` as the optional fifth argument after terrain
+has been configured:
+
+```ts
+await tileSet.generateTerrain(1);
+
+scene.onBeforeRenderObservable.add(() => {
+    tileSet.moveAllTiles(dx, dz, 2, buildings, true);
+});
+```
+
+Terrain seam repair is re-applied for every loaded cardinal and diagonal
+neighbor whenever a tile finishes loading, so recycled DEM data does not retain
+stale seam state.
+
+## Local cache paths
+
+WMTS raster providers and all-data WFS building providers use `map_cache/` by
+default when `RetrievalLocation.Local` is selected. Set `localPathPrefix` to
+serve the cache below another relative directory or an absolute URL path:
+
+```ts
+raster.localPathPrefix = "assets/map_cache/";
+buildings.localPathPrefix = "assets/map_cache/";
+```
 
 ## Credits
 

@@ -441,10 +441,16 @@ export default class TileSet {
     * @param movX x, ie left-right amount to move
     * @param movZ z, ie forward-back amount to move 
     * @param reloadLimitPerFrame limit how many tiles we update per frame, to prevent stuttering
-    * @param doBuildingsOSM should we spawn OSM Buildings on the new tile?
-    * @param doMerge should we merge all those OSM Buildings into one mesh? as an optimization
+    * @param buildingCreator should we spawn buildings on the new tile?
+    * @param reloadTerrain should terrain be requested again for recycled tiles?
     */
-    public moveAllTiles(movX: number, movZ: number, reloadLimitPerFrame: number, buildingCreator: Buildings | null) {
+    public moveAllTiles(
+        movX: number,
+        movZ: number,
+        reloadLimitPerFrame: number,
+        buildingCreator: Buildings | null,
+        reloadTerrain = false,
+    ) {
     this.assertRasterSetup("move tiles");
     for (const t of this.ourTiles) {
         t.mesh.position.x += movX;
@@ -456,7 +462,7 @@ export default class TileSet {
     for (const t of this.ourTiles) {
         if (t.mesh.position.x < this.xmin) {
             console.log("Tile: " + t.tileCoords + " is below xMin");
-            this.moveHelper(t, new Vector3(this.totalWidthMeters, 0, 0), new Vector3(this.numTiles.x, 0, 0), buildingCreator);
+            this.moveHelper(t, new Vector3(this.totalWidthMeters, 0, 0), new Vector3(this.numTiles.x, 0, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
             if (tilesReloaded < reloadLimitPerFrame) {
@@ -467,7 +473,7 @@ export default class TileSet {
         if (t.mesh.position.x > this.xmax) {
             console.log("Tile: " + t.tileCoords + " is above xMax");
 
-            this.moveHelper(t, new Vector3(-this.totalWidthMeters, 0, 0), new Vector3(-this.numTiles.x, 0, 0), buildingCreator);
+            this.moveHelper(t, new Vector3(-this.totalWidthMeters, 0, 0), new Vector3(-this.numTiles.x, 0, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
             if (tilesReloaded < reloadLimitPerFrame) {
@@ -477,7 +483,7 @@ export default class TileSet {
         if (t.mesh.position.z < this.zmin) {
             console.log("Tile: " + t.tileCoords + " is below zmin");
 
-            this.moveHelper(t, new Vector3(0, 0, this.totalHeightMeters), new Vector3(0, -this.numTiles.y, 0), buildingCreator);
+            this.moveHelper(t, new Vector3(0, 0, this.totalHeightMeters), new Vector3(0, -this.numTiles.y, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
             if (tilesReloaded < reloadLimitPerFrame) {
@@ -487,7 +493,7 @@ export default class TileSet {
         if (t.mesh.position.z > this.zmax) {
             console.log("Tile: " + t.tileCoords + " is above zmax");
 
-            this.moveHelper(t, new Vector3(0, 0, -this.totalHeightMeters), new Vector3(0, this.numTiles.y, 0), buildingCreator);
+            this.moveHelper(t, new Vector3(0, 0, -this.totalHeightMeters), new Vector3(0, this.numTiles.y, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
             if (tilesReloaded < reloadLimitPerFrame) {
@@ -497,7 +503,13 @@ export default class TileSet {
     }
 }
 
-    private moveHelper(t: Tile, meshMoveAmount: Vector3, tileCoordAdjustment: Vector3, buildingCreator: Buildings | null) {
+    private moveHelper(
+        t: Tile,
+        meshMoveAmount: Vector3,
+        tileCoordAdjustment: Vector3,
+        buildingCreator: Buildings | null,
+        reloadTerrain: boolean,
+    ) {
 
     t.deleteBuildings();
 
@@ -510,6 +522,9 @@ export default class TileSet {
 
     if (buildingCreator) {
         buildingCreator.SubmitLoadTileRequest(t);
+    }
+    if (reloadTerrain) {
+        void this.ourTerrainMB.updateSingleTerrainTile(t);
     }
 
     this.onTilePositionUpdatedObservable.notifyObservers({

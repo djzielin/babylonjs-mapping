@@ -33,6 +33,7 @@ class Game {
 
     private ourTS: TileSet;
     private ourOSM: BuildingsOSM;
+    private terrainEnabled = false;
 
     private lastSelectedSphereIndex: number = -1;
     private lastSelectedSphere: Mesh;
@@ -144,6 +145,13 @@ class Game {
         });
         this.ourOSM.generateBuildings();
 
+        const mapboxKey = await this.getKey("mapbox-key.txt");
+        if (mapboxKey) {
+            this.ourTS.ourTerrainMB.accessToken = mapboxKey;
+            await this.ourTS.generateTerrain(1.0);
+            this.terrainEnabled = true;
+        }
+
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program
         this.scene.debugLayer.show();
@@ -211,7 +219,7 @@ class Game {
         if (Math.abs(forwardAmount) > 0.0 || Math.abs(rightAmount) > 0.0) {
             movVec = movVec.add(fVec.multiplyByFloats(forwardAmount, forwardAmount, forwardAmount));
             movVec = movVec.add(rVec.multiplyByFloats(rightAmount, rightAmount, rightAmount));
-            this.ourTS.moveAllTiles(movVec.x, movVec.z, 100, this.ourOSM);
+            this.ourTS.moveAllTiles(movVec.x, movVec.z, 100, this.ourOSM, this.terrainEnabled);
         }
     }
 

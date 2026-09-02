@@ -4,7 +4,9 @@ import type TileSet from "../core/TileSet.js";
 import type { TileRequest } from "../core/TileSet.js";
 
 export default class Raster {
-    
+    /** Directory or URL prefix used for local cached raster assets. */
+    public localPathPrefix = "map_cache/";
+
     constructor(public name:string, public tileSet: TileSet, public retrievalLocation=RetrievalLocation.Remote){
 
     }

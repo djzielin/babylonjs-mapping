@@ -14,6 +14,7 @@ function assertImportsResolve() {
     const flat = await import("babylonjs-mapping/lib/RasterOSM");
     const landmarks = await import("babylonjs-mapping/lib/BuildingsMB");
     const overture = await import("babylonjs-mapping/lib/BuildingsOverture");
+    const vectorTiles = await import("babylonjs-mapping/lib/BuildingsVectorTile");
     const nested = await import("babylonjs-mapping/lib/core/TileSet");
 
     if (typeof root.TileSet !== "function") {
@@ -33,6 +34,14 @@ function assertImportsResolve() {
       typeof overture.resolveLatestOvertureBuildingsURL !== "function"
     ) {
       throw new Error("Overture building provider exports did not resolve");
+    }
+
+    if (
+      typeof root.BuildingsVectorTile !== "function" ||
+      typeof vectorTiles.default !== "function" ||
+      typeof vectorTiles.MAPBOX_STREETS_VECTOR_TILE_URL !== "string"
+    ) {
+      throw new Error("Vector tile provider exports did not resolve");
     }
 
     if (typeof nested.default !== "function") {
@@ -94,5 +103,5 @@ describe("package exports", () => {
       }
       rmSync(tempDir, { recursive: true, force: true });
     }
-  });
+  }, 15000);
 });

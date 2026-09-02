@@ -245,6 +245,7 @@ export default class TerrainMB {
         tile.eastSeamFixed = false;
         tile.northSeamFixed = false;
         tile.northEastSeamFixed = false;
+        this.invalidateTileSeams(tile);
 
         if(tile.tileCoords.z>15 && this.tileSet.doTerrainResBoost==false){            
             console.log("DEM not supported beyond level 15 (if not doing res boost)");
@@ -313,58 +314,58 @@ export default class TerrainMB {
         this.onAllLoaded.notifyObservers(true);  */
     }
 
-    private fixTileSeams() {
-        for (let t of this.tileSet.ourTiles) {
-            if(!t.terrainLoaded){               
+    /** Re-applies every available cardinal and diagonal seam. */
+    public fixTileSeams() {
+        for (const tile of this.tileSet.ourTiles) {
+            if (!tile.terrainLoaded) {
                 continue;
             }
 
-            if (!t.northSeamFixed) {
-                //console.log("tile doesn't have north seam fixed yet: " + t.tileCoords);
-                const upperTileCoords = t.tileCoords.clone();
-                upperTileCoords.y--;
-
-                const upperTileCoordsString = upperTileCoords.toString();
-
-                const upperTile = this.tileSet.ourTilesMap.get(upperTileCoordsString);
-                if (upperTile) {
-                    console.log("found upper tile for tile: " + t.tileCoords);
-                    if (upperTile.terrainLoaded) {
-                        this.fixNorthSeam(t, upperTile);
-                    }
-                }
+            const upperTile = this.tileSet.ourTilesMap.get(
+                new Vector3(tile.tileCoords.x, tile.tileCoords.y - 1, tile.tileCoords.z).toString(),
+            );
+            if (upperTile?.terrainLoaded) {
+                this.fixNorthSeam(tile, upperTile);
             }
-            if (!t.eastSeamFixed) {
-                //console.log("tile doesn't have east seam fixed yet: " + t.tileCoords);
-                const rightTileCoords = t.tileCoords.clone();
-                rightTileCoords.x++;
 
-                const rightTileCoordsString = rightTileCoords.toString();
-
-                const rightTile = this.tileSet.ourTilesMap.get(rightTileCoordsString);
-                if (rightTile) {
-                    console.log("found right tile for tile: " + t.tileCoords);
-                    if (rightTile.terrainLoaded) {
-                        this.fixEastSeam(t, rightTile);
-                    }
-                }
+            const rightTile = this.tileSet.ourTilesMap.get(
+                new Vector3(tile.tileCoords.x + 1, tile.tileCoords.y, tile.tileCoords.z).toString(),
+            );
+            if (rightTile?.terrainLoaded) {
+                this.fixEastSeam(tile, rightTile);
             }
-            if (!t.northEastSeamFixed) {
-                //console.log("tile doesn't have east seam fixed yet: " + t.tileCoords);
-                const upperRightCoords = t.tileCoords.clone();
-                upperRightCoords.x++;
-                upperRightCoords.y--;
 
-                const upperRightCoordsString = upperRightCoords.toString();
-
-                const upperRightTile = this.tileSet.ourTilesMap.get(upperRightCoordsString);
-                if (upperRightTile) {
-                    console.log("found upper right tile for tile: " + t.tileCoords);
-                    if (upperRightTile.terrainLoaded) {
-                        this.fixNorthEastSeam(t, upperRightTile);
-                    }
-                }
+            const upperRightTile = this.tileSet.ourTilesMap.get(
+                new Vector3(tile.tileCoords.x + 1, tile.tileCoords.y - 1, tile.tileCoords.z).toString(),
+            );
+            if (upperRightTile?.terrainLoaded) {
+                this.fixNorthEastSeam(tile, upperRightTile);
             }
+        }
+    }
+
+    private invalidateTileSeams(tile: Tile): void {
+        // Seam state belongs to the tile on the south/west side. Clear the
+        // neighboring flags too when a recycled tile gets new DEM data.
+        const lowerTile = this.tileSet.ourTilesMap.get(
+            new Vector3(tile.tileCoords.x, tile.tileCoords.y + 1, tile.tileCoords.z).toString(),
+        );
+        if (lowerTile) {
+            lowerTile.northSeamFixed = false;
+        }
+
+        const leftTile = this.tileSet.ourTilesMap.get(
+            new Vector3(tile.tileCoords.x - 1, tile.tileCoords.y, tile.tileCoords.z).toString(),
+        );
+        if (leftTile) {
+            leftTile.eastSeamFixed = false;
+        }
+
+        const lowerLeftTile = this.tileSet.ourTilesMap.get(
+            new Vector3(tile.tileCoords.x - 1, tile.tileCoords.y + 1, tile.tileCoords.z).toString(),
+        );
+        if (lowerLeftTile) {
+            lowerLeftTile.northEastSeamFixed = false;
         }
     }
 
@@ -441,12 +442,7 @@ export default class TerrainMB {
         const y1 = 0;
         const y2 = subdivisions - 1;
 
-        let xStop = subdivisions;
-        if (tile.northEastSeamFixed) {
-            xStop--; //skip corner
-        }
-
-        for (let x = 0; x < xStop; x++) {
+        for (let x = 0; x < subdivisions; x++) {
             const meshIndex1 = 1 + (x + y1 * subdivisions) * 3;
             const meshIndex2 = 1 + (x + y2 * subdivisions) * 3;
 
@@ -466,12 +462,7 @@ export default class TerrainMB {
         const x1 = subdivisions - 1;
         const x2 = 0;
 
-        let yStart = 0;
-        if (tile.northEastSeamFixed) {
-            yStart++; //skip corner
-        }
-
-        for (let y = yStart; y < subdivisions; y++) {
+        for (let y = 0; y < subdivisions; y++) {
 
             const meshIndex1 = 1 + (x1 + y * subdivisions) * 3;
             const meshIndex2 = 1 + (x2 + y * subdivisions) * 3;

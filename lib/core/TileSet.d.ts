@@ -137,10 +137,10 @@ export default class TileSet {
     * @param movX x, ie left-right amount to move
     * @param movZ z, ie forward-back amount to move
     * @param reloadLimitPerFrame limit how many tiles we update per frame, to prevent stuttering
-    * @param doBuildingsOSM should we spawn OSM Buildings on the new tile?
-    * @param doMerge should we merge all those OSM Buildings into one mesh? as an optimization
+    * @param buildingCreator should we spawn buildings on the new tile?
+    * @param reloadTerrain should terrain be requested again for recycled tiles?
     */
-    moveAllTiles(movX: number, movZ: number, reloadLimitPerFrame: number, buildingCreator: Buildings | null): void;
+    moveAllTiles(movX: number, movZ: number, reloadLimitPerFrame: number, buildingCreator: Buildings | null, reloadTerrain?: boolean): void;
     private moveHelper;
     generateTerrain(exaggeration: number): Promise<void>;
     /**
