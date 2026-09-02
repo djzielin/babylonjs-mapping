@@ -51,6 +51,7 @@ jobs:
             OpenStreetMap-HelloWorld
             OpenStreetMap-UserData-RealScale
             mapbox-terrain
+            gebco-bathymetry
           )
 
           for demo in "${demos[@]}"; do

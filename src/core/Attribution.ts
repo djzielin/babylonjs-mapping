@@ -11,6 +11,7 @@ export default class Attribution {
     private buttonImprov: Button;
     private buttonOSMBuildings: Button;
     private buttonOverture: Button;
+    private buttonGEBCO: Button;
 
     private attributionList: string[]=[];
     private ourRightPanel: StackPanel;
@@ -64,6 +65,10 @@ export default class Attribution {
         if (provider == "OVERTURE") {
             this.addAttributionOSM();
             this.addAttributionOverture();
+        }
+
+        if (provider == "GEBCO") {
+            this.addAttributionGEBCO();
         }
 
         this.attributionList.push(provider);
@@ -121,6 +126,24 @@ export default class Attribution {
         });
 
         this.ourRightPanel.addControl(this.buttonOverture);
+    }
+
+    private addAttributionGEBCO() {
+        this.buttonGEBCO = Button.CreateSimpleButton("button_gebco", "© GEBCO");
+        this.buttonGEBCO.width = "70px";
+        this.buttonGEBCO.height = "25px";
+        this.buttonGEBCO.color = "blue";
+        this.buttonGEBCO.alpha = 0.75;
+        this.buttonGEBCO.thickness = 0;
+        this.buttonGEBCO.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        this.buttonGEBCO.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.buttonGEBCO.fontSize = "12px";
+        this.buttonGEBCO.background = "";
+        this.buttonGEBCO.onPointerUpObservable.add(function () {
+            window.open("https://www.gebco.net/data-products/gebco-web-services/web-map-service");
+        });
+
+        this.ourRightPanel.addControl(this.buttonGEBCO);
     }
 
 

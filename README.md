@@ -6,6 +6,7 @@ Currently supported data sources include:
 ![lots of gray buildings on top of map of roads](https://raw.githubusercontent.com/djzielin/babylonjs-mapping/main/doc/charlotte.jpg "Open Street Maps Demo")
 * Mapbox (satellite and terrain)
 ![grand canyon with river at bottom](https://raw.githubusercontent.com/djzielin/babylonjs-mapping/main/doc/grand_canyon.jpg "Mapbox Terrain Demo")
+* GEBCO's global bathymetric grid as colour-shaded WMS imagery
 * Custom Buildings from GeoServer and ArcGIS Online (WFS)
 
 The "Hello World" of creating an OpenStreetMap tileset, along with extruded buildings is:
@@ -77,6 +78,26 @@ await landmarks.generateBuildings();
 Call `generateBuildings()` again after `updateRaster()` to reuse overlapping
 model tiles and dispose models that moved out of view. Call `dispose()` when
 the provider is no longer needed.
+
+## GEBCO bathymetry
+
+`RasterGEBCO` streams colour-shaded tiles from GEBCO's public Web Map Service.
+The default `GEBCO_LATEST_2` layer shows elevation and bathymetry using GEBCO's
+latest grid; `GEBCO_LATEST` provides shaded relief and `GEBCO_LATEST_3` shows
+measured-data coverage. The service's `LATEST` layers can change when GEBCO
+publishes a new grid, so applications should include the current attribution
+and link to the [GEBCO WMS documentation](https://www.gebco.net/data-products/gebco-web-services/web-map-service).
+
+```ts
+const bathymetry = new RasterGEBCO(tileSet);
+tileSet.setRasterProvider(bathymetry);
+tileSet.createGeometry(new Vector2(4, 3), 100, 2);
+tileSet.updateRaster(11.35, 142.2, 6); // Mariana Trench region
+```
+
+The provider uses GEBCO's WMS imagery, which is intended for visualization and
+not navigation or safety-at-sea purposes. The full downloadable grids are
+available from [GEBCO's data download service](https://download.gebco.net/).
 
 ## Endless tile lifecycle
 
