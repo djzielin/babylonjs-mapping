@@ -48,6 +48,12 @@
             input[type=file] { height: auto !important; padding: 8px !important; font-size: 11px; }
             .diagnostics { display: grid; gap: 8px; color: #a7b6c9; font-size: 11px; overflow-wrap: anywhere; }
             #viewReadout, #performance { font-variant-numeric: tabular-nums; }
+            .address { margin-bottom: 10px; }
+            #addressResults { list-style: none; padding: 4px; margin: 6px 0 0; border: 1px solid #3b4859; border-radius: 6px; background: #162130; max-height: 220px; overflow-y: auto; }
+            #addressResults li { padding: 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+            #addressResults li:hover, #addressResults [aria-selected=true] { background: #304862; }
+            #addressStatus { font-size: 11px; color: #a7b6c9; }
+            #addressStatus:not(:empty) { margin-top: 6px; }
             .source { margin-top: 12px; font-size: 10px; color: #a7b6c9; }
             a { color: #a7cdea; text-underline-offset: 2px; }
             .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
@@ -57,6 +63,12 @@
         <aside id="controlPanel" aria-label="Globe controls">
             <h1>Earth, in detail</h1>
             <p class="hint">Drag to explore · scroll to zoom</p>
+            <div class="address">
+                <label class="sr-only" for="addressSearch">Search for an address or place</label>
+                <input id="addressSearch" type="search" placeholder="Search address or place…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="addressResults" aria-expanded="false" aria-describedby="addressStatus">
+                <ul id="addressResults" role="listbox" aria-label="Address suggestions" hidden></ul>
+                <p id="addressStatus" role="status"></p>
+            </div>
             <label class="sr-only" for="locationPreset">Destination</label>
             <select id="locationPreset"></select>
             <div id="navigationButtons">
@@ -100,7 +112,7 @@
                     </div>
                 </div>
             </details>
-            <p class="source">Elevation: <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noreferrer">Mapzen / Tilezen</a></p>
+            <p class="source">Search: <a href="https://photon.komoot.io" target="_blank" rel="noreferrer">Photon / OSM</a> · Elevation: <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noreferrer">Mapzen / Tilezen</a></p>
         </aside>
         <canvas id="renderCanvas" touch-action="none"></canvas>
     </body>

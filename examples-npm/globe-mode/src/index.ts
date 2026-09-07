@@ -1,3 +1,4 @@
+import { setupAddressSearch } from "./AddressSearch";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
@@ -97,6 +98,18 @@ class GlobeDemo {
     public start(): void {
         this.createScene();
         this.setupLocationControls();
+        setupAddressSearch(result => {
+            this.exitInspection();
+            if (this.tourTimer) {
+                clearInterval(this.tourTimer);
+                this.tourTimer = undefined;
+                document.getElementById("tour")!.textContent = "Guided tour";
+            }
+            (document.getElementById("latitude") as HTMLInputElement).value = String(result.latitude);
+            (document.getElementById("longitude") as HTMLInputElement).value = String(result.longitude);
+            (document.getElementById("locationPreset") as HTMLSelectElement).selectedIndex = -1;
+            this.navigator.flyTo(result.latitude, result.longitude, { zoom: result.zoom, durationMs: 1400 });
+        });
         this.setupPointerNavigation();
         this.setupDataControls();
         this.engine.runRenderLoop(() => {
