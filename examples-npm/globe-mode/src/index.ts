@@ -1,3 +1,4 @@
+import { globeLODPlan } from "./GlobeLODPlan";
 import { setupAddressSearch } from "./AddressSearch";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import { Engine } from "@babylonjs/core/Engines/engine";
@@ -85,6 +86,8 @@ class GlobeDemo {
     private landmarks?: BuildingsMB;
     private landmarkKey = "";
     private landmarkRetryAt = 0;
+    private distanceLayers: { globe: GlobeSet; data: GlobeDataController; buildings?: BuildingsOverture; key: string }[] = [];
+    private overtureURL?: string;
 
     public constructor() {
         this.canvas = document.getElementById(
@@ -119,7 +122,11 @@ class GlobeDemo {
             this.updateLandmarks();
             if (performance.now() - this.lastStats > 500) {
                 this.lastStats = performance.now();
-                const stat = this.data.stats;
+                const stat = this.distanceLayers.reduce<{ active: number; completed: number; failed: number }>((total, layer) => ({
+                    active: total.active + layer.data.stats.active,
+                    completed: total.completed + layer.data.stats.completed,
+                    failed: total.failed + layer.data.stats.failed,
+                }), this.data.stats);
                 document.getElementById("performance")!.textContent =
                     `${this.engine.getFps().toFixed(0)} FPS · ${this.scene.getActiveMeshes().length} active meshes · ${this.scene.getTotalVertices().toLocaleString()} vertices · ${stat.active} detail jobs · ${stat.completed} completed · ${stat.failed} errors`;
             }
@@ -151,7 +158,7 @@ class GlobeDemo {
         this.detailGlobe.setRasterProvider(new RasterOSM(this.detailGlobe));
         this.detailGlobe.createGeometry(new Vector2(5, 5), 20, 16);
         for (const tile of this.detailGlobe.ourTiles)
-            tile.mesh.renderingGroupId = 1;
+            tile.mesh.renderingGroupId = 3;
         this.data = new GlobeDataController(this.detailGlobe, {
             elevation: this.elevation.load,
             concurrency: 4,
@@ -161,11 +168,12 @@ class GlobeDemo {
         this.data.onErrorObservable.add((error) => this.message(error.message));
         void resolveLatestOvertureBuildingsURL()
             .then((url) => {
+                this.overtureURL = url;
                 this.buildings = new BuildingsOverture(this.detailGlobe, url);
                 this.buildings.doMerge = true;
                 this.buildings.buildingsCreatedPerFrame = 32;
                 this.buildings.buildingMeshTransform = (mesh) => {
-                    mesh.renderingGroupId = 1;
+                    mesh.renderingGroupId = 3;
                 };
                 this.buildings.buildingMaterial.diffuseColor.set(
                     0.86,
@@ -179,6 +187,7 @@ class GlobeDemo {
                     this.data.options.buildings = this.buildings;
                 this.detailGlobe.ourAttribution.addAttribution("OVERTURE");
                 this.data.invalidate();
+                this.configureDistanceLayers();
                 this.message(
                     "Terrain and Overture buildings ready. Buildings stream at zoom 14+.",
                 );
@@ -257,6 +266,7 @@ class GlobeDemo {
                     );
                 }
             this.data.invalidate();
+            this.configureDistanceLayers();
         };
         terrain.addEventListener("change", reload);
         buildings.addEventListener("change", reload);
@@ -281,7 +291,7 @@ class GlobeDemo {
                 this.roads.doMerge = true;
                 this.roads.buildingMaterial.diffuseColor.set(0.92, 0.57, 0.18);
                 this.roads.buildingMeshTransform = (mesh) => {
-                    mesh.renderingGroupId = 1;
+                    mesh.renderingGroupId = 3;
                 };
             }
             this.data.options.features =
@@ -320,6 +330,8 @@ class GlobeDemo {
                 this.detailGlobe.setRasterProvider(
                     new RasterOSM(this.detailGlobe),
                 );
+            this.syncDistanceStyles();
+            this.updateDistanceLayers(this.navigator.getView());
             this.navigator.refresh(true);
         });
         document.getElementById("inspect")!.addEventListener("click", () => {
@@ -374,7 +386,7 @@ class GlobeDemo {
                             this.detailGlobe,
                         ));
                     settings.buildingMeshTransform = (mesh) => {
-                        mesh.renderingGroupId = 1;
+                        mesh.renderingGroupId = 3;
                     };
                     const generator = new GeoJSON.GeoJSON(
                         this.detailGlobe,
@@ -424,7 +436,7 @@ class GlobeDemo {
         provider.accessToken = token;
         void provider.generateBuildings().then(tiles => {
             for (const tile of tiles)
-                for (const mesh of tile.asset.meshes) mesh.renderingGroupId = 1;
+                for (const mesh of tile.asset.meshes) mesh.renderingGroupId = 3;
         }).catch(() => {
             if (provider !== this.landmarks || key !== this.landmarkKey) return;
             this.landmarkKey = "";
@@ -507,12 +519,86 @@ class GlobeDemo {
                     precision,
                 );
                 for (const tile of this.detailGlobe.ourTiles)
-                    tile.mesh.renderingGroupId = 1;
+                    tile.mesh.renderingGroupId = 3;
                 this.data.invalidate();
             }
+            this.updateDistanceLayers(view);
             this.updateReadout(readout, view);
         });
         this.updateReadout(readout, this.navigator.getView());
+    }
+
+    private updateDistanceLayers(view: GlobeView): void {
+        if (view.zoom < 8 && !this.distanceLayers.length) return;
+        const plans = globeLODPlan(view.zoom);
+        if (!this.distanceLayers.length) {
+            for (const plan of plans) {
+                const globe = new GlobeSet(this.scene, this.engine, {
+                    radius: GLOBE_RADIUS, backingSurface: false, attribution: false, geometryBudgetMs: 1,
+                });
+                globe.rasterConcurrency = 2;
+                globe.setRasterProvider(new RasterOSM(globe));
+                globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);
+                for (const tile of globe.ourTiles) tile.mesh.renderingGroupId = plan.group;
+                const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: 1, minTerrainZoom: 5, minBuildingZoom: 11 });
+                this.distanceLayers.push({ globe, data, key: "" });
+            }
+            this.configureDistanceLayers();
+            this.syncDistanceStyles();
+        }
+        this.distanceLayers.forEach((layer, index) => {
+            const plan = plans[index];
+            // At global zooms use a small valid world window rather than repeating tiles.
+            const size = Math.min(plan.size, 2 ** plan.zoom);
+            if (layer.globe.ourTiles.length !== size * size) {
+                layer.globe.createGeometry(new Vector2(size, size), 20, plan.precision);
+                for (const tile of layer.globe.ourTiles) tile.mesh.renderingGroupId = plan.group;
+                layer.key = "";
+                layer.data.invalidate();
+            }
+            const math = layer.globe.ourTileMath;
+            const key = `${plan.zoom}/${math.lon_to_tile(view.longitude, plan.zoom)}/${math.lat_to_tile(Math.max(-85, Math.min(85, view.latitude)), plan.zoom)}`;
+            if (layer.key === key) return;
+            layer.key = key;
+            layer.globe.updateRaster(view.latitude, view.longitude, plan.zoom);
+        });
+    }
+
+    private syncDistanceStyles(): void {
+        const style = (document.getElementById("basemap") as HTMLSelectElement).value;
+        const token = (document.getElementById("mapboxToken") as HTMLInputElement).value.trim();
+        for (const layer of this.distanceLayers) {
+            if (style === "gebco") layer.globe.setRasterProvider(new RasterGEBCO(layer.globe));
+            else if (style === "satellite" && token) {
+                const raster = new RasterMB(layer.globe);
+                raster.accessToken = token;
+                layer.globe.setRasterProvider(raster);
+            } else layer.globe.setRasterProvider(new RasterOSM(layer.globe));
+            layer.key = "";
+        }
+
+    }
+
+    private configureDistanceLayers(): void {
+        const terrain = (document.getElementById("terrain") as HTMLInputElement).checked;
+        const buildings = (document.getElementById("buildings") as HTMLInputElement).checked;
+        const exaggeration = Number((document.getElementById("exaggeration") as HTMLInputElement).value);
+        this.distanceLayers.forEach((layer, index) => {
+            if (index === 1 && this.overtureURL && !layer.buildings) {
+                layer.buildings = new BuildingsOverture(layer.globe, this.overtureURL);
+                layer.buildings.doMerge = true;
+                layer.buildings.buildingsCreatedPerFrame = 8;
+                layer.buildings.creationTimeBudgetMs = 1;
+                layer.buildings.buildingMeshTransform = mesh => { mesh.renderingGroupId = 2; };
+            }
+            layer.data.options.buildings = buildings ? layer.buildings : undefined;
+            layer.data.options.elevation = terrain ? this.elevation.load : undefined;
+            layer.data.options.exaggeration = exaggeration;
+            if (!terrain) for (const tile of layer.globe.ourTiles) {
+                if (layer.globe.isTileGeometryReady(tile)) layer.globe.applyElevationGrid(tile, new Array((layer.globe.meshPrecision + 1) ** 2).fill(0), layer.globe.meshPrecision);
+            }
+            layer.data.invalidate();
+        });
     }
 
     private exitInspection(): void {
