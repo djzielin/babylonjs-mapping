@@ -25,6 +25,8 @@ import {
     type GlobeView,
 } from "babylonjs-mapping";
 
+declare const DEMO_MAPBOX_TOKEN: string;
+
 interface LocationPreset {
     name: string;
     latitude: number;
@@ -101,6 +103,7 @@ class GlobeDemo {
     }
 
     public start(): void {
+        (document.getElementById("mapboxToken") as HTMLInputElement).value = DEMO_MAPBOX_TOKEN;
         this.createScene();
         this.setupLocationControls();
         setupAddressSearch(result => {
