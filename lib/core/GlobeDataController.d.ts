@@ -26,6 +26,7 @@ export default class GlobeDataController {
     private ready;
     private observer;
     private disposed;
+    private providers;
     constructor(globe: GlobeSet, options?: GlobeDataOptions);
     update(): void;
     private load;

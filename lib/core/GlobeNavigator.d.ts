@@ -66,7 +66,7 @@ export default class GlobeNavigator {
     /** Force the view readout and raster window to synchronize immediately. */
     refresh(forceRasterUpdate?: boolean): GlobeView;
     /** Convert a requested raster zoom into a camera altitude. */
-    getAltitudeForZoom(zoom: number): number;
+    getAltitudeForZoom(zoom: number, latitude?: number): number;
     /** Convert camera altitude into the nearest raster zoom. */
     getZoomForAltitude(altitude: number): number;
     dispose(): void;

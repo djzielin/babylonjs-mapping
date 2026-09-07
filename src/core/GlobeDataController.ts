@@ -21,6 +21,7 @@ export default class GlobeDataController {
     private ready = new WeakMap<Tile,string>();
     private observer;
     private disposed=false;
+    private providers = new Set<Buildings>();
     constructor(public readonly globe: GlobeSet, public readonly options: GlobeDataOptions = {}) {
         if (!Number.isInteger(options.concurrency ?? 4) || (options.concurrency ?? 4)<1 || !Number.isFinite(options.exaggeration ?? 1) || (options.exaggeration ?? 1)<0) throw new RangeError('Invalid globe detail options');
         this.observer=globe.scene.onBeforeRenderObservable.add(()=>this.update());
@@ -47,7 +48,7 @@ export default class GlobeDataController {
             }
             if (abort.signal.aborted || tile.mesh.isDisposed() || tile.tileCoords.toString()!==key) return;
             if (coords.z >= (this.options.minBuildingZoom??14)) {
-                for (const provider of [this.options.buildings,...(this.options.features??[])]) provider?.SubmitLoadTileRequest(tile);
+                for (const provider of [this.options.buildings,...(this.options.features??[])]) if (provider) { this.providers.add(provider); provider.SubmitLoadTileRequest(tile); }
             }
             this.ready.set(tile,key); this.stats.completed++;
         } catch(error) {
@@ -64,11 +65,12 @@ export default class GlobeDataController {
     public invalidate(): void {
         for (const job of this.jobs.values()) job.abort.abort();
         this.jobs.clear(); this.ready=new WeakMap();
-        for (const provider of [this.options.buildings,...(this.options.features??[])]) provider?.cancelPendingRequests();
+        for (const provider of this.providers) provider.cancelPendingRequests();
         for (const tile of this.globe.ourTiles) tile.deleteBuildings();
     }
     public dispose(): void {
         this.disposed=true;
+        for (const provider of this.providers) provider.cancelPendingRequests();
         for (const job of this.jobs.values()) job.abort.abort();
         this.jobs.clear(); this.globe.scene.onBeforeRenderObservable.remove(this.observer); this.onErrorObservable.clear();
     }

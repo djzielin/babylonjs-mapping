@@ -27,7 +27,7 @@ describe('globe data fidelity',()=>{
         const {globe,dispose}=setup(1,latitude);
         const tile=globe.ourTiles[0];
         globe.setElevationData(tile,[-500,-500,-500,-500],2,2,2);
-        for(const point of worldVertices(tile.mesh))expect(point.length()).toBeCloseTo(60-1000*globe.metresToWorld,7);
+        for(const point of worldVertices(tile.mesh).slice(0,81))expect(point.length()).toBeCloseTo(60-1000*globe.metresToWorld,7);
         expect(tile.terrainLoaded).toBe(true);
         const center=globe.getSurfaceCoordinates(globe.getTileSurfacePosition(tile.tileCoords));
         expect(globe.sampleElevation(center.latitude,center.longitude)).toBeCloseTo(-1000*globe.metresToWorld,10);

@@ -619,6 +619,8 @@ export default abstract class Buildings {
         return bestIndex;
     }
 
+    /** CPU budget for feature creation; individual features are atomic. */
+    public creationTimeBudgetMs = 4;
     public processBuildingRequests() {
         if (this.sleepRequested) { //lets take a nap for a bit (when we get a 500 server error)
             const timeDiff=Date.now()-this.timeStart;
@@ -642,7 +644,9 @@ export default abstract class Buildings {
             return;
         }
 
+        const deadline = performance.now() + this.creationTimeBudgetMs;
         for (let i = 0; i < this.buildingsCreatedPerFrame; i++) { //process certain number of requests per frame
+            if (i > 0 && performance.now() >= deadline) return;
             //console.log("requests remaining in queue: " + this.buildingRequests.length);
             if (this.buildingRequests.length == 0) {
                 return;

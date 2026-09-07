@@ -1,6 +1,6 @@
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera.js";
 import "@babylonjs/core/Culling/ray.js";
-import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Observable, Observer } from "@babylonjs/core/Misc/observable.js";
 import { Scene } from "@babylonjs/core/scene.js";
 
@@ -132,14 +132,19 @@ export default class GlobeNavigator {
             throw new RangeError("screen coordinates must be finite numbers.");
         }
 
-        const ray = this.globe.scene.createPickingRay(
-            x,
-            y,
-            Matrix.Identity(),
-            this.camera,
-            false,
-        );
-        const direction = ray.direction.normalizeToNew();
+        // Build the ray from the camera basis in double precision. Inverting
+        // a near-singular projection matrix loses geographic accuracy at z18.
+        this.camera.getViewMatrix(true);
+        const engine=this.camera.getEngine();
+        const viewport=this.camera.viewport;
+        const width=engine.getRenderWidth()*viewport.width, height=engine.getRenderHeight()*viewport.height;
+        const forward=this.camera.getTarget().subtract(this.camera.globalPosition).normalize();
+        const right=Vector3.Cross(this.camera.upVector,forward).normalize();
+        const up=Vector3.Cross(forward,right).normalize();
+        const dx=(2*(x-viewport.x*engine.getRenderWidth())/width-1)*Math.tan(this.camera.fov/2)*width/height;
+        const dy=(1-2*(y-(1-viewport.y-viewport.height)*engine.getRenderHeight())/height)*Math.tan(this.camera.fov/2);
+        const direction=forward.add(right.scale(dx)).add(up.scale(dy)).normalize();
+        const ray={origin:this.camera.globalPosition,direction};
         const originProjection = Vector3.Dot(ray.origin, direction);
         const distanceFromSurface = ray.origin.lengthSquared() - this.globe.radius ** 2;
         const discriminant = originProjection ** 2 - distanceFromSurface;
@@ -249,12 +254,12 @@ export default class GlobeNavigator {
     }
 
     /** Convert a requested raster zoom into a camera altitude. */
-    public getAltitudeForZoom(zoom: number): number {
+    public getAltitudeForZoom(zoom: number, latitude = 90 - this.camera.beta / DEGREES_TO_RADIANS): number {
         const clampedZoom = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
         const aspect = this.getAspectRatio();
         const angularWidth = this.tilesAcrossViewport * 2 * Math.PI / (2 ** clampedZoom);
         const viewportScale = 2 * Math.tan(this.camera.fov * 0.5) * aspect;
-        return this.globe.radius * angularWidth / viewportScale;
+        return this.globe.radius * angularWidth * Math.max(0.08,Math.cos(latitude*DEGREES_TO_RADIANS)) / viewportScale;
     }
 
     /** Convert camera altitude into the nearest raster zoom. */
@@ -267,7 +272,7 @@ export default class GlobeNavigator {
         const viewportScale = 2 * Math.tan(this.camera.fov * 0.5) * aspect;
         const safeAltitude = Math.max(altitude, Number.EPSILON);
         const zoom = Math.round(Math.log2(
-            this.globe.radius * this.tilesAcrossViewport * 2 * Math.PI
+            this.globe.radius * this.tilesAcrossViewport * 2 * Math.PI * Math.max(0.08,Math.sin(this.camera.beta))
             / (viewportScale * safeAltitude),
         ));
         return Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
@@ -301,9 +306,10 @@ export default class GlobeNavigator {
         const altitude = options.altitude
             ?? (options.zoom === undefined
                 ? Math.max(0, this.camera.radius - this.globe.radius)
-                : this.getAltitudeForZoom(options.zoom));
-        const minimumRadius = this.camera.lowerRadiusLimit ?? this.globe.radius;
-        const maximumRadius = this.camera.upperRadiusLimit ?? Number.POSITIVE_INFINITY;
+                : this.getAltitudeForZoom(options.zoom,clampedLatitude));
+        const surface=this.globe.sampleElevation(latitude,longitude);
+        const minimumRadius=this.globe.radius+surface+this.getAltitudeForZoom(this.maxZoom,clampedLatitude);
+        const maximumRadius=this.globe.radius+surface+this.getAltitudeForZoom(this.minZoom,clampedLatitude);
 
         return {
             alpha: Math.PI / 2 - this.wrapLongitude(longitude) * DEGREES_TO_RADIANS,

@@ -170,6 +170,8 @@ export default abstract class Buildings {
     private processLoadedGeoJSON;
     protected handleLoadTileRequest(request: BuildingRequest, requestIndex?: number): void;
     private selectBuildingRequestIndex;
+    /** CPU budget for feature creation; individual features are atomic. */
+    creationTimeBudgetMs: number;
     processBuildingRequests(): void;
     generateBuildings(): void;
 }

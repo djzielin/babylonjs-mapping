@@ -250,6 +250,24 @@ export default class GlobeSet extends TileSet {
             const point = this.getTileSurfacePosition(tile.tileCoords, x / precision, y / precision, heights[y * (precision + 1) + x]);
             positions.push(point.x, point.y, point.z);
         }
+        if (mesh === tile.mesh) {
+            const n=precision+1;
+            const indices:number[]=[],uvs:number[]=[],boundary:number[]=[];
+            for(let y=0;y<=precision;y++)for(let x=0;x<=precision;x++)uvs.push(x/precision,1-y/precision);
+            for(let y=0;y<precision;y++)for(let x=0;x<precision;x++) {const a=y*n+x;indices.push(a,a+1,a+n,a+1,a+n+1,a+n);}
+            for(let x=0;x<n;x++)boundary.push(x);
+            for(let y=1;y<n;y++)boundary.push(y*n+precision);
+            for(let x=precision-1;x>=0;x--)boundary.push(precision*n+x);
+            for(let y=precision-1;y>0;y--)boundary.push(y*n);
+            const start=positions.length/3;
+            for(const i of boundary) {
+                const p=new Vector3(positions[i*3],positions[i*3+1],positions[i*3+2]);
+                p.scaleInPlace(1-500*this.metresToWorld/p.length());
+                positions.push(p.x,p.y,p.z);uvs.push(uvs[i*2],uvs[i*2+1]);
+            }
+            for(let i=0;i<boundary.length;i++) {const j=(i+1)%boundary.length;indices.push(boundary[i],start+i,boundary[j],boundary[j],start+i,start+j);}
+            mesh.setIndices(indices);mesh.setVerticesData(VertexBuffer.UVKind,uvs,true);
+        }
         const origin = tile.mesh.position;
         if (mesh !== tile.mesh) mesh.position.setAll(0);
         for (let i=0;i<positions.length;i+=3) { positions[i]-=origin.x; positions[i+1]-=origin.y; positions[i+2]-=origin.z; }
