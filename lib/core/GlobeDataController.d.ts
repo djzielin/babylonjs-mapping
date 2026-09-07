@@ -1,7 +1,7 @@
-import { Observable } from '@babylonjs/core/Misc/observable.js';
-import type GlobeSet from './GlobeSet.js';
-import type Buildings from '../buildings/Buildings.js';
-import type { ElevationLoader } from '../terrain/TerrainRGB.js';
+import { Observable } from "@babylonjs/core/Misc/observable.js";
+import type GlobeSet from "./GlobeSet.js";
+import type Buildings from "../buildings/Buildings.js";
+import type { ElevationLoader } from "../terrain/TerrainRGB.js";
 export interface GlobeDataOptions {
     elevation?: ElevationLoader;
     buildings?: Buildings;

@@ -3,7 +3,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import Tile from "./Tile.js";
-import GlobeTileMath from './GlobeTileMath.js';
+import GlobeTileMath from "./GlobeTileMath.js";
 import TileSet from "./TileSet.js";
 export interface GlobeSetOptions {
     /** Radius of the globe in Babylon world units. */

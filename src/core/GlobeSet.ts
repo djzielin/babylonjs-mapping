@@ -8,8 +8,8 @@ import { Color3, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Scene } from "@babylonjs/core/scene.js";
 
 import Tile from "./Tile.js";
-import GlobeTileMath from './GlobeTileMath.js';
-import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
+import GlobeTileMath from "./GlobeTileMath.js";
+import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import TileSet from "./TileSet.js";
 
 const DEGREES_TO_RADIANS = Math.PI / 180;
@@ -56,36 +56,54 @@ export default class GlobeSet extends TileSet {
     private geometryKeys = new WeakMap<Tile, string>();
     private elevationTileMap = new Map<string, Tile>();
     private tileDirections = new WeakMap<Tile, number[]>();
-    private geometryBudgetMs=Infinity;
-    private geometryQueue:Tile[]=[];
-    public get pendingGeometryCount():number { return this.geometryQueue.length; }
-    public override isTileGeometryReady(tile:Tile):boolean {
-        return this.geometryKeys.get(tile)===`${tile.tileCoords}/${this.radius}/${this.meshPrecision}`;
+    private geometryBudgetMs = Infinity;
+    private geometryQueue: Tile[] = [];
+    public get pendingGeometryCount(): number {
+        return this.geometryQueue.length;
     }
-    private flushGeometry():void {
-        const deadline=performance.now()+this.geometryBudgetMs;
-        let processed=0;
-        while(this.geometryQueue.length && (processed===0 || performance.now()<deadline)) {
-            const tile=this.geometryQueue.shift()!;
-            if(tile.mesh.isDisposed())continue;
+    public override isTileGeometryReady(tile: Tile): boolean {
+        return (
+            this.geometryKeys.get(tile) ===
+            `${tile.tileCoords}/${this.radius}/${this.meshPrecision}`
+        );
+    }
+    private flushGeometry(): void {
+        const deadline = performance.now() + this.geometryBudgetMs;
+        let processed = 0;
+        while (
+            this.geometryQueue.length &&
+            (processed === 0 || performance.now() < deadline)
+        ) {
+            const tile = this.geometryQueue.shift()!;
+            if (tile.mesh.isDisposed()) continue;
             this.updateTileGeometry(tile);
-            if(tile.material?.diffuseTexture?.isReady())tile.mesh.setEnabled(true);
+            if (tile.material?.diffuseTexture?.isReady())
+                tile.mesh.setEnabled(true);
             processed++;
         }
     }
     /** Metres of elevation per world unit use a fixed spherical Earth radius. */
-    public get metresToWorld(): number { return this.radius / 6378137; }
-    public override getGeometryMath(): GlobeTileMath { return this.flatMath; }
+    public get metresToWorld(): number {
+        return this.radius / 6378137;
+    }
+    public override getGeometryMath(): GlobeTileMath {
+        return this.flatMath;
+    }
     private _radius: number;
     private backingMesh?: Mesh;
     private polarCapMeshes: Mesh[] = [];
     private attributionEnabled = true;
 
-    public constructor(scene: Scene, engine: Engine, options: GlobeSetOptions = {}) {
+    public constructor(
+        scene: Scene,
+        engine: Engine,
+        options: GlobeSetOptions = {},
+    ) {
         super(scene, engine);
-        this.geometryBudgetMs=options.geometryBudgetMs??Infinity;
-        if (this.geometryBudgetMs<=0 || Number.isNaN(this.geometryBudgetMs)) throw new RangeError('geometryBudgetMs must be positive');
-        scene.onBeforeRenderObservable.add(()=>this.flushGeometry());
+        this.geometryBudgetMs = options.geometryBudgetMs ?? Infinity;
+        if (this.geometryBudgetMs <= 0 || Number.isNaN(this.geometryBudgetMs))
+            throw new RangeError("geometryBudgetMs must be positive");
+        scene.onBeforeRenderObservable.add(() => this.flushGeometry());
         this._radius = DEFAULT_GLOBE_RADIUS;
         this.flatMath = new GlobeTileMath(this, true);
         this.ourTileMath = new GlobeTileMath(this);
@@ -107,14 +125,20 @@ export default class GlobeSet extends TileSet {
 
     public set radius(value: number) {
         if (!Number.isFinite(value) || value <= 0) {
-            throw new RangeError("radius must be a finite number greater than zero.");
+            throw new RangeError(
+                "radius must be a finite number greater than zero.",
+            );
         }
 
         this._radius = value;
 
         if (this.backingMesh !== undefined) {
             const backingScale = this.radius * BACKING_SURFACE_SCALE;
-            this.backingMesh.scaling.set(backingScale, backingScale, backingScale);
+            this.backingMesh.scaling.set(
+                backingScale,
+                backingScale,
+                backingScale,
+            );
         }
         const polarCapScale = this.radius * POLAR_CAP_SCALE;
         for (const polarCap of this.polarCapMeshes) {
@@ -135,15 +159,23 @@ export default class GlobeSet extends TileSet {
      * coordinates. Longitude zero is on +Z and increases toward +X; latitude
      * increases toward +Y.
      */
-    public getSurfacePosition(latitude: number, longitude: number, elevation = 0): Vector3 {
+    public getSurfacePosition(
+        latitude: number,
+        longitude: number,
+        elevation = 0,
+    ): Vector3 {
         if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
-            throw new RangeError("latitude must be a finite value between -90 and 90 degrees.");
+            throw new RangeError(
+                "latitude must be a finite value between -90 and 90 degrees.",
+            );
         }
         if (!Number.isFinite(longitude)) {
             throw new RangeError("longitude must be a finite number.");
         }
         if (!Number.isFinite(elevation) || this.radius + elevation <= 0) {
-            throw new RangeError("elevation must keep the resulting globe radius positive.");
+            throw new RangeError(
+                "elevation must keep the resulting globe radius positive.",
+            );
         }
 
         const latitudeRadians = latitude * DEGREES_TO_RADIANS;
@@ -171,7 +203,8 @@ export default class GlobeSet extends TileSet {
         }
 
         return {
-            latitude: Math.asin(position.y / radialDistance) / DEGREES_TO_RADIANS,
+            latitude:
+                Math.asin(position.y / radialDistance) / DEGREES_TO_RADIANS,
             longitude: Math.atan2(position.x, position.z) / DEGREES_TO_RADIANS,
             elevation: radialDistance - this.radius,
         };
@@ -187,12 +220,27 @@ export default class GlobeSet extends TileSet {
         v = 0.5,
         elevation = 0,
     ): Vector3 {
-        if (!Number.isFinite(u) || u < 0 || u > 1 || !Number.isFinite(v) || v < 0 || v > 1) {
-            throw new RangeError("tile surface coordinates u and v must be between 0 and 1.");
+        if (
+            !Number.isFinite(u) ||
+            u < 0 ||
+            u > 1 ||
+            !Number.isFinite(v) ||
+            v < 0 ||
+            v > 1
+        ) {
+            throw new RangeError(
+                "tile surface coordinates u and v must be between 0 and 1.",
+            );
         }
 
-        const longitude = this.ourTileMath.tile_to_lon(tileCoords.x + u, tileCoords.z);
-        const latitude = this.ourTileMath.tile_to_lat(tileCoords.y + v, tileCoords.z);
+        const longitude = this.ourTileMath.tile_to_lon(
+            tileCoords.x + u,
+            tileCoords.z,
+        );
+        const latitude = this.ourTileMath.tile_to_lat(
+            tileCoords.y + v,
+            tileCoords.z,
+        );
         return this.getSurfacePosition(latitude, longitude, elevation);
     }
 
@@ -201,33 +249,54 @@ export default class GlobeSet extends TileSet {
      * are known. updateRaster() replaces its vertices with the corresponding
      * spherical tile patch once tile coordinates are available.
      */
-    public override makeSingleTileMesh(_x: number, _y: number, precision: number): Mesh {
+    public override makeSingleTileMesh(
+        _x: number,
+        _y: number,
+        precision: number,
+    ): Mesh {
         const mesh = MeshBuilder.CreateGround(
             "globe tile",
             {
                 width: this.tileWidth,
                 height: this.tileWidth,
                 updatable: true,
-                subdivisions: precision,
+                // Detailed buffers are built under the patch-generation
+                // budget once coordinates are known. LOD meshes need their
+                // requested topology immediately.
+                subdivisions: precision === this.meshPrecision ? 1 : precision,
             },
             this.scene,
         );
         mesh.position.set(0, 0, 0);
+        if (precision === this.meshPrecision) mesh.setEnabled(false);
         return mesh;
     }
 
     public override updateRaster(lat: number, lon: number, zoom: number): void {
-        if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isInteger(zoom) || zoom < 0 || zoom > 22) throw new RangeError('Invalid globe view');
-        lat = Math.max(-MAX_MERCATOR_LATITUDE, Math.min(MAX_MERCATOR_LATITUDE, lat));
-        lon = ((lon + 180) % 360 + 360) % 360 - 180;
+        if (
+            !Number.isFinite(lat) ||
+            !Number.isFinite(lon) ||
+            !Number.isInteger(zoom) ||
+            zoom < 0 ||
+            zoom > 22
+        )
+            throw new RangeError("Invalid globe view");
+        lat = Math.max(
+            -MAX_MERCATOR_LATITUDE,
+            Math.min(MAX_MERCATOR_LATITUDE, lat),
+        );
+        lon = ((((lon + 180) % 360) + 360) % 360) - 180;
         super.updateRaster(lat, lon, zoom);
 
         this.elevationTileMap.clear();
-        this.geometryQueue=[];
-        const count=2**this.zoom;
+        this.geometryQueue = [];
+        const count = 2 ** this.zoom;
         for (const tile of this.ourTiles) {
             if (!this.isTileGeometryReady(tile)) this.geometryQueue.push(tile);
-            this.elevationTileMap.set(`${((tile.tileCoords.x%count)+count)%count}/${tile.tileCoords.y}`,tile);
+            this.elevationTileMap.set(
+                `${((tile.tileCoords.x % count) + count) % count}/${tile.tileCoords.y}`,
+                tile,
+            );
         }
         this.flushGeometry();
     }
@@ -241,68 +310,152 @@ export default class GlobeSet extends TileSet {
     }
 
     /** Signed elevation grids (including bathymetry) are supplied in metres. */
-    public setElevationData(tile: Tile, data: ArrayLike<number>, width: number, height: number, exaggeration = 1): void {
-        if (!this.ourTiles.includes(tile) || !Number.isInteger(width) || !Number.isInteger(height) || width < 2 || height < 2 || data.length !== width * height || !Number.isFinite(exaggeration) || exaggeration < 0) throw new RangeError('Invalid elevation grid');
+    public setElevationData(
+        tile: Tile,
+        data: ArrayLike<number>,
+        width: number,
+        height: number,
+        exaggeration = 1,
+    ): void {
+        if (
+            !this.ourTiles.includes(tile) ||
+            !Number.isInteger(width) ||
+            !Number.isInteger(height) ||
+            width < 2 ||
+            height < 2 ||
+            data.length !== width * height ||
+            !Number.isFinite(exaggeration) ||
+            exaggeration < 0
+        )
+            throw new RangeError("Invalid elevation grid");
         const dem = Array.from(data);
-        if (dem.some(v => !Number.isFinite(v) || this.radius + v * this.metresToWorld * exaggeration <= 0)) throw new RangeError('Invalid elevation sample');
+        if (
+            dem.some(
+                (v) =>
+                    !Number.isFinite(v) ||
+                    this.radius + v * this.metresToWorld * exaggeration <= 0,
+            )
+        )
+            throw new RangeError("Invalid elevation sample");
         tile.dem = dem;
         tile.demDimensions = new Vector2(width, height);
         const heights: number[] = [];
         const p = this.meshPrecision;
-        for (let y = 0; y <= p; y++) for (let x = 0; x <= p; x++) {
-            const sx = x / p * (width - 1), sy = y / p * (height - 1);
-            const x0 = Math.floor(sx), y0 = Math.floor(sy), x1 = Math.min(x0 + 1, width - 1), y1 = Math.min(y0 + 1, height - 1);
-            const tx = sx - x0, ty = sy - y0;
-            const a = dem[y0 * width + x0] * (1 - tx) + dem[y0 * width + x1] * tx;
-            const b = dem[y1 * width + x0] * (1 - tx) + dem[y1 * width + x1] * tx;
-            heights.push((a * (1 - ty) + b * ty) * this.metresToWorld * exaggeration);
-        }
-        tile.minHeight = dem.reduce((a,b) => Math.min(a,b), Infinity);
-        tile.maxHeight = dem.reduce((a,b) => Math.max(a,b), -Infinity);
+        for (let y = 0; y <= p; y++)
+            for (let x = 0; x <= p; x++) {
+                const sx = (x / p) * (width - 1),
+                    sy = (y / p) * (height - 1);
+                const x0 = Math.floor(sx),
+                    y0 = Math.floor(sy),
+                    x1 = Math.min(x0 + 1, width - 1),
+                    y1 = Math.min(y0 + 1, height - 1);
+                const tx = sx - x0,
+                    ty = sy - y0;
+                const a =
+                    dem[y0 * width + x0] * (1 - tx) + dem[y0 * width + x1] * tx;
+                const b =
+                    dem[y1 * width + x0] * (1 - tx) + dem[y1 * width + x1] * tx;
+                heights.push(
+                    (a * (1 - ty) + b * ty) * this.metresToWorld * exaggeration,
+                );
+            }
+        tile.minHeight = dem.reduce((a, b) => Math.min(a, b), Infinity);
+        tile.maxHeight = dem.reduce((a, b) => Math.max(a, b), -Infinity);
         this.applyElevationGrid(tile, heights, p);
         tile.terrainLoaded = true;
     }
 
-    public override applyElevationGrid(tile: Tile, heights: number[], precision: number): void {
+    public override applyElevationGrid(
+        tile: Tile,
+        heights: number[],
+        precision: number,
+    ): void {
         tile.clearTerrainLOD();
         tile.elevationHeights = heights;
         this.applyGlobeHeights(tile.mesh, tile, precision, heights);
     }
 
-    public applyGlobeHeights(mesh: Mesh, tile: Tile, precision: number, heights: number[]): void {
+    public applyGlobeHeights(
+        mesh: Mesh,
+        tile: Tile,
+        precision: number,
+        heights: number[],
+    ): void {
         const positions: number[] = [];
-        const directions = precision === this.meshPrecision ? this.tileDirections.get(tile) : undefined;
-        for (let y = 0; y <= precision; y++) for (let x = 0; x <= precision; x++) {
-            const i=y*(precision+1)+x;
-            if (directions) {
-                const radius=this.radius+heights[i];
-                positions.push(directions[i*3]*radius,directions[i*3+1]*radius,directions[i*3+2]*radius);
-            } else {
-                const point = this.getTileSurfacePosition(tile.tileCoords, x / precision, y / precision, heights[i]);
-                positions.push(point.x, point.y, point.z);
+        const directions =
+            precision === this.meshPrecision
+                ? this.tileDirections.get(tile)
+                : undefined;
+        for (let y = 0; y <= precision; y++)
+            for (let x = 0; x <= precision; x++) {
+                const i = y * (precision + 1) + x;
+                if (directions) {
+                    const radius = this.radius + heights[i];
+                    positions.push(
+                        directions[i * 3] * radius,
+                        directions[i * 3 + 1] * radius,
+                        directions[i * 3 + 2] * radius,
+                    );
+                } else {
+                    const point = this.getTileSurfacePosition(
+                        tile.tileCoords,
+                        x / precision,
+                        y / precision,
+                        heights[i],
+                    );
+                    positions.push(point.x, point.y, point.z);
+                }
             }
-        }
         if (mesh === tile.mesh) {
-            const n=precision+1;
-            const indices:number[]=[],uvs:number[]=[],boundary:number[]=[];
-            for(let y=0;y<=precision;y++)for(let x=0;x<=precision;x++)uvs.push(x/precision,1-y/precision);
-            for(let y=0;y<precision;y++)for(let x=0;x<precision;x++) {const a=y*n+x;indices.push(a,a+1,a+n,a+1,a+n+1,a+n);}
-            for(let x=0;x<n;x++)boundary.push(x);
-            for(let y=1;y<n;y++)boundary.push(y*n+precision);
-            for(let x=precision-1;x>=0;x--)boundary.push(precision*n+x);
-            for(let y=precision-1;y>0;y--)boundary.push(y*n);
-            const start=positions.length/3;
-            for(const i of boundary) {
-                const p=new Vector3(positions[i*3],positions[i*3+1],positions[i*3+2]);
-                p.scaleInPlace(1-500*this.metresToWorld/p.length());
-                positions.push(p.x,p.y,p.z);uvs.push(uvs[i*2],uvs[i*2+1]);
+            const n = precision + 1;
+            const indices: number[] = [],
+                uvs: number[] = [],
+                boundary: number[] = [];
+            for (let y = 0; y <= precision; y++)
+                for (let x = 0; x <= precision; x++)
+                    uvs.push(x / precision, 1 - y / precision);
+            for (let y = 0; y < precision; y++)
+                for (let x = 0; x < precision; x++) {
+                    const a = y * n + x;
+                    indices.push(a, a + 1, a + n, a + 1, a + n + 1, a + n);
+                }
+            for (let x = 0; x < n; x++) boundary.push(x);
+            for (let y = 1; y < n; y++) boundary.push(y * n + precision);
+            for (let x = precision - 1; x >= 0; x--)
+                boundary.push(precision * n + x);
+            for (let y = precision - 1; y > 0; y--) boundary.push(y * n);
+            const start = positions.length / 3;
+            for (const i of boundary) {
+                const p = new Vector3(
+                    positions[i * 3],
+                    positions[i * 3 + 1],
+                    positions[i * 3 + 2],
+                );
+                p.scaleInPlace(1 - (500 * this.metresToWorld) / p.length());
+                positions.push(p.x, p.y, p.z);
+                uvs.push(uvs[i * 2], uvs[i * 2 + 1]);
             }
-            for(let i=0;i<boundary.length;i++) {const j=(i+1)%boundary.length;indices.push(boundary[i],start+i,boundary[j],boundary[j],start+i,start+j);}
-            mesh.setIndices(indices);mesh.setVerticesData(VertexBuffer.UVKind,uvs,true);
+            for (let i = 0; i < boundary.length; i++) {
+                const j = (i + 1) % boundary.length;
+                indices.push(
+                    boundary[i],
+                    start + i,
+                    boundary[j],
+                    boundary[j],
+                    start + i,
+                    start + j,
+                );
+            }
+            mesh.setIndices(indices);
+            mesh.setVerticesData(VertexBuffer.UVKind, uvs, true);
         }
         const origin = tile.mesh.position;
         if (mesh !== tile.mesh) mesh.position.setAll(0);
-        for (let i=0;i<positions.length;i+=3) { positions[i]-=origin.x; positions[i+1]-=origin.y; positions[i+2]-=origin.z; }
+        for (let i = 0; i < positions.length; i += 3) {
+            positions[i] -= origin.x;
+            positions[i + 1] -= origin.y;
+            positions[i + 2] -= origin.z;
+        }
         mesh.setVerticesData(VertexBuffer.PositionKind, positions, true);
         const normals: number[] = [];
         VertexData.ComputeNormals(positions, mesh.getIndices()!, normals);
@@ -312,32 +465,52 @@ export default class GlobeSet extends TileSet {
 
     /** Warp already-extruded feature vertices and their LOD meshes once, at load time. */
     public override projectFeatureMesh(mesh: Mesh): void {
-        const wasFrozen=mesh.isWorldMatrixFrozen;
+        const wasFrozen = mesh.isWorldMatrixFrozen;
         mesh.unfreezeWorldMatrix();
         const world = mesh.computeWorldMatrix(true).clone();
         const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
         if (!positions) return;
         const projected: number[] = [];
         for (let i = 0; i < positions.length; i += 3) {
-            const flat = Vector3.TransformCoordinates(new Vector3(positions[i], positions[i+1], positions[i+2]), world);
+            const flat = Vector3.TransformCoordinates(
+                new Vector3(positions[i], positions[i + 1], positions[i + 2]),
+                world,
+            );
             const ll = this.flatMath.Game_to_LonLat(flat);
-            const point = this.getSurfacePosition(ll.y, ll.x, flat.y / this.tileScale * this.metresToWorld + this.sampleElevation(ll.y, ll.x));
+            const point = this.getSurfacePosition(
+                ll.y,
+                ll.x,
+                (flat.y / this.tileScale) * this.metresToWorld +
+                    this.sampleElevation(ll.y, ll.x),
+            );
             projected.push(point.x, point.y, point.z);
         }
         mesh.setParent(null);
-        const origin = new Vector3(projected[0],projected[1],projected[2]);
-        for (let i=0;i<projected.length;i+=3) { projected[i]-=origin.x; projected[i+1]-=origin.y; projected[i+2]-=origin.z; }
-        mesh.position.copyFrom(origin); mesh.rotation.setAll(0); mesh.rotationQuaternion = null; mesh.scaling.setAll(1);
+        const origin = new Vector3(projected[0], projected[1], projected[2]);
+        for (let i = 0; i < projected.length; i += 3) {
+            projected[i] -= origin.x;
+            projected[i + 1] -= origin.y;
+            projected[i + 2] -= origin.z;
+        }
+        mesh.position.copyFrom(origin);
+        mesh.rotation.setAll(0);
+        mesh.rotationQuaternion = null;
+        mesh.scaling.setAll(1);
         const indices = Array.from(mesh.getIndices()!);
-        for (let i=0;i<indices.length;i+=3) [indices[i+1],indices[i+2]]=[indices[i+2],indices[i+1]];
+        for (let i = 0; i < indices.length; i += 3)
+            [indices[i + 1], indices[i + 2]] = [indices[i + 2], indices[i + 1]];
         mesh.setIndices(indices);
         mesh.setVerticesData(VertexBuffer.PositionKind, projected, true);
         const normals: number[] = [];
         VertexData.ComputeNormals(projected, mesh.getIndices()!, normals);
         mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
-        mesh.computeWorldMatrix(true); mesh.refreshBoundingInfo();
+        mesh.computeWorldMatrix(true);
+        mesh.refreshBoundingInfo();
         // A radial detailed mesh must not switch to a planar billboard.
-        for (const lod of [...mesh.getLODLevels()]) { mesh.removeLODLevel(lod.mesh); lod.mesh?.dispose(); }
+        for (const lod of [...mesh.getLODLevels()]) {
+            mesh.removeLODLevel(lod.mesh);
+            lod.mesh?.dispose();
+        }
         if (wasFrozen) mesh.freezeWorldMatrix();
     }
 
@@ -346,11 +519,25 @@ export default class GlobeSet extends TileSet {
         const x = this.ourTileMath.lon_to_tileExact(longitude, this.zoom);
         const y = this.ourTileMath.lat_to_tileExact(latitude, this.zoom);
         const n = 2 ** this.zoom;
-        const tile = this.elevationTileMap.get(`${((Math.floor(x)%n)+n)%n}/${Math.floor(y)}`);
+        const tile = this.elevationTileMap.get(
+            `${((Math.floor(x) % n) + n) % n}/${Math.floor(y)}`,
+        );
         if (!tile?.elevationHeights) return 0;
-        const p = this.meshPrecision, sx = (x - Math.floor(x)) * p, sy = (y - Math.floor(y)) * p;
-        const x0 = Math.floor(sx), y0 = Math.floor(sy), x1 = Math.min(x0+1,p), y1 = Math.min(y0+1,p), tx = sx-x0, ty = sy-y0, h = tile.elevationHeights;
-        return (h[y0*(p+1)+x0]*(1-tx)+h[y0*(p+1)+x1]*tx)*(1-ty)+(h[y1*(p+1)+x0]*(1-tx)+h[y1*(p+1)+x1]*tx)*ty;
+        const p = this.meshPrecision,
+            sx = (x - Math.floor(x)) * p,
+            sy = (y - Math.floor(y)) * p;
+        const x0 = Math.floor(sx),
+            y0 = Math.floor(sy),
+            x1 = Math.min(x0 + 1, p),
+            y1 = Math.min(y0 + 1, p),
+            tx = sx - x0,
+            ty = sy - y0,
+            h = tile.elevationHeights;
+        return (
+            (h[y0 * (p + 1) + x0] * (1 - tx) + h[y0 * (p + 1) + x1] * tx) *
+                (1 - ty) +
+            (h[y1 * (p + 1) + x0] * (1 - tx) + h[y1 * (p + 1) + x1] * tx) * ty
+        );
     }
 
     private createBackingMesh(): void {
@@ -361,7 +548,10 @@ export default class GlobeSet extends TileSet {
         );
         this.backingMesh.isPickable = false;
 
-        const material = new StandardMaterial("globe backing material", this.scene);
+        const material = new StandardMaterial(
+            "globe backing material",
+            this.scene,
+        );
         material.diffuseColor = new Color3(0.17, 0.42, 0.52);
         material.emissiveColor = new Color3(0.02, 0.05, 0.07);
         material.specularColor = Color3.Black();
@@ -378,7 +568,11 @@ export default class GlobeSet extends TileSet {
         ];
     }
 
-    private createPolarCap(name: string, north: boolean, material: StandardMaterial): Mesh {
+    private createPolarCap(
+        name: string,
+        north: boolean,
+        material: StandardMaterial,
+    ): Mesh {
         const segments = 64;
         const rings = 4;
         const columns = segments + 1;
@@ -390,12 +584,13 @@ export default class GlobeSet extends TileSet {
             const progress = row / rings;
             const latitude = north
                 ? 90 - (90 - MAX_MERCATOR_LATITUDE) * progress
-                : -MAX_MERCATOR_LATITUDE - (90 - MAX_MERCATOR_LATITUDE) * progress;
+                : -MAX_MERCATOR_LATITUDE -
+                  (90 - MAX_MERCATOR_LATITUDE) * progress;
             const latitudeRadians = latitude * DEGREES_TO_RADIANS;
             const horizontalDistance = Math.cos(latitudeRadians);
 
             for (let column = 0; column <= segments; column++) {
-                const longitude = column / segments * 2 * Math.PI;
+                const longitude = (column / segments) * 2 * Math.PI;
                 const x = horizontalDistance * Math.sin(longitude);
                 const y = Math.sin(latitudeRadians);
                 const z = horizontalDistance * Math.cos(longitude);
@@ -410,7 +605,14 @@ export default class GlobeSet extends TileSet {
                 const topRight = topLeft + 1;
                 const bottomLeft = topLeft + columns;
                 const bottomRight = bottomLeft + 1;
-                indices.push(topLeft, topRight, bottomLeft, topRight, bottomRight, bottomLeft);
+                indices.push(
+                    topLeft,
+                    topRight,
+                    bottomLeft,
+                    topRight,
+                    bottomRight,
+                    bottomLeft,
+                );
             }
         }
 
@@ -432,7 +634,7 @@ export default class GlobeSet extends TileSet {
         const key = `${tile.tileCoords}/${this.radius}/${this.meshPrecision}`;
         if (this.geometryKeys.get(tile) === key) return;
         this.geometryKeys.set(tile, key);
-        const wasFrozen=tile.mesh.isWorldMatrixFrozen;
+        const wasFrozen = tile.mesh.isWorldMatrixFrozen;
         tile.mesh.unfreezeWorldMatrix();
         const precision = this.meshPrecision;
         const columns = precision + 1;
@@ -440,23 +642,40 @@ export default class GlobeSet extends TileSet {
         const uvs: number[] = [];
         const indices: number[] = [];
 
-        const longitudeSin:number[]=[],longitudeCos:number[]=[],directions:number[]=[];
-        for(let column=0;column<=precision;column++) {
-            const longitude=this.ourTileMath.tile_to_lon(tile.tileCoords.x+column/precision,tile.tileCoords.z)*DEGREES_TO_RADIANS;
-            longitudeSin.push(Math.sin(longitude));longitudeCos.push(Math.cos(longitude));
+        const longitudeSin: number[] = [],
+            longitudeCos: number[] = [],
+            directions: number[] = [];
+        for (let column = 0; column <= precision; column++) {
+            const longitude =
+                this.ourTileMath.tile_to_lon(
+                    tile.tileCoords.x + column / precision,
+                    tile.tileCoords.z,
+                ) * DEGREES_TO_RADIANS;
+            longitudeSin.push(Math.sin(longitude));
+            longitudeCos.push(Math.cos(longitude));
         }
         for (let row = 0; row <= precision; row++) {
             const v = row / precision;
-            const latitude=this.ourTileMath.tile_to_lat(tile.tileCoords.y+v,tile.tileCoords.z)*DEGREES_TO_RADIANS;
-            const sin=Math.sin(latitude),cos=Math.cos(latitude);
+            const latitude =
+                this.ourTileMath.tile_to_lat(
+                    tile.tileCoords.y + v,
+                    tile.tileCoords.z,
+                ) * DEGREES_TO_RADIANS;
+            const sin = Math.sin(latitude),
+                cos = Math.cos(latitude);
             for (let column = 0; column <= precision; column++) {
-                const x=cos*longitudeSin[column],z=cos*longitudeCos[column];
-                directions.push(x,sin,z);
-                positions.push(x*this.radius,sin*this.radius,z*this.radius);
-                uvs.push(column/precision,1-v);
+                const x = cos * longitudeSin[column],
+                    z = cos * longitudeCos[column];
+                directions.push(x, sin, z);
+                positions.push(
+                    x * this.radius,
+                    sin * this.radius,
+                    z * this.radius,
+                );
+                uvs.push(column / precision, 1 - v);
             }
         }
-        this.tileDirections.set(tile,directions);
+        this.tileDirections.set(tile, directions);
 
         for (let row = 0; row < precision; row++) {
             for (let column = 0; column < precision; column++) {
@@ -466,7 +685,14 @@ export default class GlobeSet extends TileSet {
                 const bottomRight = bottomLeft + 1;
 
                 // The order makes the front face point away from the globe.
-                indices.push(topLeft, topRight, bottomLeft, topRight, bottomRight, bottomLeft);
+                indices.push(
+                    topLeft,
+                    topRight,
+                    bottomLeft,
+                    topRight,
+                    bottomRight,
+                    bottomLeft,
+                );
             }
         }
 
@@ -474,8 +700,15 @@ export default class GlobeSet extends TileSet {
 
         // Keep fine geometry near a local origin to retain centimetre detail
         // when vertex buffers are converted to Float32 on the GPU.
-        const origin = tile.tileCoords.z >= 10 ? this.getTileSurfacePosition(tile.tileCoords) : Vector3.Zero();
-        for (let i=0;i<positions.length;i+=3) { positions[i]-=origin.x; positions[i+1]-=origin.y; positions[i+2]-=origin.z; }
+        const origin =
+            tile.tileCoords.z >= 10
+                ? this.getTileSurfacePosition(tile.tileCoords)
+                : Vector3.Zero();
+        for (let i = 0; i < positions.length; i += 3) {
+            positions[i] -= origin.x;
+            positions[i + 1] -= origin.y;
+            positions[i + 2] -= origin.z;
+        }
         const vertexData = new VertexData();
         vertexData.positions = positions;
         vertexData.normals = normals;
@@ -487,12 +720,20 @@ export default class GlobeSet extends TileSet {
         tile.mesh.rotation.set(0, 0, 0);
         tile.mesh.scaling.set(1, 1, 1);
         tile.mesh.computeWorldMatrix(true);
-        if(wasFrozen)tile.mesh.freezeWorldMatrix();
+        if (wasFrozen) tile.mesh.freezeWorldMatrix();
 
         const bounds = tile.mesh.getBoundingInfo().boundingBox;
         tile.box2D = new BoundingBox(
-            new Vector3(bounds.minimumWorld.x, -this.radius, bounds.minimumWorld.z),
-            new Vector3(bounds.maximumWorld.x, this.radius, bounds.maximumWorld.z),
+            new Vector3(
+                bounds.minimumWorld.x,
+                -this.radius,
+                bounds.minimumWorld.z,
+            ),
+            new Vector3(
+                bounds.maximumWorld.x,
+                this.radius,
+                bounds.maximumWorld.z,
+            ),
         );
     }
 }

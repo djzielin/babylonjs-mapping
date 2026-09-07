@@ -172,7 +172,9 @@ function addTriangle(geometry: RoofGeometry, a: RoofVertex, b: RoofVertex, c: Ro
     // Roof planes should always face the sky regardless of source-ring
     // winding. Vertical closure faces are emitted in both directions because
     // they may belong to either an outer ring or a courtyard.
-    if (normal.y < 0) {
+    // Babylon's default left-handed normal calculation uses the opposite
+    // cross-product order to the geometric normal above.
+    if (normal.y > 0) {
         vertices = [a, c, b];
     }
 

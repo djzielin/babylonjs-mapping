@@ -146,7 +146,9 @@ export default class GlobeNavigator {
         const direction=forward.add(right.scale(dx)).add(up.scale(dy)).normalize();
         const ray={origin:this.camera.globalPosition,direction};
         const originProjection = Vector3.Dot(ray.origin, direction);
-        const distanceFromSurface = ray.origin.lengthSquared() - this.globe.radius ** 2;
+        const view=this.getView();
+        const surfaceRadius=this.globe.radius+this.globe.sampleElevation(view.latitude,view.longitude);
+        const distanceFromSurface = ray.origin.lengthSquared() - surfaceRadius ** 2;
         const discriminant = originProjection ** 2 - distanceFromSurface;
 
         if (discriminant < 0) {
@@ -259,7 +261,9 @@ export default class GlobeNavigator {
         const aspect = this.getAspectRatio();
         const angularWidth = this.tilesAcrossViewport * 2 * Math.PI / (2 ** clampedZoom);
         const viewportScale = 2 * Math.tan(this.camera.fov * 0.5) * aspect;
-        return this.globe.radius * angularWidth * Math.max(0.08,Math.cos(latitude*DEGREES_TO_RADIANS)) / viewportScale;
+        const blend=Math.min(1,Math.max(0,(clampedZoom-this.minZoom)/3));
+        const latitudeScale=1-blend+blend*Math.max(0.08,Math.cos(latitude*DEGREES_TO_RADIANS));
+        return this.globe.radius * angularWidth * latitudeScale / viewportScale;
     }
 
     /** Convert camera altitude into the nearest raster zoom. */
@@ -268,14 +272,12 @@ export default class GlobeNavigator {
             throw new RangeError("altitude must be a finite value zero or greater.");
         }
 
-        const aspect = this.getAspectRatio();
-        const viewportScale = 2 * Math.tan(this.camera.fov * 0.5) * aspect;
-        const safeAltitude = Math.max(altitude, Number.EPSILON);
-        const zoom = Math.round(Math.log2(
-            this.globe.radius * this.tilesAcrossViewport * 2 * Math.PI * Math.max(0.08,Math.sin(this.camera.beta))
-            / (viewportScale * safeAltitude),
-        ));
-        return Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
+        let best=this.minZoom, error=Infinity;
+        for(let zoom=this.minZoom;zoom<=this.maxZoom;zoom++) {
+            const difference=Math.abs(Math.log(Math.max(altitude,Number.EPSILON)/this.getAltitudeForZoom(zoom)));
+            if(difference<error){error=difference;best=zoom;}
+        }
+        return best;
     }
 
     public dispose(): void {

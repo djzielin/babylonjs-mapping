@@ -1,4 +1,4 @@
-import { Vector3 } from '@babylonjs/core/Maths/math.js';
+import { Vector3 } from "@babylonjs/core/Maths/math.js";
 export interface ElevationGrid {
     data: ArrayLike<number>;
     width: number;
@@ -7,7 +7,7 @@ export interface ElevationGrid {
 export type ElevationLoader = (coordinates: Vector3, signal: AbortSignal) => Promise<ElevationGrid>;
 export interface TerrainRGBOptions {
     url?: string;
-    encoding?: 'terrarium' | 'mapbox';
+    encoding?: "terrarium" | "mapbox";
     maxZoom?: number;
     cacheSize?: number;
 }
@@ -19,7 +19,7 @@ export default class TerrainRGB {
     private maxZoom;
     private cacheSize;
     constructor(options?: TerrainRGBOptions);
-    static decode(pixels: ArrayLike<number>, encoding: 'terrarium' | 'mapbox'): Float32Array;
+    static decode(pixels: ArrayLike<number>, encoding: "terrarium" | "mapbox"): Float32Array;
     /** Resample a child of an overzoomed source without losing its geographic bounds. */
     static crop(grid: ElevationGrid, coordinates: Vector3, sourceZoom: number): ElevationGrid;
     load: ElevationLoader;

@@ -31,7 +31,7 @@ Reload retries elevation failures and regenerates features. Provider availabilit
 
 ## Performance
 
-The detail window has at most 25 tiles. Orbital geometry uses 16 subdivisions and terrain views use 64. New patch generation is spread over frames with a 4 ms CPU budget (a single tile is atomic). Raster requests are bounded at six, elevation jobs at four, and decoded DEM tiles use a 64-entry cache. Retained tiles keep their geometry, DEM and in-flight imagery. Geometry is projected when it loads, not every frame. Fine vertices use local origins and the demo enables Babylon's high-precision matrices. Feature creation has a 4 ms frame budget and an eight-feature cap; one feature is atomic and can exceed the budget.
+The detail window has at most 25 tiles. Orbital geometry uses 16 subdivisions and terrain views use 64. New patch generation is spread over frames with a 4 ms CPU budget (a single tile is atomic). Raster requests are bounded at six, elevation jobs at four, and decoded DEM tiles use a 64-entry cache. Retained tiles keep their geometry, DEM and in-flight imagery. Geometry is projected when it loads, not every frame. Fine vertices use local origins and the demo enables Babylon's high-precision matrices. Feature creation has a 4 ms frame budget and a 32-feature cap; one feature is atomic and can exceed the budget.
 
 The HUD reports actual browser FPS, active meshes, vertices, and detail-job counts. These are measurements of the current browser/device, not a promised frame rate. `Inspect in 3D` keeps the current geographic tile window fixed; return to globe mode to stream a different region. Terrain and buildings share a rendering group above the overview so low-resolution sea-level imagery cannot hide the seafloor.
 

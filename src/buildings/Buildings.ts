@@ -374,6 +374,11 @@ export default abstract class Buildings {
             } else for(const child of value)stack.push(child);
         }
         if(!Number.isFinite(minX))return false;
+        if(feature.geometry.type==='LineString'||feature.geometry.type==='MultiLineString') {
+            const a=this.tileSet.ourTileMath.EPSG_to_TileExact(new Vector2(minX,minY),epsg??EPSG_Type.EPSG_4326,coords.z);
+            const b=this.tileSet.ourTileMath.EPSG_to_TileExact(new Vector2(maxX,maxY),epsg??EPSG_Type.EPSG_4326,coords.z);
+            return Math.min(a.x,b.x)<=coords.x+1&&Math.max(a.x,b.x)>=coords.x&&Math.min(a.y,b.y)<=coords.y+1&&Math.max(a.y,b.y)>=coords.y;
+        }
         const center=new Vector2((minX+maxX)/2,(minY+maxY)/2);
         const tile=this.tileSet.ourTileMath.EPSG_to_Tile(center,epsg??EPSG_Type.EPSG_4326,coords.z),n=2**coords.z;
         return ((tile.x%n)+n)%n===((coords.x%n)+n)%n&&tile.y===coords.y;

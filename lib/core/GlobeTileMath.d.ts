@@ -1,6 +1,6 @@
-import { Vector2, Vector3 } from '@babylonjs/core/Maths/math.js';
-import TileMath, { EPSG_Type } from './TileMath.js';
-import type GlobeSet from './GlobeSet.js';
+import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
+import TileMath, { EPSG_Type } from "./TileMath.js";
+import type GlobeSet from "./GlobeSet.js";
 /** Geographic conversion shared by globe features and picking. */
 export default class GlobeTileMath extends TileMath {
     private globe;
