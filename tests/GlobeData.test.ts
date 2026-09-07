@@ -228,7 +228,7 @@ describe("globe data fidelity", () => {
             for (const mesh of [tile.mesh, ...tile.terrainLODMeshes]) {
                 const points = worldVertices(mesh);
                 const normals = mesh.getVerticesData(VertexBuffer.NormalKind)!;
-                // An interior vertex excludes the deliberately sloping skirt normals.
+                // Check the surface normal in each resolution.
                 const index = mesh === tile.mesh ? 10 : mesh === tile.terrainLODMeshes[0] ? 6 : 4;
                 expect(Vector3.Dot(points[index].normalize(), Vector3.FromArray(normals, index * 3))).toBeGreaterThan(0.99);
             }
@@ -238,6 +238,45 @@ describe("globe data fidelity", () => {
                     60 + 200 * globe.metresToWorld,
                     6,
                 );
+        }
+        dispose();
+    });
+    it("retains coastline edges at every LOD without extruding tile walls", () => {
+        const { globe, dispose } = setup(2, 40.7, -74, 11);
+        for (const tile of globe.ourTiles) {
+            const heights = Array.from({ length: 81 }, (_, i) =>
+                i % 9 < 4 ? -40 : 20 + 15 * Math.sin(i));
+            globe.setElevationData(tile, heights, 9, 9);
+        }
+        // Include a precision which does not divide the source grid.
+        globe.setupTerrainLOD([4, 3, 2], [1, 2, 3], 10);
+        for (const tile of globe.ourTiles) {
+            const source = tile.mesh.getVerticesData(VertexBuffer.PositionKind)!;
+            const fullWorld = worldVertices(tile.mesh);
+            for (const lod of tile.terrainLODMeshes) {
+                const points = worldVertices(lod);
+                const positions = lod.getVerticesData(VertexBuffer.PositionKind)!;
+                const uv = lod.getVerticesData(VertexBuffer.UVKind)!;
+                const referenced = new Set(lod.getIndices()!);
+                for (let y = 0; y <= 8; y++) for (let x = 0; x <= 8; x++) {
+                    if (x !== 0 && x !== 8 && y !== 0 && y !== 8) continue;
+                    expect(points.some((p, i) => referenced.has(i) &&
+                        Vector3.Distance(p, fullWorld[y * 9 + x]) < 1e-7)).toBe(true);
+                }
+                // Every vertex must sample the original surface at its UV;
+                // a lowered skirt vertex would fail even when its top edge matches.
+                for (let i = 0; i < points.length; i++) {
+                    const x = uv[i * 2] * 8, y = (1 - uv[i * 2 + 1]) * 8;
+                    const x0 = Math.floor(x), y0 = Math.floor(y);
+                    const x1 = Math.min(8, x0 + 1), y1 = Math.min(8, y0 + 1);
+                    for (let axis = 0; axis < 3; axis++) {
+                        const sample = (xx: number, yy: number) => source[(yy * 9 + xx) * 3 + axis];
+                        const top = sample(x0, y0) * (1 - x + x0) + sample(x1, y0) * (x - x0);
+                        const bottom = sample(x0, y1) * (1 - x + x0) + sample(x1, y1) * (x - x0);
+                        expect(positions[i * 3 + axis]).toBeCloseTo(top * (1 - y + y0) + bottom * (y - y0), 6);
+                    }
+                }
+            }
         }
         dispose();
     });

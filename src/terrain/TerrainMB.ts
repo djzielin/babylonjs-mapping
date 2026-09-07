@@ -89,7 +89,7 @@ export default class TerrainMB {
                 lodMesh.isPickable = false;
 
                 this.applyDetailedTerrainToMesh(lodMesh, tile, precision);
-                this.addTerrainSkirt(lodMesh, precision, skirtDepth);
+                if (!this.tileSet.isGlobe) this.addTerrainSkirt(lodMesh, precision, skirtDepth);
 
                 tile.mesh.addLODLevel(distance, lodMesh);
                 tile.terrainLODMeshes.push(lodMesh);
@@ -125,6 +125,10 @@ export default class TerrainMB {
     }
 
     private applyDetailedTerrainToMesh(lodMesh: Mesh, tile: Tile, precision: number): void {
+        if (this.tileSet.isGlobe) {
+            this.applyBoundaryPreservingLOD(lodMesh, tile, precision);
+            return;
+        }
         const sourcePositions = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const lodPositions = lodMesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const sourcePrecision = this.tileSet.meshPrecision;
@@ -153,16 +157,62 @@ export default class TerrainMB {
             }
         }
 
-        if (this.tileSet.isGlobe && tile.elevationHeights) {
-            const heights: number[] = [];
-            for (let y = 0; y <= precision; y++) for (let x = 0; x <= precision; x++) {
-                const sx = x * sourcePrecision / precision, sy = y * sourcePrecision / precision;
-                const x0 = Math.floor(sx), y0 = Math.floor(sy), x1 = Math.min(x0+1,sourcePrecision), y1 = Math.min(y0+1,sourcePrecision);
-                const h = tile.elevationHeights, n = sourceSubdivisions, tx = sx-x0, ty = sy-y0;
-                heights.push((h[y0*n+x0]*(1-tx)+h[y0*n+x1]*tx)*(1-ty)+(h[y1*n+x0]*(1-tx)+h[y1*n+x1]*tx)*ty);
+        lodMesh.updateVerticesData(VertexBuffer.PositionKind, lodPositions);
+    }
+
+    /** Decimate the interior, retaining every source edge sample at all LODs. */
+    private applyBoundaryPreservingLOD(mesh: Mesh, tile: Tile, precision: number): void {
+        const source = tile.mesh.getVerticesData(VertexBuffer.PositionKind)!;
+        const full = this.tileSet.meshPrecision, sourceN = full + 1, n = precision + 1;
+        const positions: number[] = [], uvs: number[] = [], indices: number[] = [];
+        const add = (x: number, y: number): number => {
+            const sx = x * full / precision, sy = y * full / precision;
+            const x0 = Math.floor(sx), y0 = Math.floor(sy);
+            const x1 = Math.min(x0 + 1, full), y1 = Math.min(y0 + 1, full);
+            const tx = sx - x0, ty = sy - y0;
+            const index = positions.length / 3;
+            for (let axis = 0; axis < 3; axis++) {
+                const a = source[(y0 * sourceN + x0) * 3 + axis] * (1 - tx) + source[(y0 * sourceN + x1) * 3 + axis] * tx;
+                const b = source[(y1 * sourceN + x0) * 3 + axis] * (1 - tx) + source[(y1 * sourceN + x1) * 3 + axis] * tx;
+                positions.push(a * (1 - ty) + b * ty);
             }
-            (this.tileSet as GlobeSet).applyGlobeHeights(lodMesh, tile, precision, heights);
-        } else lodMesh.updateVerticesData(VertexBuffer.PositionKind, lodPositions);
+            uvs.push(x / precision, 1 - y / precision);
+            return index;
+        };
+        for (let y = 0; y <= precision; y++) for (let x = 0; x <= precision; x++) add(x, y);
+        for (let y = 0; y < precision; y++) for (let x = 0; x < precision; x++) {
+            const a = y * n + x;
+            if (x > 0 && y > 0 && x < precision - 1 && y < precision - 1) {
+                indices.push(a, a + n, a + 1, a + 1, a + n, a + n + 1);
+                continue;
+            }
+            const ring: number[] = [];
+            const corners = [[x, y, a], [x + 1, y, a + 1], [x + 1, y + 1, a + n + 1], [x, y + 1, a + n]];
+            for (let edge = 0; edge < 4; edge++) {
+                const from = corners[edge], to = corners[(edge + 1) % 4];
+                ring.push(from[2]);
+                const outer = edge === 0 ? y === 0 : edge === 1 ? x === precision - 1 : edge === 2 ? y === precision - 1 : x === 0;
+                if (!outer) continue;
+                const horizontal = from[1] === to[1];
+                const start = (horizontal ? from[0] : from[1]) * full / precision;
+                const end = (horizontal ? to[0] : to[1]) * full / precision;
+                const step = end > start ? 1 : -1;
+                let sample = step > 0 ? Math.floor(start) + 1 : Math.ceil(start) - 1;
+                for (; step > 0 ? sample < end : sample > end; sample += step) {
+                    const value = sample * precision / full;
+                    ring.push(add(horizontal ? value : from[0], horizontal ? from[1] : value));
+                }
+            }
+            const center = add(x + 0.5, y + 0.5);
+            for (let i = 0; i < ring.length; i++) indices.push(center, ring[(i + 1) % ring.length], ring[i]);
+        }
+        const normals: number[] = [];
+        VertexData.ComputeNormals(positions, indices, normals);
+        mesh.setVerticesData(VertexBuffer.PositionKind, positions, true);
+        mesh.setVerticesData(VertexBuffer.UVKind, uvs, true);
+        mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
+        mesh.setIndices(indices);
+        mesh.refreshBoundingInfo();
     }
 
     private addTerrainSkirt(mesh: Mesh, precision: number, skirtDepth: number): void {
