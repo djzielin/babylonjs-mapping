@@ -4,6 +4,8 @@ import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import { Color4, Vector2, Vector3 } from "@babylonjs/core/Maths/math";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
+import { VertexBuffer } from "@babylonjs/core/Buffers/buffer";
+import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import { Control } from "@babylonjs/gui/2D/controls/control";
 import { Rectangle } from "@babylonjs/gui/2D/controls/rectangle";
 import { StackPanel } from "@babylonjs/gui/2D/controls/stackPanel";
@@ -59,11 +61,73 @@ class Game {
         sunlight.intensity = 0.35;
 
         this.tileSet = new TileSet(this.scene, this.engine);
-        this.tileSet.createGeometry(new Vector2(4, 3), 100, 2);
+        this.tileSet.createGeometry(new Vector2(4, 3), 100, 48);
         this.tileSet.setRasterProvider(new RasterGEBCO(this.tileSet));
+        this.tileSet.onCaughtUpObservable.addOnce(() => {
+            void this.applyBathymetryRelief();
+        });
         this.tileSet.updateRaster(11.35, 142.2, 6); // Mariana Trench region
 
         this.setupHelpText();
+    }
+
+    private async applyBathymetryRelief(): Promise<void> {
+        const reliefScale = 70;
+
+        await Promise.all(this.tileSet.ourTiles.map(async (tile) => {
+            const texture = tile.material?.diffuseTexture;
+            if (!texture) return;
+
+            const pixelView = await texture.readPixels();
+            if (!pixelView) return;
+
+            const pixels = new Uint8Array(pixelView.buffer, pixelView.byteOffset, pixelView.byteLength);
+            const size = texture.getSize();
+            const positions = tile.mesh.getVerticesData(VertexBuffer.PositionKind);
+            const normals = tile.mesh.getVerticesData(VertexBuffer.NormalKind);
+            const indices = tile.mesh.getIndices();
+            if (!positions || !normals || !indices) return;
+
+            const subdivisions = this.tileSet.meshPrecision + 1;
+            const sampleLuminance = (pixelX: number, pixelY: number): number => {
+                let total = 0;
+                let count = 0;
+
+                // A small blur suppresses the shaded-relief lighting baked into
+                // the WMS image while retaining the large-scale bathymetry.
+                for (let oy = -2; oy <= 2; oy++) {
+                    for (let ox = -2; ox <= 2; ox++) {
+                        const x = Math.max(0, Math.min(size.width - 1, pixelX + ox));
+                        const y = Math.max(0, Math.min(size.height - 1, pixelY + oy));
+                        const offset = (x + y * size.width) * 4;
+                        total += (
+                            0.2126 * pixels[offset] +
+                            0.7152 * pixels[offset + 1] +
+                            0.0722 * pixels[offset + 2]
+                        ) / 255;
+                        count++;
+                    }
+                }
+
+                return total / count;
+            };
+
+            for (let y = 0; y < subdivisions; y++) {
+                for (let x = 0; x < subdivisions; x++) {
+                    const pixelX = Math.round((x / (subdivisions - 1)) * (size.width - 1));
+                    const pixelY = Math.round((y / (subdivisions - 1)) * (size.height - 1));
+                    const luminance = sampleLuminance(pixelX, pixelY);
+                    const height = (luminance - 0.55) * reliefScale;
+                    const vertexOffset = 1 + (x + y * subdivisions) * 3;
+                    positions[vertexOffset] = height;
+                }
+            }
+
+            tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
+            VertexData.ComputeNormals(positions, indices, normals);
+            tile.mesh.updateVerticesData(VertexBuffer.NormalKind, normals);
+            tile.mesh.refreshBoundingInfo();
+        }));
     }
 
     private setupHelpText(): void {
@@ -93,7 +157,7 @@ class Game {
         title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         content.addControl(title);
 
-        const region = new TextBlock("region", "Mariana Trench · colour-shaded elevation");
+        const region = new TextBlock("region", "Mariana Trench · 3D colour-shaded elevation");
         region.height = "27px";
         region.color = "#a5efff";
         region.fontSize = 14;
