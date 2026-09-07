@@ -52,6 +52,7 @@ jobs:
             OpenStreetMap-UserData-RealScale
             mapbox-terrain
             gebco-bathymetry
+            globe-mode
           )
 
           for demo in "${demos[@]}"; do

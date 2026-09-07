@@ -1,5 +1,5 @@
 import { Scene } from "@babylonjs/core/scene.js";
-import { Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Color3 } from "@babylonjs/core/Maths/math.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
@@ -8,6 +8,7 @@ import * as GeoJSON from './GeoJSON.js';
 import type Tile from "../core/Tile.js";
 import type TileSet from "../core/TileSet.js";
 import { EPSG_Type } from "../core/TileMath.js";
+import { mergeMeshesAtOrigin } from "../shared/MergeMeshesAtOrigin.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
 import { downloadBlob, isRetryableStatus } from "../shared/Download.js";
 import { RetrievalLocation, RetrievalType } from "../shared/Retrieval.js";
@@ -27,9 +28,11 @@ export interface BuildingRequestPagination {
 }
 
 export interface BuildingRequest {
+    cancelled?: boolean;
     requestType: BuildingRequestType;
     tile: Tile;
     tileCoords: Vector3;
+    sourceTileCoords?: Vector3;
     inProgress: boolean;
     flipWinding: boolean;
     feature?: GeoJSON.feature;
@@ -123,6 +126,7 @@ export default abstract class Buildings {
     public pointDiameter = 0.5;
     public buildingsCreatedPerFrame = 10; //TODO: is there a better way to do this?
     public cacheFiles = true;
+    public maxCachedFiles = 64;
     /** Maximum retries for transient HTTP errors after the initial request. */
     public maxRetries = 3;
     public buildingMaterial: StandardMaterial;
@@ -137,6 +141,8 @@ export default abstract class Buildings {
      * generation, duplicate detection, and tile merging.
      */
     public buildingMeshTransform?: (mesh: Mesh) => void;
+    /** Reject a generated footprint before it is registered or merged. */
+    public buildingMeshFilter?: (mesh: Mesh) => boolean;
     public retrievalType: RetrievalType = RetrievalType.IndividualTiles;
 
     protected buildingRequests: BuildingRequest[] = [];
@@ -319,11 +325,17 @@ export default abstract class Buildings {
         this._retrievalLocation = value;
     }
 
+    /** Invalidate queued and in-flight feature work when replacing a layer. */
+    public cancelPendingRequests(): void {
+        for (const request of this.buildingRequests) request.cancelled = true;
+        this.buildingRequests = [];
+    }
+
     public abstract SubmitLoadTileRequest(tile: Tile): void;
     public abstract SubmitLoadAllRequest(): void;
 
     public ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void {
-        if (request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) {
+        if (request.cancelled || request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) {
             console.warn(this.prettyName() + "tile coords have changed while we were loading, not adding buildings to queue!");
             return;
         }
@@ -331,6 +343,7 @@ export default abstract class Buildings {
         let addedBuildings = 0;
         const detectedEpsgType = request.epsgType ?? GeoJSON.detectProjection(topLevel);
         for (const f of topLevel.features) {
+            if (request.sourceTileCoords && request.sourceTileCoords.z < request.tileCoords.z && !this.featureBelongsToTile(f, request.tileCoords, detectedEpsgType)) continue;
             const brequest: BuildingRequest = {
                 requestType: BuildingRequestType.CreateBuilding,
                 tile: request.tile,
@@ -352,6 +365,26 @@ export default abstract class Buildings {
             }
         }
         console.log(this.prettyName() + addedBuildings + " building generation requests queued for tile: " + request.tile.tileCoords);
+    }
+
+    private featureBelongsToTile(feature: GeoJSON.feature, coords: Vector3, epsg?: EPSG_Type): boolean {
+        let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+        const stack:unknown[]=[feature.geometry?.coordinates];
+        while(stack.length) {
+            const value=stack.pop();if(!Array.isArray(value))continue;
+            if(typeof value[0]==='number'&&typeof value[1]==='number'){
+                minX=Math.min(minX,value[0]);maxX=Math.max(maxX,value[0]);minY=Math.min(minY,value[1]);maxY=Math.max(maxY,value[1]);
+            } else for(const child of value)stack.push(child);
+        }
+        if(!Number.isFinite(minX))return false;
+        if(feature.geometry.type==='LineString'||feature.geometry.type==='MultiLineString') {
+            const a=this.tileSet.ourTileMath.EPSG_to_TileExact(new Vector2(minX,minY),epsg??EPSG_Type.EPSG_4326,coords.z);
+            const b=this.tileSet.ourTileMath.EPSG_to_TileExact(new Vector2(maxX,maxY),epsg??EPSG_Type.EPSG_4326,coords.z);
+            return Math.min(a.x,b.x)<=coords.x+1&&Math.max(a.x,b.x)>=coords.x&&Math.min(a.y,b.y)<=coords.y+1&&Math.max(a.y,b.y)>=coords.y;
+        }
+        const center=new Vector2((minX+maxX)/2,(minY+maxY)/2);
+        const tile=this.tileSet.ourTileMath.EPSG_to_Tile(center,epsg??EPSG_Type.EPSG_4326,coords.z),n=2**coords.z;
+        return ((tile.x%n)+n)%n===((coords.x%n)+n)%n&&tile.y===coords.y;
     }
 
     /**
@@ -442,7 +475,7 @@ export default abstract class Buildings {
     }
 
     private processLoadedGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel, requestIndex: number): void {
-        if (request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) {
+        if (request.cancelled || request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) {
             console.warn(this.prettyName() + "tile coords have changed while we were loading, not adding buildings to queue!");
             this.removePendingRequest(requestIndex, request);
             return;
@@ -503,6 +536,7 @@ export default abstract class Buildings {
                             topLevel: topLevel
                         };
                         this.filesLoaded.push(floaded);
+                        while(this.filesLoaded.length>Math.max(0,this.maxCachedFiles))this.filesLoaded.shift();
                     }
 
                     this.processLoadedGeoJSON(request, topLevel, requestIndex);
@@ -612,6 +646,8 @@ export default abstract class Buildings {
         return bestIndex;
     }
 
+    /** CPU budget for feature creation; individual features are atomic. */
+    public creationTimeBudgetMs = 4;
     public processBuildingRequests() {
         if (this.sleepRequested) { //lets take a nap for a bit (when we get a 500 server error)
             const timeDiff=Date.now()-this.timeStart;
@@ -635,7 +671,9 @@ export default abstract class Buildings {
             return;
         }
 
+        const deadline = performance.now() + this.creationTimeBudgetMs;
         for (let i = 0; i < this.buildingsCreatedPerFrame; i++) { //process certain number of requests per frame
+            if (i > 0 && performance.now() >= deadline) return;
             //console.log("requests remaining in queue: " + this.buildingRequests.length);
             if (this.buildingRequests.length == 0) {
                 return;
@@ -646,7 +684,7 @@ export default abstract class Buildings {
             }
             const request = this.buildingRequests[rIndex];
 
-            if (request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) { //make sure tile still has same coords
+            if (request.cancelled || request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) { //make sure tile still has same coords
                 console.warn(this.prettyName() + "tile coords: " + request.tileCoords + " are no longer around, we must have already changed tile");
 
                 this.removePendingRequest(rIndex);
@@ -697,13 +735,13 @@ export default abstract class Buildings {
                     }
                     //console.log("about to do big merge");
                     const allMeshes: Mesh[] = request.tile.getAllBuildingMeshes();
-                    const merged = Mesh.MergeMeshes(
-                        allMeshes,
-                        true,
-                        true,
-                    ); //dispose source meshes and allow dense 32-bit index buffers
+                    const merged = this.tileSet.isGlobe
+                        ? mergeMeshesAtOrigin(allMeshes, request.tile.mesh.getAbsolutePosition())
+                        : Mesh.MergeMeshes(allMeshes, true, true);
+
 
                     if (merged) {
+                        merged.renderingGroupId = allMeshes[0].renderingGroupId;
                         merged.setParent(request.tile.mesh);
                         merged.name = "all_buildings_merged";
                         this.applyBuildingMeshOptions(merged);

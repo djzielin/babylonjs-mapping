@@ -18,6 +18,8 @@ export default class Tile {
     minHeight: number;
     maxHeight: number;
     terrainLoaded: boolean;
+    /** Sampled radial elevation in world units, north-to-south row order. */
+    elevationHeights?: number[];
     eastSeamFixed: boolean;
     northSeamFixed: boolean;
     northEastSeamFixed: boolean;

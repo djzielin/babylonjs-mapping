@@ -17,9 +17,11 @@ export interface BuildingRequestPagination {
     startIndex: number;
 }
 export interface BuildingRequest {
+    cancelled?: boolean;
     requestType: BuildingRequestType;
     tile: Tile;
     tileCoords: Vector3;
+    sourceTileCoords?: Vector3;
     inProgress: boolean;
     flipWinding: boolean;
     feature?: GeoJSON.feature;
@@ -91,6 +93,7 @@ export default abstract class Buildings {
     pointDiameter: number;
     buildingsCreatedPerFrame: number;
     cacheFiles: boolean;
+    maxCachedFiles: number;
     /** Maximum retries for transient HTTP errors after the initial request. */
     maxRetries: number;
     buildingMaterial: StandardMaterial;
@@ -103,6 +106,8 @@ export default abstract class Buildings {
      * generation, duplicate detection, and tile merging.
      */
     buildingMeshTransform?: (mesh: Mesh) => void;
+    /** Reject a generated footprint before it is registered or merged. */
+    buildingMeshFilter?: (mesh: Mesh) => boolean;
     retrievalType: RetrievalType;
     protected buildingRequests: BuildingRequest[];
     protected filesLoaded: GeoFileLoaded[];
@@ -143,9 +148,12 @@ export default abstract class Buildings {
     /** @deprecated Use retrievalLocation. */
     get retrevialLocation(): RetrievalLocation;
     set retrevialLocation(value: RetrievalLocation);
+    /** Invalidate queued and in-flight feature work when replacing a layer. */
+    cancelPendingRequests(): void;
     abstract SubmitLoadTileRequest(tile: Tile): void;
     abstract SubmitLoadAllRequest(): void;
     ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void;
+    private featureBelongsToTile;
     /**
      * Providers can override this to create the next request after a full
      * paginated response has been processed.
@@ -167,6 +175,8 @@ export default abstract class Buildings {
     private processLoadedGeoJSON;
     protected handleLoadTileRequest(request: BuildingRequest, requestIndex?: number): void;
     private selectBuildingRequestIndex;
+    /** CPU budget for feature creation; individual features are atomic. */
+    creationTimeBudgetMs: number;
     processBuildingRequests(): void;
     generateBuildings(): void;
 }

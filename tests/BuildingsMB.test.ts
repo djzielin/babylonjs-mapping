@@ -11,6 +11,7 @@ import BuildingsMB, {
   type MapboxModelTileLoader,
 } from "../src/BuildingsMB";
 import TileSet from "../src/TileSet";
+import GlobeSet from "../src/GlobeSet";
 
 vi.mock("../src/core/Attribution", () => ({
   default: class AttributionStub {
@@ -46,6 +47,28 @@ function createLoader() {
 }
 
 describe("BuildingsMB", () => {
+  it("follows arbitrary globe locations across continents and the date line", async () => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const globe = new GlobeSet(scene, engine, { backingSurface: false });
+    globe.createGeometry(new Vector2(2, 2), 100, 4);
+    const { loader, requests, assets } = createLoader();
+    const buildings = new BuildingsMB(globe, loader);
+    buildings.accessToken = "pk.test";
+    let previous: AssetContainer[] = [];
+    for (const [lat, lon] of [[40.7, -74], [48.86, 2.35], [35.68, 139.65], [-33.87, 151.21], [-17.71, 179.99]]) {
+      globe.updateRaster(lat, lon, 16);
+      const start = requests.length;
+      await buildings.generateBuildings();
+      expect(previous.every(asset => vi.mocked(asset.dispose).mock.calls.length === 1)).toBe(true);
+      expect(requests.length).toBeGreaterThan(start);
+      const expected = new Set(globe.ourTiles.map(tile => `/14/${Math.floor(tile.tileCoords.x / 4)}/${Math.floor(tile.tileCoords.y / 4)}.glb`));
+      expect(requests.slice(start).every(url => Array.from(expected).some(path => url.includes(path)))).toBe(true);
+      previous = assets.slice(start);
+    }
+    buildings.dispose(); scene.dispose(); engine.dispose();
+  });
+
   it("deduplicates source tiles and places them in Babylon map space", async () => {
     const { engine, scene, tileSet } = createTileSet();
     const { loader, requests } = createLoader();
@@ -115,6 +138,9 @@ describe("BuildingsMB", () => {
     buildings.accessToken = "pk.test";
 
     await expect(buildings.generateBuildings()).resolves.toEqual([]);
+    const calls = vi.mocked(loader).mock.calls.length;
+    await expect(buildings.generateBuildings()).resolves.toEqual([]);
+    expect(loader).toHaveBeenCalledTimes(calls);
 
     buildings.dispose();
     scene.dispose();

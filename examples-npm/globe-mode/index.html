@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1"/>
+        <title>Earth, in detail</title>
+        <style>
+            :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+            * { box-sizing: border-box; }
+            html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #050a16; color: #eef3fa; }
+            #renderCanvas { display: block; width: 100%; height: 100%; touch-action: none; }
+            #controlPanel {
+                position: absolute; top: 16px; left: 16px;
+                width: min(304px, calc(100vw - 32px)); padding: 16px;
+                max-height: calc(100dvh - 32px); overflow: auto;
+                border: 1px solid #334050; border-radius: 12px;
+                background: rgba(12, 20, 31, .96); box-shadow: 0 8px 24px #0004;
+                font-size: 13px; line-height: 1.45;
+            }
+            h1 { margin: 0; font-size: 18px; font-weight: 650; }
+            p { margin: 0; }
+            .hint { margin: 4px 0 16px; color: #a7b6c9; font-size: 12px; }
+            button, select, input { font: inherit; color: inherit; }
+            button, select, input:not([type=checkbox]):not([type=range]) {
+                width: 100%; min-width: 0; height: 36px; padding: 0 10px;
+                border: 1px solid #3b4859; border-radius: 6px; background: #162130;
+            }
+            button { cursor: pointer; font-weight: 600; white-space: nowrap; }
+            button:hover { background: #26384d; }
+            :focus-visible { outline: 2px solid #8ac8ff; outline-offset: 3px; }
+            #navigationButtons { display: grid; grid-template-columns: 36px 36px 1fr; gap: 8px; margin-top: 8px; }
+            #navigationButtons button:first-child, #navigationButtons button:nth-child(2) { padding: 0; font-size: 18px; }
+            .layers { display: grid; gap: 8px; margin: 16px 0; }
+            .toggle { display: flex; align-items: center; gap: 10px; min-height: 24px; cursor: pointer; }
+            input[type=checkbox] { flex: 0 0 16px; width: 16px; height: 16px; margin: 0; accent-color: #8ac8ff; }
+            button[aria-pressed=true] { background: #304e6d; border-color: #8ac8ff; }
+            #loadingStatus { margin-top: 10px; font-size: 11px; color: #a7b6c9; }
+            #mapStyleStatus { font-size: 11px; color: #a7b6c9; }
+            #mapStyleStatus:not(:empty) { margin: 8px 0; }
+            .map-style { margin-bottom: 12px; }
+            .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+            details { margin-top: 16px; padding-top: 12px; border-top: 1px solid #2c3949; }
+            summary { cursor: pointer; color: #b7c5d7; }
+            .settings { display: grid; gap: 14px; padding-top: 14px; }
+            .orientation { display: grid; gap: 8px; margin-top: 12px; }
+            .angle { display: grid; grid-template-columns: 52px 1fr 34px; gap: 8px; align-items: center; }
+            .field { display: grid; gap: 6px; min-width: 0; }
+            .relief { display: grid; grid-template-columns: 44px 1fr 24px; gap: 8px; align-items: center; }
+            input[type=range] { width: 100%; min-width: 0; margin: 0; accent-color: #8ac8ff; }
+            output { text-align: right; font-variant-numeric: tabular-nums; }
+            #locationForm { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+            #locationForm button { grid-column: 1 / -1; }
+            input[type=file] { height: auto !important; padding: 8px !important; font-size: 11px; }
+            .diagnostics { display: grid; gap: 8px; color: #a7b6c9; font-size: 11px; overflow-wrap: anywhere; }
+            #viewReadout, #performance { font-variant-numeric: tabular-nums; }
+            .address { margin-bottom: 10px; }
+            #addressResults { list-style: none; padding: 4px; margin: 6px 0 0; border: 1px solid #3b4859; border-radius: 6px; background: #162130; max-height: 220px; overflow-y: auto; }
+            #addressResults li { padding: 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+            #addressResults li:hover, #addressResults [aria-selected=true] { background: #304862; }
+            #addressStatus { font-size: 11px; color: #a7b6c9; }
+            #addressStatus:not(:empty) { margin-top: 6px; }
+            .source { margin-top: 12px; font-size: 10px; color: #a7b6c9; }
+            a { color: #a7cdea; text-underline-offset: 2px; }
+            .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+        </style>
+    </head>
+    <body>
+        <aside id="controlPanel" aria-label="Globe controls">
+            <h1>Earth, in detail</h1>
+            <p class="hint">Drag to explore · scroll to zoom</p>
+            <div class="actions map-style" role="group" aria-label="Map imagery">
+                <button id="mapView" type="button" aria-pressed="true">Map</button>
+                <button id="satelliteView" type="button" aria-pressed="false">Satellite</button>
+            </div>
+            <p id="mapStyleStatus" role="status"></p>
+            <div class="address">
+                <label class="sr-only" for="addressSearch">Search for an address or place</label>
+                <input id="addressSearch" type="search" placeholder="Search address or place…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="addressResults" aria-expanded="false" aria-describedby="addressStatus">
+                <ul id="addressResults" role="listbox" aria-label="Address suggestions" hidden></ul>
+                <p id="addressStatus" role="status"></p>
+            </div>
+            <label class="sr-only" for="locationPreset">Destination</label>
+            <select id="locationPreset"></select>
+            <div id="navigationButtons">
+                <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
+                <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
+                <button id="home" type="button">Reset view</button>
+            </div>
+            <div class="layers" role="group" aria-label="Layers">
+                <label class="toggle"><input id="terrain" type="checkbox" checked>Terrain &amp; ocean floor</label>
+                <label class="toggle" title="Buildings appear as you zoom in"><input id="buildings" type="checkbox" checked>Buildings</label>
+            </div>
+            <div class="actions">
+                <button id="inspect" type="button">Tilt view</button>
+                <button id="tour" type="button">Guided tour</button>
+            </div>
+            <div class="orientation" role="group" aria-label="Viewing angle">
+                <label class="angle">Tilt<input id="tilt" type="range" min="0" max="89" value="0"><output id="tiltValue">0°</output></label>
+                <label class="angle">Heading<input id="heading" type="range" min="0" max="359" value="0"><output id="headingValue">0°</output></label>
+            </div>
+            <p id="loadingStatus" role="status">Loading terrain and buildings…</p>
+            <details>
+                <summary>More options</summary>
+                <div class="settings">
+                    <label class="field">Map style
+                        <select id="basemap"><option value="osm">OpenStreetMap</option><option value="gebco">Ocean depth</option><option value="satellite">Satellite (Mapbox token)</option></select>
+                    </label>
+                    <label class="relief">Relief <input id="exaggeration" type="range" min="1" max="10" step="1" value="1"><output id="exaggerationValue">1×</output></label>
+                    <form id="locationForm">
+                        <label class="field">Latitude<input id="latitude" type="number" min="-90" max="90" step="any" required></label>
+                        <label class="field">Longitude<input id="longitude" type="number" step="any" required></label>
+                        <button type="submit">Go to coordinates</button>
+                    </form>
+                    <label class="field">Mapbox token<input id="mapboxToken" type="password" placeholder="pk.…" autocomplete="off"></label>
+                    <label class="toggle"><input id="roads" type="checkbox">Roads (Mapbox)</label>
+                    <label class="toggle"><input id="landmarks" type="checkbox" checked>Landmarks (Mapbox)</label>
+                    <label class="field">Import GeoJSON<input id="geojson" type="file" accept=".json,.geojson"></label>
+                    <button id="retry" type="button">Reload data</button>
+                    <div class="diagnostics">
+                        <div id="viewReadout"></div>
+                        <p id="dataStatus" role="status">Loading data…</p>
+                        <div id="performance"></div>
+                    </div>
+                </div>
+            </details>
+            <p class="source">Search: <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noreferrer">© Mapbox</a> / <a href="https://photon.komoot.io" target="_blank" rel="noreferrer">Photon / OSM</a> · Elevation: <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noreferrer">Mapzen / Tilezen</a></p>
+        </aside>
+        <canvas id="renderCanvas" touch-action="none"></canvas>
+    </body>
+</html>

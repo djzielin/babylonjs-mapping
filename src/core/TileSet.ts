@@ -68,6 +68,13 @@ export const DEFAULT_TILESET_OPTIMIZATION_OPTIONS: Readonly<Required<TileSetOpti
     disableTileCollisions: false,
 };
 export default class TileSet {
+    /** Projection hooks shared by all feature and terrain providers. */
+    public readonly isGlobe: boolean = false;
+    public isTileGeometryReady(_tile: Tile): boolean { return true; }
+    public getGeometryMath(): TileMath { return this.ourTileMath; }
+    public projectFeatureMesh(_mesh: Mesh): void {}
+    public applyElevationGrid(_tile: Tile, _heights: number[], _precision: number): void {}
+
 
     private xmin: number;
     private zmin: number;
@@ -89,6 +96,8 @@ export default class TileSet {
     public streetExtensionAmount = 0.25; //TODO; fix this to be in some sort of units that make sense, instead of game-world coordinates. 
 
     private ourRasterProvider: Raster;
+    private rasterVersion = 0;
+    private tileRasterVersion = new WeakMap<Tile, number>();
     //private accessToken: string;
 
     public ourTerrainMB: TerrainMB;
@@ -255,7 +264,32 @@ export default class TileSet {
         return "[Tile] ";
     }
 
-    public processTileRequests() {
+    /**
+     * Globe tiles can be reassigned by coordinate because their mesh position
+     * is derived from the coordinate itself. Planar tile sets keep their
+     * fixed slot assignment for backwards compatibility.
+     */
+    protected reuseRasterTilesOnUpdate(): boolean {
+        return false;
+    }
+
+    /** Allows multi-layer tile sets to nominate a single attribution owner. */
+    protected showRasterAttribution(): boolean {
+        return true;
+    }
+
+    /** Bounded parallel raster requests; each frame scans only the active window. */
+    public rasterConcurrency = 6;
+    public processTileRequests(): void {
+        const count = Math.min(this.tileRequests.length, this.rasterConcurrency);
+        if (count === 0) { this.processNextTileRequest(); return; }
+        for (let i=0; i<count; i++) {
+            const request=this.tileRequests[0];
+            this.processNextTileRequest();
+            if (this.tileRequests[0]===request) this.tileRequests.push(this.tileRequests.shift()!);
+        }
+    }
+    private processNextTileRequest() {
     if (this.isGeometrySetup == false) {
         return;
     }
@@ -274,6 +308,7 @@ export default class TileSet {
 
     if (request.requestType == TileRequestType.LoadTile) {
         if (request.inProgress == false) {
+            if (this.tileRequests.filter(r => r.inProgress).length >= this.rasterConcurrency) return;
             console.log(this.prettyName() + "trying to load tile raster: " + request.tileCoords);
             request.texture = new Texture(request.url, this.scene);
             request.inProgress = true;
@@ -301,7 +336,7 @@ export default class TileSet {
                         material.unfreeze();
                     }
 
-                    request.mesh.setEnabled(true); //show it!
+                    request.mesh.setEnabled(this.isTileGeometryReady(request.tile)); //show ready geometry
                     this.requestsProcessedSinceCaughtUp++;
                     this.tileRequests.shift(); //pop request off front of queue
                     return;
@@ -354,6 +389,7 @@ export default class TileSet {
 }
 
     public setRasterProvider(rp: Raster) {
+    this.rasterVersion++;
     this.ourRasterProvider = rp;
 }
 
@@ -366,8 +402,8 @@ export default class TileSet {
     public updateRaster(lat: number, lon: number, zoom: number) {
     this.assertGeometrySetup("update raster");
 
-    this.clearTileRequests();
-    this.ourTilesMap.clear();
+    if (!this.reuseRasterTilesOnUpdate()) this.cancelPendingRasterRequests();
+
     this.zoom = zoom;
     this.centerCoords = new Vector2(lon, lat);
     this.tileCorner = this.ourTileMath.computeCornerTile(this.centerCoords, EPSG_Type.EPSG_4326, this.zoom);
@@ -375,20 +411,74 @@ export default class TileSet {
     this.isRasterSetup = true;
 
 
-    this.ourAttribution.addAttribution(this.ourRasterProvider.name);
+    if (this.showRasterAttribution()) {
+        this.ourAttribution.addAttribution(this.ourRasterProvider.name);
+    }
 
     //console.log("Tile Base: " + this.tileCorner);
 
-    let tileIndex = 0;
+    const previousTilesByCoordinate = new Map(this.ourTilesMap);
+    this.ourTilesMap.clear();
+
+    const desiredCoordinates: Vector3[] = [];
     for (let y = 0; y < this.numTiles.y; y++) {
         for (let x = 0; x < this.numTiles.x; x++) {
             const tileX = this.tileCorner.x + x;
             const tileY = this.tileCorner.y - y;
-            const tile = this.ourTiles[tileIndex];
-            this.updateSingleRasterTile(tile, tileX, tileY);
-            tileIndex++;
+            desiredCoordinates.push(new Vector3(tileX, tileY, this.zoom));
         }
     }
+
+    if (!this.reuseRasterTilesOnUpdate()) {
+        for (let tileIndex = 0; tileIndex < desiredCoordinates.length; tileIndex++) {
+            const coordinate = desiredCoordinates[tileIndex];
+            this.updateSingleRasterTile(this.ourTiles[tileIndex], coordinate.x, coordinate.y);
+        }
+        return;
+    }
+
+    const unusedTiles = new Set(this.ourTiles);
+    // Reserve overlaps before recycling: otherwise the first missing tile can
+    // steal a loaded tile needed later in the new window.
+    const reserved = new Set(desiredCoordinates.map(c => previousTilesByCoordinate.get(c.toString())).filter(Boolean));
+    const reassignedTiles: Tile[] = [];
+
+    for (const coordinate of desiredCoordinates) {
+        const coordinateKey = coordinate.toString();
+        let tile = previousTilesByCoordinate.get(coordinateKey);
+
+        if (tile === undefined || !unusedTiles.has(tile)) {
+            tile = Array.from(unusedTiles).find(candidate => !reserved.has(candidate));
+        }
+        if (tile === undefined) {
+            throw new Error("Unable to assign a mesh for every raster tile coordinate.");
+        }
+
+        unusedTiles.delete(tile);
+        reassignedTiles.push(tile);
+
+        const hasLoadedRaster = tile.tileCoords?.equals(coordinate)
+            && this.tileRasterVersion.get(tile) === this.rasterVersion
+            && ((tile.mesh.isEnabled() && !!tile.material?.diffuseTexture)
+                || this.tileRequests.some(r => r.tile === tile));
+
+        if (hasLoadedRaster) {
+            this.ourTilesMap.set(coordinateKey, tile);
+        } else {
+            this.updateSingleRasterTile(tile, coordinate.x, coordinate.y);
+        }
+    }
+
+    this.ourTiles = reassignedTiles;
+}
+
+    private cancelPendingRasterRequests(): void {
+    for (const request of this.tileRequests) {
+        if (request.texture && request.tile.material?.diffuseTexture !== request.texture) {
+            request.texture.dispose();
+        }
+    }
+    this.tileRequests = [];
 }
 
     private clearTileRequests(tile?: Tile): void {
@@ -404,9 +494,16 @@ export default class TileSet {
     if (tile.tileCoords && this.ourTilesMap.get(tile.tileCoords.toString()) === tile) {
         this.ourTilesMap.delete(tile.tileCoords.toString());
     }
+    if (tile.tileCoords && !tile.tileCoords.equals(new Vector3(tileX, tileY, this.zoom))) {
+        tile.deleteBuildings();
+        tile.clearTerrainLOD();
+        tile.terrainLoaded = false;
+        tile.elevationHeights = undefined;
+    }
     tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later     
     this.ourTilesMap.set(tile.tileCoords.toString(), tile);
 
+    this.tileRasterVersion.set(tile, this.rasterVersion);
     tile.mesh.setEnabled(false);
     let material: StandardMaterial;
 

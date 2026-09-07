@@ -17,6 +17,8 @@ export default class TerrainMB {
     setupTerrainLOD(precisions: number[], distances: number[], skirtDepth?: number): void;
     private validateTerrainLOD;
     private applyDetailedTerrainToMesh;
+    /** Decimate the interior, retaining every source edge sample at all LODs. */
+    private applyBoundaryPreservingLOD;
     private addTerrainSkirt;
     updateSingleTerrainTile(tile: Tile): Promise<void>;
     /** Re-applies every available cardinal and diagonal seam. */

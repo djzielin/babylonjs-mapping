@@ -52,6 +52,12 @@ export declare const DEFAULT_TILESET_OPTIMIZATION_OPTIONS: Readonly<Required<Til
 export default class TileSet {
     scene: Scene;
     private engine;
+    /** Projection hooks shared by all feature and terrain providers. */
+    readonly isGlobe: boolean;
+    isTileGeometryReady(_tile: Tile): boolean;
+    getGeometryMath(): TileMath;
+    projectFeatureMesh(_mesh: Mesh): void;
+    applyElevationGrid(_tile: Tile, _heights: number[], _precision: number): void;
     private xmin;
     private zmin;
     private xmax;
@@ -67,6 +73,8 @@ export default class TileSet {
     hasAlpha: boolean;
     streetExtensionAmount: number;
     private ourRasterProvider;
+    private rasterVersion;
+    private tileRasterVersion;
     ourTerrainMB: TerrainMB;
     private totalWidthMeters;
     private totalHeightMeters;
@@ -114,7 +122,18 @@ export default class TileSet {
     */
     createGeometry(numTiles: Vector2, tileWidth: number, meshPrecision: number): void;
     protected prettyName(): string;
+    /**
+     * Globe tiles can be reassigned by coordinate because their mesh position
+     * is derived from the coordinate itself. Planar tile sets keep their
+     * fixed slot assignment for backwards compatibility.
+     */
+    protected reuseRasterTilesOnUpdate(): boolean;
+    /** Allows multi-layer tile sets to nominate a single attribution owner. */
+    protected showRasterAttribution(): boolean;
+    /** Bounded parallel raster requests; each frame scans only the active window. */
+    rasterConcurrency: number;
     processTileRequests(): void;
+    private processNextTileRequest;
     getAdvancedDynamicTexture(): AdvancedDynamicTexture;
     makeSingleTileMesh(x: number, y: number, precision: number): Mesh;
     isBuildingDuplicate(newBuilding: TileBuilding): boolean;
@@ -127,6 +146,7 @@ export default class TileSet {
     * @param zoom standard tile mapping zoom levels 0 (whole earth) - 20 (building)
     */
     updateRaster(lat: number, lon: number, zoom: number): void;
+    private cancelPendingRasterRequests;
     private clearTileRequests;
     private updateSingleRasterTile;
     /**

@@ -294,10 +294,6 @@ export default class TileMath {
     //https://wiki.openstreetmap.org/wiki/Zoom_levels
     //Stile = C ∙ cos(latitude) / 2^zoomlevel
     public computeTileRealWidthMeters(lat: number, zoom: number): number {
-        if (zoom == 0) {
-            console.log("ERROR: zoom not setup yet!");
-            return 0;
-        }
         console.log("tryign to compute tile width for lat: " + lat);
 
         const C = 40075016.686;

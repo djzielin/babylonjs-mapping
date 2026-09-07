@@ -16,6 +16,8 @@ function assertImportsResolve() {
     const landmarks = await import("babylonjs-mapping/lib/BuildingsMB");
     const overture = await import("babylonjs-mapping/lib/BuildingsOverture");
     const vectorTiles = await import("babylonjs-mapping/lib/BuildingsVectorTile");
+    const globe = await import("babylonjs-mapping/lib/GlobeSet");
+    const navigator = await import("babylonjs-mapping/lib/GlobeNavigator");
     const nested = await import("babylonjs-mapping/lib/core/TileSet");
 
     if (typeof root.TileSet !== "function") {
@@ -51,6 +53,14 @@ function assertImportsResolve() {
       typeof vectorTiles.MAPBOX_STREETS_VECTOR_TILE_URL !== "string"
     ) {
       throw new Error("Vector tile provider exports did not resolve");
+    }
+
+    if (typeof root.GlobeSet !== "function" || typeof globe.default !== "function") {
+      throw new Error("GlobeSet exports did not resolve");
+    }
+
+    if (typeof root.GlobeNavigator !== "function" || typeof navigator.default !== "function") {
+      throw new Error("GlobeNavigator exports did not resolve");
     }
 
     if (typeof nested.default !== "function") {

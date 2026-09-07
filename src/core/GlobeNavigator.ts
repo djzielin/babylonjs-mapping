@@ -1,0 +1,380 @@
+import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera.js";
+import "@babylonjs/core/Culling/ray.js";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import { Observable, Observer } from "@babylonjs/core/Misc/observable.js";
+import { Scene } from "@babylonjs/core/scene.js";
+
+import GlobeSet, { type GlobeCoordinates } from "./GlobeSet.js";
+
+const DEGREES_TO_RADIANS = Math.PI / 180;
+const MAX_MERCATOR_LATITUDE = 85.05112878;
+
+export interface GlobeNavigatorOptions {
+    /** Lowest raster zoom requested while the camera is far from the globe. */
+    minZoom?: number;
+    /** Highest raster zoom requested near the surface. */
+    maxZoom?: number;
+    /** Approximate number of 256px raster tiles kept across the viewport. */
+    tilesAcrossViewport?: number;
+    /** Minimum time between raster-grid changes while the camera is moving. */
+    tileUpdateDelayMs?: number;
+    /** Set false to use navigation without automatic raster updates. */
+    autoUpdateRaster?: boolean;
+}
+
+export interface GlobeView {
+    latitude: number;
+    longitude: number;
+    altitude: number;
+    zoom: number;
+}
+
+export interface GlobeFlyToOptions {
+    /** Target raster zoom. Ignored when altitude is supplied. */
+    zoom?: number;
+    /** Camera height above the globe in Babylon world units. */
+    altitude?: number;
+    /** Flight duration. A value of zero moves immediately. */
+    durationMs?: number;
+}
+
+interface GlobeFlight {
+    startAlpha: number;
+    startBeta: number;
+    startRadius: number;
+    targetAlpha: number;
+    targetBeta: number;
+    targetRadius: number;
+    startedAt: number;
+    durationMs: number;
+}
+
+/**
+ * Connects an ArcRotateCamera to a GlobeSet.
+ *
+ * The camera continues to use Babylon's native mouse, touch, and wheel input.
+ * GlobeNavigator adds coordinate-aware fly-to navigation and keeps a raster
+ * tile window centered on the visible part of the globe at an appropriate
+ * slippy-map zoom level.
+ */
+export default class GlobeNavigator {
+    public readonly onViewChangedObservable = new Observable<GlobeView>();
+
+    private readonly minZoom: number;
+    private readonly maxZoom: number;
+    private readonly tilesAcrossViewport: number;
+    private readonly tileUpdateDelayMs: number;
+    private readonly autoUpdateRaster: boolean;
+    private readonly renderObserver: Observer<Scene>;
+
+    private flight?: GlobeFlight;
+    private lastRasterKey?: string;
+    private lastRasterUpdate = Number.NEGATIVE_INFINITY;
+    private lastViewSignature?: string;
+    private lastSurfaceHeight = 0;
+
+    public constructor(
+        public readonly globe: GlobeSet,
+        public readonly camera: ArcRotateCamera,
+        options: GlobeNavigatorOptions = {},
+    ) {
+        this.minZoom = options.minZoom ?? 3;
+        this.maxZoom = options.maxZoom ?? 18;
+        this.tilesAcrossViewport = options.tilesAcrossViewport ?? 4;
+        this.tileUpdateDelayMs = options.tileUpdateDelayMs ?? 150;
+        this.autoUpdateRaster = options.autoUpdateRaster ?? true;
+
+        if (!Number.isInteger(this.minZoom) || this.minZoom < 0) {
+            throw new RangeError("minZoom must be a non-negative integer.");
+        }
+        if (!Number.isInteger(this.maxZoom) || this.maxZoom < this.minZoom) {
+            throw new RangeError("maxZoom must be an integer greater than or equal to minZoom.");
+        }
+        if (!Number.isFinite(this.tilesAcrossViewport) || this.tilesAcrossViewport <= 0) {
+            throw new RangeError("tilesAcrossViewport must be greater than zero.");
+        }
+        if (!Number.isFinite(this.tileUpdateDelayMs) || this.tileUpdateDelayMs < 0) {
+            throw new RangeError("tileUpdateDelayMs must be zero or greater.");
+        }
+
+        const minimumAltitude = this.getAltitudeForZoom(this.maxZoom);
+        const maximumAltitude = this.getAltitudeForZoom(this.minZoom);
+        this.camera.lowerRadiusLimit = this.globe.radius + minimumAltitude;
+        this.camera.upperRadiusLimit = this.globe.radius + maximumAltitude;
+        this.camera.minZ = Math.min(this.camera.minZ, Math.max(minimumAltitude * 0.25, 0.0001));
+        this.updateDragSensitivity(this.getView());
+
+        this.renderObserver = this.globe.scene.onBeforeRenderObservable.add(() => {
+            this.updateFlight();
+            this.refresh();
+        });
+    }
+
+    /** Return the geographic point at the center of the camera view. */
+    public getView(): GlobeView {
+        const latitude = 90 - this.camera.beta / DEGREES_TO_RADIANS;
+        const longitude = this.wrapLongitude(this.camera.alpha / DEGREES_TO_RADIANS - 90);
+        const altitude = Math.max(0, this.camera.radius - this.globe.radius - this.globe.sampleElevation(latitude, longitude));
+
+        return {
+            latitude,
+            longitude,
+            altitude,
+            zoom: this.getZoomForAltitude(altitude),
+        };
+    }
+
+    /**
+     * Intersect a screen coordinate with the globe independently of tile
+     * loading state. This is suitable for click-to-fly interactions.
+     */
+    public getCoordinatesAtScreenPoint(x: number, y: number): GlobeCoordinates | undefined {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            throw new RangeError("screen coordinates must be finite numbers.");
+        }
+
+        // Build the ray from the camera basis in double precision. Inverting
+        // a near-singular projection matrix loses geographic accuracy at z18.
+        this.camera.getViewMatrix(true);
+        const engine=this.camera.getEngine();
+        const viewport=this.camera.viewport;
+        const width=engine.getRenderWidth()*viewport.width, height=engine.getRenderHeight()*viewport.height;
+        const forward=this.camera.getTarget().subtract(this.camera.globalPosition).normalize();
+        const right=Vector3.Cross(this.camera.upVector,forward).normalize();
+        const up=Vector3.Cross(forward,right).normalize();
+        const dx=(2*(x-viewport.x*engine.getRenderWidth())/width-1)*Math.tan(this.camera.fov/2)*width/height;
+        const dy=(1-2*(y-(1-viewport.y-viewport.height)*engine.getRenderHeight())/height)*Math.tan(this.camera.fov/2);
+        const direction=forward.add(right.scale(dx)).add(up.scale(dy)).normalize();
+        const ray={origin:this.camera.globalPosition,direction};
+        const originProjection = Vector3.Dot(ray.origin, direction);
+        const view=this.getView();
+        const surfaceRadius=this.globe.radius+this.globe.sampleElevation(view.latitude,view.longitude);
+        const distanceFromSurface = ray.origin.lengthSquared() - surfaceRadius ** 2;
+        const discriminant = originProjection ** 2 - distanceFromSurface;
+
+        if (discriminant < 0) {
+            return undefined;
+        }
+
+        const root = Math.sqrt(discriminant);
+        let distance = -originProjection - root;
+        if (distance < 0) {
+            distance = -originProjection + root;
+        }
+        if (distance < 0) {
+            return undefined;
+        }
+
+        return this.globe.getSurfaceCoordinates(ray.origin.add(direction.scale(distance)));
+    }
+
+    /** Move immediately to a geographic view. */
+    public setView(
+        latitude: number,
+        longitude: number,
+        options: Omit<GlobeFlyToOptions, "durationMs"> = {},
+    ): void {
+        const target = this.resolveTarget(latitude, longitude, options);
+        this.flight = undefined;
+        this.clearCameraInertia();
+        this.camera.alpha = target.alpha;
+        this.camera.beta = target.beta;
+        this.camera.radius = target.radius;
+        this.lastSurfaceHeight = this.globe.sampleElevation(latitude, longitude);
+        this.refresh(true);
+    }
+
+    /** Animate to a geographic location using the shortest longitudinal path. */
+    public flyTo(latitude: number, longitude: number, options: GlobeFlyToOptions = {}): void {
+        const durationMs = options.durationMs ?? 1200;
+        if (!Number.isFinite(durationMs) || durationMs < 0) {
+            throw new RangeError("durationMs must be zero or greater.");
+        }
+        if (durationMs === 0) {
+            this.setView(latitude, longitude, options);
+            return;
+        }
+
+        const target = this.resolveTarget(latitude, longitude, options);
+        const targetAlpha = this.camera.alpha + this.shortestAngle(target.alpha - this.camera.alpha);
+        this.clearCameraInertia();
+        this.flight = {
+            startAlpha: this.camera.alpha,
+            startBeta: this.camera.beta,
+            startRadius: this.camera.radius,
+            targetAlpha,
+            targetBeta: target.beta,
+            targetRadius: target.radius,
+            startedAt: Date.now(),
+            durationMs,
+        };
+    }
+
+    /** Force the view readout and raster window to synchronize immediately. */
+    public refresh(forceRasterUpdate = false): GlobeView {
+        const current = this.getView();
+        const surface = this.globe.sampleElevation(current.latitude, current.longitude);
+        if (!this.flight) this.camera.radius += surface - this.lastSurfaceHeight;
+        this.lastSurfaceHeight = surface;
+        this.camera.lowerRadiusLimit = this.globe.radius + surface + this.getAltitudeForZoom(this.maxZoom);
+        this.camera.minZ = Math.max(0.0000001, current.altitude * 0.001);
+        const view = this.getView();
+        this.updateDragSensitivity(view);
+        const viewSignature = [
+            view.latitude.toFixed(5),
+            view.longitude.toFixed(5),
+            view.altitude.toFixed(5),
+            view.zoom,
+        ].join("/");
+
+        if (viewSignature !== this.lastViewSignature) {
+            this.lastViewSignature = viewSignature;
+            this.onViewChangedObservable.notifyObservers(view);
+        }
+
+        if (!this.autoUpdateRaster || !this.globe.isGeometryCreated) {
+            return view;
+        }
+
+        const rasterLatitude = Math.max(
+            -MAX_MERCATOR_LATITUDE,
+            Math.min(MAX_MERCATOR_LATITUDE, view.latitude),
+        );
+        const tileX = this.globe.ourTileMath.lon_to_tile(view.longitude, view.zoom);
+        const tileY = this.globe.ourTileMath.lat_to_tile(rasterLatitude, view.zoom);
+        const rasterKey = `${view.zoom}/${tileX}/${tileY}`;
+        const now = Date.now();
+
+        if (
+            (forceRasterUpdate || rasterKey !== this.lastRasterKey)
+            && (forceRasterUpdate || now - this.lastRasterUpdate >= this.tileUpdateDelayMs)
+        ) {
+            this.globe.updateRaster(rasterLatitude, view.longitude, view.zoom);
+            this.lastRasterKey = rasterKey;
+            this.lastRasterUpdate = now;
+        }
+
+        return view;
+    }
+
+    /** Convert a requested raster zoom into a camera altitude. */
+    public getAltitudeForZoom(zoom: number, latitude = 90 - this.camera.beta / DEGREES_TO_RADIANS): number {
+        const clampedZoom = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
+        const aspect = this.getAspectRatio();
+        const angularWidth = this.tilesAcrossViewport * 2 * Math.PI / (2 ** clampedZoom);
+        const viewportScale = 2 * Math.tan(this.camera.fov * 0.5) * aspect;
+        const blend=Math.min(1,Math.max(0,(clampedZoom-this.minZoom)/3));
+        const latitudeScale=1-blend+blend*Math.max(0.08,Math.cos(latitude*DEGREES_TO_RADIANS));
+        return this.globe.radius * angularWidth * latitudeScale / viewportScale;
+    }
+
+    /** Convert camera altitude into the nearest raster zoom. */
+    public getZoomForAltitude(altitude: number): number {
+        if (!Number.isFinite(altitude) || altitude < 0) {
+            throw new RangeError("altitude must be a finite value zero or greater.");
+        }
+
+        let best=this.minZoom, error=Infinity;
+        for(let zoom=this.minZoom;zoom<=this.maxZoom;zoom++) {
+            const difference=Math.abs(Math.log(Math.max(altitude,Number.EPSILON)/this.getAltitudeForZoom(zoom)));
+            if(difference<error){error=difference;best=zoom;}
+        }
+        return best;
+    }
+
+    public dispose(): void {
+        this.globe.scene.onBeforeRenderObservable.remove(this.renderObserver);
+        this.onViewChangedObservable.clear();
+        this.flight = undefined;
+    }
+
+    private resolveTarget(
+        latitude: number,
+        longitude: number,
+        options: Omit<GlobeFlyToOptions, "durationMs">,
+    ): { alpha: number; beta: number; radius: number } {
+        if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+            throw new RangeError("latitude must be between -90 and 90 degrees.");
+        }
+        if (!Number.isFinite(longitude)) {
+            throw new RangeError("longitude must be a finite number.");
+        }
+        if (options.zoom !== undefined && (!Number.isFinite(options.zoom) || options.zoom < 0)) {
+            throw new RangeError("zoom must be a finite value zero or greater.");
+        }
+        if (options.altitude !== undefined && (!Number.isFinite(options.altitude) || options.altitude < 0)) {
+            throw new RangeError("altitude must be a finite value zero or greater.");
+        }
+
+        const clampedLatitude = Math.max(-89.9, Math.min(89.9, latitude));
+        const altitude = options.altitude
+            ?? (options.zoom === undefined
+                ? Math.max(0, this.camera.radius - this.globe.radius)
+                : this.getAltitudeForZoom(options.zoom,clampedLatitude));
+        const surface=this.globe.sampleElevation(latitude,longitude);
+        const minimumRadius=this.globe.radius+surface+this.getAltitudeForZoom(this.maxZoom,clampedLatitude);
+        const maximumRadius=this.globe.radius+surface+this.getAltitudeForZoom(this.minZoom,clampedLatitude);
+
+        return {
+            alpha: Math.PI / 2 + this.wrapLongitude(longitude) * DEGREES_TO_RADIANS,
+            beta: Math.PI / 2 - clampedLatitude * DEGREES_TO_RADIANS,
+            radius: Math.max(minimumRadius, Math.min(maximumRadius, this.globe.radius + altitude + this.globe.sampleElevation(latitude, longitude))),
+        };
+    }
+
+    private updateFlight(): void {
+        if (this.flight === undefined) {
+            return;
+        }
+
+        const elapsed = Date.now() - this.flight.startedAt;
+        const progress = Math.min(1, elapsed / this.flight.durationMs);
+        const eased = progress * progress * (3 - 2 * progress);
+        this.camera.alpha = this.lerp(this.flight.startAlpha, this.flight.targetAlpha, eased);
+        this.camera.beta = this.lerp(this.flight.startBeta, this.flight.targetBeta, eased);
+        this.camera.radius = this.lerp(this.flight.startRadius, this.flight.targetRadius, eased);
+
+        if (progress === 1) {
+            this.flight = undefined;
+        }
+    }
+
+    private clearCameraInertia(): void {
+        this.camera.inertialAlphaOffset = 0;
+        this.camera.inertialBetaOffset = 0;
+        this.camera.inertialRadiusOffset = 0;
+        this.camera.inertialPanningX = 0;
+        this.camera.inertialPanningY = 0;
+    }
+
+    private updateDragSensitivity(view: GlobeView): void {
+        const engine = this.camera.getEngine();
+        // Pointer deltas are CSS pixels, independent of the render resolution.
+        const element = engine.getInputElement();
+        const height = Math.max(1, (element?.clientHeight || engine.getRenderHeight()) * this.camera.viewport.height);
+        const surfaceRadius = this.globe.radius + this.lastSurfaceHeight;
+        const altitude = Math.max(view.altitude, surfaceRadius * 1e-9);
+        const pixelsPerRadian = height * surfaceRadius / (2 * altitude * Math.tan(this.camera.fov / 2));
+        // Match surface motion to the pointer near the ground, retaining a
+        // comfortable orbit speed from space. Longitude arcs shrink at the poles.
+        this.camera.angularSensibilityY = Math.max(1000, pixelsPerRadian);
+        this.camera.angularSensibilityX = Math.max(1000, pixelsPerRadian * Math.max(0.01, Math.cos(view.latitude * DEGREES_TO_RADIANS)));
+    }
+
+    private getAspectRatio(): number {
+        const engine = this.camera.getEngine();
+        return Math.max(engine.getRenderWidth(), 1) / Math.max(engine.getRenderHeight(), 1);
+    }
+
+    private wrapLongitude(longitude: number): number {
+        return ((longitude + 180) % 360 + 360) % 360 - 180;
+    }
+
+    private shortestAngle(angle: number): number {
+        return ((angle + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+    }
+
+    private lerp(start: number, end: number, amount: number): number {
+        return start + (end - start) * amount;
+    }
+}

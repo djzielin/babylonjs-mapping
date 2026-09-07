@@ -95,7 +95,12 @@ export default class BuildingsOverture extends Buildings {
 
     private async loadTile(request: BuildingRequest, requestIndex: number): Promise<void> {
         try {
-            const { x, y, z } = request.tileCoords;
+            const header = await this.archive.getHeader();
+            const z = Math.min(request.tileCoords.z, header.maxZoom);
+            const factor = 2 ** (request.tileCoords.z - z);
+            const count = 2 ** z;
+            const x = ((Math.floor(request.tileCoords.x / factor) % count) + count) % count;
+            const y = Math.floor(request.tileCoords.y / factor);
             const tileResponse = await this.archive.getZxy(z, x, y);
 
             if (request.tile.tileCoords.equals(request.tileCoords) === false) {
@@ -116,7 +121,18 @@ export default class BuildingsOverture extends Buildings {
 
             const collection: topLevel = {
                 type: "FeatureCollection",
-                features,
+                features: factor === 1 ? features : features.filter(feature => {
+                    const polygons = feature.geometry.type === 'Polygon'
+                        ? [feature.geometry.coordinates as number[][][]] : feature.geometry.coordinates as number[][][][];
+                    const points = polygons.reduce<number[][]>((all,p) => all.concat(p[0]), []);
+                    if (!points.length) return false;
+                    const lon = points.reduce((sum,p)=>sum+p[0],0)/points.length;
+                    const lat = points.reduce((sum,p)=>sum+p[1],0)/points.length;
+                    const tx = this.tileSet.ourTileMath.lon_to_tile(lon,request.tileCoords.z);
+                    const ty = this.tileSet.ourTileMath.lat_to_tile(lat,request.tileCoords.z);
+                    const n=2**request.tileCoords.z;
+                    return tx===((request.tileCoords.x%n)+n)%n && ty===request.tileCoords.y;
+                }),
             };
             this.ProcessGeoJSON(request, collection);
             this.removePendingRequest(requestIndex, request);

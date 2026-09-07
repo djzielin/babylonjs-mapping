@@ -30,6 +30,8 @@ export default class Tile {
     public minHeight: number;
     public maxHeight: number;
     public terrainLoaded=false;
+    /** Sampled radial elevation in world units, north-to-south row order. */
+    public elevationHeights?: number[];
 
     public eastSeamFixed = false;
     public northSeamFixed = false;

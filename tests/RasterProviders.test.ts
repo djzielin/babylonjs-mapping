@@ -23,6 +23,20 @@ describe("RasterOSM", () => {
       "https://tile.openstreetmap.org/16/25908/18050.png",
     );
   });
+
+  it("wraps longitude tiles and clamps latitude tiles", () => {
+    const raster = new RasterOSM(tileSetStub as never);
+
+    expect(raster.getRasterURL(new Vector2(4, -1), 2)).toBe(
+      "https://tile.openstreetmap.org/2/0/0.png",
+    );
+    expect(raster.getRasterURL(new Vector2(-1, 99), 2)).toBe(
+      "https://tile.openstreetmap.org/2/3/3.png",
+    );
+    expect(() => raster.getRasterURL(new Vector2(0, 0), -1)).toThrow(
+      "RasterOSM zoom must be a non-negative integer",
+    );
+  });
 });
 
 describe("RasterMB", () => {

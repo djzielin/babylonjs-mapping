@@ -50,3 +50,20 @@ export type {
     TileRequest,
     TileSetOptimizationOptions,
 } from "./core/TileSet.js";
+export { default as GlobeSet } from "./core/GlobeSet.js";
+export type { GlobeCoordinates, GlobeSetOptions } from "./core/GlobeSet.js";
+export { default as GlobeNavigator } from "./core/GlobeNavigator.js";
+export type {
+    GlobeFlyToOptions,
+    GlobeNavigatorOptions,
+    GlobeView,
+} from "./core/GlobeNavigator.js";
+export { default as TerrainRGB } from './terrain/TerrainRGB.js';
+export type { ElevationGrid, ElevationLoader, TerrainRGBOptions } from './terrain/TerrainRGB.js';
+export { default as GlobeDataController } from './core/GlobeDataController.js';
+export type { GlobeDataOptions } from './core/GlobeDataController.js';
+
+export { default as MapLayerRenderer } from "./core/MapLayerRenderer.js";
+export { default as BuildingReplacementIndex } from "./buildings/BuildingReplacementIndex.js";
+
+export { landscapeTerrainLOD } from "./terrain/LandscapeLOD.js";
