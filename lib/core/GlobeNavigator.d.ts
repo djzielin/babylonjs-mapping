@@ -73,6 +73,7 @@ export default class GlobeNavigator {
     private resolveTarget;
     private updateFlight;
     private clearCameraInertia;
+    private updateDragSensitivity;
     private getAspectRatio;
     private wrapLongitude;
     private shortestAngle;

@@ -1,4 +1,4 @@
-import { ArcRotateCamera, NullEngine, Scene, Vector2, Vector3, VertexBuffer } from "@babylonjs/core";
+import { ArcRotateCamera, ArcRotateCameraPointersInput, NullEngine, Scene, Vector2, Vector3, VertexBuffer } from "@babylonjs/core";
 import { describe, expect, it, vi } from "vitest";
 
 import GlobeNavigator from "../src/GlobeNavigator";
@@ -23,7 +23,7 @@ class TestRaster extends Raster {
 }
 
 function createNavigator() {
-    const engine = new NullEngine({ renderWidth: 1280, renderHeight: 800 });
+    const engine = new NullEngine({ renderWidth: 1280, renderHeight: 800, useHighPrecisionMatrix: true });
     const scene = new Scene(engine);
     const globe = new GlobeSet(scene, engine, { radius: 60, backingSurface: false });
     globe.setRasterProvider(new TestRaster(globe));
@@ -39,7 +39,7 @@ function createNavigator() {
     );
     const navigator = new GlobeNavigator(globe, camera, {
         minZoom: 3,
-        maxZoom: 12,
+        maxZoom: 18,
         tileUpdateDelayMs: 0,
     });
 
@@ -47,6 +47,46 @@ function createNavigator() {
 }
 
 describe("GlobeNavigator", () => {
+    it.each([[0, 12], [60, 12], [0, 18], [60, 18]])(
+        "keeps a close-up drag proportional to screen pixels at latitude %s and zoom %s",
+        (latitude, zoom) => {
+            const { engine, scene, globe, camera, navigator } = createNavigator();
+            navigator.setView(latitude, 10, { zoom });
+            const start = globe.getSurfacePosition(latitude, 10);
+            // Project in double precision: cached engine matrices can lose
+            // subpixel accuracy at street-level distances from the origin.
+            const project = () => {
+                camera.getViewMatrix(true);
+                const forward = camera.getTarget().subtract(camera.globalPosition).normalize();
+                const right = Vector3.Cross(camera.upVector, forward).normalize();
+                const up = Vector3.Cross(forward, right).normalize();
+                const relative = start.subtract(camera.globalPosition);
+                const scale = 400 / (Vector3.Dot(relative, forward) * Math.tan(camera.fov / 2));
+                return new Vector2(640 + Vector3.Dot(relative, right) * scale, 400 - Vector3.Dot(relative, up) * scale);
+            };
+            const before = project();
+            const pointers = camera.inputs.attached.pointers as ArcRotateCameraPointersInput;
+            pointers.onTouch(null, 20, 20);
+            camera._checkInputs();
+            const after = project();
+            expect(after.x - before.x).toBeCloseTo(20, 0);
+            expect(after.y - before.y).toBeCloseTo(20, 0);
+            navigator.dispose(); scene.dispose(); engine.dispose();
+        },
+    );
+
+    it("reduces angular movement continuously when zooming in", () => {
+        const { engine, scene, camera, navigator } = createNavigator();
+        navigator.setView(0, 0, { zoom: 12 });
+        const sensitivity = camera.angularSensibilityY;
+        camera.radius = 60 + navigator.getView().altitude / 2;
+        navigator.refresh();
+        expect(camera.angularSensibilityY).toBeCloseTo(sensitivity * 2, 5);
+        navigator.setView(89.9, 0, { zoom: 3 });
+        expect(camera.angularSensibilityX).toBeGreaterThanOrEqual(1000);
+        expect(Number.isFinite(camera.angularSensibilityY)).toBe(true);
+        navigator.dispose(); scene.dispose(); engine.dispose();
+    });
     it.each([[0, 0], [40, -74], [-34, 151], [10, 179.9]])(
         "renders imagery east-right and north-up at %s, %s before and after elevation",
         (latitude, longitude) => {

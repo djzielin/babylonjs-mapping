@@ -102,6 +102,7 @@ export default class GlobeNavigator {
         this.camera.lowerRadiusLimit = this.globe.radius + minimumAltitude;
         this.camera.upperRadiusLimit = this.globe.radius + maximumAltitude;
         this.camera.minZ = Math.min(this.camera.minZ, Math.max(minimumAltitude * 0.25, 0.0001));
+        this.updateDragSensitivity(this.getView());
 
         this.renderObserver = this.globe.scene.onBeforeRenderObservable.add(() => {
             this.updateFlight();
@@ -218,6 +219,7 @@ export default class GlobeNavigator {
         this.camera.lowerRadiusLimit = this.globe.radius + surface + this.getAltitudeForZoom(this.maxZoom);
         this.camera.minZ = Math.max(0.0000001, current.altitude * 0.001);
         const view = this.getView();
+        this.updateDragSensitivity(view);
         const viewSignature = [
             view.latitude.toFixed(5),
             view.longitude.toFixed(5),
@@ -343,6 +345,20 @@ export default class GlobeNavigator {
         this.camera.inertialRadiusOffset = 0;
         this.camera.inertialPanningX = 0;
         this.camera.inertialPanningY = 0;
+    }
+
+    private updateDragSensitivity(view: GlobeView): void {
+        const engine = this.camera.getEngine();
+        // Pointer deltas are CSS pixels, independent of the render resolution.
+        const element = engine.getInputElement();
+        const height = Math.max(1, (element?.clientHeight || engine.getRenderHeight()) * this.camera.viewport.height);
+        const surfaceRadius = this.globe.radius + this.lastSurfaceHeight;
+        const altitude = Math.max(view.altitude, surfaceRadius * 1e-9);
+        const pixelsPerRadian = height * surfaceRadius / (2 * altitude * Math.tan(this.camera.fov / 2));
+        // Match surface motion to the pointer near the ground, retaining a
+        // comfortable orbit speed from space. Longitude arcs shrink at the poles.
+        this.camera.angularSensibilityY = Math.max(1000, pixelsPerRadian);
+        this.camera.angularSensibilityX = Math.max(1000, pixelsPerRadian * Math.max(0.01, Math.cos(view.latitude * DEGREES_TO_RADIANS)));
     }
 
     private getAspectRatio(): number {
