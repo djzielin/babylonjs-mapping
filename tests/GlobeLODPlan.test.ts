@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { globeLODPlan } from "../examples-npm/globe-mode/src/GlobeLODPlan";
+import { globeLODPlan, MIN_GLOBE_BUILDING_ZOOM } from "../examples-npm/globe-mode/src/GlobeLODPlan";
 
 const tile = (lat: number, lon: number, z: number) => ({
     x: (lon + 180) / 360 * 2 ** z,
@@ -15,11 +15,19 @@ describe("globe distance LOD", () => {
         expect(Math.abs(tokyo.x - fuji.x)).toBeLessThan(region.size / 2 - 1);
         expect(Math.abs(tokyo.y - fuji.y)).toBeLessThan(region.size / 2 - 1);
     });
+    it("provides source-supported building tiers through the distant visible landscape", () => {
+        for (const zoom of [15, 16, 17, 18]) {
+            const plans = globeLODPlan(zoom);
+            expect(plans.every(plan => plan.zoom >= MIN_GLOBE_BUILDING_ZOOM)).toBe(true);
+            // Preserve the original horizon span of eight zoom-8 tiles.
+            expect(plans[0].size / 2 ** plans[0].zoom).toBe(8 / 2 ** 8);
+        }
+    });
     it("bounds geometry independently of close-up zoom", () => {
         for (let zoom = 8; zoom <= 18; zoom++) {
             const plans = globeLODPlan(zoom);
             const vertices = plans.reduce((total, p) => total + p.size ** 2 * (p.precision + 1) ** 2, 0);
-            expect(vertices).toBeLessThan(550000);
+            expect(vertices).toBeLessThan(600000);
             expect(plans[0].zoom).toBeLessThan(plans[1].zoom);
             expect(plans[1].zoom).toBeLessThan(zoom);
             expect(plans.map(p => p.group)).toEqual([1, 2, 3, 4, 5]);

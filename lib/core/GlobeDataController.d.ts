@@ -9,6 +9,8 @@ export interface GlobeDataOptions {
     minTerrainZoom?: number;
     minBuildingZoom?: number;
     concurrency?: number;
+    /** Prefer the active camera frustum when streaming large landscape windows. */
+    prioritizeVisible?: boolean;
     exaggeration?: number;
 }
 /** Bounded camera-driven detail loading. Retained tiles keep all their data. */

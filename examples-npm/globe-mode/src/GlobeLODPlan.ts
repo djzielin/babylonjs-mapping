@@ -1,7 +1,9 @@
+export const MIN_GLOBE_BUILDING_ZOOM = 10;
+
 /** Overlapping tiers avoid a single large jump from street imagery to the horizon. */
 export function globeLODPlan(detailZoom: number) {
     return [
-        { zoom: Math.max(3, Math.min(8, detailZoom - 5)), size: 8, precision: 16, group: 1 },
+        { zoom: Math.max(3, Math.min(10, detailZoom - 5)), size: 32, precision: 8, group: 1 },
         { zoom: Math.max(3, Math.min(11, detailZoom - 4)), size: 16, precision: 32, group: 2 },
         { zoom: Math.max(3, Math.min(13, detailZoom - 3)), size: 8, precision: 32, group: 3 },
         { zoom: Math.max(3, Math.min(15, detailZoom - 2)), size: 8, precision: 32, group: 4 },

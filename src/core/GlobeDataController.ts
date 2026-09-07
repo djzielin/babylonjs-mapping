@@ -11,6 +11,8 @@ export interface GlobeDataOptions {
     minTerrainZoom?: number;
     minBuildingZoom?: number;
     concurrency?: number;
+    /** Prefer the active camera frustum when streaming large landscape windows. */
+    prioritizeVisible?: boolean;
     exaggeration?: number;
 }
 /** Bounded camera-driven detail loading. Retained tiles keep all their data. */
@@ -64,7 +66,10 @@ export default class GlobeDataController {
         // Load the area around the viewer before the far corners of large LOD grids.
         const candidates = this.globe.ourTiles.filter(tile => !tile.mesh.isDisposed() && this.globe.isTileGeometryReady(tile)
             && this.ready.get(tile) !== tile.tileCoords.toString() && !this.jobs.has(tile));
-        candidates.sort((a, b) => distance(a) - distance(b));
+        const camera = this.globe.scene.activeCamera;
+        const visible = new Set(this.options.prioritizeVisible && camera
+            ? candidates.filter(tile => camera.isInFrustum(tile.mesh)) : candidates);
+        candidates.sort((a, b) => Number(visible.has(b)) - Number(visible.has(a)) || distance(a) - distance(b));
         for (const tile of candidates) {
             if (
                 !tile.tileCoords ||

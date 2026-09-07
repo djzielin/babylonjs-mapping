@@ -1,5 +1,5 @@
 import { RenderingManager } from "@babylonjs/core/Rendering/renderingManager";
-import { globeLODPlan } from "./GlobeLODPlan";
+import { globeLODPlan, MIN_GLOBE_BUILDING_ZOOM } from "./GlobeLODPlan";
 import { setupAddressSearch } from "./AddressSearch";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import { Engine } from "@babylonjs/core/Engines/engine";
@@ -186,7 +186,7 @@ class GlobeDemo {
             elevation: this.elevation.load,
             concurrency: 4,
             minTerrainZoom: 5,
-            minBuildingZoom: 11,
+            minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM,
             exaggeration: 1,
         });
         this.data.onErrorObservable.add((error) => this.message(error.message));
@@ -514,7 +514,7 @@ class GlobeDemo {
         const models = this.landmarks?.loadedModelTiles.flatMap(tile => tile.asset.meshes) ?? [];
         this.replacements.setModels(models.filter((mesh): mesh is import("@babylonjs/core/Meshes/mesh").Mesh => mesh.getTotalVertices() > 0) as import("@babylonjs/core/Meshes/mesh").Mesh[]);
         for (const entry of [{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]) {
-            if (!entry.buildings || entry.globe.zoom < 11) continue;
+            if (!entry.buildings || entry.globe.zoom < MIN_GLOBE_BUILDING_ZOOM) continue;
             entry.buildings.cancelPendingRequests();
             for (const tile of entry.globe.ourTiles) {
                 tile.deleteBuildings();
@@ -621,7 +621,7 @@ class GlobeDemo {
                 globe.setRasterProvider(new RasterOSM(globe));
                 globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);
                 for (const tile of globe.ourTiles) this.layers.add(tile.mesh, plan.group);
-                const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: plan.group === 2 ? 4 : 2, minTerrainZoom: 5, minBuildingZoom: 11 });
+                const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: plan.group === 2 ? 4 : 2, minTerrainZoom: 5, prioritizeVisible: true, minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM });
                 this.distanceLayers.push({ globe, data, key: "" });
             }
             this.configureDistanceLayers();
@@ -668,7 +668,7 @@ class GlobeDemo {
         const buildings = (document.getElementById("buildings") as HTMLInputElement).checked;
         const exaggeration = Number((document.getElementById("exaggeration") as HTMLInputElement).value);
         this.distanceLayers.forEach((layer, index) => {
-            if (index >= 1 && this.overtureURL && !layer.buildings) {
+            if (this.overtureURL && !layer.buildings) {
                 layer.buildings = new BuildingsOverture(layer.globe, this.overtureURL);
                 layer.buildings.doMerge = true;
                 layer.buildings.buildingMeshFilter = mesh => this.keepBuilding(mesh, layer.globe);
