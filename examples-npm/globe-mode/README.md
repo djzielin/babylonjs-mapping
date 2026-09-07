@@ -1,6 +1,6 @@
 # Globe fidelity explorer
 
-Orbit the Earth, fly to a city or ocean trench, zoom to detailed geometry, then use **Inspect in 3D** to orbit the local surface from an angle. Return to globe navigation to travel again.
+Orbit the Earth, fly to a city or ocean trench, zoom to detailed geometry, then adjust **Tilt** (0–89°) and **Heading** to look across the local surface. **Tilt view** starts at 60°; drag to orbit the selected spot or scroll to move closer. **Top down** restores globe navigation. Choosing a destination or starting a tour also returns to globe navigation.
 
 ## Run the current PR
 
@@ -24,7 +24,7 @@ npm start
 - **Mariana Trench / Monterey Canyon**: negative numeric ocean elevations. Select GEBCO for bathymetric colour imagery. The geometry comes from Mapzen/Tilezen's numeric terrain grid, not image luminance. This is not a claim that the streamed DEM is the latest GEBCO grid.
 - **Fiji**: longitude seam navigation. Arbitrary latitude/longitude targeting and double-click fly-to are also available.
 - **Guided tour** visits the presets every 12 seconds; the same button stops it.
-- **Bring your data** accepts geographically positioned GeoJSON FeatureCollections. Polygon holes, roof properties, multipolygons, points, LineStrings and MultiLineStrings reuse the feature pipeline. Import after navigating to the feature's location; user features are tile-owned and expire when that tile is recycled.
+- **More options → Import GeoJSON** accepts geographically positioned GeoJSON FeatureCollections. Polygon holes, roof properties, multipolygons, points, LineStrings and MultiLineStrings reuse the feature pipeline. Import after navigating to the feature's location; user features are tile-owned and expire when that tile is recycled.
 - Optional Mapbox public token enables satellite imagery, road geometry, and landmark model tiles. Tokens remain in the input for the current page session and are sent only to the selected Mapbox services. The default DEM, OSM raster and Overture building path needs no token.
 
 Reload retries elevation failures and regenerates features. Provider availability, CORS, native resolution, missing heights, and source coverage still apply. At the Mercator poles the backing cap is a fill surface, not polar raster/elevation coverage.
@@ -33,7 +33,7 @@ Reload retries elevation failures and regenerates features. Provider availabilit
 
 The detail window has at most 25 tiles. Orbital geometry uses 16 subdivisions and terrain views use 64. New patch generation is spread over frames with a 4 ms CPU budget (a single tile is atomic). Raster requests are bounded at six, elevation jobs at four, and decoded DEM tiles use a 64-entry cache. Retained tiles keep their geometry, DEM and in-flight imagery. Geometry is projected when it loads, not every frame. Fine vertices use local origins and the demo enables Babylon's high-precision matrices. Feature creation has a 4 ms frame budget and a 32-feature cap; one feature is atomic and can exceed the budget.
 
-The HUD reports actual browser FPS, active meshes, vertices, and detail-job counts. These are measurements of the current browser/device, not a promised frame rate. `Inspect in 3D` keeps the current geographic tile window fixed; return to globe mode to stream a different region. Terrain and buildings share a rendering group above the overview so low-resolution sea-level imagery cannot hide the seafloor.
+The HUD reports actual browser FPS, active meshes, vertices, and detail-job counts. These are measurements of the current browser/device, not a promised frame rate. `Tilt view` keeps the current geographic tile window fixed; return to globe mode to stream a different region. Terrain and buildings share a rendering group above the overview so low-resolution sea-level imagery cannot hide the seafloor.
 
 ## Sources
 

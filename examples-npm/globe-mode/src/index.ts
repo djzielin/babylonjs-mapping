@@ -101,6 +101,7 @@ class GlobeDemo {
         this.setupDataControls();
         this.engine.runRenderLoop(() => {
             this.scene.render();
+            this.updateOrientation();
             this.updateLandmarks();
             if (performance.now() - this.lastStats > 500) {
                 this.lastStats = performance.now();
@@ -308,65 +309,16 @@ class GlobeDemo {
             this.navigator.refresh(true);
         });
         document.getElementById("inspect")!.addEventListener("click", () => {
-            if (this.inspecting) {
-                this.inspecting.dispose();
-                this.inspecting = undefined;
-                this.scene.activeCamera = this.camera;
-                this.camera.attachControl(this.canvas, true);
-                document.getElementById("inspect")!.textContent =
-                    "Inspect in 3D";
-                return;
-            }
-            const view = this.navigator.getView();
-            if (view.zoom < 12) {
-                this.message(
-                    "Zoom to 12 or closer to inspect terrain and buildings from an angle.",
-                );
-                return;
-            }
-            const ground = this.detailGlobe.sampleElevation(
-                view.latitude,
-                view.longitude,
-            );
-            const target = this.detailGlobe.getSurfacePosition(
-                view.latitude,
-                view.longitude,
-                ground,
-            );
-            const up = this.detailGlobe.getSurfaceNormal(
-                view.latitude,
-                view.longitude,
-            );
-            const east = new Vector3(
-                -Math.cos((view.longitude * Math.PI) / 180),
-                0,
-                -Math.sin((view.longitude * Math.PI) / 180),
-            );
-            this.camera.detachControl();
-            const camera = new ArcRotateCamera(
-                "local inspection",
-                0,
-                1,
-                view.altitude,
-                target,
-                this.scene,
-            );
-            camera.upVector = up;
-            camera.setPosition(
-                target
-                    .add(up.scale(view.altitude))
-                    .add(east.scale(view.altitude)),
-            );
-            camera.minZ = 0.000001;
-            camera.lowerRadiusLimit = 0.0001;
-            camera.upperRadiusLimit = view.altitude * 8;
-            camera.wheelDeltaPercentage = 0.03;
-            camera.panningSensibility = 0;
-            camera.attachControl(this.canvas, true);
-            this.scene.activeCamera = camera;
-            this.inspecting = camera;
-            document.getElementById("inspect")!.textContent = "Return to globe";
+            if (this.inspecting) this.exitInspection();
+            else this.orientView(60, 0);
         });
+        for (const id of ["tilt", "heading"]) {
+            document.getElementById(id)!.addEventListener("input", () => {
+                const tilt = Number((document.getElementById("tilt") as HTMLInputElement).value);
+                const heading = Number((document.getElementById("heading") as HTMLInputElement).value);
+                this.orientView(tilt, heading);
+            });
+        }
         document.getElementById("tour")!.addEventListener("click", () => {
             if (this.tourTimer) {
                 clearInterval(this.tourTimer);
@@ -376,6 +328,7 @@ class GlobeDemo {
             }
             let i = 1;
             const next = () => {
+                this.exitInspection();
                 const place = LOCATIONS[i++ % LOCATIONS.length];
                 this.navigator.flyTo(place.latitude, place.longitude, {
                     zoom: place.zoom,
@@ -495,6 +448,7 @@ class GlobeDemo {
         longitude.value = String(HOME_VIEW.longitude);
 
         preset.addEventListener("change", () => {
+            this.exitInspection();
             const location = LOCATIONS[Number(preset.value)];
             latitude.value = String(location.latitude);
             longitude.value = String(location.longitude);
@@ -506,6 +460,7 @@ class GlobeDemo {
 
         form.addEventListener("submit", (event) => {
             event.preventDefault();
+            this.exitInspection();
             this.navigator.flyTo(
                 Number(latitude.value),
                 Number(longitude.value),
@@ -519,6 +474,7 @@ class GlobeDemo {
         zoomIn.addEventListener("click", () => this.changeZoom(1));
         zoomOut.addEventListener("click", () => this.changeZoom(-1));
         home.addEventListener("click", () => {
+            this.exitInspection();
             preset.value = "0";
             latitude.value = String(HOME_VIEW.latitude);
             longitude.value = String(HOME_VIEW.longitude);
@@ -543,6 +499,85 @@ class GlobeDemo {
             this.updateReadout(readout, view);
         });
         this.updateReadout(readout, this.navigator.getView());
+    }
+
+    private exitInspection(): void {
+        if (!this.inspecting) return;
+        this.inspecting.dispose();
+        this.inspecting = undefined;
+        this.scene.activeCamera = this.camera;
+        this.camera.attachControl(this.canvas, true);
+        document.getElementById("inspect")!.textContent = "Tilt view";
+        this.syncOrientationControls(0, 0);
+    }
+
+    private inspectionBasis() {
+        const view = this.navigator.getView();
+        const up = this.detailGlobe.getSurfaceNormal(view.latitude, view.longitude);
+        const longitude = view.longitude * Math.PI / 180;
+        const east = new Vector3(-Math.cos(longitude), 0, -Math.sin(longitude));
+        const north = Vector3.Cross(east, up).normalize();
+        return { up, east, north };
+    }
+
+    private orientView(tilt: number, heading: number): void {
+        const view = this.navigator.getView();
+        const { up, east, north } = this.inspectionBasis();
+        if (!this.inspecting) {
+            if (this.tourTimer) {
+                clearInterval(this.tourTimer);
+                this.tourTimer = undefined;
+                document.getElementById("tour")!.textContent = "Guided tour";
+            }
+            // Stop any flight at the place the user is currently looking at.
+            this.navigator.setView(view.latitude, view.longitude, { altitude: view.altitude });
+            const target = this.detailGlobe.getSurfacePosition(view.latitude, view.longitude,
+                this.detailGlobe.sampleElevation(view.latitude, view.longitude));
+            this.camera.detachControl();
+            const camera = new ArcRotateCamera("local inspection", 0, 1, view.altitude, target, this.scene);
+            camera.upVector = up;
+            camera.lowerBetaLimit = 0.001;
+            camera.upperBetaLimit = Math.PI / 2 - 0.001;
+            camera.minZ = Math.max(0.0000001, view.altitude * 0.0001);
+            camera.lowerRadiusLimit = Math.max(0.00001, view.altitude / 100);
+            camera.upperRadiusLimit = view.altitude * 8;
+            camera.wheelDeltaPercentage = 0.03;
+            camera.panningSensibility = 0;
+            camera.inertia = 0.65;
+            camera.angularSensibilityX = camera.angularSensibilityY = 1500;
+            camera.attachControl(this.canvas, true);
+            this.scene.activeCamera = camera;
+            this.inspecting = camera;
+            document.getElementById("inspect")!.textContent = "Top down";
+        }
+        const camera = this.inspecting;
+        const pitch = Math.max(0.001, tilt * Math.PI / 180);
+        const bearing = heading * Math.PI / 180;
+        const offset = up.scale(Math.cos(pitch))
+            .subtract(north.scale(Math.sin(pitch) * Math.cos(bearing)))
+            .subtract(east.scale(Math.sin(pitch) * Math.sin(bearing)));
+        camera.inertialAlphaOffset = camera.inertialBetaOffset = 0;
+        camera.setPosition(camera.getTarget().add(offset.scale(camera.radius)));
+        this.syncOrientationControls(tilt, heading);
+    }
+
+    private syncOrientationControls(tilt: number, heading: number): void {
+        for (const [id, value] of [["tilt", tilt], ["heading", heading]] as const) {
+            const rounded = id === "heading" ? Math.round(value) % 360 : Math.min(89, Math.round(value));
+            const input = document.getElementById(id) as HTMLInputElement;
+            const output = document.getElementById(`${id}Value`)!;
+            if (input.value !== String(rounded)) input.value = String(rounded);
+            if (output.textContent !== `${rounded}°`) output.textContent = `${rounded}°`;
+        }
+    }
+
+    private updateOrientation(): void {
+        if (!this.inspecting) return;
+        const { up, east, north } = this.inspectionBasis();
+        const direction = this.inspecting.position.subtract(this.inspecting.getTarget()).normalize();
+        const tilt = Math.acos(Math.max(-1, Math.min(1, Vector3.Dot(direction, up)))) * 180 / Math.PI;
+        const heading = (Math.atan2(-Vector3.Dot(direction, east), -Vector3.Dot(direction, north)) * 180 / Math.PI + 360) % 360;
+        this.syncOrientationControls(tilt, heading);
     }
 
     private setupPointerNavigation(): void {
@@ -596,6 +631,10 @@ class GlobeDemo {
     }
 
     private changeZoom(change: number): void {
+        if (this.inspecting) {
+            this.inspecting.radius = Math.max(this.inspecting.lowerRadiusLimit!, Math.min(this.inspecting.upperRadiusLimit!, this.inspecting.radius * 2 ** -change));
+            return;
+        }
         const view = this.navigator.getView();
         this.navigator.flyTo(view.latitude, view.longitude, {
             zoom: Math.max(3, Math.min(18, view.zoom + change)),

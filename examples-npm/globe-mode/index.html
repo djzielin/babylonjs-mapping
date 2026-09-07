@@ -37,6 +37,8 @@
             details { margin-top: 16px; padding-top: 12px; border-top: 1px solid #2c3949; }
             summary { cursor: pointer; color: #b7c5d7; }
             .settings { display: grid; gap: 14px; padding-top: 14px; }
+            .orientation { display: grid; gap: 8px; margin-top: 12px; }
+            .angle { display: grid; grid-template-columns: 52px 1fr 34px; gap: 8px; align-items: center; }
             .field { display: grid; gap: 6px; min-width: 0; }
             .relief { display: grid; grid-template-columns: 44px 1fr 24px; gap: 8px; align-items: center; }
             input[type=range] { width: 100%; min-width: 0; margin: 0; accent-color: #8ac8ff; }
@@ -67,8 +69,12 @@
                 <label class="toggle" title="Buildings appear as you zoom in"><input id="buildings" type="checkbox" checked>Buildings</label>
             </div>
             <div class="actions">
-                <button id="inspect" type="button">Inspect in 3D</button>
+                <button id="inspect" type="button">Tilt view</button>
                 <button id="tour" type="button">Guided tour</button>
+            </div>
+            <div class="orientation" role="group" aria-label="Viewing angle">
+                <label class="angle">Tilt<input id="tilt" type="range" min="0" max="89" value="0"><output id="tiltValue">0°</output></label>
+                <label class="angle">Heading<input id="heading" type="range" min="0" max="359" value="0"><output id="headingValue">0°</output></label>
             </div>
             <details>
                 <summary>More options</summary>
