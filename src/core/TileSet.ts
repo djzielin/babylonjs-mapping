@@ -274,7 +274,7 @@ export default class TileSet {
 
     if (request.requestType == TileRequestType.LoadTile) {
         if (request.inProgress == false) {
-            console.log(this.prettyName() + "trying to load tile raster: " + request.url);
+            console.log(this.prettyName() + "trying to load tile raster: " + request.tileCoords);
             request.texture = new Texture(request.url, this.scene);
             request.inProgress = true;
 
@@ -285,7 +285,7 @@ export default class TileSet {
         if (request.inProgress == true) {
             if (request.texture) {
                 if (request.texture.isReady()) {
-                    console.log(this.prettyName() + "tile raster is ready: " + request.url);
+                    console.log(this.prettyName() + "tile raster is ready: " + request.tileCoords);
 
                     const material = request.mesh.material as StandardMaterial;
                     material.unfreeze();
@@ -444,7 +444,7 @@ export default class TileSet {
         inProgress: false
     }
     this.tileRequests.push(request);
-    console.log(this.prettyName() + "submitted tile raster load request for: " + tile.tileCoords + " URL: " + url);
+    console.log(this.prettyName() + "submitted tile raster load request for: " + tile.tileCoords);
 
     tile.mesh.name = "Tile_" + tileX + "_" + tileY;
 }

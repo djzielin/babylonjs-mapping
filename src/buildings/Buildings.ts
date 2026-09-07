@@ -471,7 +471,7 @@ export default abstract class Buildings {
         }
 
         if (this.isURLLoaded(request.url)) { //is the file already cached?
-            console.log(this.prettyName() + "we already have this GeoJSON loaded: " + this.stripFilePrefix(request.url));
+            console.log(this.prettyName() + "using cached GeoJSON for tile: " + request.tileCoords);
             const topLevel = this.getFeatures(request.url);
             if (topLevel) {
                 this.processLoadedGeoJSON(request, topLevel, requestIndex);
@@ -482,7 +482,7 @@ export default abstract class Buildings {
             return;
         }
 
-        console.log(this.prettyName() + "trying to fetch: " + request.url);
+        console.log(this.prettyName() + "trying to fetch tile: " + request.tileCoords);
         request.inProgress = true;
 
         fetch(request.url).then(async (res) => {
@@ -522,7 +522,7 @@ export default abstract class Buildings {
 
             if (isRetryableStatus(res.status) && (request.retryCount ?? 0) < this.maxRetries) {
                 request.retryCount = (request.retryCount ?? 0) + 1;
-                console.log("Error code:" + res.status + " while requesting: " + request.url);
+                console.log("Error code:" + res.status + " while requesting tile: " + request.tileCoords);
                 console.log("but we will try again!");
                 this.enqueueBuildingRequest(request); //let's try again? maybe there should be a maximum number of retries?
                 request.inProgress=false;
@@ -532,7 +532,7 @@ export default abstract class Buildings {
                 return;
             }
             else {
-                console.error(this.prettyName() + "unable to fetch: " + request.url + " error code: " + res.status);
+                console.error(this.prettyName() + "unable to fetch tile: " + request.tileCoords + " error code: " + res.status);
                 this.removePendingRequest(requestIndex, request);
                 return;
             }

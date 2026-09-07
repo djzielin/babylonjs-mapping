@@ -412,3 +412,20 @@ it("accepts null GeoJSON properties and skips null geometry without global earcu
     scene.dispose(); engine.dispose();
   }
 });
+
+it("encodes OSM tokens and shares cache keys across service hosts", async () => {
+  const { default: BuildingsOSM } = await import("../src/buildings/BuildingsOSM");
+  const { engine, scene, tileSet } = createTileSet();
+  const buildings = new BuildingsOSM(tileSet);
+  try {
+    buildings.accessToken = "token&with?separators";
+    buildings.SubmitLoadTileRequest(tileSet.ourTiles[0]);
+    buildings.SubmitLoadTileRequest(tileSet.ourTiles[0]);
+    const requests = (buildings as any).buildingRequests as BuildingRequest[];
+    expect(new URL(requests[0].url!).searchParams.get("token")).toBe(buildings.accessToken);
+    expect((buildings as any).stripFilePrefix(requests[0].url))
+      .toBe((buildings as any).stripFilePrefix(requests[1].url));
+  } finally {
+    scene.dispose(); engine.dispose();
+  }
+});
