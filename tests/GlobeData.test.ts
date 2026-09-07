@@ -66,6 +66,23 @@ const grid = (height: number): ElevationGrid => ({
 });
 
 describe("globe data fidelity", () => {
+    it("keeps skirt lighting out of the visible terrain edges", () => {
+        const { globe, dispose } = setup();
+        const tile = globe.ourTiles[0];
+        globe.setElevationData(tile, [200, 200, 200, 200], 2, 2);
+        const points = worldVertices(tile.mesh);
+        const normals = tile.mesh.getVerticesData(VertexBuffer.NormalKind)!;
+        const surfaceCount = (globe.meshPrecision + 1) ** 2;
+        // Include every edge and corner, where shared skirt normals caused a grid.
+        for (let i = 0; i < surfaceCount; i++) {
+            expect(Vector3.Dot(points[i].normalize(), Vector3.FromArray(normals, i * 3))).toBeGreaterThan(0.999);
+        }
+        const surfaceIndexCount = globe.meshPrecision ** 2 * 6;
+        const skirtIndices = Array.from(tile.mesh.getIndices()!).slice(surfaceIndexCount);
+        expect(skirtIndices.length).toBeGreaterThan(0);
+        expect(skirtIndices.every(i => i >= surfaceCount)).toBe(true);
+        dispose();
+    });
     it.each([0, 35, -60, 84])(
         "places signed elevations radially at latitude %i",
         (latitude) => {

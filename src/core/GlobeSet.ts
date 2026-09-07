@@ -424,6 +424,14 @@ export default class GlobeSet extends TileSet {
             for (let x = precision - 1; x >= 0; x--)
                 boundary.push(precision * n + x);
             for (let y = precision - 1; y > 0; y--) boundary.push(y * n);
+            // Keep skirt walls separate from the visible surface. Sharing
+            // their top vertices averages vertical wall normals into the map,
+            // lighting every tile edge like a dark bevel.
+            const skirtTop = positions.length / 3;
+            for (const i of boundary) {
+                positions.push(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+                uvs.push(uvs[i * 2], uvs[i * 2 + 1]);
+            }
             const start = positions.length / 3;
             for (const i of boundary) {
                 const p = new Vector3(
@@ -438,10 +446,10 @@ export default class GlobeSet extends TileSet {
             for (let i = 0; i < boundary.length; i++) {
                 const j = (i + 1) % boundary.length;
                 indices.push(
-                    boundary[i],
-                    boundary[j],
+                    skirtTop + i,
+                    skirtTop + j,
                     start + i,
-                    boundary[j],
+                    skirtTop + j,
                     start + j,
                     start + i,
                 );
