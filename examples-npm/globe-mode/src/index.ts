@@ -74,6 +74,7 @@ class GlobeDemo {
     private readonly scene: Scene;
     private navigator: GlobeNavigator;
     private detailGlobe: GlobeSet;
+    private baseGlobe: GlobeSet;
     private camera: ArcRotateCamera;
     private data: GlobeDataController;
     private elevation = new TerrainRGB();
@@ -140,7 +141,7 @@ class GlobeDemo {
     private createScene(): void {
         this.scene.clearColor = new Color4(5 / 255, 10 / 255, 22 / 255, 1);
 
-        const baseGlobe = new GlobeSet(this.scene, this.engine, {
+        const baseGlobe = this.baseGlobe = new GlobeSet(this.scene, this.engine, {
             radius: GLOBE_RADIUS,
         });
         baseGlobe.setRasterProvider(new RasterOSM(baseGlobe));
@@ -308,31 +309,46 @@ class GlobeDemo {
             }
         });
         const basemap = document.getElementById("basemap") as HTMLSelectElement;
-        basemap.addEventListener("change", () => {
-            if (basemap.value === "gebco")
-                this.detailGlobe.setRasterProvider(
-                    new RasterGEBCO(this.detailGlobe),
-                );
-            else if (basemap.value === "satellite") {
-                const token = (
-                    document.getElementById("mapboxToken") as HTMLInputElement
-                ).value.trim();
-                if (!token) {
-                    this.message(
-                        "Enter a Mapbox public token to use satellite imagery.",
-                    );
-                    return;
-                }
-                const raster = new RasterMB(this.detailGlobe);
-                raster.accessToken = token;
-                this.detailGlobe.setRasterProvider(raster);
-            } else
-                this.detailGlobe.setRasterProvider(
-                    new RasterOSM(this.detailGlobe),
-                );
+        const tokenInput = document.getElementById("mapboxToken") as HTMLInputElement;
+        let activeStyle = "osm";
+        let pendingSatellite = false;
+        const applyStyle = () => {
+            if (basemap.value === "satellite" && !tokenInput.value.trim()) {
+                pendingSatellite = true;
+                basemap.value = activeStyle;
+                document.getElementById("mapStyleStatus")!.textContent = "Add a Mapbox token below to enable satellite.";
+                document.querySelector<HTMLDetailsElement>("#controlPanel details")!.open = true;
+                tokenInput.focus();
+                return;
+            }
+            pendingSatellite = false;
+            activeStyle = basemap.value;
+            document.getElementById("mapStyleStatus")!.textContent = "";
+            for (const globe of [this.baseGlobe, this.detailGlobe]) this.applyMapStyle(globe);
+            this.baseGlobe.updateRaster(40.98, 0, 2);
             this.syncDistanceStyles();
             this.updateDistanceLayers(this.navigator.getView());
             this.navigator.refresh(true);
+            document.getElementById("mapView")!.setAttribute("aria-pressed", String(activeStyle === "osm"));
+            document.getElementById("satelliteView")!.setAttribute("aria-pressed", String(activeStyle === "satellite"));
+        };
+        basemap.addEventListener("change", applyStyle);
+        for (const [id, style] of [["mapView", "osm"], ["satelliteView", "satellite"]]) {
+            document.getElementById(id)!.addEventListener("click", () => {
+                if (style === activeStyle) {
+                    pendingSatellite = false;
+                    document.getElementById("mapStyleStatus")!.textContent = "";
+                    return;
+                }
+                basemap.value = style;
+                applyStyle();
+            });
+        }
+        tokenInput.addEventListener("change", () => {
+            if ((pendingSatellite || activeStyle === "satellite") && tokenInput.value.trim()) {
+                basemap.value = "satellite";
+                applyStyle();
+            }
         });
         document.getElementById("inspect")!.addEventListener("click", () => {
             if (this.inspecting) this.exitInspection();
@@ -564,19 +580,22 @@ class GlobeDemo {
         });
     }
 
-    private syncDistanceStyles(): void {
+    private applyMapStyle(globe: GlobeSet): void {
         const style = (document.getElementById("basemap") as HTMLSelectElement).value;
         const token = (document.getElementById("mapboxToken") as HTMLInputElement).value.trim();
+        if (style === "gebco") globe.setRasterProvider(new RasterGEBCO(globe));
+        else if (style === "satellite" && token) {
+            const raster = new RasterMB(globe);
+            raster.accessToken = token;
+            globe.setRasterProvider(raster);
+        } else globe.setRasterProvider(new RasterOSM(globe));
+    }
+
+    private syncDistanceStyles(): void {
         for (const layer of this.distanceLayers) {
-            if (style === "gebco") layer.globe.setRasterProvider(new RasterGEBCO(layer.globe));
-            else if (style === "satellite" && token) {
-                const raster = new RasterMB(layer.globe);
-                raster.accessToken = token;
-                layer.globe.setRasterProvider(raster);
-            } else layer.globe.setRasterProvider(new RasterOSM(layer.globe));
+            this.applyMapStyle(layer.globe);
             layer.key = "";
         }
-
     }
 
     private configureDistanceLayers(): void {

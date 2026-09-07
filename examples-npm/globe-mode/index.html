@@ -33,6 +33,10 @@
             .layers { display: grid; gap: 8px; margin: 16px 0; }
             .toggle { display: flex; align-items: center; gap: 10px; min-height: 24px; cursor: pointer; }
             input[type=checkbox] { flex: 0 0 16px; width: 16px; height: 16px; margin: 0; accent-color: #8ac8ff; }
+            button[aria-pressed=true] { background: #304e6d; border-color: #8ac8ff; }
+            #mapStyleStatus { font-size: 11px; color: #a7b6c9; }
+            #mapStyleStatus:not(:empty) { margin: 8px 0; }
+            .map-style { margin-bottom: 12px; }
             .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
             details { margin-top: 16px; padding-top: 12px; border-top: 1px solid #2c3949; }
             summary { cursor: pointer; color: #b7c5d7; }
@@ -63,6 +67,11 @@
         <aside id="controlPanel" aria-label="Globe controls">
             <h1>Earth, in detail</h1>
             <p class="hint">Drag to explore · scroll to zoom</p>
+            <div class="actions map-style" role="group" aria-label="Map imagery">
+                <button id="mapView" type="button" aria-pressed="true">Map</button>
+                <button id="satelliteView" type="button" aria-pressed="false">Satellite</button>
+            </div>
+            <p id="mapStyleStatus" role="status"></p>
             <div class="address">
                 <label class="sr-only" for="addressSearch">Search for an address or place</label>
                 <input id="addressSearch" type="search" placeholder="Search address or place…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="addressResults" aria-expanded="false" aria-describedby="addressStatus">
