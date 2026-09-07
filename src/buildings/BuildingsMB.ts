@@ -101,6 +101,11 @@ export default class BuildingsMB {
             `Mapbox landmark tile ${tileCoords.z}/${tileCoords.x}/${tileCoords.y}`,
             this.tileSet.scene,
         );
+        this.updateTileRoot(root, tileCoords);
+        return root;
+    }
+
+    private updateTileRoot(root: TransformNode, tileCoords: Vector3): void {
         const topLeft = new Vector2(
             this.tileSet.ourTileMath.tile_to_lon(tileCoords.x, tileCoords.z),
             this.tileSet.ourTileMath.tile_to_lat(tileCoords.y, tileCoords.z),
@@ -123,7 +128,6 @@ export default class BuildingsMB {
             this.tileSet.tileScale * this.exaggeration,
         );
         root.rotation.x = -Math.PI / 2;
-        return root;
     }
 
     private disposeTile(key: string): void {
@@ -141,6 +145,7 @@ export default class BuildingsMB {
         const key = tileCoords.toString();
         const loaded = this.loadedTiles.get(key);
         if (loaded !== undefined) {
+            this.updateTileRoot(loaded.root, tileCoords);
             return Promise.resolve(loaded);
         }
 

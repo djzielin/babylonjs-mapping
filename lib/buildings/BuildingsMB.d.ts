@@ -34,6 +34,7 @@ export default class BuildingsMB {
     getModelURL(tileCoords: Vector3): string;
     private getRequiredSourceTiles;
     private createTileRoot;
+    private updateTileRoot;
     private disposeTile;
     private loadTile;
     /**

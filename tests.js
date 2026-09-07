@@ -42,7 +42,7 @@ async function main() {
         await writeFile(
             path.join(srcDir, "index.js"),
             [
-                'import TileSet, { RetrievalLocation } from "babylonjs-mapping";',
+                'import { TileSet, RetrievalLocation } from "babylonjs-mapping";',
                 'import TileMath, { EPSG_Type } from "babylonjs-mapping/lib/TileMath";',
                 'import BuildingsOSM from "babylonjs-mapping/lib/BuildingsOSM";',
                 "",
