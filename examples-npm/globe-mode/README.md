@@ -27,7 +27,7 @@ Type an address or place in the search box (at least three characters), then cli
 - **Fiji**: longitude seam navigation. Arbitrary latitude/longitude targeting and double-click fly-to are also available.
 - **Guided tour** visits the presets every 12 seconds; the same button stops it.
 - **More options → Import GeoJSON** accepts geographically positioned GeoJSON FeatureCollections. Polygon holes, roof properties, multipolygons, points, LineStrings and MultiLineStrings reuse the feature pipeline. Import after navigating to the feature's location; user features are tile-owned and expire when that tile is recycled.
-- Optional Mapbox public token enables satellite imagery, road geometry, and landmark model tiles. Tokens remain in the input for the current page session and are sent only to the selected Mapbox services. The default DEM, OSM raster and Overture building path needs no token.
+- A Mapbox public token enables satellite imagery, road geometry, and landmark model tiles. Landmarks are enabled by default once a token is entered and follow any location at zoom 14+, including search results and manual navigation; they no longer wait for the footprint job queue. Model availability varies by location, with Overture extrusions providing ordinary buildings where bespoke models are absent. Tokens remain in the input for the current page session and are sent only to the selected Mapbox services. The default DEM, OSM raster and Overture building path needs no token.
 
 Reload retries elevation failures and regenerates features. Provider availability, CORS, native resolution, missing heights, and source coverage still apply. At the Mercator poles the backing cap is a fill surface, not polar raster/elevation coverage.
 

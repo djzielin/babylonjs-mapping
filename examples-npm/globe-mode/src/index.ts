@@ -84,6 +84,7 @@ class GlobeDemo {
     private roads?: BuildingsVectorTile;
     private landmarks?: BuildingsMB;
     private landmarkKey = "";
+    private landmarkRetryAt = 0;
 
     public constructor() {
         this.canvas = document.getElementById(
@@ -399,37 +400,37 @@ class GlobeDemo {
     }
 
     private updateLandmarks(): void {
-        if (!(document.getElementById("landmarks") as HTMLInputElement).checked)
-            return;
-        const token = (
-            document.getElementById("mapboxToken") as HTMLInputElement
-        ).value.trim();
-        if (!token) return;
-        if (this.detailGlobe.zoom < 15) {
+        const enabled = (document.getElementById("landmarks") as HTMLInputElement).checked;
+        const token = (document.getElementById("mapboxToken") as HTMLInputElement).value.trim();
+        if (!enabled || !token || this.detailGlobe.zoom < 14) {
             this.landmarks?.dispose();
+            this.landmarks = undefined;
             this.landmarkKey = "";
             return;
         }
-        if (
-            this.data.stats.active > 0 ||
-            this.detailGlobe.pendingGeometryCount > 0
-        )
-            return;
-        const key = this.detailGlobe.ourTiles
-            .map((t) => t.tileCoords.toString())
-            .join("|");
+        if (this.landmarks && this.landmarks.accessToken !== token) {
+            this.landmarks.dispose();
+            this.landmarks = undefined;
+            this.landmarkKey = "";
+        }
+        if (this.detailGlobe.pendingGeometryCount > 0) return;
+        // Landmark requests follow geography independently of the slower
+        // footprint queue, including custom addresses and drag navigation.
+        const key = this.detailGlobe.ourTiles.map(t => t.tileCoords.toString()).join("|");
         if (key === this.landmarkKey) return;
+        if (performance.now() < this.landmarkRetryAt) return;
         this.landmarkKey = key;
-        this.landmarks ??= new BuildingsMB(this.detailGlobe);
-        this.landmarks.accessToken = token;
-        void this.landmarks
-            .generateBuildings()
-            .then((tiles) => {
-                for (const tile of tiles)
-                    for (const mesh of tile.asset.meshes)
-                        mesh.renderingGroupId = 1;
-            })
-            .catch((error) => this.message(`Landmarks: ${error.message}`));
+        const provider = this.landmarks ??= new BuildingsMB(this.detailGlobe);
+        provider.accessToken = token;
+        void provider.generateBuildings().then(tiles => {
+            for (const tile of tiles)
+                for (const mesh of tile.asset.meshes) mesh.renderingGroupId = 1;
+        }).catch(() => {
+            if (provider !== this.landmarks || key !== this.landmarkKey) return;
+            this.landmarkKey = "";
+            this.landmarkRetryAt = performance.now() + 15000;
+            this.message("Landmark request failed; retrying shortly. Check the Mapbox token if this persists.");
+        });
     }
 
     private setupLocationControls(): void {

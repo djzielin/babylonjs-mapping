@@ -64,6 +64,7 @@ export default class BuildingsMB {
     private readonly inFlightTiles = new Map<string, Promise<LoadedMapboxModelTile | undefined>>();
     private desiredTileKeys = new Set<string>();
     private attributionAdded = false;
+    private readonly emptyTileKeys = new Set<string>();
 
     constructor(
         public readonly tileSet: TileSet,
@@ -144,6 +145,7 @@ export default class BuildingsMB {
 
     private loadTile(tileCoords: Vector3): Promise<LoadedMapboxModelTile | undefined> {
         const key = tileCoords.toString();
+        if (this.emptyTileKeys.has(key)) return Promise.resolve(undefined);
         const loaded = this.loadedTiles.get(key);
         if (loaded !== undefined) {
             if (!this.tileSet.isGlobe) this.updateTileRoot(loaded.root, tileCoords);
@@ -160,6 +162,10 @@ export default class BuildingsMB {
             this.tileSet.scene,
         ).then((asset) => {
             if (asset === undefined) {
+                // Most locations have no bespoke model tile. Remember these
+                // responses while exploring nearby overzoomed raster tiles.
+                if (this.emptyTileKeys.size >= 128) this.emptyTileKeys.delete(this.emptyTileKeys.values().next().value!);
+                this.emptyTileKeys.add(key);
                 return undefined;
             }
             if (!this.desiredTileKeys.has(key)) {
