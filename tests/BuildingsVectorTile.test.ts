@@ -121,7 +121,8 @@ describe("BuildingsVectorTile", () => {
       class: "primary",
       sourceLayer: "road",
     });
-    expect(tileSet.ourAttribution.addAttribution).toHaveBeenCalledWith("MB");
+    expect(tileSet.ourAttribution.addAttribution).not.toHaveBeenCalledWith("MB");
+    expect(buildings.getPerformanceStats().peakQueueLength).toBeGreaterThan(0);
 
     scene.dispose();
     engine.dispose();

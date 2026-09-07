@@ -9,6 +9,7 @@ import type Tile from "../core/Tile.js";
 import type TileSet from "../core/TileSet.js";
 import { EPSG_Type } from "../core/TileMath.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
+import { downloadBlob, isRetryableStatus } from "../shared/Download.js";
 import { RetrievalLocation, RetrievalType } from "../shared/Retrieval.js";
 
 //import "@babylonjs/core/Materials/standardMaterial"
@@ -36,6 +37,7 @@ export interface BuildingRequest {
     url?: string;
     pagination?: BuildingRequestPagination;
     mergeAfterLoad?: boolean;
+    retryCount?: number;
 }
 
 export interface BuildingLODOptions {
@@ -121,6 +123,8 @@ export default abstract class Buildings {
     public pointDiameter = 0.5;
     public buildingsCreatedPerFrame = 10; //TODO: is there a better way to do this?
     public cacheFiles = true;
+    /** Maximum retries for transient HTTP errors after the initial request. */
+    public maxRetries = 3;
     public buildingMaterial: StandardMaterial;
     /** Controls optional mesh/material and request-queue optimizations. */
     public optimizationOptions: Required<BuildingOptimizationOptions> = {
@@ -436,10 +440,7 @@ export default abstract class Buildings {
     }
 
     protected doSave(text: string){
-        var a = document.createElement("a");
-        a.href = window.URL.createObjectURL(new Blob([text], {type: "text/plain"}));
-        a.download = this.name+".json";
-        a.click();
+        downloadBlob(new Blob([text], { type: "application/json" }), this.name + ".json");
     }
 
     private processLoadedGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel, requestIndex: number): void {
@@ -521,7 +522,8 @@ export default abstract class Buildings {
                 return;
             }
 
-            if (res.status >= 400 && res.status<600) {
+            if (isRetryableStatus(res.status) && (request.retryCount ?? 0) < this.maxRetries) {
+                request.retryCount = (request.retryCount ?? 0) + 1;
                 console.log("Error code:" + res.status + " while requesting: " + request.url);
                 console.log("but we will try again!");
                 this.enqueueBuildingRequest(request); //let's try again? maybe there should be a maximum number of retries?
@@ -615,7 +617,7 @@ export default abstract class Buildings {
     public processBuildingRequests() {
         if (this.sleepRequested) { //lets take a nap for a bit (when we get a 500 server error)
             const timeDiff=Date.now()-this.timeStart;
-            console.log("we've slept for: " + timeDiff);
+
 
             if(timeDiff>this.sleepDuration){
                 console.log("done sleeping after: " + timeDiff);
