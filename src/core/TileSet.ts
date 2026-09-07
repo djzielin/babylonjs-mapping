@@ -1,7 +1,6 @@
 import { Scene } from "@babylonjs/core/scene.js";
 import { Engine } from "@babylonjs/core/Engines/engine.js";
 import { EngineStore } from "@babylonjs/core/Engines/engineStore.js";
-import { BoundingBox } from "@babylonjs/core/Culling/boundingBox.js";
 import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
@@ -122,7 +121,9 @@ export default class TileSet {
     constructor(public scene: Scene, private engine: Engine) {
 
         EngineStore._LastCreatedScene = this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
-        EngineStore.Instances.push(this.engine);
+        if (!EngineStore.Instances.includes(this.engine)) {
+            EngineStore.Instances.push(this.engine);
+        }
 
         this.ourAttribution = new Attribution(this.scene);
         this.ourTileMath = new TileMath(this);
@@ -131,7 +132,7 @@ export default class TileSet {
         this.ourTerrainMB = new TerrainMB(this, this.scene); //TODO: this should really be a terrain provider, in case we can get terrain from more than just MapBox
 
 
-        const observer = this.scene.onBeforeRenderObservable.add(() => { //fire every frame
+        this.scene.onBeforeRenderObservable.add(() => { //fire every frame
             this.processTileRequests(); //TODO: investigate WebWorker or other "threading" techniques, instead of calling every frame
         });
     }
@@ -217,15 +218,16 @@ export default class TileSet {
             for (const tile of this.ourTiles) {
                 tile.deleteBuildings();
                 tile.clearTerrainLOD();
+                tile.material?.dispose(false, true);
                 tile.mesh.dispose();
             }
             this.ourTiles = [];
             this.ourTilesMap.clear();
-            this.tileRequests = [];
+            this.clearTileRequests();
         }
         this.isRasterSetup = false;
 
-        this.numTiles = numTiles;
+        this.numTiles = numTiles.clone();
         this.tileWidth = tileWidth;
         this.meshPrecision = meshPrecision;
 
@@ -305,7 +307,8 @@ export default class TileSet {
                     return;
                 }
                 if (request.texture.loadingError) {
-                    console.warn(this.prettyName() + "error loading texture for: " + request.url);
+                    console.warn(this.prettyName() + "error loading texture for tile: " + request.tileCoords);
+                    request.texture.dispose();
 
                     this.requestsProcessedSinceCaughtUp++;
                     this.tileRequests.shift(); //pop request off front of queue
@@ -363,6 +366,8 @@ export default class TileSet {
     public updateRaster(lat: number, lon: number, zoom: number) {
     this.assertGeometrySetup("update raster");
 
+    this.clearTileRequests();
+    this.ourTilesMap.clear();
     this.zoom = zoom;
     this.centerCoords = new Vector2(lon, lat);
     this.tileCorner = this.ourTileMath.computeCornerTile(this.centerCoords, EPSG_Type.EPSG_4326, this.zoom);
@@ -386,7 +391,19 @@ export default class TileSet {
     }
 }
 
+    private clearTileRequests(tile?: Tile): void {
+        this.tileRequests = this.tileRequests.filter((request) => {
+            if (tile && request.tile !== tile) return true;
+            request.texture?.dispose();
+            return false;
+        });
+    }
+
     private updateSingleRasterTile(tile: Tile, tileX: number, tileY: number) {
+    this.clearTileRequests(tile);
+    if (tile.tileCoords && this.ourTilesMap.get(tile.tileCoords.toString()) === tile) {
+        this.ourTilesMap.delete(tile.tileCoords.toString());
+    }
     tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later     
     this.ourTilesMap.set(tile.tileCoords.toString(), tile);
 
@@ -452,11 +469,19 @@ export default class TileSet {
         reloadTerrain = false,
     ) {
     this.assertRasterSetup("move tiles");
+    if (!Number.isFinite(movX) || !Number.isFinite(movZ)) {
+        throw new RangeError("Tile movement must be finite.");
+    }
+    if (!Number.isInteger(reloadLimitPerFrame) || reloadLimitPerFrame < 0) {
+        throw new RangeError("reloadLimitPerFrame must be a non-negative integer.");
+    }
     for (const t of this.ourTiles) {
         t.mesh.position.x += movX;
         t.mesh.position.z += movZ;
+        t.refreshBoundingBox();
     }
 
+    if (reloadLimitPerFrame === 0) return;
     let tilesReloaded = 0;
 
     for (const t of this.ourTiles) {
@@ -465,7 +490,7 @@ export default class TileSet {
             this.moveHelper(t, new Vector3(this.totalWidthMeters, 0, 0), new Vector3(this.numTiles.x, 0, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
-            if (tilesReloaded < reloadLimitPerFrame) {
+            if (tilesReloaded >= reloadLimitPerFrame) {
                 return;
             }
         }
@@ -476,7 +501,7 @@ export default class TileSet {
             this.moveHelper(t, new Vector3(-this.totalWidthMeters, 0, 0), new Vector3(-this.numTiles.x, 0, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
-            if (tilesReloaded < reloadLimitPerFrame) {
+            if (tilesReloaded >= reloadLimitPerFrame) {
                 return;
             }
         }
@@ -486,7 +511,7 @@ export default class TileSet {
             this.moveHelper(t, new Vector3(0, 0, this.totalHeightMeters), new Vector3(0, -this.numTiles.y, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
-            if (tilesReloaded < reloadLimitPerFrame) {
+            if (tilesReloaded >= reloadLimitPerFrame) {
                 return;
             }
         }
@@ -496,7 +521,7 @@ export default class TileSet {
             this.moveHelper(t, new Vector3(0, 0, -this.totalHeightMeters), new Vector3(0, this.numTiles.y, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
-            if (tilesReloaded < reloadLimitPerFrame) {
+            if (tilesReloaded >= reloadLimitPerFrame) {
                 return;
             }
         }
@@ -513,7 +538,8 @@ export default class TileSet {
 
     t.deleteBuildings();
 
-    t.mesh.position = t.mesh.position.add(meshMoveAmount);
+    t.mesh.position.addInPlace(meshMoveAmount);
+    t.refreshBoundingBox();
     const previousTileCoords = t.tileCoords.clone();
     this.ourTilesMap.delete(t.tileCoords.toString());
 

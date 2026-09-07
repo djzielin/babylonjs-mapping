@@ -20,7 +20,7 @@ export interface LineSegmentArray extends Array<LineSegment> { }
 
 export default class TileBuilding {
     public isBBoxContainedOnTile: boolean=false;
-    public ShapeType: String="";
+    public ShapeType: string="";
 
     public LineArray: coordinateArrayOfArrays;
     public LineSegments: LineSegmentArray=[];
@@ -39,6 +39,7 @@ export default class TileBuilding {
     }
 
     public computeLineSegments(){
+        this.LineSegments.length = 0;
         const ext=this.tile.tileSet.streetExtensionAmount;
 
         for(let singleArray of this.LineArray){
@@ -105,12 +106,13 @@ export default class TileBuilding {
 
     //https://forum.babylonjs.com/t/is-there-any-way-to-get-the-vertices-of-a-given-mesh-facet-or-get-neighbouring-facets/19888/4
     public getVertices() {
+        this.vertices.length = 0;
         const vd = this.mesh.getVerticesData(VertexBuffer.PositionKind);
         if (vd === null) {
             return;
         }
 
-        const worldMatrix=this.mesh.getWorldMatrix();
+        const worldMatrix=this.mesh.computeWorldMatrix(true);
 
         for (var i = 0; i < vd.length; i += 3) {
             const x = vd[i + 0];
