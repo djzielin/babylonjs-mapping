@@ -66,7 +66,31 @@ const grid = (height: number): ElevationGrid => ({
 });
 
 describe("globe data fidelity", () => {
-    it("keeps skirt lighting out of the visible terrain edges", () => {
+    it.each([false, true])("joins mismatched tile edges and corners regardless of arrival order (%s)", reverse => {
+        const { globe, dispose } = setup(2);
+        const tiles = [...globe.ourTiles];
+        if (reverse) tiles.reverse();
+        for (const tile of tiles) {
+            const h = (tile.tileCoords.x % 10) * 10 + (tile.tileCoords.y % 10);
+            globe.setElevationData(tile, [h, h + 30, h - 20, h + 10], 2, 2);
+        }
+        const p = globe.meshPrecision, n = p + 1;
+        for (const tile of tiles) {
+            const vertices = worldVertices(tile.mesh);
+            expect(vertices).toHaveLength(n * n);
+            for (const neighbor of tiles) {
+                const other = worldVertices(neighbor.mesh);
+                if (neighbor.tileCoords.x === tile.tileCoords.x + 1 && neighbor.tileCoords.y === tile.tileCoords.y) {
+                    for (let y = 0; y <= p; y++) expect(Vector3.Distance(vertices[y * n + p], other[y * n])).toBeLessThan(1e-7);
+                }
+                if (neighbor.tileCoords.y === tile.tileCoords.y + 1 && neighbor.tileCoords.x === tile.tileCoords.x) {
+                    for (let x = 0; x <= p; x++) expect(Vector3.Distance(vertices[p * n + x], other[x])).toBeLessThan(1e-7);
+                }
+            }
+        }
+        dispose();
+    });
+    it("has no vertical skirt walls on the visible terrain", () => {
         const { globe, dispose } = setup();
         const tile = globe.ourTiles[0];
         globe.setElevationData(tile, [200, 200, 200, 200], 2, 2);
@@ -79,8 +103,8 @@ describe("globe data fidelity", () => {
         }
         const surfaceIndexCount = globe.meshPrecision ** 2 * 6;
         const skirtIndices = Array.from(tile.mesh.getIndices()!).slice(surfaceIndexCount);
-        expect(skirtIndices.length).toBeGreaterThan(0);
-        expect(skirtIndices.every(i => i >= surfaceCount)).toBe(true);
+        expect(skirtIndices).toHaveLength(0);
+        expect(points).toHaveLength(surfaceCount);
         dispose();
     });
     it.each([0, 35, -60, 84])(

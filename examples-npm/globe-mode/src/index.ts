@@ -559,6 +559,7 @@ class GlobeDemo {
             camera.panningSensibility = 0;
             camera.inertia = 0.65;
             camera.angularSensibilityX = camera.angularSensibilityY = 1500;
+            camera.onAfterCheckInputsObservable.add(() => this.keepInspectionAboveGround(camera));
             camera.attachControl(this.canvas, true);
             this.scene.activeCamera = camera;
             this.inspecting = camera;
@@ -572,7 +573,19 @@ class GlobeDemo {
             .subtract(east.scale(Math.sin(pitch) * Math.sin(bearing)));
         camera.inertialAlphaOffset = camera.inertialBetaOffset = 0;
         camera.setPosition(camera.getTarget().add(offset.scale(camera.radius)));
+        this.keepInspectionAboveGround(camera);
         this.syncOrientationControls(tilt, heading);
+    }
+
+    private keepInspectionAboveGround(camera: ArcRotateCamera): void {
+        camera.getViewMatrix(true);
+        const location = this.detailGlobe.getSurfaceCoordinates(camera.position);
+        const minimum = this.detailGlobe.sampleElevation(location.latitude, location.longitude)
+            + 2 * this.detailGlobe.metresToWorld;
+        if (location.elevation < minimum) {
+            camera.setPosition(this.detailGlobe.getSurfacePosition(location.latitude, location.longitude, minimum));
+            camera.inertialBetaOffset = camera.inertialRadiusOffset = 0;
+        }
     }
 
     private syncOrientationControls(tilt: number, heading: number): void {

@@ -38,6 +38,7 @@ export default class GlobeSet extends TileSet {
     private geometryKeys;
     private elevationTileMap;
     private tileDirections;
+    private originalElevations;
     private geometryBudgetMs;
     private geometryQueue;
     get pendingGeometryCount(): number;
@@ -80,6 +81,8 @@ export default class GlobeSet extends TileSet {
     protected showRasterAttribution(): boolean;
     /** Signed elevation grids (including bathymetry) are supplied in metres. */
     setElevationData(tile: Tile, data: ArrayLike<number>, width: number, height: number, exaggeration?: number): void;
+    /** Weld shared samples before uploading; no vertical walls are needed between patches. */
+    private joinElevationBorders;
     applyElevationGrid(tile: Tile, heights: number[], precision: number): void;
     applyGlobeHeights(mesh: Mesh, tile: Tile, precision: number, heights: number[]): void;
     /** Warp already-extruded feature vertices and their LOD meshes once, at load time. */
