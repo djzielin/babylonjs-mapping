@@ -1,3 +1,4 @@
+import { RenderingManager } from "@babylonjs/core/Rendering/renderingManager";
 import { globeLODPlan } from "./GlobeLODPlan";
 import { setupAddressSearch } from "./AddressSearch";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
@@ -32,6 +33,8 @@ interface LocationPreset {
     latitude: number;
     longitude: number;
     zoom: number;
+    heading?: number;
+    tilt?: number;
 }
 
 const GLOBE_RADIUS = 60;
@@ -67,7 +70,7 @@ const LOCATIONS: LocationPreset[] = [
     { name: "Mount Everest", latitude: 27.9881, longitude: 86.925, zoom: 13 },
     { name: "Paris", latitude: 48.8566, longitude: 2.3522, zoom: 15 },
     { name: "Sydney", latitude: -33.8688, longitude: 151.2093, zoom: 13 },
-    { name: "Tokyo", latitude: 35.6762, longitude: 139.6503, zoom: 13 },
+    { name: "Tokyo · toward Mount Fuji", latitude: 35.6812, longitude: 139.7671, zoom: 16, heading: 249.5, tilt: 87 },
 ];
 
 class GlobeDemo {
@@ -99,6 +102,7 @@ class GlobeDemo {
         this.engine = new Engine(this.canvas, true, {
             useHighPrecisionMatrix: true,
         });
+        RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, 7);
         this.scene = new Scene(this.engine);
     }
 
@@ -131,6 +135,11 @@ class GlobeDemo {
                     completed: total.completed + layer.data.stats.completed,
                     failed: total.failed + layer.data.stats.failed,
                 }), this.data.stats);
+                const globes = [this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)];
+                const terrainTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.filter(tile => tile.terrainLoaded).length, 0);
+                const totalTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.length, 0);
+                const buildingTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.filter(tile => tile.buildings.length > 0).length, 0);
+                document.getElementById("loadingStatus")!.textContent = `Terrain ${terrainTiles}/${totalTiles} tiles · Buildings ${buildingTiles} tiles${stat.failed ? ` · ${stat.failed} data errors` : ""}`;
                 document.getElementById("performance")!.textContent =
                     `${this.engine.getFps().toFixed(0)} FPS · ${this.scene.getActiveMeshes().length} active meshes · ${this.scene.getTotalVertices().toLocaleString()} vertices · ${stat.active} detail jobs · ${stat.completed} completed · ${stat.failed} errors`;
             }
@@ -156,17 +165,19 @@ class GlobeDemo {
         this.detailGlobe = new GlobeSet(this.scene, this.engine, {
             radius: DETAIL_RADIUS,
             geometryBudgetMs: 4,
+            edgeFadeTiles: 1,
             backingSurface: false,
             attribution: false,
         });
         this.detailGlobe.setRasterProvider(new RasterOSM(this.detailGlobe));
         this.detailGlobe.createGeometry(new Vector2(5, 5), 20, 16);
         for (const tile of this.detailGlobe.ourTiles)
-            tile.mesh.renderingGroupId = 3;
+            tile.mesh.renderingGroupId = 6;
         this.data = new GlobeDataController(this.detailGlobe, {
             elevation: this.elevation.load,
             concurrency: 4,
             minTerrainZoom: 5,
+            minBuildingZoom: 11,
             exaggeration: 1,
         });
         this.data.onErrorObservable.add((error) => this.message(error.message));
@@ -177,7 +188,7 @@ class GlobeDemo {
                 this.buildings.doMerge = true;
                 this.buildings.buildingsCreatedPerFrame = 32;
                 this.buildings.buildingMeshTransform = (mesh) => {
-                    mesh.renderingGroupId = 3;
+                    mesh.renderingGroupId = 6;
                 };
                 this.buildings.buildingMaterial.diffuseColor.set(
                     0.86,
@@ -295,7 +306,7 @@ class GlobeDemo {
                 this.roads.doMerge = true;
                 this.roads.buildingMaterial.diffuseColor.set(0.92, 0.57, 0.18);
                 this.roads.buildingMeshTransform = (mesh) => {
-                    mesh.renderingGroupId = 3;
+                    mesh.renderingGroupId = 6;
                 };
             }
             this.data.options.features =
@@ -405,7 +416,7 @@ class GlobeDemo {
                             this.detailGlobe,
                         ));
                     settings.buildingMeshTransform = (mesh) => {
-                        mesh.renderingGroupId = 3;
+                        mesh.renderingGroupId = 6;
                     };
                     const generator = new GeoJSON.GeoJSON(
                         this.detailGlobe,
@@ -455,7 +466,7 @@ class GlobeDemo {
         provider.accessToken = token;
         void provider.generateBuildings().then(tiles => {
             for (const tile of tiles)
-                for (const mesh of tile.asset.meshes) mesh.renderingGroupId = 3;
+                for (const mesh of tile.asset.meshes) mesh.renderingGroupId = 6;
         }).catch(() => {
             if (provider !== this.landmarks || key !== this.landmarkKey) return;
             this.landmarkKey = "";
@@ -497,7 +508,10 @@ class GlobeDemo {
             const location = LOCATIONS[Number(preset.value)];
             latitude.value = String(location.latitude);
             longitude.value = String(location.longitude);
-            this.navigator.flyTo(location.latitude, location.longitude, {
+            if (location.heading !== undefined) {
+                this.navigator.setView(location.latitude, location.longitude, { zoom: location.zoom });
+                this.orientView(location.tilt ?? 80, location.heading);
+            } else this.navigator.flyTo(location.latitude, location.longitude, {
                 zoom: location.zoom,
                 durationMs: 1400,
             });
@@ -538,7 +552,7 @@ class GlobeDemo {
                     precision,
                 );
                 for (const tile of this.detailGlobe.ourTiles)
-                    tile.mesh.renderingGroupId = 3;
+                    tile.mesh.renderingGroupId = 6;
                 this.data.invalidate();
             }
             this.updateDistanceLayers(view);
@@ -553,13 +567,13 @@ class GlobeDemo {
         if (!this.distanceLayers.length) {
             for (const plan of plans) {
                 const globe = new GlobeSet(this.scene, this.engine, {
-                    radius: GLOBE_RADIUS, backingSurface: false, attribution: false, geometryBudgetMs: 1,
+                    radius: GLOBE_RADIUS, backingSurface: false, attribution: false, geometryBudgetMs: 0.5, edgeFadeTiles: 1,
                 });
                 globe.rasterConcurrency = 2;
                 globe.setRasterProvider(new RasterOSM(globe));
                 globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);
                 for (const tile of globe.ourTiles) tile.mesh.renderingGroupId = plan.group;
-                const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: 1, minTerrainZoom: 5, minBuildingZoom: 11 });
+                const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: plan.group === 2 ? 4 : 2, minTerrainZoom: 5, minBuildingZoom: 11 });
                 this.distanceLayers.push({ globe, data, key: "" });
             }
             this.configureDistanceLayers();
@@ -606,12 +620,12 @@ class GlobeDemo {
         const buildings = (document.getElementById("buildings") as HTMLInputElement).checked;
         const exaggeration = Number((document.getElementById("exaggeration") as HTMLInputElement).value);
         this.distanceLayers.forEach((layer, index) => {
-            if (index === 1 && this.overtureURL && !layer.buildings) {
+            if (index >= 1 && this.overtureURL && !layer.buildings) {
                 layer.buildings = new BuildingsOverture(layer.globe, this.overtureURL);
                 layer.buildings.doMerge = true;
                 layer.buildings.buildingsCreatedPerFrame = 8;
                 layer.buildings.creationTimeBudgetMs = 1;
-                layer.buildings.buildingMeshTransform = mesh => { mesh.renderingGroupId = 2; };
+                layer.buildings.buildingMeshTransform = mesh => { mesh.renderingGroupId = index + 1; };
             }
             layer.data.options.buildings = buildings ? layer.buildings : undefined;
             layer.data.options.elevation = terrain ? this.elevation.load : undefined;

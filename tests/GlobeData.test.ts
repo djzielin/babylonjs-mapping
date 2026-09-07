@@ -339,6 +339,18 @@ describe("bounded detail streaming", () => {
         data.dispose();
         dispose();
     });
+    it("starts terrain nearest the viewer before distant grid corners", () => {
+        const { globe, dispose } = setup(5);
+        const loader = vi.fn((_coords: Vector3, _signal: AbortSignal) => new Promise<ElevationGrid>(() => {}));
+        const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
+        data.update();
+        const first = loader.mock.calls[0][0] as unknown as Vector3;
+        const cx = globe.ourTileMath.lon_to_tile(globe.centerCoords.x, globe.zoom);
+        const cy = globe.ourTileMath.lat_to_tile(globe.centerCoords.y, globe.zoom);
+        expect(first.x).toBe(cx);
+        expect(first.y).toBe(cy);
+        data.dispose(); dispose();
+    });
     it("reports errors once and explicitly retries on invalidation", async () => {
         const { globe, dispose } = setup();
         const loader = vi.fn(async () => {

@@ -8,6 +8,8 @@ import TileSet from "./TileSet.js";
 export interface GlobeSetOptions {
     /** Radius of the globe in Babylon world units. */
     radius?: number;
+    /** Blend the outer tile band into a coarser globe layer; default zero. */
+    edgeFadeTiles?: number;
     /** Optional CPU budget per frame for new patches; default builds synchronously. */
     geometryBudgetMs?: number;
     /** Creates a recessed fill sphere behind raster tiles. Defaults to true. */
@@ -35,6 +37,8 @@ export interface GlobeCoordinates {
 export default class GlobeSet extends TileSet {
     readonly isGlobe = true;
     private flatMath;
+    private edgeFadeTiles;
+    private edgeFadeKeys;
     private geometryKeys;
     private elevationTileMap;
     private tileDirections;
@@ -91,5 +95,6 @@ export default class GlobeSet extends TileSet {
     sampleElevation(latitude: number, longitude: number): number;
     private createBackingMesh;
     private createPolarCap;
+    private updateEdgeFade;
     private updateTileGeometry;
 }

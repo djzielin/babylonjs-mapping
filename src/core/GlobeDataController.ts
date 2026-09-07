@@ -53,7 +53,19 @@ export default class GlobeDataController {
                 this.jobs.delete(tile);
                 this.stats.cancelled++;
             }
-        for (const tile of this.globe.ourTiles) {
+        if (this.stats.active >= (this.options.concurrency ?? 4)) return;
+        const centerX = this.globe.ourTileMath.lon_to_tileExact(this.globe.centerCoords.x, this.globe.zoom);
+        const centerY = this.globe.ourTileMath.lat_to_tileExact(this.globe.centerCoords.y, this.globe.zoom);
+        const count = 2 ** this.globe.zoom;
+        const distance = (tile: Tile) => {
+            const dx = Math.abs(tile.tileCoords.x + 0.5 - centerX);
+            return Math.min(dx, count - dx) ** 2 + (tile.tileCoords.y + 0.5 - centerY) ** 2;
+        };
+        // Load the area around the viewer before the far corners of large LOD grids.
+        const candidates = this.globe.ourTiles.filter(tile => !tile.mesh.isDisposed() && this.globe.isTileGeometryReady(tile)
+            && this.ready.get(tile) !== tile.tileCoords.toString() && !this.jobs.has(tile));
+        candidates.sort((a, b) => distance(a) - distance(b));
+        for (const tile of candidates) {
             if (
                 !tile.tileCoords ||
                 tile.mesh.isDisposed() ||

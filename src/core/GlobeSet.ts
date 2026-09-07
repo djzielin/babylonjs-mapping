@@ -24,6 +24,8 @@ const BACKING_SURFACE_SCALE = 0.98;
 export interface GlobeSetOptions {
     /** Radius of the globe in Babylon world units. */
     radius?: number;
+    /** Blend the outer tile band into a coarser globe layer; default zero. */
+    edgeFadeTiles?: number;
     /** Optional CPU budget per frame for new patches; default builds synchronously. */
     geometryBudgetMs?: number;
     /** Creates a recessed fill sphere behind raster tiles. Defaults to true. */
@@ -53,6 +55,8 @@ export interface GlobeCoordinates {
 export default class GlobeSet extends TileSet {
     public override readonly isGlobe = true;
     private flatMath: GlobeTileMath;
+    private edgeFadeTiles = 0;
+    private edgeFadeKeys = new WeakMap<Tile, string>();
     private geometryKeys = new WeakMap<Tile, string>();
     private elevationTileMap = new Map<string, Tile>();
     private tileDirections = new WeakMap<Tile, number[]>();
@@ -78,6 +82,7 @@ export default class GlobeSet extends TileSet {
             const tile = this.geometryQueue.shift()!;
             if (tile.mesh.isDisposed()) continue;
             this.updateTileGeometry(tile);
+            this.updateEdgeFade(tile);
             if (tile.material?.diffuseTexture?.isReady())
                 tile.mesh.setEnabled(true);
             processed++;
@@ -102,6 +107,8 @@ export default class GlobeSet extends TileSet {
     ) {
         super(scene, engine);
         this.geometryBudgetMs = options.geometryBudgetMs ?? Infinity;
+        this.edgeFadeTiles = options.edgeFadeTiles ?? 0;
+        if (!Number.isFinite(this.edgeFadeTiles) || this.edgeFadeTiles < 0) throw new RangeError("edgeFadeTiles must be non-negative");
         if (this.geometryBudgetMs <= 0 || Number.isNaN(this.geometryBudgetMs))
             throw new RangeError("geometryBudgetMs must be positive");
         scene.onBeforeRenderObservable.add(() => this.flushGeometry());
@@ -300,6 +307,7 @@ export default class GlobeSet extends TileSet {
             );
         }
         this.flushGeometry();
+        if (this.edgeFadeTiles) for (const tile of this.ourTiles) if (this.isTileGeometryReady(tile)) this.updateEdgeFade(tile);
     }
 
     protected override reuseRasterTilesOnUpdate(): boolean {
@@ -631,10 +639,36 @@ export default class GlobeSet extends TileSet {
         return mesh;
     }
 
+    private updateEdgeFade(tile: Tile): void {
+        if (!this.edgeFadeTiles) return;
+        const count = 2 ** this.zoom;
+        const centerX = this.ourTileMath.lon_to_tile(this.centerCoords.x, this.zoom);
+        const offsetX = (x: number) => ((x - centerX + count / 2) % count + count) % count - count / 2;
+        const xs = this.ourTiles.map(t => offsetX(t.tileCoords.x));
+        const ys = this.ourTiles.map(t => t.tileCoords.y);
+        const left = Math.min(...xs), right = Math.max(...xs) + 1;
+        const top = Math.min(...ys), bottom = Math.max(...ys) + 1;
+        const tx = offsetX(tile.tileCoords.x), ty = tile.tileCoords.y;
+        const key = `${left}/${right}/${top}/${bottom}/${tx}/${ty}/${this.meshPrecision}`;
+        if (this.edgeFadeKeys.get(tile) === key) return;
+        this.edgeFadeKeys.set(tile, key);
+        const colors: number[] = [];
+        for (let y = 0; y <= this.meshPrecision; y++) for (let x = 0; x <= this.meshPrecision; x++) {
+            const u = tx + x / this.meshPrecision, v = ty + y / this.meshPrecision;
+            const d = Math.min(u - left, right - u, v - top, bottom - v);
+            const a = Math.max(0, Math.min(1, d / this.edgeFadeTiles));
+            colors.push(1, 1, 1, a * a * (3 - 2 * a));
+        }
+        tile.mesh.setVerticesData(VertexBuffer.ColorKind, colors, true);
+        tile.mesh.hasVertexAlpha = true;
+        if (tile.material) tile.material.forceDepthWrite = true;
+    }
+
     private updateTileGeometry(tile: Tile): void {
         const key = `${tile.tileCoords}/${this.radius}/${this.meshPrecision}`;
         if (this.geometryKeys.get(tile) === key) return;
         this.geometryKeys.set(tile, key);
+        this.edgeFadeKeys.delete(tile);
         const wasFrozen = tile.mesh.isWorldMatrixFrozen;
         tile.mesh.unfreezeWorldMatrix();
         const precision = this.meshPrecision;

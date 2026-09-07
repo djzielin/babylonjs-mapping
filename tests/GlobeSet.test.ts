@@ -32,6 +32,23 @@ function createGlobe(options?: ConstructorParameters<typeof GlobeSet>[2]) {
 }
 
 describe("GlobeSet", () => {
+    it("feathers the outer boundary while keeping the interior opaque", () => {
+        const { engine, scene, globe } = createGlobe({ radius: 25, edgeFadeTiles: 1 });
+        globe.createGeometry(new Vector2(3, 3), 20, 4);
+        globe.updateRaster(35, 139, 12);
+        const minX = Math.min(...globe.ourTiles.map(t => t.tileCoords.x));
+        const minY = Math.min(...globe.ourTiles.map(t => t.tileCoords.y));
+        const corner = globe.ourTiles.find(t => t.tileCoords.x === minX && t.tileCoords.y === minY)!;
+        const center = globe.ourTiles.find(t => t.tileCoords.x === minX + 1 && t.tileCoords.y === minY + 1)!;
+        const colors = corner.mesh.getVerticesData(VertexBuffer.ColorKind)!;
+        expect(colors[3]).toBe(0);
+        expect(colors[(2 * 5 + 2) * 4 + 3]).toBeCloseTo(0.5);
+        expect(center.mesh.getVerticesData(VertexBuffer.ColorKind)![3]).toBe(1);
+        expect(corner.mesh.hasVertexAlpha).toBe(true);
+        globe.setElevationData(corner, [0, 100, 200, 300], 2, 2);
+        expect(corner.mesh.getVerticesData(VertexBuffer.ColorKind)).toEqual(colors);
+        scene.dispose(); engine.dispose();
+    });
     it("maps a raster tile onto an outward-facing spherical patch", () => {
         const { engine, scene, globe } = createGlobe({ radius: 25 });
         globe.updateRaster(0, 0, 2);

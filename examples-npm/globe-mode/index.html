@@ -34,6 +34,7 @@
             .toggle { display: flex; align-items: center; gap: 10px; min-height: 24px; cursor: pointer; }
             input[type=checkbox] { flex: 0 0 16px; width: 16px; height: 16px; margin: 0; accent-color: #8ac8ff; }
             button[aria-pressed=true] { background: #304e6d; border-color: #8ac8ff; }
+            #loadingStatus { margin-top: 10px; font-size: 11px; color: #a7b6c9; }
             #mapStyleStatus { font-size: 11px; color: #a7b6c9; }
             #mapStyleStatus:not(:empty) { margin: 8px 0; }
             .map-style { margin-bottom: 12px; }
@@ -97,6 +98,7 @@
                 <label class="angle">Tilt<input id="tilt" type="range" min="0" max="89" value="0"><output id="tiltValue">0°</output></label>
                 <label class="angle">Heading<input id="heading" type="range" min="0" max="359" value="0"><output id="headingValue">0°</output></label>
             </div>
+            <p id="loadingStatus" role="status">Loading terrain and buildings…</p>
             <details>
                 <summary>More options</summary>
                 <div class="settings">

@@ -19,10 +19,10 @@ describe("globe distance LOD", () => {
         for (let zoom = 8; zoom <= 18; zoom++) {
             const plans = globeLODPlan(zoom);
             const vertices = plans.reduce((total, p) => total + p.size ** 2 * (p.precision + 1) ** 2, 0);
-            expect(vertices).toBeLessThan(300000);
+            expect(vertices).toBeLessThan(550000);
             expect(plans[0].zoom).toBeLessThan(plans[1].zoom);
             expect(plans[1].zoom).toBeLessThan(zoom);
-            expect(plans.map(p => p.group)).toEqual([1, 2]);
+            expect(plans.map(p => p.group)).toEqual([1, 2, 3, 4, 5]);
         }
     });
 });
