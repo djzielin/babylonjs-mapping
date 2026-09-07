@@ -111,7 +111,7 @@ class GlobeDemo {
         });
         RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, 8);
         this.scene = new Scene(this.engine);
-        this.layers = new MapLayerRenderer(this.scene);
+        this.layers = new MapLayerRenderer(this.scene, 7, { logarithmicDepth: true });
     }
 
     public start(): void {
@@ -478,6 +478,7 @@ class GlobeDemo {
         const provider = this.landmarks ??= new BuildingsMB(this.detailGlobe);
         provider.accessToken = token;
         void provider.generateBuildings().then(tiles => {
+            if (provider !== this.landmarks || key !== this.landmarkKey) return;
             for (const tile of tiles)
                 for (const mesh of tile.asset.meshes) this.layers.add(mesh, 6);
             this.refreshBuildingReplacements();

@@ -8,6 +8,7 @@ import * as GeoJSON from './GeoJSON.js';
 import type Tile from "../core/Tile.js";
 import type TileSet from "../core/TileSet.js";
 import { EPSG_Type } from "../core/TileMath.js";
+import { mergeMeshesAtOrigin } from "../shared/MergeMeshesAtOrigin.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
 import { downloadBlob, isRetryableStatus } from "../shared/Download.js";
 import { RetrievalLocation, RetrievalType } from "../shared/Retrieval.js";
@@ -734,11 +735,10 @@ export default abstract class Buildings {
                     }
                     //console.log("about to do big merge");
                     const allMeshes: Mesh[] = request.tile.getAllBuildingMeshes();
-                    const merged = Mesh.MergeMeshes(
-                        allMeshes,
-                        true,
-                        true,
-                    ); //dispose source meshes and allow dense 32-bit index buffers
+                    const merged = this.tileSet.isGlobe
+                        ? mergeMeshesAtOrigin(allMeshes, request.tile.mesh.getAbsolutePosition())
+                        : Mesh.MergeMeshes(allMeshes, true, true);
+
 
                     if (merged) {
                         merged.renderingGroupId = allMeshes[0].renderingGroupId;
