@@ -16,23 +16,13 @@ export default class TerrainMB {
     private mbServer: string = "https://api.mapbox.com/v4/";
 
     public globalMinHeight = Number.POSITIVE_INFINITY;
-    private index = 0;
+    private readonly terrainRequests = new WeakMap<Tile, symbol>();
     public accessToken: string = "";
     private heightScaleFixer=0;
     private skuToken: string="";
     //public onAllLoaded: Observable<boolean> = new Observable();
 
     constructor(public tileSet: TileSet, private scene: Scene) {
-        if(this.tileSet){
-            if(this.tileSet.ourTileMath){
-                console.log("we seem to be able to access tileMath here");
-
-            } else{
-                console.error("unable to access tileMath!");
-            }
-        } else{
-            console.error("unable to access tileSet!");
-        }  
         this.skuToken = this.tileSet.ourTileMath.generateSKU();
           
     }  
@@ -45,11 +35,12 @@ export default class TerrainMB {
     //https://www.babylonjs-playground.com/#DXARSP#30
     private GetAsyncTexture (url: string) : Promise<Texture> {
         return new Promise((resolve, reject) => {
-            var texture = new Texture(url, this.scene, true, false, Texture.NEAREST_SAMPLINGMODE, function() {
+            const texture = new Texture(url, this.scene, true, false, Texture.NEAREST_SAMPLINGMODE, function() {
                 console.log("loading texture success!");
                 resolve(texture);
             }, function(message) {
-                reject(message);
+                texture.dispose();
+                reject(new Error(message ?? "Unable to load terrain texture."));
             });    
         })
     }
@@ -60,28 +51,6 @@ export default class TerrainMB {
 
         await Promise.all(this.tileSet.ourTiles.map((tile) => this.updateSingleTerrainTile(tile)));
 
-        //Fix Seams Here
-        /*for (let t of this.ourTiles) {
-            for (let t2 of this.ourTiles) {
-                if ((t.tileCoords.x == (t2.tileCoords.x - 1)) && (t.tileCoords.y == t2.tileCoords.y)) {
-                    if (t.eastSeamFixed == false) {
-                        this.ourMB.fixEastSeam(t,t2);
-                    }
-                }
-                if ((t.tileCoords.x == t2.tileCoords.x) && (t.tileCoords.y == (t2.tileCoords.y+1))) {
-                    if (t.northSeamFixed == false) {
-                        this.ourMB.fixNorthSeam(t,t2);
-                    }
-                }
-                if ((t.tileCoords.x == (t2.tileCoords.x - 1)) && (t.tileCoords.y == (t2.tileCoords.y+1))) {
-                    if (t.northEastSeamFixed == false) {
-                        this.ourMB.fixNorthEastSeam(t,t2);
-                    }
-                }
-            }
-        }
-        */
-        //this.ourMB.getTileTerrain(this.ourTiles[0]); //just one for testing
     }
 
     public setupTerrainLOD(precisions: number[], distances: number[], skirtDepth = this.tileSet.tileWidth): void {
@@ -240,6 +209,9 @@ export default class TerrainMB {
 
     //https://docs.mapbox.com/data/tilesets/reference/mapbox-terrain-dem-v1/
     public async updateSingleTerrainTile(tile: Tile) {
+        const request = Symbol();
+        this.terrainRequests.set(tile, request);
+        const heightScale = this.heightScaleFixer;
         tile.clearTerrainLOD();
         tile.terrainLoaded=false;
         tile.eastSeamFixed = false;
@@ -267,51 +239,27 @@ export default class TerrainMB {
         const mapType = "mapbox.mapbox-terrain-dem-v1";
 
         const extension = ".pngraw";
-        const skuParam = "?sku=" + this.skuToken;
-        const accessParam = "&access_token=" + this.accessToken;
-        const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + boostParam + extension + skuParam + accessParam;
-
-        console.log("trying to get: " + url);
-       
-        const ourTex: Texture = await this.GetAsyncTexture(url); //wait for loading to be complete
-
-        if (!ourTex){
-            console.error("unable to load terrain for: " + tile.tileCoords);
-            return;
-        }
-        //console.log("terrain dimensions: " + tile.demDimensions);
-
-        const bufferView = await ourTex.readPixels();
-
-        if (!bufferView) {
-            console.error("unable to read pixels from texture for terrain tile: " + tile.tileCoords);
-        }
-
-        const bufferUint: Uint8Array = new Uint8Array(bufferView!.buffer, bufferView!.byteOffset, bufferView!.byteLength);
-        //console.log("terrain buffer dimensions: " + bufferUint.byteLength)
-
-        if(tile.tileCoords.equals(storedCoords)==false){
-            console.warn("looks like tile coords have changed already! bailing on this update for: " + tile.tileCoords);
-            return;
-        }
-
-        tile.demDimensions = new Vector2(ourTex.getSize().width, ourTex.getSize().height);
-
-        this.convertRGBtoDEM(bufferUint, tile);
-        this.applyDEMToMesh(tile, this.tileSet.meshPrecision);
-
-        tile.terrainLoaded=true;
-
-        this.fixTileSeams();
-
-        /*
-        for(let t of this.tileSet.ourTiles){
-            if(!t.terrainLoaded){
+        const query = new URLSearchParams({ sku: this.skuToken, access_token: this.accessToken });
+        const url = prefix + mapType + "/" + storedCoords.z + "/" + storedCoords.x + "/" + storedCoords.y + boostParam + extension + "?" + query;
+        const texture = await this.GetAsyncTexture(url);
+        try {
+            const bufferView = await texture.readPixels();
+            if (tile.mesh.isDisposed() || !tile.tileCoords.equals(storedCoords) || this.terrainRequests.get(tile) !== request) {
                 return;
             }
+            if (!bufferView) {
+                throw new Error("Unable to read terrain texture pixels.");
+            }
+            const pixels = new Uint8Array(bufferView.buffer, bufferView.byteOffset, bufferView.byteLength);
+            const size = texture.getSize();
+            tile.demDimensions = new Vector2(size.width, size.height);
+            this.convertRGBtoDEM(pixels, tile);
+            this.applyDEMToMesh(tile, this.tileSet.meshPrecision, heightScale);
+            tile.terrainLoaded = true;
+            this.fixTileSeams();
+        } finally {
+            texture.dispose();
         }
-
-        this.onAllLoaded.notifyObservers(true);  */
     }
 
     /** Re-applies every available cardinal and diagonal seam. */
@@ -405,7 +353,7 @@ export default class TerrainMB {
         }
     }
 
-    public applyDEMToMesh(tile: Tile, meshPrecision: number) {
+    public applyDEMToMesh(tile: Tile, meshPrecision: number, heightScale = this.heightScaleFixer) {
         const positions = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const subdivisions = meshPrecision + 1;
 
@@ -413,15 +361,25 @@ export default class TerrainMB {
             for (let x = 0; x < subdivisions; x++) {
                 const percent = new Vector2(x / (subdivisions - 1), y / (subdivisions - 1));
                 const demIndex = this.computeIndexByPercent(percent, tile.demDimensions);                
-                const height = (tile.dem[demIndex]) * this.heightScaleFixer;
+                const height = (tile.dem[demIndex]) * heightScale;
                 const meshIndex = 1 + (x + y * subdivisions) * 3;
 
                 positions[meshIndex] = height;
             }
         }
 
-        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
-        tile.mesh.refreshBoundingInfo();
+        this.updateTerrainPositions(tile.mesh, positions);
+    }
+
+    private updateTerrainPositions(mesh: Mesh, positions: FloatArray): void {
+        mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
+        const normals = mesh.getVerticesData(VertexBuffer.NormalKind);
+        const indices = mesh.getIndices();
+        if (normals && indices) {
+            VertexData.ComputeNormals(positions, indices, normals);
+            mesh.updateVerticesData(VertexBuffer.NormalKind, normals);
+        }
+        mesh.refreshBoundingInfo();
     }
 
     private computeIndexByPercent(percent: Vector2, maxPixel: Vector2): number {
@@ -449,8 +407,7 @@ export default class TerrainMB {
             positions1[meshIndex1] = positions2[meshIndex2];
         }
 
-        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
-        tile.mesh.refreshBoundingInfo();
+        this.updateTerrainPositions(tile.mesh, positions1);
         tile.northSeamFixed = true;
     }
 
@@ -470,8 +427,7 @@ export default class TerrainMB {
             positions1[meshIndex1] = positions2[meshIndex2];
         }
 
-        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
-        tile.mesh.refreshBoundingInfo();
+        this.updateTerrainPositions(tile.mesh, positions1);
         tile.eastSeamFixed = true;
     }
 
@@ -491,70 +447,8 @@ export default class TerrainMB {
 
         positions1[meshIndex1] = positions2[meshIndex2];
 
-        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
-        tile.mesh.refreshBoundingInfo();
+        this.updateTerrainPositions(tile.mesh, positions1);
         tile.northEastSeamFixed = true;
     }
     
-    /*
-    //DEM Version of seam fixing
-    public fixNorthSeam(tile: Tile, tileUpper: Tile){
-        const dem1=tile.dem;
-        const dem2=tileUpper.dem;
-        const dimensions=tile.demDimensions;
-
-        for(let x=0; x<dimensions.x;x++){
-            const pos1Index=x;
-            const pos2Index=x+dimensions.x*(dimensions.y-1); //last row
-
-            const height1=dem1[pos1Index];
-            const height2=dem2[pos2Index];
-
-            dem1[pos1Index]=height2;
-        }      
-
-        tile.northSeamFixed = true;
-    }
-
-    //DEM Version of seam fixing
-    public fixEastSeam(tile: Tile, tileRight: Tile) {
-        //console.log("fixing right seam!");
-        //console.log("dem size: "+ tile.dem.length);
-        const dem1 = tile.dem;
-        const dem2 = tileRight.dem;
-        const dimensions = tile.demDimensions;
-        //console.log("dem dimensions: " + dimensions.x + " " + dimensions.y);
-
-        for (let y = 0; y < dimensions.y; y++) {
-            const pos1Index = (dimensions.x - 1) + y * dimensions.x; //right most col
-            const pos2Index = y * dimensions.x; //left most col
-
-            const height1=dem1[pos1Index];
-            const height2 = dem2[pos2Index];
-
-            dem1[pos1Index]=height2;
-        }       
-
-        tile.eastSeamFixed = true;
-    }
-    
-    //DEM Version of seam fixing
-    public fixNorthEastSeam(tile: Tile, tileUpperRight: Tile) {
-
-        //console.log("dem size: "+ tile.dem.length);
-        const dem1 = tile.dem;
-        const dem2 = tileUpperRight.dem;
-        const dimensions = tile.demDimensions;
-
-        const pos1Index = (dimensions.x - 1); //upper right
-        const pos2Index = (dimensions.y - 1) * dimensions.x; //lower left
-
-        const height1 = dem1[pos1Index];
-        const height2 = dem2[pos2Index];
-
-        dem1[pos1Index] = height2;
-    
-        tile.northEastSeamFixed = true;
-    }
-    */
 }

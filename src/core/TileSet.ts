@@ -550,7 +550,9 @@ export default class TileSet {
         buildingCreator.SubmitLoadTileRequest(t);
     }
     if (reloadTerrain) {
-        void this.ourTerrainMB.updateSingleTerrainTile(t);
+        void this.ourTerrainMB.updateSingleTerrainTile(t).catch((error) => {
+            console.error("Unable to reload terrain for recycled tile:", error);
+        });
     }
 
     this.onTilePositionUpdatedObservable.notifyObservers({
