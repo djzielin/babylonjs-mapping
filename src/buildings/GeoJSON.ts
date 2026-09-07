@@ -352,6 +352,10 @@ export class GeoJSON {
 
 
         this.tileSet.projectFeatureMesh(finalMesh);
+        if (buildings.buildingMeshFilter && !buildings.buildingMeshFilter(finalMesh)) {
+            finalMesh.dispose();
+            return;
+        }
         const building = new TileBuilding(finalMesh, tile);
 
 

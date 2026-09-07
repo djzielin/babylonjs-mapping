@@ -85,6 +85,7 @@ export default class TerrainMB {
                 lodMesh.position.set(0, 0, 0);
                 lodMesh.name = `${tile.mesh.name}_LOD_${precision}`;
                 lodMesh.material = tile.material;
+                lodMesh.renderingGroupId = tile.mesh.renderingGroupId;
                 lodMesh.isPickable = false;
 
                 this.applyDetailedTerrainToMesh(lodMesh, tile, precision);

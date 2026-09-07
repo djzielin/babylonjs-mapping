@@ -106,6 +106,8 @@ export default abstract class Buildings {
      * generation, duplicate detection, and tile merging.
      */
     buildingMeshTransform?: (mesh: Mesh) => void;
+    /** Reject a generated footprint before it is registered or merged. */
+    buildingMeshFilter?: (mesh: Mesh) => boolean;
     retrievalType: RetrievalType;
     protected buildingRequests: BuildingRequest[];
     protected filesLoaded: GeoFileLoaded[];

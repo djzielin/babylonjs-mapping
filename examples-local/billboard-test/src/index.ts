@@ -1,3 +1,4 @@
+import { landscapeTerrainLOD } from "../../../lib/terrain/LandscapeLOD";
 /* Web-Based-VR-Tutorial Project Template
 * Author: Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>
 * License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
@@ -302,11 +303,8 @@ class Game {
         if (mapboxKey) {
             this.terrainTileSet.ourTerrainMB.accessToken = mapboxKey.trim();
             terrainReady = this.terrainTileSet.generateTerrain(2.5).then(() => {
-                this.terrainTileSet.setupTerrainLOD(
-                    [48, 32, 16, 8, 4, 2, 0],
-                    [100, 250, 800, 1100, 1400, 1650, 1900],
-                    2,
-                );
+                const lod = landscapeTerrainLOD(this.terrainTileSet.meshPrecision, LANDSCAPE_TILE_WIDTH);
+                this.terrainTileSet.setupTerrainLOD(lod.precisions, lod.distances, 2);
                 const skytreeHeight = this.sampleTerrainHeight(skytreeWorld);
                 const towerHeight = this.sampleTerrainHeight(towerWorld);
                 const fujiHeight = this.sampleTerrainHeight(fujiWorld);

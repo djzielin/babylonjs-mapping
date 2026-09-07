@@ -140,6 +140,8 @@ export default abstract class Buildings {
      * generation, duplicate detection, and tile merging.
      */
     public buildingMeshTransform?: (mesh: Mesh) => void;
+    /** Reject a generated footprint before it is registered or merged. */
+    public buildingMeshFilter?: (mesh: Mesh) => boolean;
     public retrievalType: RetrievalType = RetrievalType.IndividualTiles;
 
     protected buildingRequests: BuildingRequest[] = [];

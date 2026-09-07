@@ -11,6 +11,9 @@ import { Scene } from "@babylonjs/core/scene";
 
 import {
     GlobeNavigator,
+    MapLayerRenderer,
+    BuildingReplacementIndex,
+    landscapeTerrainLOD,
     GlobeSet,
     RasterOSM,
     RasterGEBCO,
@@ -35,6 +38,7 @@ interface LocationPreset {
     zoom: number;
     heading?: number;
     tilt?: number;
+    eyeHeight?: number;
 }
 
 const GLOBE_RADIUS = 60;
@@ -70,7 +74,7 @@ const LOCATIONS: LocationPreset[] = [
     { name: "Mount Everest", latitude: 27.9881, longitude: 86.925, zoom: 13 },
     { name: "Paris", latitude: 48.8566, longitude: 2.3522, zoom: 15 },
     { name: "Sydney", latitude: -33.8688, longitude: 151.2093, zoom: 13 },
-    { name: "Tokyo · toward Mount Fuji", latitude: 35.6812, longitude: 139.7671, zoom: 16, heading: 249.5, tilt: 87 },
+    { name: "Tokyo · toward Mount Fuji", latitude: 35.6812, longitude: 139.7671, zoom: 16, heading: 249.5, tilt: 87, eyeHeight: 600 },
 ];
 
 class GlobeDemo {
@@ -81,6 +85,8 @@ class GlobeDemo {
     private detailGlobe: GlobeSet;
     private baseGlobe: GlobeSet;
     private camera: ArcRotateCamera;
+    private layers: MapLayerRenderer;
+    private replacements = new BuildingReplacementIndex();
     private data: GlobeDataController;
     private elevation = new TerrainRGB();
     private buildings?: BuildingsOverture;
@@ -92,7 +98,7 @@ class GlobeDemo {
     private landmarks?: BuildingsMB;
     private landmarkKey = "";
     private landmarkRetryAt = 0;
-    private distanceLayers: { globe: GlobeSet; data: GlobeDataController; buildings?: BuildingsOverture; key: string }[] = [];
+    private distanceLayers: { globe: GlobeSet; data: GlobeDataController; buildings?: BuildingsOverture; key: string; lodKey?: string }[] = [];
     private overtureURL?: string;
 
     public constructor() {
@@ -101,9 +107,11 @@ class GlobeDemo {
         ) as unknown as HTMLCanvasElement;
         this.engine = new Engine(this.canvas, true, {
             useHighPrecisionMatrix: true,
+            stencil: true,
         });
-        RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, 7);
+        RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, 8);
         this.scene = new Scene(this.engine);
+        this.layers = new MapLayerRenderer(this.scene);
     }
 
     public start(): void {
@@ -128,6 +136,7 @@ class GlobeDemo {
             this.scene.render();
             this.updateOrientation();
             this.updateLandmarks();
+            this.updateLandscapeLOD();
             if (performance.now() - this.lastStats > 500) {
                 this.lastStats = performance.now();
                 const stat = this.distanceLayers.reduce<{ active: number; completed: number; failed: number }>((total, layer) => ({
@@ -159,20 +168,20 @@ class GlobeDemo {
         baseGlobe.setRasterProvider(new RasterOSM(baseGlobe));
         baseGlobe.createGeometry(new Vector2(4, 4), 20, 16);
         baseGlobe.updateRaster(40.98, 0, 2);
+        for (const mesh of this.scene.meshes) this.layers.add(mesh, 0);
 
         // The detail layer follows the camera. Its small radial offset avoids
         // z-fighting while the zoom-2 base remains visible during tile loads.
         this.detailGlobe = new GlobeSet(this.scene, this.engine, {
             radius: DETAIL_RADIUS,
             geometryBudgetMs: 4,
-            edgeFadeTiles: 1,
             backingSurface: false,
             attribution: false,
         });
         this.detailGlobe.setRasterProvider(new RasterOSM(this.detailGlobe));
         this.detailGlobe.createGeometry(new Vector2(5, 5), 20, 16);
         for (const tile of this.detailGlobe.ourTiles)
-            tile.mesh.renderingGroupId = 6;
+            this.layers.add(tile.mesh, 6);
         this.data = new GlobeDataController(this.detailGlobe, {
             elevation: this.elevation.load,
             concurrency: 4,
@@ -186,9 +195,10 @@ class GlobeDemo {
                 this.overtureURL = url;
                 this.buildings = new BuildingsOverture(this.detailGlobe, url);
                 this.buildings.doMerge = true;
+                this.buildings.buildingMeshFilter = mesh => this.keepBuilding(mesh, this.detailGlobe);
                 this.buildings.buildingsCreatedPerFrame = 32;
                 this.buildings.buildingMeshTransform = (mesh) => {
-                    mesh.renderingGroupId = 6;
+                    this.layers.add(mesh, 6);
                 };
                 this.buildings.buildingMaterial.diffuseColor.set(
                     0.86,
@@ -306,7 +316,7 @@ class GlobeDemo {
                 this.roads.doMerge = true;
                 this.roads.buildingMaterial.diffuseColor.set(0.92, 0.57, 0.18);
                 this.roads.buildingMeshTransform = (mesh) => {
-                    mesh.renderingGroupId = 6;
+                    this.layers.add(mesh, 6);
                 };
             }
             this.data.options.features =
@@ -320,6 +330,7 @@ class GlobeDemo {
             ) {
                 this.landmarks?.dispose();
                 this.landmarkKey = "";
+                this.refreshBuildingReplacements();
             }
         });
         const basemap = document.getElementById("basemap") as HTMLSelectElement;
@@ -416,7 +427,7 @@ class GlobeDemo {
                             this.detailGlobe,
                         ));
                     settings.buildingMeshTransform = (mesh) => {
-                        mesh.renderingGroupId = 6;
+                        this.layers.add(mesh, 6);
                     };
                     const generator = new GeoJSON.GeoJSON(
                         this.detailGlobe,
@@ -445,9 +456,11 @@ class GlobeDemo {
         const enabled = (document.getElementById("landmarks") as HTMLInputElement).checked;
         const token = (document.getElementById("mapboxToken") as HTMLInputElement).value.trim();
         if (!enabled || !token || this.detailGlobe.zoom < 14) {
+            const hadModels = !!this.landmarks;
             this.landmarks?.dispose();
             this.landmarks = undefined;
             this.landmarkKey = "";
+            if (hadModels) this.refreshBuildingReplacements();
             return;
         }
         if (this.landmarks && this.landmarks.accessToken !== token) {
@@ -455,7 +468,7 @@ class GlobeDemo {
             this.landmarks = undefined;
             this.landmarkKey = "";
         }
-        if (this.detailGlobe.pendingGeometryCount > 0) return;
+        if (this.detailGlobe.pendingGeometryCount > 0 || this.data.stats.active > 0) return;
         // Landmark requests follow geography independently of the slower
         // footprint queue, including custom addresses and drag navigation.
         const key = this.detailGlobe.ourTiles.map(t => t.tileCoords.toString()).join("|");
@@ -466,13 +479,48 @@ class GlobeDemo {
         provider.accessToken = token;
         void provider.generateBuildings().then(tiles => {
             for (const tile of tiles)
-                for (const mesh of tile.asset.meshes) mesh.renderingGroupId = 6;
+                for (const mesh of tile.asset.meshes) this.layers.add(mesh, 6);
+            this.refreshBuildingReplacements();
         }).catch(() => {
             if (provider !== this.landmarks || key !== this.landmarkKey) return;
             this.landmarkKey = "";
             this.landmarkRetryAt = performance.now() + 15000;
             this.message("Landmark request failed; retrying shortly. Check the Mapbox token if this persists.");
         });
+    }
+
+    private keepBuilding(mesh: import("@babylonjs/core/Meshes/mesh").Mesh, owner: GlobeSet): boolean {
+        const center = mesh.getBoundingInfo().boundingBox.centerWorld;
+        const position = owner.getSurfaceCoordinates(center);
+        for (const finer of [this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)]) {
+            if (finer.zoom <= owner.zoom) continue;
+            const coordinate = new Vector3(finer.ourTileMath.lon_to_tile(position.longitude, finer.zoom), finer.ourTileMath.lat_to_tile(position.latitude, finer.zoom), finer.zoom);
+            if (finer.ourTilesMap.has(coordinate.toString())) return false;
+        }
+        return this.replacements.keepFootprint(mesh, center, 20000 * owner.metresToWorld);
+    }
+
+    private updateLandscapeLOD(): void {
+        const region = this.distanceLayers[1];
+        if (!region || region.lodKey === region.key || region.data.stats.active > 0 || !region.globe.ourTiles.every(tile => tile.terrainLoaded)) return;
+        const tile = region.globe.ourTiles[Math.floor(region.globe.ourTiles.length / 2)];
+        const width = Vector3.Distance(region.globe.getTileSurfacePosition(tile.tileCoords, 0, 0.5), region.globe.getTileSurfacePosition(tile.tileCoords, 1, 0.5));
+        const lod = landscapeTerrainLOD(region.globe.meshPrecision, width);
+        region.globe.setupTerrainLOD(lod.precisions, lod.distances, 10 * region.globe.metresToWorld);
+        region.lodKey = region.key;
+    }
+
+    private refreshBuildingReplacements(): void {
+        const models = this.landmarks?.loadedModelTiles.flatMap(tile => tile.asset.meshes) ?? [];
+        this.replacements.setModels(models.filter((mesh): mesh is import("@babylonjs/core/Meshes/mesh").Mesh => mesh.getTotalVertices() > 0) as import("@babylonjs/core/Meshes/mesh").Mesh[]);
+        for (const entry of [{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]) {
+            if (!entry.buildings || entry.globe.zoom < 11) continue;
+            entry.buildings.cancelPendingRequests();
+            for (const tile of entry.globe.ourTiles) {
+                tile.deleteBuildings();
+                if ((document.getElementById("buildings") as HTMLInputElement).checked) entry.buildings.SubmitLoadTileRequest(tile);
+            }
+        }
     }
 
     private setupLocationControls(): void {
@@ -510,7 +558,7 @@ class GlobeDemo {
             longitude.value = String(location.longitude);
             if (location.heading !== undefined) {
                 this.navigator.setView(location.latitude, location.longitude, { zoom: location.zoom });
-                this.orientView(location.tilt ?? 80, location.heading);
+                this.orientView(location.tilt ?? 80, location.heading, location.eyeHeight ?? 0);
             } else this.navigator.flyTo(location.latitude, location.longitude, {
                 zoom: location.zoom,
                 durationMs: 1400,
@@ -552,7 +600,7 @@ class GlobeDemo {
                     precision,
                 );
                 for (const tile of this.detailGlobe.ourTiles)
-                    tile.mesh.renderingGroupId = 6;
+                    this.layers.add(tile.mesh, 6);
                 this.data.invalidate();
             }
             this.updateDistanceLayers(view);
@@ -567,12 +615,12 @@ class GlobeDemo {
         if (!this.distanceLayers.length) {
             for (const plan of plans) {
                 const globe = new GlobeSet(this.scene, this.engine, {
-                    radius: GLOBE_RADIUS, backingSurface: false, attribution: false, geometryBudgetMs: 0.5, edgeFadeTiles: 1,
+                    radius: GLOBE_RADIUS, backingSurface: false, attribution: false, geometryBudgetMs: 0.5,
                 });
                 globe.rasterConcurrency = 2;
                 globe.setRasterProvider(new RasterOSM(globe));
                 globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);
-                for (const tile of globe.ourTiles) tile.mesh.renderingGroupId = plan.group;
+                for (const tile of globe.ourTiles) this.layers.add(tile.mesh, plan.group);
                 const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: plan.group === 2 ? 4 : 2, minTerrainZoom: 5, minBuildingZoom: 11 });
                 this.distanceLayers.push({ globe, data, key: "" });
             }
@@ -585,7 +633,7 @@ class GlobeDemo {
             const size = Math.min(plan.size, 2 ** plan.zoom);
             if (layer.globe.ourTiles.length !== size * size) {
                 layer.globe.createGeometry(new Vector2(size, size), 20, plan.precision);
-                for (const tile of layer.globe.ourTiles) tile.mesh.renderingGroupId = plan.group;
+                for (const tile of layer.globe.ourTiles) this.layers.add(tile.mesh, plan.group);
                 layer.key = "";
                 layer.data.invalidate();
             }
@@ -623,13 +671,15 @@ class GlobeDemo {
             if (index >= 1 && this.overtureURL && !layer.buildings) {
                 layer.buildings = new BuildingsOverture(layer.globe, this.overtureURL);
                 layer.buildings.doMerge = true;
+                layer.buildings.buildingMeshFilter = mesh => this.keepBuilding(mesh, layer.globe);
                 layer.buildings.buildingsCreatedPerFrame = 8;
                 layer.buildings.creationTimeBudgetMs = 1;
-                layer.buildings.buildingMeshTransform = mesh => { mesh.renderingGroupId = index + 1; };
+                layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, index + 1); };
             }
             layer.data.options.buildings = buildings ? layer.buildings : undefined;
             layer.data.options.elevation = terrain ? this.elevation.load : undefined;
             layer.data.options.exaggeration = exaggeration;
+            layer.lodKey = undefined;
             if (!terrain) for (const tile of layer.globe.ourTiles) {
                 if (layer.globe.isTileGeometryReady(tile)) layer.globe.applyElevationGrid(tile, new Array((layer.globe.meshPrecision + 1) ** 2).fill(0), layer.globe.meshPrecision);
             }
@@ -656,7 +706,7 @@ class GlobeDemo {
         return { up, east, north };
     }
 
-    private orientView(tilt: number, heading: number): void {
+    private orientView(tilt: number, heading: number, targetHeightMetres = 0): void {
         const view = this.navigator.getView();
         const { up, east, north } = this.inspectionBasis();
         if (!this.inspecting) {
@@ -668,7 +718,7 @@ class GlobeDemo {
             // Stop any flight at the place the user is currently looking at.
             this.navigator.setView(view.latitude, view.longitude, { altitude: view.altitude });
             const target = this.detailGlobe.getSurfacePosition(view.latitude, view.longitude,
-                this.detailGlobe.sampleElevation(view.latitude, view.longitude));
+                this.detailGlobe.sampleElevation(view.latitude, view.longitude) + targetHeightMetres * this.detailGlobe.metresToWorld);
             this.camera.detachControl();
             const camera = new ArcRotateCamera("local inspection", 0, 1, view.altitude, target, this.scene);
             camera.upVector = up;
