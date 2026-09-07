@@ -338,7 +338,7 @@ class GlobeDemo {
                 view.longitude,
             );
             const east = new Vector3(
-                Math.cos((view.longitude * Math.PI) / 180),
+                -Math.cos((view.longitude * Math.PI) / 180),
                 0,
                 -Math.sin((view.longitude * Math.PI) / 180),
             );

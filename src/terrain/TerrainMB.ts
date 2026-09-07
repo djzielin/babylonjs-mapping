@@ -208,7 +208,8 @@ export default class TerrainMB {
             const bottomA = skirtBottomStart + index;
             const bottomB = skirtBottomStart + next;
 
-            indices.push(topA, bottomA, topB, topB, bottomA, bottomB);
+            if (this.tileSet.isGlobe) indices.push(topA, topB, bottomA, topB, bottomB, bottomA);
+            else indices.push(topA, bottomA, topB, topB, bottomA, bottomB);
         }
 
         normals.length = positions.length;

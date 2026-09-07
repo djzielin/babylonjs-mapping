@@ -47,6 +47,15 @@ describe("GlobeSet", () => {
         expect(positions).toHaveLength(27);
         expect(normals).toHaveLength(27);
 
+        // Check actual winding too: supplied radial normals can hide inward faces.
+        const indices = tile.mesh.getIndices()!;
+        for (let i = 0; i < indices.length; i += 3) {
+            const a = Vector3.FromArray(positions!, indices[i] * 3);
+            const b = Vector3.FromArray(positions!, indices[i + 1] * 3);
+            const c = Vector3.FromArray(positions!, indices[i + 2] * 3);
+            expect(Vector3.Dot(Vector3.Cross(c.subtract(a), b.subtract(a)), a)).toBeGreaterThan(0);
+        }
+
         for (let index = 0; index < positions!.length; index += 3) {
             const point = new Vector3(positions![index], positions![index + 1], positions![index + 2]);
             expect(point.length()).toBeCloseTo(globe.radius, 5);
@@ -71,13 +80,13 @@ describe("GlobeSet", () => {
     it("provides surface positions and normals for globe overlays", () => {
         const { engine, scene, globe } = createGlobe({ radius: 10 });
 
-        expect(globe.getSurfacePosition(0, 0)).toEqual(new Vector3(0, 0, 10));
+        expect(globe.getSurfacePosition(0, 0)).toEqual(new Vector3(-0, 0, 10));
         expect(globe.getSurfacePosition(90, 0).y).toBeCloseTo(10);
-        expect(globe.getSurfacePosition(0, 90).x).toBeCloseTo(10);
+        expect(globe.getSurfacePosition(0, 90).x).toBeCloseTo(-10);
         expect(globe.getSurfacePosition(0, 0, 2).z).toBeCloseTo(12);
 
         const normal = globe.getSurfaceNormal(0, 90);
-        expect(normal.x).toBeCloseTo(1);
+        expect(normal.x).toBeCloseTo(-1);
         expect(normal.y).toBeCloseTo(0);
         expect(normal.z).toBeCloseTo(0);
 

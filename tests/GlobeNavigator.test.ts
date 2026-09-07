@@ -1,4 +1,4 @@
-import { ArcRotateCamera, NullEngine, Scene, Vector2, Vector3 } from "@babylonjs/core";
+import { ArcRotateCamera, NullEngine, Scene, Vector2, Vector3, VertexBuffer } from "@babylonjs/core";
 import { describe, expect, it, vi } from "vitest";
 
 import GlobeNavigator from "../src/GlobeNavigator";
@@ -47,6 +47,40 @@ function createNavigator() {
 }
 
 describe("GlobeNavigator", () => {
+    it.each([[0, 0], [40, -74], [-34, 151], [10, 179.9]])(
+        "renders imagery east-right and north-up at %s, %s before and after elevation",
+        (latitude, longitude) => {
+            const { engine, scene, globe, camera, navigator } = createNavigator();
+            navigator.setView(latitude, longitude, { zoom: 9 });
+            camera.getViewMatrix(true);
+            const transform = camera.getViewMatrix().multiply(camera.getProjectionMatrix());
+            const viewport = camera.viewport.toGlobal(1280, 800);
+            const tile = globe.ourTiles[4];
+            const checkOrientation = () => {
+                const positions = tile.mesh.getVerticesData(VertexBuffer.PositionKind)!;
+                const uvs = tile.mesh.getVerticesData(VertexBuffer.UVKind)!;
+                const project = (index: number) => Vector3.Project(
+                    Vector3.FromArray(positions, index * 3),
+                    tile.mesh.computeWorldMatrix(true), transform, viewport,
+                );
+                // Raster top-left, top-right and bottom-left in Babylon's default UV convention.
+                expect(Array.from(uvs).slice(0, 2)).toEqual([0, 1]);
+                expect(project(4).x).toBeGreaterThan(project(0).x);
+                expect(project(20).y).toBeGreaterThan(project(0).y);
+            };
+            checkOrientation();
+            globe.setElevationData(tile, new Float32Array([100, 100, 100, 100]), 2, 2);
+            checkOrientation();
+            const right = navigator.getCoordinatesAtScreenPoint(660, 400)!;
+            const top = navigator.getCoordinatesAtScreenPoint(640, 380)!;
+            expect(((right.longitude - longitude + 540) % 360) - 180).toBeGreaterThan(0);
+            expect(top.latitude).toBeGreaterThan(latitude);
+            navigator.dispose();
+            scene.dispose();
+            engine.dispose();
+        },
+    );
+
     it("sets geographic views and selects raster zoom from camera altitude", () => {
         const { engine, scene, globe, camera, navigator } = createNavigator();
 

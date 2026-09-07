@@ -112,7 +112,7 @@ export default class GlobeNavigator {
     /** Return the geographic point at the center of the camera view. */
     public getView(): GlobeView {
         const latitude = 90 - this.camera.beta / DEGREES_TO_RADIANS;
-        const longitude = this.wrapLongitude(90 - this.camera.alpha / DEGREES_TO_RADIANS);
+        const longitude = this.wrapLongitude(this.camera.alpha / DEGREES_TO_RADIANS - 90);
         const altitude = Math.max(0, this.camera.radius - this.globe.radius - this.globe.sampleElevation(latitude, longitude));
 
         return {
@@ -314,7 +314,7 @@ export default class GlobeNavigator {
         const maximumRadius=this.globe.radius+surface+this.getAltitudeForZoom(this.minZoom,clampedLatitude);
 
         return {
-            alpha: Math.PI / 2 - this.wrapLongitude(longitude) * DEGREES_TO_RADIANS,
+            alpha: Math.PI / 2 + this.wrapLongitude(longitude) * DEGREES_TO_RADIANS,
             beta: Math.PI / 2 - clampedLatitude * DEGREES_TO_RADIANS,
             radius: Math.max(minimumRadius, Math.min(maximumRadius, this.globe.radius + altitude + this.globe.sampleElevation(latitude, longitude))),
         };

@@ -184,6 +184,13 @@ describe("globe data fidelity", () => {
         globe.ourTerrainMB.fixTileSeams();
         globe.setupTerrainLOD([4, 2], [1, 2], 0.001);
         for (const tile of globe.ourTiles) {
+            for (const mesh of [tile.mesh, ...tile.terrainLODMeshes]) {
+                const points = worldVertices(mesh);
+                const normals = mesh.getVerticesData(VertexBuffer.NormalKind)!;
+                // An interior vertex excludes the deliberately sloping skirt normals.
+                const index = mesh === tile.mesh ? 10 : mesh === tile.terrainLODMeshes[0] ? 6 : 4;
+                expect(Vector3.Dot(points[index].normalize(), Vector3.FromArray(normals, index * 3))).toBeGreaterThan(0.99);
+            }
             const points = worldVertices(tile.terrainLODMeshes[0]);
             for (const p of points.slice(0, 25))
                 expect(p.length()).toBeCloseTo(

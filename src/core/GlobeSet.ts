@@ -156,7 +156,7 @@ export default class GlobeSet extends TileSet {
 
     /**
      * Convert longitude, latitude, and an optional radial offset to globe
-     * coordinates. Longitude zero is on +Z and increases toward +X; latitude
+     * coordinates. Longitude zero is on +Z and increases toward -X (east-right in Babylon's left-handed scene); latitude
      * increases toward +Y.
      */
     public getSurfacePosition(
@@ -184,7 +184,7 @@ export default class GlobeSet extends TileSet {
         const horizontalDistance = radialDistance * Math.cos(latitudeRadians);
 
         return new Vector3(
-            horizontalDistance * Math.sin(longitudeRadians),
+            -horizontalDistance * Math.sin(longitudeRadians),
             radialDistance * Math.sin(latitudeRadians),
             horizontalDistance * Math.cos(longitudeRadians),
         );
@@ -205,7 +205,7 @@ export default class GlobeSet extends TileSet {
         return {
             latitude:
                 Math.asin(position.y / radialDistance) / DEGREES_TO_RADIANS,
-            longitude: Math.atan2(position.x, position.z) / DEGREES_TO_RADIANS,
+            longitude: Math.atan2(-position.x, position.z) / DEGREES_TO_RADIANS,
             elevation: radialDistance - this.radius,
         };
     }
@@ -417,7 +417,7 @@ export default class GlobeSet extends TileSet {
             for (let y = 0; y < precision; y++)
                 for (let x = 0; x < precision; x++) {
                     const a = y * n + x;
-                    indices.push(a, a + 1, a + n, a + 1, a + n + 1, a + n);
+                    indices.push(a, a + n, a + 1, a + 1, a + n, a + n + 1);
                 }
             for (let x = 0; x < n; x++) boundary.push(x);
             for (let y = 1; y < n; y++) boundary.push(y * n + precision);
@@ -439,11 +439,11 @@ export default class GlobeSet extends TileSet {
                 const j = (i + 1) % boundary.length;
                 indices.push(
                     boundary[i],
-                    start + i,
-                    boundary[j],
                     boundary[j],
                     start + i,
+                    boundary[j],
                     start + j,
+                    start + i,
                 );
             }
             mesh.setIndices(indices);
@@ -496,10 +496,8 @@ export default class GlobeSet extends TileSet {
         mesh.rotation.setAll(0);
         mesh.rotationQuaternion = null;
         mesh.scaling.setAll(1);
-        const indices = Array.from(mesh.getIndices()!);
-        for (let i = 0; i < indices.length; i += 3)
-            [indices[i + 1], indices[i + 2]] = [indices[i + 2], indices[i + 1]];
-        mesh.setIndices(indices);
+        // The east/north/up basis preserves the source mesh winding.
+
         mesh.setVerticesData(VertexBuffer.PositionKind, projected, true);
         const normals: number[] = [];
         VertexData.ComputeNormals(projected, mesh.getIndices()!, normals);
@@ -591,7 +589,7 @@ export default class GlobeSet extends TileSet {
 
             for (let column = 0; column <= segments; column++) {
                 const longitude = (column / segments) * 2 * Math.PI;
-                const x = horizontalDistance * Math.sin(longitude);
+                const x = -horizontalDistance * Math.sin(longitude);
                 const y = Math.sin(latitudeRadians);
                 const z = horizontalDistance * Math.cos(longitude);
                 positions.push(x, y, z);
@@ -607,11 +605,11 @@ export default class GlobeSet extends TileSet {
                 const bottomRight = bottomLeft + 1;
                 indices.push(
                     topLeft,
-                    topRight,
                     bottomLeft,
                     topRight,
+                    topRight,
+                    bottomLeft,
                     bottomRight,
-                    bottomLeft,
                 );
             }
         }
@@ -664,7 +662,7 @@ export default class GlobeSet extends TileSet {
             const sin = Math.sin(latitude),
                 cos = Math.cos(latitude);
             for (let column = 0; column <= precision; column++) {
-                const x = cos * longitudeSin[column],
+                const x = -cos * longitudeSin[column],
                     z = cos * longitudeCos[column];
                 directions.push(x, sin, z);
                 positions.push(
@@ -687,11 +685,11 @@ export default class GlobeSet extends TileSet {
                 // The order makes the front face point away from the globe.
                 indices.push(
                     topLeft,
-                    topRight,
                     bottomLeft,
                     topRight,
+                    topRight,
+                    bottomLeft,
                     bottomRight,
-                    bottomLeft,
                 );
             }
         }

@@ -56,7 +56,7 @@ export default class GlobeSet extends TileSet {
     set radius(value: number);
     /**
      * Convert longitude, latitude, and an optional radial offset to globe
-     * coordinates. Longitude zero is on +Z and increases toward +X; latitude
+     * coordinates. Longitude zero is on +Z and increases toward -X (east-right in Babylon's left-handed scene); latitude
      * increases toward +Y.
      */
     getSurfacePosition(latitude: number, longitude: number, elevation?: number): Vector3;
