@@ -114,57 +114,6 @@ export class GeoJSON {
     constructor(private tileSet: TileSet, private scene: Scene) {
     }
 
-    /*private getFirstCoordinateWorld(f: feature, projection: ProjectionType, zoom?: number): Vector3 {
-        if (zoom === undefined) {
-            zoom = this.tileSet.zoom;
-        }
-
-        if (f.geometry.type == "Polygon") {
-            const ps: polygonSet = f.geometry.coordinates as polygonSet;
-            return this.getFirstCoordinateWorldFromPolygonSet(ps, projection);
-        }
-        else if (f.geometry.type == "MultiPolygon") {
-            const mp: multiPolygonSet = f.geometry.coordinates as multiPolygonSet;
-            return this.getFirstCoordinateWorldFromPolygonSet(mp[0], projection);
-        }
-        else {
-            console.error("unknown geometry type: " + f.geometry.type);
-        }
-
-        return new Vector3(0,0,0);
-    }
-
-    private getFirstCoordinateWorldFromPolygonSet(ps: polygonSet, projection: ProjectionType, zoom?: number): Vector3 {
-        const v2 = new Vector2(ps[0][0][0], ps[0][0][1]);
-        return this.tileSet.ourTileMath.GetWorldPosition(v2, projection, zoom)
-    }
-
-    public getFirstCoordinateTile(f: feature, projection: ProjectionType, zoom: number): Vector3 {
-        if (zoom === undefined) {
-            zoom = this.tileSet.zoom;
-        }
-
-        if (f.geometry.type == "Polygon") {
-            const ps: polygonSet = f.geometry.coordinates as polygonSet;
-            return this.getFirstCoordinateTileFromPolygonSet(ps, projection, zoom);
-        }
-        else if (f.geometry.type == "MultiPolygon") {
-            const mp: multiPolygonSet = f.geometry.coordinates as multiPolygonSet;
-            return this.getFirstCoordinateTileFromPolygonSet(mp[0], projection, zoom);
-        }
-        else {
-            console.error("unknown geometry type: " + f.geometry.type);
-        }
-
-        return new Vector3(0,0,0);
-    }
-
-    private getFirstCoordinateTileFromPolygonSet(ps: polygonSet, projection: ProjectionType, zoom: number): Vector3 {
-        const v2 = new Vector2(ps[0][0][0], ps[0][0][1]);
-        const tileXY= this.tileSet.ourTileMath.GetTilePosition(v2, projection, zoom); //lat lon
-        return new Vector3(tileXY.x, tileXY.y, zoom);
-    }*/
-
     private computeOffset(v1: Vector3, v2: Vector3, lineWidth: number): Vector2 {
         const dx = v2.x - v1.x;
         const dz = v2.z - v1.z;
@@ -211,6 +160,9 @@ export class GeoJSON {
     }
 
     public generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, flipWinding: boolean, buildings: Buildings) {
+        // GeoJSON allows null geometries and null properties.
+        if (!f.geometry) return;
+        const properties = f.properties ?? {};
         this.validateBuildingLODOptions(buildings.buildingLOD);
 
         // GeoJSON generation is also used directly by a few integrations and
@@ -238,15 +190,15 @@ export class GeoJSON {
         const arrayOfLines: coordinateArrayOfArrays = [];
 
         let height = defaultBuildingHeight;
-        if (f.properties.height !== undefined) {
-            const providedHeight = Number(f.properties.height);
+        if (properties.height !== undefined) {
+            const providedHeight = Number(properties.height);
             if (Number.isFinite(providedHeight)) {
                 height = providedHeight;
             }
         }
-        if (f.properties.Story !== undefined) {
-            let stories = Number(f.properties.Story);
-            if (isNaN(stories)) {
+        if (properties.Story !== undefined) {
+            let stories = Number(properties.Story);
+            if (!Number.isFinite(stories)) {
                 stories = 0;
             }
             if (stories == 0) { //0 just means undefined
@@ -254,7 +206,7 @@ export class GeoJSON {
             }
             height = (stories + 0.5) * 3.0; //not sure if we should do this to account for roof height?
         }
-        const roofSpec = resolveRoofSpec(f.properties ?? {}, height);
+        const roofSpec = resolveRoofSpec(properties, height);
 
         if (f.geometry.type == "Polygon") {
             const ps: polygonSet = f.geometry.coordinates as polygonSet;
@@ -319,7 +271,7 @@ export class GeoJSON {
                 finalMesh = allMeshes[0];
             } else {
                 console.log("looks like its time for a merge!");
-                const merged = Mesh.MergeMeshes(allMeshes);
+                const merged = Mesh.MergeMeshes(allMeshes, true, true);
                 if (merged) {
                     finalMesh = merged;
                 } else {
@@ -345,12 +297,12 @@ export class GeoJSON {
         if (f.id !== undefined) {
             finalMesh.name = f.id;
         }
-        if (f.properties.name !== undefined) {
-            finalMesh.name = f.properties.name;
+        if (properties.name !== undefined) {
+            finalMesh.name = properties.name;
         }
 
-        if (f.properties.Name !== undefined) { //NOTE: this is not a mistake, look closely and you can see .name vs .Name
-            finalMesh.name = f.properties.Name;
+        if (properties.Name !== undefined) { //NOTE: this is not a mistake, look closely and you can see .name vs .Name
+            finalMesh.name = properties.Name;
         }
         
         finalMesh.refreshBoundingInfo();
@@ -577,7 +529,6 @@ export class GeoJSON {
             }
         }
 
-        (globalThis as { earcut?: unknown }).earcut = Earcut;
 
         var orientation = Mesh.DEFAULTSIDE;
         if (holeArray.length > 0) {
@@ -610,14 +561,14 @@ export class GeoJSON {
                 holes: holeArray,
                 sideOrientation: orientation
             },
-            this.scene);
+            this.scene, Earcut);
 
         ourMesh.position.y = wallHeight * heightScaleFixer;
         ourMesh.material = buildingMaterial; //all buildings will use same material
         ourMesh.isPickable = false;
 
         if (roofMesh !== undefined) {
-            const mergedMesh = Mesh.MergeMeshes([ourMesh, roofMesh]);
+            const mergedMesh = Mesh.MergeMeshes([ourMesh, roofMesh], true, true);
             if (mergedMesh !== null) {
                 ourMesh = mergedMesh;
                 ourMesh.material = buildingMaterial;

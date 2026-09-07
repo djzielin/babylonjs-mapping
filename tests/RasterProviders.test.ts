@@ -121,3 +121,10 @@ describe("RasterGEBCO", () => {
     expect(bbox[3]).toBeCloseTo(-10018754.171394622, 6);
   });
 });
+
+it("uses SRS for WMS 1.1.1", () => {
+  const raster = new RasterGEBCO(tileSetStub as never, { version: "1.1.1" });
+  const params = new URL(raster.getRasterURL(new Vector2(0, 0), 0)).searchParams;
+  expect(params.get("srs")).toBe("EPSG:3857");
+  expect(params.has("crs")).toBe(false);
+});

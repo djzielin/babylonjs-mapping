@@ -127,6 +127,7 @@ export default class TileSet {
     * @param zoom standard tile mapping zoom levels 0 (whole earth) - 20 (building)
     */
     updateRaster(lat: number, lon: number, zoom: number): void;
+    private clearTileRequests;
     private updateSingleRasterTile;
     /**
     * moves all the tiles in the set. when a tile reaches the edge, it is moved

@@ -323,15 +323,13 @@ export default abstract class Buildings {
     public abstract SubmitLoadAllRequest(): void;
 
     public ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void {
-        if (request.tile.tileCoords.equals(request.tileCoords) == false) {
+        if (request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) {
             console.warn(this.prettyName() + "tile coords have changed while we were loading, not adding buildings to queue!");
             return;
         }
 
-        let index = 0;
         let addedBuildings = 0;
         const detectedEpsgType = request.epsgType ?? GeoJSON.detectProjection(topLevel);
-        const meshArray: Mesh[] = [];
         for (const f of topLevel.features) {
             const brequest: BuildingRequest = {
                 requestType: BuildingRequestType.CreateBuilding,
@@ -444,7 +442,7 @@ export default abstract class Buildings {
     }
 
     private processLoadedGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel, requestIndex: number): void {
-        if (request.tile.tileCoords.equals(request.tileCoords) == false) {
+        if (request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) {
             console.warn(this.prettyName() + "tile coords have changed while we were loading, not adding buildings to queue!");
             this.removePendingRequest(requestIndex, request);
             return;
@@ -648,7 +646,7 @@ export default abstract class Buildings {
             }
             const request = this.buildingRequests[rIndex];
 
-            if (request.tile.tileCoords.equals(request.tileCoords) == false) { //make sure tile still has same coords
+            if (request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) { //make sure tile still has same coords
                 console.warn(this.prettyName() + "tile coords: " + request.tileCoords + " are no longer around, we must have already changed tile");
 
                 this.removePendingRequest(rIndex);

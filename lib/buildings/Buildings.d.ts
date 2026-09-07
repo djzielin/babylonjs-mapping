@@ -27,6 +27,7 @@ export interface BuildingRequest {
     url?: string;
     pagination?: BuildingRequestPagination;
     mergeAfterLoad?: boolean;
+    retryCount?: number;
 }
 export interface BuildingLODOptions {
     /** Enables a rectangle billboard for each generated feature at a distance. */
@@ -90,6 +91,8 @@ export default abstract class Buildings {
     pointDiameter: number;
     buildingsCreatedPerFrame: number;
     cacheFiles: boolean;
+    /** Maximum retries for transient HTTP errors after the initial request. */
+    maxRetries: number;
     buildingMaterial: StandardMaterial;
     /** Controls optional mesh/material and request-queue optimizations. */
     optimizationOptions: Required<BuildingOptimizationOptions>;

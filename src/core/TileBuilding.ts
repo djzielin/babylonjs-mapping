@@ -2,7 +2,7 @@ import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import Tile from "./Tile.js";
-import TileMath, { EPSG_Type } from "./TileMath.js";
+import TileMath from "./TileMath.js";
 import { coordinateArrayOfArrays} from "../buildings/GeoJSON.js";
 
 export interface LineSegment {

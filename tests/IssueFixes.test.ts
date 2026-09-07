@@ -391,3 +391,24 @@ describe("OSM roof shapes", () => {
     engine.dispose();
   });
 });
+
+it("accepts null GeoJSON properties and skips null geometry without global earcut mutation", () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const generator = new GeoJSON(tileSet, scene);
+  const settings = createBuildingSettings(scene);
+  const tile = tileSet.ourTiles[0];
+  const previousEarcut = (globalThis as any).earcut;
+  try {
+    const feature = createFeature({ type: "Point", coordinates: [0, 0] });
+    feature.properties = null;
+    generator.generateSingleBuilding("test", feature, EPSG_Type.EPSG_4326, tile, false, settings);
+    expect(tile.buildings).toHaveLength(1);
+    generator.generateSingleBuilding("test", { ...feature, geometry: null } as never, EPSG_Type.EPSG_4326, tile, false, settings);
+    expect(tile.buildings).toHaveLength(1);
+    const polygon = createFeature({ type: "Polygon", coordinates: [[[0, 0], [0.1, 0], [0.1, 0.1], [0, 0.1], [0, 0]]] });
+    generator.generateSingleBuilding("test", polygon, EPSG_Type.EPSG_4326, tile, false, settings);
+    expect((globalThis as any).earcut).toBe(previousEarcut);
+  } finally {
+    scene.dispose(); engine.dispose();
+  }
+});

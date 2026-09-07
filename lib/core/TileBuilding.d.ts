@@ -17,7 +17,7 @@ export default class TileBuilding {
     mesh: Mesh;
     tile: Tile;
     isBBoxContainedOnTile: boolean;
-    ShapeType: String;
+    ShapeType: string;
     LineArray: coordinateArrayOfArrays;
     LineSegments: LineSegmentArray;
     vertices: Vector3[];

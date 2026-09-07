@@ -23,7 +23,8 @@ export default class Tile {
     northEastSeamFixed: boolean;
     terrainLODMeshes: Array<Mesh | null>;
     constructor(mesh: Mesh, tileSet: TileSet);
-    private makeSphere;
+    /** Refresh world-space bounds after moving a tile, including frozen meshes. */
+    refreshBoundingBox(): void;
     deleteBuildings(): void;
     clearTerrainLOD(): void;
     hideIndividualBuildings(): void;
