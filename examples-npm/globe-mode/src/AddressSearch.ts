@@ -6,7 +6,7 @@ export interface AddressResult {
 }
 
 /** Photon supports autocomplete; the public Nominatim service does not. */
-export async function findAddresses(query: string, signal: AbortSignal): Promise<AddressResult[]> {
+async function findPhotonAddresses(query: string, signal: AbortSignal): Promise<AddressResult[]> {
     const url = new URL("https://photon.komoot.io/api/");
     url.searchParams.set("q", query);
     url.searchParams.set("limit", "5");
@@ -27,7 +27,40 @@ export async function findAddresses(query: string, signal: AbortSignal): Promise
     return results;
 }
 
-export function setupAddressSearch(onSelect: (result: AddressResult) => void): void {
+/** Prefer Mapbox's address coverage when configured; retain keyless place search. */
+export async function findAddresses(query: string, signal: AbortSignal, mapboxToken = ""): Promise<AddressResult[]> {
+    signal.throwIfAborted();
+    if (mapboxToken.trim()) {
+        try {
+            const url = new URL("https://api.mapbox.com/search/geocode/v6/forward");
+            url.searchParams.set("q", query);
+            url.searchParams.set("access_token", mapboxToken.trim());
+            url.searchParams.set("autocomplete", "true");
+            url.searchParams.set("limit", "5");
+            const response = await fetch(url.toString(), { signal });
+            if (!response.ok) throw new Error("Mapbox search unavailable");
+            const data = await response.json();
+            const results: AddressResult[] = [];
+            for (const feature of data.features ?? []) {
+                const [longitude, latitude] = feature.geometry?.coordinates ?? [];
+                if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) continue;
+                const p = feature.properties ?? {};
+                const label = p.full_address || [p.name_preferred || p.name, p.place_formatted].filter(Boolean).join(", ");
+                if (typeof label !== "string" || !label.trim()) continue;
+                const zoom = p.feature_type === "country" ? 5 : p.feature_type === "region" ? 7 : p.feature_type === "place" ? 12 : 16;
+                results.push({ label, latitude, longitude, zoom });
+            }
+            signal.throwIfAborted();
+            if (results.length) return results;
+        } catch (error) {
+            // A cancelled keystroke must never start another provider request.
+            if (signal.aborted) throw error;
+        }
+    }
+    return findPhotonAddresses(query, signal);
+}
+
+export function setupAddressSearch(onSelect: (result: AddressResult) => void, getMapboxToken: () => string = () => ""): void {
     const input = document.getElementById("addressSearch") as HTMLInputElement;
     const list = document.getElementById("addressResults")!;
     const status = document.getElementById("addressStatus")!;
@@ -84,7 +117,9 @@ export function setupAddressSearch(onSelect: (result: AddressResult) => void): v
         if (input.value.trim().length < 3) return;
         const query = input.value.trim();
         const version = revision;
-        const cached = cache.get(query.toLowerCase());
+        const token = getMapboxToken().trim();
+        // Temporary Mapbox geocoding results are not retained in the query cache.
+        const cached = token ? undefined : cache.get(query.toLowerCase());
         if (cached) { render(cached); return; }
         status.textContent = "Searching…";
         timer = setTimeout(async () => {
@@ -92,10 +127,12 @@ export function setupAddressSearch(onSelect: (result: AddressResult) => void): v
             request = controller;
             const timeout = setTimeout(() => controller.abort(), 10000);
             try {
-                const items = await findAddresses(query, controller.signal);
+                const items = await findAddresses(query, controller.signal, token);
                 if (version !== revision) return;
-                if (cache.size >= 40) cache.delete(cache.keys().next().value!);
-                cache.set(query.toLowerCase(), items);
+                if (!token) {
+                    if (cache.size >= 40) cache.delete(cache.keys().next().value!);
+                    cache.set(query.toLowerCase(), items);
+                }
                 render(items);
             } catch {
                 if (version === revision) status.textContent = "Search unavailable. Please try again.";

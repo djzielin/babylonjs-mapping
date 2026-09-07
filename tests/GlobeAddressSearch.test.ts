@@ -28,6 +28,49 @@ describe("globe address lookup", () => {
             { label: "Sydney", latitude: -33.86, longitude: 151.2, zoom: 12 },
         ]);
     });
+    it("prefers configured Mapbox geocoding and uses its full address and coordinates", async () => {
+        const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ features: [
+            { geometry: { coordinates: [-77, 38] }, properties: { feature_type: "address", full_address: "12 Example Drive, Example City" } },
+            { geometry: { coordinates: [-77.1, 38.1] }, properties: { feature_type: "place", name: "Example City", place_formatted: "Virginia" } },
+            { geometry: { coordinates: [0, 100] }, properties: { full_address: "Invalid" } },
+        ] }) });
+        vi.stubGlobal("fetch", fetcher);
+        const signal = new AbortController().signal;
+        const results = await findAddresses("12 Example Dr VA", signal, " demo-token ");
+        const url = new URL(fetcher.mock.calls[0][0]);
+        expect(url.origin).toBe("https://api.mapbox.com");
+        expect(url.searchParams.get("q")).toBe("12 Example Dr VA");
+        expect(url.searchParams.get("access_token")).toBe("demo-token");
+        expect(url.searchParams.get("autocomplete")).toBe("true");
+        expect(fetcher.mock.calls[0][1].signal).toBe(signal);
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(results).toEqual([
+            { label: "12 Example Drive, Example City", longitude: -77, latitude: 38, zoom: 16 },
+            { label: "Example City, Virginia", longitude: -77.1, latitude: 38.1, zoom: 12 },
+        ]);
+    });
+    it.each(["empty", "denied", "network"])("falls back to Photon when Mapbox is %s", async failure => {
+        const fetcher = vi.fn();
+        if (failure === "network") fetcher.mockRejectedValueOnce(new TypeError("network"));
+        else fetcher.mockResolvedValueOnce({ ok: failure === "empty", json: async () => ({ features: [] }) });
+        fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({ features: [{
+            geometry: { coordinates: [1, 2] }, properties: { name: "Example Park" },
+        }] }) });
+        vi.stubGlobal("fetch", fetcher);
+        const results = await findAddresses("Example Park", new AbortController().signal, "demo-token");
+        expect(results[0].label).toBe("Example Park");
+        expect(new URL(fetcher.mock.calls[1][0]).hostname).toBe("photon.komoot.io");
+    });
+    it("does not fall back after an obsolete autocomplete request is aborted", async () => {
+        const controller = new AbortController();
+        const fetcher = vi.fn().mockImplementation(async () => {
+            controller.abort();
+            throw new DOMException("Aborted", "AbortError");
+        });
+        vi.stubGlobal("fetch", fetcher);
+        await expect(findAddresses("Example", controller.signal, "demo-token")).rejects.toThrow("Aborted");
+        expect(fetcher).toHaveBeenCalledTimes(1);
+    });
     it("reports provider errors instead of inventing a destination", async () => {
         vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 429 }));
         await expect(findAddresses("address", new AbortController().signal)).rejects.toThrow("unavailable");

@@ -129,7 +129,7 @@ class GlobeDemo {
             (document.getElementById("longitude") as HTMLInputElement).value = String(result.longitude);
             (document.getElementById("locationPreset") as HTMLSelectElement).selectedIndex = -1;
             this.navigator.flyTo(result.latitude, result.longitude, { zoom: result.zoom, durationMs: 1400 });
-        });
+        }, () => (document.getElementById("mapboxToken") as HTMLInputElement).value);
         this.setupPointerNavigation();
         this.setupDataControls();
         this.engine.runRenderLoop(() => {

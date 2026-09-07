@@ -61,3 +61,5 @@ The globe and Tokyo–Fuji example both use `landscapeTerrainLOD` and `TerrainMB
 All distance tiers now have Overture building providers, including the horizon tier. Building requests begin at source zoom 10, where the archive supplies simplified distant geometry (verified against Tokyo). Detailed models replace overlapping footprints, and finer building tiers retain exclusive geographic coverage. Distant terrain/feature jobs prioritize the active camera frustum, retaining the existing concurrency and per-frame generation limits. Source coverage still determines which individual buildings are available.
 
 The globe enables logarithmic depth consistently for terrain, footprints and detailed model submaterials on supported devices. Merged globe buildings retain tile-local vertex coordinates to preserve small details at GPU precision. Planar consumers keep their existing depth and merge behavior.
+
+Address autocomplete uses Mapbox Geocoding when the demo token is configured, with Photon as a fallback for empty results or provider errors. Keyless search still uses Photon. Queries remain debounced and cancellable; Mapbox results are not retained in the query cache.
