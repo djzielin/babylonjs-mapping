@@ -70,6 +70,7 @@ export const DEFAULT_TILESET_OPTIMIZATION_OPTIONS: Readonly<Required<TileSetOpti
 export default class TileSet {
     /** Projection hooks shared by all feature and terrain providers. */
     public readonly isGlobe: boolean = false;
+    public isTileGeometryReady(_tile: Tile): boolean { return true; }
     public getGeometryMath(): TileMath { return this.ourTileMath; }
     public projectFeatureMesh(_mesh: Mesh): void {}
     public applyElevationGrid(_tile: Tile, _heights: number[], _precision: number): void {}
@@ -335,7 +336,7 @@ export default class TileSet {
                         material.unfreeze();
                     }
 
-                    request.mesh.setEnabled(true); //show it!
+                    request.mesh.setEnabled(this.isTileGeometryReady(request.tile)); //show ready geometry
                     this.requestsProcessedSinceCaughtUp++;
                     this.tileRequests.shift(); //pop request off front of queue
                     return;

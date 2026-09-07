@@ -1,5 +1,5 @@
 import { Scene } from "@babylonjs/core/scene.js";
-import { Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Color3 } from "@babylonjs/core/Maths/math.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
@@ -31,6 +31,7 @@ export interface BuildingRequest {
     requestType: BuildingRequestType;
     tile: Tile;
     tileCoords: Vector3;
+    sourceTileCoords?: Vector3;
     inProgress: boolean;
     flipWinding: boolean;
     feature?: GeoJSON.feature;
@@ -124,6 +125,7 @@ export default abstract class Buildings {
     public pointDiameter = 0.5;
     public buildingsCreatedPerFrame = 10; //TODO: is there a better way to do this?
     public cacheFiles = true;
+    public maxCachedFiles = 64;
     /** Maximum retries for transient HTTP errors after the initial request. */
     public maxRetries = 3;
     public buildingMaterial: StandardMaterial;
@@ -338,6 +340,7 @@ export default abstract class Buildings {
         let addedBuildings = 0;
         const detectedEpsgType = request.epsgType ?? GeoJSON.detectProjection(topLevel);
         for (const f of topLevel.features) {
+            if (request.sourceTileCoords && request.sourceTileCoords.z < request.tileCoords.z && !this.featureBelongsToTile(f, request.tileCoords, detectedEpsgType)) continue;
             const brequest: BuildingRequest = {
                 requestType: BuildingRequestType.CreateBuilding,
                 tile: request.tile,
@@ -359,6 +362,21 @@ export default abstract class Buildings {
             }
         }
         console.log(this.prettyName() + addedBuildings + " building generation requests queued for tile: " + request.tile.tileCoords);
+    }
+
+    private featureBelongsToTile(feature: GeoJSON.feature, coords: Vector3, epsg?: EPSG_Type): boolean {
+        let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+        const stack:unknown[]=[feature.geometry?.coordinates];
+        while(stack.length) {
+            const value=stack.pop();if(!Array.isArray(value))continue;
+            if(typeof value[0]==='number'&&typeof value[1]==='number'){
+                minX=Math.min(minX,value[0]);maxX=Math.max(maxX,value[0]);minY=Math.min(minY,value[1]);maxY=Math.max(maxY,value[1]);
+            } else for(const child of value)stack.push(child);
+        }
+        if(!Number.isFinite(minX))return false;
+        const center=new Vector2((minX+maxX)/2,(minY+maxY)/2);
+        const tile=this.tileSet.ourTileMath.EPSG_to_Tile(center,epsg??EPSG_Type.EPSG_4326,coords.z),n=2**coords.z;
+        return ((tile.x%n)+n)%n===((coords.x%n)+n)%n&&tile.y===coords.y;
     }
 
     /**
@@ -510,6 +528,7 @@ export default abstract class Buildings {
                             topLevel: topLevel
                         };
                         this.filesLoaded.push(floaded);
+                        while(this.filesLoaded.length>Math.max(0,this.maxCachedFiles))this.filesLoaded.shift();
                     }
 
                     this.processLoadedGeoJSON(request, topLevel, requestIndex);

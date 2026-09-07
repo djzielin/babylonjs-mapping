@@ -124,11 +124,18 @@
                     width: calc(100vw - 44px);
                 }
             }
+            #controlPanel { max-height:calc(100vh - 70px); overflow:auto; }
+            details { margin-top:12px; border-top:1px solid #304052; padding-top:10px; }
+            summary { cursor:pointer; font-weight:600; margin-bottom:8px; }
+            details label { display:block; margin:8px 0; font-size:13px; }
+            input[type=checkbox] { width:auto; }
+            #performance { font:11px monospace; color:#8bd9b4; }
+            .source { font-size:10px!important; } a { color:#80c7ff; }
         </style>
     </head>
     <body>
         <aside id="controlPanel">
-            <h1>Globe navigator</h1>
+            <h1>Earth, in detail</h1>
             <p>Drag to orbit · scroll or pinch to zoom · double-click a place to fly closer</p>
             <form id="locationForm">
                 <label class="sr-only" for="locationPreset">Preset location</label>
@@ -145,6 +152,23 @@
                 <button id="home" type="button">Home</button>
             </div>
             <div id="viewReadout" aria-live="polite"></div>
+            <details open><summary>Layers &amp; fidelity</summary>
+                <label>Imagery <select id="basemap"><option value="osm">OpenStreetMap</option><option value="gebco">GEBCO bathymetry</option><option value="satellite">Mapbox imagery (token)</option></select></label>
+                <label><input id="terrain" type="checkbox" checked> 3D terrain &amp; ocean floor</label>
+                <label><input id="buildings" type="checkbox" checked> Overture buildings (zoom 14+)</label>
+                <label>Relief <input id="exaggeration" type="range" min="1" max="10" step="1" value="1"><output id="exaggerationValue">1×</output></label>
+                <button id="inspect">Inspect in 3D</button> <button id="tour">Guided tour</button> <button id="retry">Reload data</button>
+            </details>
+            <details><summary>Bring your data</summary>
+                <label>Mapbox public token <input id="mapboxToken" type="password" placeholder="pk.…" autocomplete="off"></label>
+                <label><input id="roads" type="checkbox"> Mapbox road geometry (zoom 14+)</label>
+                <label><input id="landmarks" type="checkbox"> Mapbox landmark models (zoom 15+)</label>
+                <label>GeoJSON file <input id="geojson" type="file" accept=".json,.geojson"></label>
+                <p>Polygons, courtyards, roofs, points and multiline roads use the shared geometry pipeline. Features retain their geographic coordinates.</p>
+            </details>
+            <p id="dataStatus" role="status">Loading terrain and building sources…</p>
+            <div id="performance"></div>
+            <p class="source">Elevation &amp; bathymetry: <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noreferrer">Mapzen / Tilezen contributors</a>. Ocean depths are numeric DEM values. GEBCO supplies colour imagery. Coverage and native resolution vary by source.</p>
         </aside>
         <canvas id="renderCanvas" touch-action="none"></canvas>
     </body>

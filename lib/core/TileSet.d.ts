@@ -54,6 +54,7 @@ export default class TileSet {
     private engine;
     /** Projection hooks shared by all feature and terrain providers. */
     readonly isGlobe: boolean;
+    isTileGeometryReady(_tile: Tile): boolean;
     getGeometryMath(): TileMath;
     projectFeatureMesh(_mesh: Mesh): void;
     applyElevationGrid(_tile: Tile, _heights: number[], _precision: number): void;

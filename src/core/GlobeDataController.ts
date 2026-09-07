@@ -30,7 +30,7 @@ export default class GlobeDataController {
         if (this.disposed) return;
         for (const [tile,job] of this.jobs) if (tile.mesh.isDisposed() || job.key!==tile.tileCoords.toString()) { job.abort.abort(); this.jobs.delete(tile); this.stats.cancelled++; }
         for (const tile of this.globe.ourTiles) {
-            if (!tile.tileCoords || tile.mesh.isDisposed()) continue;
+            if (!tile.tileCoords || tile.mesh.isDisposed() || !this.globe.isTileGeometryReady(tile)) continue;
             const key=tile.tileCoords.toString();
             if (this.ready.get(tile)===key || this.jobs.has(tile) || this.stats.active >= (this.options.concurrency??4)) continue;
             const abort=new AbortController();

@@ -21,6 +21,7 @@ export interface BuildingRequest {
     requestType: BuildingRequestType;
     tile: Tile;
     tileCoords: Vector3;
+    sourceTileCoords?: Vector3;
     inProgress: boolean;
     flipWinding: boolean;
     feature?: GeoJSON.feature;
@@ -92,6 +93,7 @@ export default abstract class Buildings {
     pointDiameter: number;
     buildingsCreatedPerFrame: number;
     cacheFiles: boolean;
+    maxCachedFiles: number;
     /** Maximum retries for transient HTTP errors after the initial request. */
     maxRetries: number;
     buildingMaterial: StandardMaterial;
@@ -149,6 +151,7 @@ export default abstract class Buildings {
     abstract SubmitLoadTileRequest(tile: Tile): void;
     abstract SubmitLoadAllRequest(): void;
     ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void;
+    private featureBelongsToTile;
     /**
      * Providers can override this to create the next request after a full
      * paginated response has been processed.

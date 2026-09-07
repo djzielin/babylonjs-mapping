@@ -8,6 +8,8 @@ import TileSet from "./TileSet.js";
 export interface GlobeSetOptions {
     /** Radius of the globe in Babylon world units. */
     radius?: number;
+    /** Optional CPU budget per frame for new patches; default builds synchronously. */
+    geometryBudgetMs?: number;
     /** Creates a recessed fill sphere behind raster tiles. Defaults to true. */
     backingSurface?: boolean;
     /** Shows this layer's raster attribution. Defaults to true. */
@@ -35,6 +37,12 @@ export default class GlobeSet extends TileSet {
     private flatMath;
     private geometryKeys;
     private elevationTileMap;
+    private tileDirections;
+    private geometryBudgetMs;
+    private geometryQueue;
+    get pendingGeometryCount(): number;
+    isTileGeometryReady(tile: Tile): boolean;
+    private flushGeometry;
     /** Metres of elevation per world unit use a fixed spherical Earth radius. */
     get metresToWorld(): number;
     getGeometryMath(): GlobeTileMath;

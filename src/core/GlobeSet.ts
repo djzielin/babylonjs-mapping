@@ -24,6 +24,8 @@ const BACKING_SURFACE_SCALE = 0.98;
 export interface GlobeSetOptions {
     /** Radius of the globe in Babylon world units. */
     radius?: number;
+    /** Optional CPU budget per frame for new patches; default builds synchronously. */
+    geometryBudgetMs?: number;
     /** Creates a recessed fill sphere behind raster tiles. Defaults to true. */
     backingSurface?: boolean;
     /** Shows this layer's raster attribution. Defaults to true. */
@@ -53,6 +55,24 @@ export default class GlobeSet extends TileSet {
     private flatMath: GlobeTileMath;
     private geometryKeys = new WeakMap<Tile, string>();
     private elevationTileMap = new Map<string, Tile>();
+    private tileDirections = new WeakMap<Tile, number[]>();
+    private geometryBudgetMs=Infinity;
+    private geometryQueue:Tile[]=[];
+    public get pendingGeometryCount():number { return this.geometryQueue.length; }
+    public override isTileGeometryReady(tile:Tile):boolean {
+        return this.geometryKeys.get(tile)===`${tile.tileCoords}/${this.radius}/${this.meshPrecision}`;
+    }
+    private flushGeometry():void {
+        const deadline=performance.now()+this.geometryBudgetMs;
+        let processed=0;
+        while(this.geometryQueue.length && (processed===0 || performance.now()<deadline)) {
+            const tile=this.geometryQueue.shift()!;
+            if(tile.mesh.isDisposed())continue;
+            this.updateTileGeometry(tile);
+            if(tile.material?.diffuseTexture?.isReady())tile.mesh.setEnabled(true);
+            processed++;
+        }
+    }
     /** Metres of elevation per world unit use a fixed spherical Earth radius. */
     public get metresToWorld(): number { return this.radius / 6378137; }
     public override getGeometryMath(): GlobeTileMath { return this.flatMath; }
@@ -63,6 +83,9 @@ export default class GlobeSet extends TileSet {
 
     public constructor(scene: Scene, engine: Engine, options: GlobeSetOptions = {}) {
         super(scene, engine);
+        this.geometryBudgetMs=options.geometryBudgetMs??Infinity;
+        if (this.geometryBudgetMs<=0 || Number.isNaN(this.geometryBudgetMs)) throw new RangeError('geometryBudgetMs must be positive');
+        scene.onBeforeRenderObservable.add(()=>this.flushGeometry());
         this._radius = DEFAULT_GLOBE_RADIUS;
         this.flatMath = new GlobeTileMath(this, true);
         this.ourTileMath = new GlobeTileMath(this);
@@ -200,11 +223,13 @@ export default class GlobeSet extends TileSet {
         super.updateRaster(lat, lon, zoom);
 
         this.elevationTileMap.clear();
+        this.geometryQueue=[];
         const count=2**this.zoom;
         for (const tile of this.ourTiles) {
-            this.updateTileGeometry(tile);
+            if (!this.isTileGeometryReady(tile)) this.geometryQueue.push(tile);
             this.elevationTileMap.set(`${((tile.tileCoords.x%count)+count)%count}/${tile.tileCoords.y}`,tile);
         }
+        this.flushGeometry();
     }
 
     protected override reuseRasterTilesOnUpdate(): boolean {
@@ -246,9 +271,16 @@ export default class GlobeSet extends TileSet {
 
     public applyGlobeHeights(mesh: Mesh, tile: Tile, precision: number, heights: number[]): void {
         const positions: number[] = [];
+        const directions = precision === this.meshPrecision ? this.tileDirections.get(tile) : undefined;
         for (let y = 0; y <= precision; y++) for (let x = 0; x <= precision; x++) {
-            const point = this.getTileSurfacePosition(tile.tileCoords, x / precision, y / precision, heights[y * (precision + 1) + x]);
-            positions.push(point.x, point.y, point.z);
+            const i=y*(precision+1)+x;
+            if (directions) {
+                const radius=this.radius+heights[i];
+                positions.push(directions[i*3]*radius,directions[i*3+1]*radius,directions[i*3+2]*radius);
+            } else {
+                const point = this.getTileSurfacePosition(tile.tileCoords, x / precision, y / precision, heights[i]);
+                positions.push(point.x, point.y, point.z);
+            }
         }
         if (mesh === tile.mesh) {
             const n=precision+1;
@@ -400,23 +432,31 @@ export default class GlobeSet extends TileSet {
         const key = `${tile.tileCoords}/${this.radius}/${this.meshPrecision}`;
         if (this.geometryKeys.get(tile) === key) return;
         this.geometryKeys.set(tile, key);
+        const wasFrozen=tile.mesh.isWorldMatrixFrozen;
+        tile.mesh.unfreezeWorldMatrix();
         const precision = this.meshPrecision;
         const columns = precision + 1;
         const positions: number[] = [];
         const uvs: number[] = [];
         const indices: number[] = [];
 
+        const longitudeSin:number[]=[],longitudeCos:number[]=[],directions:number[]=[];
+        for(let column=0;column<=precision;column++) {
+            const longitude=this.ourTileMath.tile_to_lon(tile.tileCoords.x+column/precision,tile.tileCoords.z)*DEGREES_TO_RADIANS;
+            longitudeSin.push(Math.sin(longitude));longitudeCos.push(Math.cos(longitude));
+        }
         for (let row = 0; row <= precision; row++) {
             const v = row / precision;
+            const latitude=this.ourTileMath.tile_to_lat(tile.tileCoords.y+v,tile.tileCoords.z)*DEGREES_TO_RADIANS;
+            const sin=Math.sin(latitude),cos=Math.cos(latitude);
             for (let column = 0; column <= precision; column++) {
-                const u = column / precision;
-                const position = this.getTileSurfacePosition(tile.tileCoords, u, v);
-                positions.push(position.x, position.y, position.z);
-                // Match Babylon's ground UV convention so raster north stays
-                // at the top of the source image.
-                uvs.push(u, 1 - v);
+                const x=cos*longitudeSin[column],z=cos*longitudeCos[column];
+                directions.push(x,sin,z);
+                positions.push(x*this.radius,sin*this.radius,z*this.radius);
+                uvs.push(column/precision,1-v);
             }
         }
+        this.tileDirections.set(tile,directions);
 
         for (let row = 0; row < precision; row++) {
             for (let column = 0; column < precision; column++) {
@@ -430,8 +470,7 @@ export default class GlobeSet extends TileSet {
             }
         }
 
-        const normals: number[] = [];
-        VertexData.ComputeNormals(positions, indices, normals);
+        const normals = directions.slice();
 
         // Keep fine geometry near a local origin to retain centimetre detail
         // when vertex buffers are converted to Float32 on the GPU.
@@ -448,6 +487,7 @@ export default class GlobeSet extends TileSet {
         tile.mesh.rotation.set(0, 0, 0);
         tile.mesh.scaling.set(1, 1, 1);
         tile.mesh.computeWorldMatrix(true);
+        if(wasFrozen)tile.mesh.freezeWorldMatrix();
 
         const bounds = tile.mesh.getBoundingInfo().boundingBox;
         tile.box2D = new BoundingBox(

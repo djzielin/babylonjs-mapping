@@ -103,6 +103,18 @@ describe('globe data fidelity',()=>{
 });
 
 describe('bounded detail streaming',()=>{
+    it('spreads patch generation across budgets and exposes readiness to loaders',()=>{
+        const {scene,dispose}=setup();
+        let time=0;const clock=vi.spyOn(performance,'now').mockImplementation(()=>time+=3);
+        const globe=new GlobeSet(scene,scene.getEngine() as any,{backingSurface:false,geometryBudgetMs:1});
+        globe.createGeometry(new Vector2(2,2),20,8);globe.updateRaster(35,-79,15);
+        expect(globe.ourTiles.filter(t=>globe.isTileGeometryReady(t))).toHaveLength(1);
+        expect(globe.pendingGeometryCount).toBe(3);
+        for(let i=0;i<3;i++)(globe as any).flushGeometry();
+        expect(globe.ourTiles.every(t=>globe.isTileGeometryReady(t))).toBe(true);
+        clock.mockRestore();dispose();
+    });
+
     it('limits concurrency and drops late results after relocation',async()=>{
         const {globe,dispose}=setup(2);
         const pending:Array<{resolve:(grid:ElevationGrid)=>void,signal:AbortSignal}>=[];
