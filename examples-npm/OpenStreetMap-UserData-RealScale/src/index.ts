@@ -128,7 +128,7 @@ class Game {
         light2.intensity=0.5;
 
         this.ourCSV = new CsvData();
-        await this.ourCSV.processURL(window.location.href + "JCSU.csv");
+        await this.ourCSV.processURL(new URL("JCSU.csv", window.location.href).href);
 
         this.ourTS = new TileSet(this.scene,this.engine);
 

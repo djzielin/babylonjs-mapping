@@ -4,10 +4,12 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
-import { Color3, Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Color3, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Scene } from "@babylonjs/core/scene.js";
 
 import Tile from "./Tile.js";
+import GlobeTileMath from './GlobeTileMath.js';
+import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import TileSet from "./TileSet.js";
 
 const DEGREES_TO_RADIANS = Math.PI / 180;
@@ -42,12 +44,18 @@ export interface GlobeCoordinates {
  * `tileWidth` argument passed to createGeometry is retained for TileSet
  * compatibility; the visible globe size is controlled by `radius`.
  *
- * Raster content is supported directly. Planar building and terrain
- * providers should not be used with GlobeSet yet because those providers
- * currently generate geometry in flat map space. Use getSurfacePosition() to
- * place application-owned markers or other globe overlays.
+ * Raster, DEM, and GeoJSON providers share the normal TileSet lifecycle.
+ * Elevations are radial; feature footprints are projected after extrusion so
+ * courtyards, roofs, roads, and points retain their existing geometry.
  */
 export default class GlobeSet extends TileSet {
+    public override readonly isGlobe = true;
+    private flatMath: GlobeTileMath;
+    private geometryKeys = new WeakMap<Tile, string>();
+    private elevationTileMap = new Map<string, Tile>();
+    /** Metres of elevation per world unit use a fixed spherical Earth radius. */
+    public get metresToWorld(): number { return this.radius / 6378137; }
+    public override getGeometryMath(): GlobeTileMath { return this.flatMath; }
     private _radius: number;
     private backingMesh?: Mesh;
     private polarCapMeshes: Mesh[] = [];
@@ -56,6 +64,8 @@ export default class GlobeSet extends TileSet {
     public constructor(scene: Scene, engine: Engine, options: GlobeSetOptions = {}) {
         super(scene, engine);
         this._radius = DEFAULT_GLOBE_RADIUS;
+        this.flatMath = new GlobeTileMath(this, true);
+        this.ourTileMath = new GlobeTileMath(this);
         this.attributionEnabled = options.attribution !== false;
 
         if (options.radius !== undefined) {
@@ -184,10 +194,16 @@ export default class GlobeSet extends TileSet {
     }
 
     public override updateRaster(lat: number, lon: number, zoom: number): void {
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isInteger(zoom) || zoom < 0 || zoom > 22) throw new RangeError('Invalid globe view');
+        lat = Math.max(-MAX_MERCATOR_LATITUDE, Math.min(MAX_MERCATOR_LATITUDE, lat));
+        lon = ((lon + 180) % 360 + 360) % 360 - 180;
         super.updateRaster(lat, lon, zoom);
 
+        this.elevationTileMap.clear();
+        const count=2**this.zoom;
         for (const tile of this.ourTiles) {
             this.updateTileGeometry(tile);
+            this.elevationTileMap.set(`${((tile.tileCoords.x%count)+count)%count}/${tile.tileCoords.y}`,tile);
         }
     }
 
@@ -197,6 +213,94 @@ export default class GlobeSet extends TileSet {
 
     protected override showRasterAttribution(): boolean {
         return this.attributionEnabled;
+    }
+
+    /** Signed elevation grids (including bathymetry) are supplied in metres. */
+    public setElevationData(tile: Tile, data: ArrayLike<number>, width: number, height: number, exaggeration = 1): void {
+        if (!this.ourTiles.includes(tile) || !Number.isInteger(width) || !Number.isInteger(height) || width < 2 || height < 2 || data.length !== width * height || !Number.isFinite(exaggeration) || exaggeration < 0) throw new RangeError('Invalid elevation grid');
+        const dem = Array.from(data);
+        if (dem.some(v => !Number.isFinite(v) || this.radius + v * this.metresToWorld * exaggeration <= 0)) throw new RangeError('Invalid elevation sample');
+        tile.dem = dem;
+        tile.demDimensions = new Vector2(width, height);
+        const heights: number[] = [];
+        const p = this.meshPrecision;
+        for (let y = 0; y <= p; y++) for (let x = 0; x <= p; x++) {
+            const sx = x / p * (width - 1), sy = y / p * (height - 1);
+            const x0 = Math.floor(sx), y0 = Math.floor(sy), x1 = Math.min(x0 + 1, width - 1), y1 = Math.min(y0 + 1, height - 1);
+            const tx = sx - x0, ty = sy - y0;
+            const a = dem[y0 * width + x0] * (1 - tx) + dem[y0 * width + x1] * tx;
+            const b = dem[y1 * width + x0] * (1 - tx) + dem[y1 * width + x1] * tx;
+            heights.push((a * (1 - ty) + b * ty) * this.metresToWorld * exaggeration);
+        }
+        tile.minHeight = dem.reduce((a,b) => Math.min(a,b), Infinity);
+        tile.maxHeight = dem.reduce((a,b) => Math.max(a,b), -Infinity);
+        this.applyElevationGrid(tile, heights, p);
+        tile.terrainLoaded = true;
+    }
+
+    public override applyElevationGrid(tile: Tile, heights: number[], precision: number): void {
+        tile.clearTerrainLOD();
+        tile.elevationHeights = heights;
+        this.applyGlobeHeights(tile.mesh, tile, precision, heights);
+    }
+
+    public applyGlobeHeights(mesh: Mesh, tile: Tile, precision: number, heights: number[]): void {
+        const positions: number[] = [];
+        for (let y = 0; y <= precision; y++) for (let x = 0; x <= precision; x++) {
+            const point = this.getTileSurfacePosition(tile.tileCoords, x / precision, y / precision, heights[y * (precision + 1) + x]);
+            positions.push(point.x, point.y, point.z);
+        }
+        const origin = tile.mesh.position;
+        if (mesh !== tile.mesh) mesh.position.setAll(0);
+        for (let i=0;i<positions.length;i+=3) { positions[i]-=origin.x; positions[i+1]-=origin.y; positions[i+2]-=origin.z; }
+        mesh.setVerticesData(VertexBuffer.PositionKind, positions, true);
+        const normals: number[] = [];
+        VertexData.ComputeNormals(positions, mesh.getIndices()!, normals);
+        mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
+        mesh.refreshBoundingInfo();
+    }
+
+    /** Warp already-extruded feature vertices and their LOD meshes once, at load time. */
+    public override projectFeatureMesh(mesh: Mesh): void {
+        const wasFrozen=mesh.isWorldMatrixFrozen;
+        mesh.unfreezeWorldMatrix();
+        const world = mesh.computeWorldMatrix(true).clone();
+        const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
+        if (!positions) return;
+        const projected: number[] = [];
+        for (let i = 0; i < positions.length; i += 3) {
+            const flat = Vector3.TransformCoordinates(new Vector3(positions[i], positions[i+1], positions[i+2]), world);
+            const ll = this.flatMath.Game_to_LonLat(flat);
+            const point = this.getSurfacePosition(ll.y, ll.x, flat.y / this.tileScale * this.metresToWorld + this.sampleElevation(ll.y, ll.x));
+            projected.push(point.x, point.y, point.z);
+        }
+        mesh.setParent(null);
+        const origin = new Vector3(projected[0],projected[1],projected[2]);
+        for (let i=0;i<projected.length;i+=3) { projected[i]-=origin.x; projected[i+1]-=origin.y; projected[i+2]-=origin.z; }
+        mesh.position.copyFrom(origin); mesh.rotation.setAll(0); mesh.rotationQuaternion = null; mesh.scaling.setAll(1);
+        const indices = Array.from(mesh.getIndices()!);
+        for (let i=0;i<indices.length;i+=3) [indices[i+1],indices[i+2]]=[indices[i+2],indices[i+1]];
+        mesh.setIndices(indices);
+        mesh.setVerticesData(VertexBuffer.PositionKind, projected, true);
+        const normals: number[] = [];
+        VertexData.ComputeNormals(projected, mesh.getIndices()!, normals);
+        mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
+        mesh.computeWorldMatrix(true); mesh.refreshBoundingInfo();
+        // A radial detailed mesh must not switch to a planar billboard.
+        for (const lod of [...mesh.getLODLevels()]) { mesh.removeLODLevel(lod.mesh); lod.mesh?.dispose(); }
+        if (wasFrozen) mesh.freezeWorldMatrix();
+    }
+
+    /** Bilinear loaded-surface elevation in world units; zero where data is absent. */
+    public sampleElevation(latitude: number, longitude: number): number {
+        const x = this.ourTileMath.lon_to_tileExact(longitude, this.zoom);
+        const y = this.ourTileMath.lat_to_tileExact(latitude, this.zoom);
+        const n = 2 ** this.zoom;
+        const tile = this.elevationTileMap.get(`${((Math.floor(x)%n)+n)%n}/${Math.floor(y)}`);
+        if (!tile?.elevationHeights) return 0;
+        const p = this.meshPrecision, sx = (x - Math.floor(x)) * p, sy = (y - Math.floor(y)) * p;
+        const x0 = Math.floor(sx), y0 = Math.floor(sy), x1 = Math.min(x0+1,p), y1 = Math.min(y0+1,p), tx = sx-x0, ty = sy-y0, h = tile.elevationHeights;
+        return (h[y0*(p+1)+x0]*(1-tx)+h[y0*(p+1)+x1]*tx)*(1-ty)+(h[y1*(p+1)+x0]*(1-tx)+h[y1*(p+1)+x1]*tx)*ty;
     }
 
     private createBackingMesh(): void {
@@ -275,6 +379,9 @@ export default class GlobeSet extends TileSet {
     }
 
     private updateTileGeometry(tile: Tile): void {
+        const key = `${tile.tileCoords}/${this.radius}/${this.meshPrecision}`;
+        if (this.geometryKeys.get(tile) === key) return;
+        this.geometryKeys.set(tile, key);
         const precision = this.meshPrecision;
         const columns = precision + 1;
         const positions: number[] = [];
@@ -308,6 +415,10 @@ export default class GlobeSet extends TileSet {
         const normals: number[] = [];
         VertexData.ComputeNormals(positions, indices, normals);
 
+        // Keep fine geometry near a local origin to retain centimetre detail
+        // when vertex buffers are converted to Float32 on the GPU.
+        const origin = tile.tileCoords.z >= 10 ? this.getTileSurfacePosition(tile.tileCoords) : Vector3.Zero();
+        for (let i=0;i<positions.length;i+=3) { positions[i]-=origin.x; positions[i+1]-=origin.y; positions[i+2]-=origin.z; }
         const vertexData = new VertexData();
         vertexData.positions = positions;
         vertexData.normals = normals;
@@ -315,7 +426,7 @@ export default class GlobeSet extends TileSet {
         vertexData.indices = indices;
         vertexData.applyToMesh(tile.mesh, true);
 
-        tile.mesh.position.set(0, 0, 0);
+        tile.mesh.position.copyFrom(origin);
         tile.mesh.rotation.set(0, 0, 0);
         tile.mesh.scaling.set(1, 1, 1);
         tile.mesh.computeWorldMatrix(true);

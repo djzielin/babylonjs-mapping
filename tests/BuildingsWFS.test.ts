@@ -250,3 +250,24 @@ describe("BuildingsWFS pagination", () => {
     }
   });
 });
+
+it.each([404, 503])("bounds building retries for HTTP %i", async (status) => {
+  vi.useFakeTimers();
+  const { engine, scene, buildings } = createBuildings();
+  const urls = installFetchPages({ 0: { status } });
+  try {
+    buildings.generateBuildings();
+    for (let i = 0; i < 10; i++) {
+      buildings.processBuildingRequests();
+      await Promise.resolve();
+      await Promise.resolve();
+      vi.advanceTimersByTime(5001);
+    }
+    expect(buildings.getRequests()).toHaveLength(0);
+    expect(urls).toHaveLength(status === 404 ? 1 : 4);
+  } finally {
+    scene.dispose();
+    engine.dispose();
+    vi.useRealTimers();
+  }
+});

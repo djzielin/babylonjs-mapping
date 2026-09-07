@@ -1,6 +1,7 @@
 import { Vector2 } from "@babylonjs/core/Maths/math.js";
 import Raster from "./Raster.js";
 import { RetrievalLocation } from "../shared/Retrieval.js";
+import { downloadBlob, isRetryableStatus } from "../shared/Download.js";
 import { getLocalResourceURL } from "../shared/LocalRetrieval.js";
 import type TileSet from "../core/TileSet.js";
 import type { TileRequest } from "../core/TileSet.js";
@@ -21,8 +22,6 @@ export default class RasterWMTS extends Raster {
 
         if (retrievalLocation == RetrievalLocation.Remote_and_Save) {
             this.tileSet.scene.onBeforeRenderObservable.add(() => {
-                // Your code here
-                console.log("This runs before every frame.");
                 if (this.downloadComplete==true) {
                     if (this.downloadQueue.length > 0) {
                         this.downloadComplete = false;
@@ -37,7 +36,7 @@ export default class RasterWMTS extends Raster {
     }
 
     public setup(url: string, layer: string) {
-        this.baseURL = url;
+        this.baseURL = url.replace(/\/+$/, "");
         this.layerName = layer;
     }
 
@@ -63,44 +62,33 @@ export default class RasterWMTS extends Raster {
     }
 
     public async processSingleRequest(request: TileRequest) {
-        //now with retries per ChatGPT
-        const maxRetries = 10;
-        const delay = 1000;
-
-        let attempts = 0;
-        while (attempts < maxRetries) {
-            try {
-                const res = await fetch(request.url);
-
-                if (res.status === 200) {
-                    const blob = await res.blob();
-                    const url = window.URL.createObjectURL(new Blob([blob], { type: blob.type }));
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `${request.tileCoords.z}_${request.tileCoords.y}_${request.tileCoords.x}${this.extension}`;
-                    await new Promise((resolve) => setTimeout(resolve, 250)); //wait for just a bit
-                    a.click();
-
-                    console.log("File downloaded successfully!");
-                    this.downloadCount++;
-                    console.log("  WMTS Download Count: " + this.downloadCount);
-                    this.downloadComplete = true;
-                    return;
-                } else {
-                    console.warn(`Attempt ${attempts + 1}: HTTP status ${res.status}`);
+        const maxAttempts = 10;
+        this.downloadComplete = false;
+        try {
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    const response = await fetch(request.url);
+                    if (response.ok) {
+                        downloadBlob(await response.blob(),
+                            `${request.tileCoords.z}_${request.tileCoords.y}_${request.tileCoords.x}${this.extension}`);
+                        this.downloadCount++;
+                        return;
+                    }
+                    if (!isRetryableStatus(response.status)) {
+                        console.error(`WMTS download failed: HTTP ${response.status}`);
+                        return;
+                    }
+                } catch (error) {
+                    console.warn(`WMTS download attempt ${attempt} failed:`, error);
                 }
-            } catch (error) {
-                console.error(`Attempt ${attempts + 1} failed:`, error);
+                if (attempt < maxAttempts) {
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                }
             }
-
-            // Increment attempts and wait before retrying
-            attempts++;
-            if (attempts < maxRetries) {
-                console.log(`Retrying in ${delay}ms...`);
-                await new Promise((resolve) => setTimeout(resolve, delay));
-            }
+            console.error(`WMTS download failed after ${maxAttempts} attempts.`);
+        } finally {
+            // A failed download must never block the rest of the queue.
+            this.downloadComplete = true;
         }
-
-        console.error(`Failed to download file after ${maxRetries} attempts.`);
     }
 }

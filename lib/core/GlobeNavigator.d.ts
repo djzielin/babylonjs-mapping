@@ -50,6 +50,7 @@ export default class GlobeNavigator {
     private lastRasterKey?;
     private lastRasterUpdate;
     private lastViewSignature?;
+    private lastSurfaceHeight;
     constructor(globe: GlobeSet, camera: ArcRotateCamera, options?: GlobeNavigatorOptions);
     /** Return the geographic point at the center of the camera view. */
     getView(): GlobeView;

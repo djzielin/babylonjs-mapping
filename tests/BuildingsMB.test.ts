@@ -75,7 +75,12 @@ describe("BuildingsMB", () => {
     expect(first.root.rotation.x).toBeCloseTo(-Math.PI / 2);
     expect(first.asset.rootNodes[0].parent).toBe(first.root);
 
+    const oldPosition = first.root.position.clone();
+    tileSet.moveAllTiles(1, 0, 0, null);
+    buildings.exaggeration = 2;
     await buildings.generateBuildings();
+    expect(first.root.position.x).toBeCloseTo(oldPosition.x + 1);
+    expect(first.root.scaling.z).toBeCloseTo(tileSet.tileScale * 2);
     expect(requests).toHaveLength(expectedTileKeys.size);
     expect(tileSet.ourAttribution.addAttribution).toHaveBeenCalledWith("MBMODEL");
 

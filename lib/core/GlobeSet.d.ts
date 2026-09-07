@@ -2,6 +2,8 @@ import { Engine } from "@babylonjs/core/Engines/engine.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Scene } from "@babylonjs/core/scene.js";
+import Tile from "./Tile.js";
+import GlobeTileMath from './GlobeTileMath.js';
 import TileSet from "./TileSet.js";
 export interface GlobeSetOptions {
     /** Radius of the globe in Babylon world units. */
@@ -24,12 +26,18 @@ export interface GlobeCoordinates {
  * `tileWidth` argument passed to createGeometry is retained for TileSet
  * compatibility; the visible globe size is controlled by `radius`.
  *
- * Raster content is supported directly. Planar building and terrain
- * providers should not be used with GlobeSet yet because those providers
- * currently generate geometry in flat map space. Use getSurfacePosition() to
- * place application-owned markers or other globe overlays.
+ * Raster, DEM, and GeoJSON providers share the normal TileSet lifecycle.
+ * Elevations are radial; feature footprints are projected after extrusion so
+ * courtyards, roofs, roads, and points retain their existing geometry.
  */
 export default class GlobeSet extends TileSet {
+    readonly isGlobe = true;
+    private flatMath;
+    private geometryKeys;
+    private elevationTileMap;
+    /** Metres of elevation per world unit use a fixed spherical Earth radius. */
+    get metresToWorld(): number;
+    getGeometryMath(): GlobeTileMath;
     private _radius;
     private backingMesh?;
     private polarCapMeshes;
@@ -62,6 +70,14 @@ export default class GlobeSet extends TileSet {
     updateRaster(lat: number, lon: number, zoom: number): void;
     protected reuseRasterTilesOnUpdate(): boolean;
     protected showRasterAttribution(): boolean;
+    /** Signed elevation grids (including bathymetry) are supplied in metres. */
+    setElevationData(tile: Tile, data: ArrayLike<number>, width: number, height: number, exaggeration?: number): void;
+    applyElevationGrid(tile: Tile, heights: number[], precision: number): void;
+    applyGlobeHeights(mesh: Mesh, tile: Tile, precision: number, heights: number[]): void;
+    /** Warp already-extruded feature vertices and their LOD meshes once, at load time. */
+    projectFeatureMesh(mesh: Mesh): void;
+    /** Bilinear loaded-surface elevation in world units; zero where data is absent. */
+    sampleElevation(latitude: number, longitude: number): number;
     private createBackingMesh;
     private createPolarCap;
     private updateTileGeometry;

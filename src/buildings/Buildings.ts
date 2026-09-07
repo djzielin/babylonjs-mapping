@@ -9,6 +9,7 @@ import type Tile from "../core/Tile.js";
 import type TileSet from "../core/TileSet.js";
 import { EPSG_Type } from "../core/TileMath.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
+import { downloadBlob, isRetryableStatus } from "../shared/Download.js";
 import { RetrievalLocation, RetrievalType } from "../shared/Retrieval.js";
 
 //import "@babylonjs/core/Materials/standardMaterial"
@@ -26,6 +27,7 @@ export interface BuildingRequestPagination {
 }
 
 export interface BuildingRequest {
+    cancelled?: boolean;
     requestType: BuildingRequestType;
     tile: Tile;
     tileCoords: Vector3;
@@ -36,6 +38,7 @@ export interface BuildingRequest {
     url?: string;
     pagination?: BuildingRequestPagination;
     mergeAfterLoad?: boolean;
+    retryCount?: number;
 }
 
 export interface BuildingLODOptions {
@@ -121,6 +124,8 @@ export default abstract class Buildings {
     public pointDiameter = 0.5;
     public buildingsCreatedPerFrame = 10; //TODO: is there a better way to do this?
     public cacheFiles = true;
+    /** Maximum retries for transient HTTP errors after the initial request. */
+    public maxRetries = 3;
     public buildingMaterial: StandardMaterial;
     /** Controls optional mesh/material and request-queue optimizations. */
     public optimizationOptions: Required<BuildingOptimizationOptions> = {
@@ -315,19 +320,23 @@ export default abstract class Buildings {
         this._retrievalLocation = value;
     }
 
+    /** Invalidate queued and in-flight feature work when replacing a layer. */
+    public cancelPendingRequests(): void {
+        for (const request of this.buildingRequests) request.cancelled = true;
+        this.buildingRequests = [];
+    }
+
     public abstract SubmitLoadTileRequest(tile: Tile): void;
     public abstract SubmitLoadAllRequest(): void;
 
     public ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void {
-        if (request.tile.tileCoords.equals(request.tileCoords) == false) {
+        if (request.cancelled || request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) {
             console.warn(this.prettyName() + "tile coords have changed while we were loading, not adding buildings to queue!");
             return;
         }
 
-        let index = 0;
         let addedBuildings = 0;
         const detectedEpsgType = request.epsgType ?? GeoJSON.detectProjection(topLevel);
-        const meshArray: Mesh[] = [];
         for (const f of topLevel.features) {
             const brequest: BuildingRequest = {
                 requestType: BuildingRequestType.CreateBuilding,
@@ -436,14 +445,11 @@ export default abstract class Buildings {
     }
 
     protected doSave(text: string){
-        var a = document.createElement("a");
-        a.href = window.URL.createObjectURL(new Blob([text], {type: "text/plain"}));
-        a.download = this.name+".json";
-        a.click();
+        downloadBlob(new Blob([text], { type: "application/json" }), this.name + ".json");
     }
 
     private processLoadedGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel, requestIndex: number): void {
-        if (request.tile.tileCoords.equals(request.tileCoords) == false) {
+        if (request.cancelled || request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) {
             console.warn(this.prettyName() + "tile coords have changed while we were loading, not adding buildings to queue!");
             this.removePendingRequest(requestIndex, request);
             return;
@@ -472,7 +478,7 @@ export default abstract class Buildings {
         }
 
         if (this.isURLLoaded(request.url)) { //is the file already cached?
-            console.log(this.prettyName() + "we already have this GeoJSON loaded: " + this.stripFilePrefix(request.url));
+            console.log(this.prettyName() + "using cached GeoJSON for tile: " + request.tileCoords);
             const topLevel = this.getFeatures(request.url);
             if (topLevel) {
                 this.processLoadedGeoJSON(request, topLevel, requestIndex);
@@ -483,7 +489,7 @@ export default abstract class Buildings {
             return;
         }
 
-        console.log(this.prettyName() + "trying to fetch: " + request.url);
+        console.log(this.prettyName() + "trying to fetch tile: " + request.tileCoords);
         request.inProgress = true;
 
         fetch(request.url).then(async (res) => {
@@ -521,8 +527,9 @@ export default abstract class Buildings {
                 return;
             }
 
-            if (res.status >= 400 && res.status<600) {
-                console.log("Error code:" + res.status + " while requesting: " + request.url);
+            if (isRetryableStatus(res.status) && (request.retryCount ?? 0) < this.maxRetries) {
+                request.retryCount = (request.retryCount ?? 0) + 1;
+                console.log("Error code:" + res.status + " while requesting tile: " + request.tileCoords);
                 console.log("but we will try again!");
                 this.enqueueBuildingRequest(request); //let's try again? maybe there should be a maximum number of retries?
                 request.inProgress=false;
@@ -532,7 +539,7 @@ export default abstract class Buildings {
                 return;
             }
             else {
-                console.error(this.prettyName() + "unable to fetch: " + request.url + " error code: " + res.status);
+                console.error(this.prettyName() + "unable to fetch tile: " + request.tileCoords + " error code: " + res.status);
                 this.removePendingRequest(requestIndex, request);
                 return;
             }
@@ -615,7 +622,7 @@ export default abstract class Buildings {
     public processBuildingRequests() {
         if (this.sleepRequested) { //lets take a nap for a bit (when we get a 500 server error)
             const timeDiff=Date.now()-this.timeStart;
-            console.log("we've slept for: " + timeDiff);
+
 
             if(timeDiff>this.sleepDuration){
                 console.log("done sleeping after: " + timeDiff);
@@ -646,7 +653,7 @@ export default abstract class Buildings {
             }
             const request = this.buildingRequests[rIndex];
 
-            if (request.tile.tileCoords.equals(request.tileCoords) == false) { //make sure tile still has same coords
+            if (request.cancelled || request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) { //make sure tile still has same coords
                 console.warn(this.prettyName() + "tile coords: " + request.tileCoords + " are no longer around, we must have already changed tile");
 
                 this.removePendingRequest(rIndex);
@@ -704,6 +711,7 @@ export default abstract class Buildings {
                     ); //dispose source meshes and allow dense 32-bit index buffers
 
                     if (merged) {
+                        merged.renderingGroupId = allMeshes[0].renderingGroupId;
                         merged.setParent(request.tile.mesh);
                         merged.name = "all_buildings_merged";
                         this.applyBuildingMeshOptions(merged);

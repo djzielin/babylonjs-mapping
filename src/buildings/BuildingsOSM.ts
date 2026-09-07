@@ -34,10 +34,8 @@ export default class BuildingsOSM extends Buildings {
     ];
 
     protected override stripFilePrefix(original: string): string {
-        const prefixLength=35; //51
-        const stripped = original.slice(prefixLength);
-        //console.log("new file URL is: " + stripped);
-        return stripped;
+        const url = new URL(original);
+        return url.pathname + url.search;
     }
 
     public SubmitLoadTileRequest(tile: Tile) {
@@ -48,7 +46,7 @@ export default class BuildingsOSM extends Buildings {
 
         const storedCoords = tile.tileCoords.clone();
 
-        const url = this.osmBuildingServers[this.serverNum] + storedCoords.z + "/" + storedCoords.x + "/" + storedCoords.y + ".json"+"?token="+this.accessToken;
+        const url = this.osmBuildingServers[this.serverNum] + storedCoords.z + "/" + storedCoords.x + "/" + storedCoords.y + ".json"+"?token="+encodeURIComponent(this.accessToken);
         this.serverNum = (this.serverNum + 1) % this.osmBuildingServers.length; //increment server to use with wrap around
 
         const request: BuildingRequest = {

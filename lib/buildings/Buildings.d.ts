@@ -17,6 +17,7 @@ export interface BuildingRequestPagination {
     startIndex: number;
 }
 export interface BuildingRequest {
+    cancelled?: boolean;
     requestType: BuildingRequestType;
     tile: Tile;
     tileCoords: Vector3;
@@ -27,6 +28,7 @@ export interface BuildingRequest {
     url?: string;
     pagination?: BuildingRequestPagination;
     mergeAfterLoad?: boolean;
+    retryCount?: number;
 }
 export interface BuildingLODOptions {
     /** Enables a rectangle billboard for each generated feature at a distance. */
@@ -90,6 +92,8 @@ export default abstract class Buildings {
     pointDiameter: number;
     buildingsCreatedPerFrame: number;
     cacheFiles: boolean;
+    /** Maximum retries for transient HTTP errors after the initial request. */
+    maxRetries: number;
     buildingMaterial: StandardMaterial;
     /** Controls optional mesh/material and request-queue optimizations. */
     optimizationOptions: Required<BuildingOptimizationOptions>;
@@ -140,6 +144,8 @@ export default abstract class Buildings {
     /** @deprecated Use retrievalLocation. */
     get retrevialLocation(): RetrievalLocation;
     set retrevialLocation(value: RetrievalLocation);
+    /** Invalidate queued and in-flight feature work when replacing a layer. */
+    cancelPendingRequests(): void;
     abstract SubmitLoadTileRequest(tile: Tile): void;
     abstract SubmitLoadAllRequest(): void;
     ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void;

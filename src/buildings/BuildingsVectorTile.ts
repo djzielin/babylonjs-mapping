@@ -93,7 +93,9 @@ export default class BuildingsVectorTile extends Buildings {
         }
 
         super.generateBuildings();
-        this.tileSet.ourAttribution.addAttribution("MB");
+        if (this.tileURL === MAPBOX_STREETS_VECTOR_TILE_URL) {
+            this.tileSet.ourAttribution.addAttribution("MB");
+        }
     }
 
     public override SubmitLoadTileRequest(tile: Tile): void {
@@ -107,7 +109,7 @@ export default class BuildingsVectorTile extends Buildings {
             inProgress: false,
             flipWinding: false,
         };
-        this.buildingRequests.push(request);
+        this.enqueueBuildingRequest(request);
     }
 
     public override SubmitLoadAllRequest(): void {

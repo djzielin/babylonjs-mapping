@@ -6,7 +6,7 @@ export default class TerrainMB {
     private scene;
     private mbServer;
     globalMinHeight: number;
-    private index;
+    private readonly terrainRequests;
     accessToken: string;
     private heightScaleFixer;
     private skuToken;
@@ -23,7 +23,8 @@ export default class TerrainMB {
     fixTileSeams(): void;
     private invalidateTileSeams;
     private convertRGBtoDEM;
-    applyDEMToMesh(tile: Tile, meshPrecision: number): void;
+    applyDEMToMesh(tile: Tile, meshPrecision: number, heightScale?: number): void;
+    private updateTerrainPositions;
     private computeIndexByPercent;
     fixNorthSeam(tile: Tile, tileUpper: Tile): void;
     fixEastSeam(tile: Tile, tileRight: Tile): void;

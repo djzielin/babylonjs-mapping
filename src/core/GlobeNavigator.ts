@@ -71,6 +71,7 @@ export default class GlobeNavigator {
     private lastRasterKey?: string;
     private lastRasterUpdate = Number.NEGATIVE_INFINITY;
     private lastViewSignature?: string;
+    private lastSurfaceHeight = 0;
 
     public constructor(
         public readonly globe: GlobeSet,
@@ -112,7 +113,7 @@ export default class GlobeNavigator {
     public getView(): GlobeView {
         const latitude = 90 - this.camera.beta / DEGREES_TO_RADIANS;
         const longitude = this.wrapLongitude(90 - this.camera.alpha / DEGREES_TO_RADIANS);
-        const altitude = Math.max(0, this.camera.radius - this.globe.radius);
+        const altitude = Math.max(0, this.camera.radius - this.globe.radius - this.globe.sampleElevation(latitude, longitude));
 
         return {
             latitude,
@@ -171,6 +172,7 @@ export default class GlobeNavigator {
         this.camera.alpha = target.alpha;
         this.camera.beta = target.beta;
         this.camera.radius = target.radius;
+        this.lastSurfaceHeight = this.globe.sampleElevation(latitude, longitude);
         this.refresh(true);
     }
 
@@ -202,6 +204,12 @@ export default class GlobeNavigator {
 
     /** Force the view readout and raster window to synchronize immediately. */
     public refresh(forceRasterUpdate = false): GlobeView {
+        const current = this.getView();
+        const surface = this.globe.sampleElevation(current.latitude, current.longitude);
+        if (!this.flight) this.camera.radius += surface - this.lastSurfaceHeight;
+        this.lastSurfaceHeight = surface;
+        this.camera.lowerRadiusLimit = this.globe.radius + surface + this.getAltitudeForZoom(this.maxZoom);
+        this.camera.minZ = Math.max(0.0000001, current.altitude * 0.001);
         const view = this.getView();
         const viewSignature = [
             view.latitude.toFixed(5),
@@ -300,7 +308,7 @@ export default class GlobeNavigator {
         return {
             alpha: Math.PI / 2 - this.wrapLongitude(longitude) * DEGREES_TO_RADIANS,
             beta: Math.PI / 2 - clampedLatitude * DEGREES_TO_RADIANS,
-            radius: Math.max(minimumRadius, Math.min(maximumRadius, this.globe.radius + altitude)),
+            radius: Math.max(minimumRadius, Math.min(maximumRadius, this.globe.radius + altitude + this.globe.sampleElevation(latitude, longitude))),
         };
     }
 

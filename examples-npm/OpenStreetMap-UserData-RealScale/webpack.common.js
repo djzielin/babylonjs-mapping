@@ -35,12 +35,8 @@ module.exports = {
             },
             {
                 test: /\.(png|jpg|gif|env|glb|stl)$/i,
-                use: [{
-                    loader: 'url-loader',
-                    options: {
-                        limit: 8192,
-                    },
-                }, ],
+                type: 'asset',
+                parser: { dataUrlCondition: { maxSize: 8192 } },
             }
         ]
     },

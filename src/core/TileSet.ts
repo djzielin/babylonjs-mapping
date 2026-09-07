@@ -1,7 +1,6 @@
 import { Scene } from "@babylonjs/core/scene.js";
 import { Engine } from "@babylonjs/core/Engines/engine.js";
 import { EngineStore } from "@babylonjs/core/Engines/engineStore.js";
-import { BoundingBox } from "@babylonjs/core/Culling/boundingBox.js";
 import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
@@ -69,6 +68,12 @@ export const DEFAULT_TILESET_OPTIMIZATION_OPTIONS: Readonly<Required<TileSetOpti
     disableTileCollisions: false,
 };
 export default class TileSet {
+    /** Projection hooks shared by all feature and terrain providers. */
+    public readonly isGlobe: boolean = false;
+    public getGeometryMath(): TileMath { return this.ourTileMath; }
+    public projectFeatureMesh(_mesh: Mesh): void {}
+    public applyElevationGrid(_tile: Tile, _heights: number[], _precision: number): void {}
+
 
     private xmin: number;
     private zmin: number;
@@ -90,6 +95,8 @@ export default class TileSet {
     public streetExtensionAmount = 0.25; //TODO; fix this to be in some sort of units that make sense, instead of game-world coordinates. 
 
     private ourRasterProvider: Raster;
+    private rasterVersion = 0;
+    private tileRasterVersion = new WeakMap<Tile, number>();
     //private accessToken: string;
 
     public ourTerrainMB: TerrainMB;
@@ -122,7 +129,9 @@ export default class TileSet {
     constructor(public scene: Scene, private engine: Engine) {
 
         EngineStore._LastCreatedScene = this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
-        EngineStore.Instances.push(this.engine);
+        if (!EngineStore.Instances.includes(this.engine)) {
+            EngineStore.Instances.push(this.engine);
+        }
 
         this.ourAttribution = new Attribution(this.scene);
         this.ourTileMath = new TileMath(this);
@@ -131,7 +140,7 @@ export default class TileSet {
         this.ourTerrainMB = new TerrainMB(this, this.scene); //TODO: this should really be a terrain provider, in case we can get terrain from more than just MapBox
 
 
-        const observer = this.scene.onBeforeRenderObservable.add(() => { //fire every frame
+        this.scene.onBeforeRenderObservable.add(() => { //fire every frame
             this.processTileRequests(); //TODO: investigate WebWorker or other "threading" techniques, instead of calling every frame
         });
     }
@@ -217,15 +226,16 @@ export default class TileSet {
             for (const tile of this.ourTiles) {
                 tile.deleteBuildings();
                 tile.clearTerrainLOD();
+                tile.material?.dispose(false, true);
                 tile.mesh.dispose();
             }
             this.ourTiles = [];
             this.ourTilesMap.clear();
-            this.tileRequests = [];
+            this.clearTileRequests();
         }
         this.isRasterSetup = false;
 
-        this.numTiles = numTiles;
+        this.numTiles = numTiles.clone();
         this.tileWidth = tileWidth;
         this.meshPrecision = meshPrecision;
 
@@ -267,7 +277,18 @@ export default class TileSet {
         return true;
     }
 
-    public processTileRequests() {
+    /** Bounded parallel raster requests; each frame scans only the active window. */
+    public rasterConcurrency = 6;
+    public processTileRequests(): void {
+        const count = Math.min(this.tileRequests.length, this.rasterConcurrency);
+        if (count === 0) { this.processNextTileRequest(); return; }
+        for (let i=0; i<count; i++) {
+            const request=this.tileRequests[0];
+            this.processNextTileRequest();
+            if (this.tileRequests[0]===request) this.tileRequests.push(this.tileRequests.shift()!);
+        }
+    }
+    private processNextTileRequest() {
     if (this.isGeometrySetup == false) {
         return;
     }
@@ -286,7 +307,8 @@ export default class TileSet {
 
     if (request.requestType == TileRequestType.LoadTile) {
         if (request.inProgress == false) {
-            console.log(this.prettyName() + "trying to load tile raster: " + request.url);
+            if (this.tileRequests.filter(r => r.inProgress).length >= this.rasterConcurrency) return;
+            console.log(this.prettyName() + "trying to load tile raster: " + request.tileCoords);
             request.texture = new Texture(request.url, this.scene);
             request.inProgress = true;
 
@@ -297,7 +319,7 @@ export default class TileSet {
         if (request.inProgress == true) {
             if (request.texture) {
                 if (request.texture.isReady()) {
-                    console.log(this.prettyName() + "tile raster is ready: " + request.url);
+                    console.log(this.prettyName() + "tile raster is ready: " + request.tileCoords);
 
                     const material = request.mesh.material as StandardMaterial;
                     material.unfreeze();
@@ -319,7 +341,8 @@ export default class TileSet {
                     return;
                 }
                 if (request.texture.loadingError) {
-                    console.warn(this.prettyName() + "error loading texture for: " + request.url);
+                    console.warn(this.prettyName() + "error loading texture for tile: " + request.tileCoords);
+                    request.texture.dispose();
 
                     this.requestsProcessedSinceCaughtUp++;
                     this.tileRequests.shift(); //pop request off front of queue
@@ -365,6 +388,7 @@ export default class TileSet {
 }
 
     public setRasterProvider(rp: Raster) {
+    this.rasterVersion++;
     this.ourRasterProvider = rp;
 }
 
@@ -377,7 +401,7 @@ export default class TileSet {
     public updateRaster(lat: number, lon: number, zoom: number) {
     this.assertGeometrySetup("update raster");
 
-    this.cancelPendingRasterRequests();
+    if (!this.reuseRasterTilesOnUpdate()) this.cancelPendingRasterRequests();
 
     this.zoom = zoom;
     this.centerCoords = new Vector2(lon, lat);
@@ -413,6 +437,9 @@ export default class TileSet {
     }
 
     const unusedTiles = new Set(this.ourTiles);
+    // Reserve overlaps before recycling: otherwise the first missing tile can
+    // steal a loaded tile needed later in the new window.
+    const reserved = new Set(desiredCoordinates.map(c => previousTilesByCoordinate.get(c.toString())).filter(Boolean));
     const reassignedTiles: Tile[] = [];
 
     for (const coordinate of desiredCoordinates) {
@@ -420,7 +447,7 @@ export default class TileSet {
         let tile = previousTilesByCoordinate.get(coordinateKey);
 
         if (tile === undefined || !unusedTiles.has(tile)) {
-            tile = unusedTiles.values().next().value as Tile | undefined;
+            tile = Array.from(unusedTiles).find(candidate => !reserved.has(candidate));
         }
         if (tile === undefined) {
             throw new Error("Unable to assign a mesh for every raster tile coordinate.");
@@ -430,9 +457,9 @@ export default class TileSet {
         reassignedTiles.push(tile);
 
         const hasLoadedRaster = tile.tileCoords?.equals(coordinate)
-            && tile.mesh.isEnabled()
-            && tile.material?.diffuseTexture !== null
-            && tile.material?.diffuseTexture !== undefined;
+            && this.tileRasterVersion.get(tile) === this.rasterVersion
+            && ((tile.mesh.isEnabled() && !!tile.material?.diffuseTexture)
+                || this.tileRequests.some(r => r.tile === tile));
 
         if (hasLoadedRaster) {
             this.ourTilesMap.set(coordinateKey, tile);
@@ -453,10 +480,29 @@ export default class TileSet {
     this.tileRequests = [];
 }
 
+    private clearTileRequests(tile?: Tile): void {
+        this.tileRequests = this.tileRequests.filter((request) => {
+            if (tile && request.tile !== tile) return true;
+            request.texture?.dispose();
+            return false;
+        });
+    }
+
     private updateSingleRasterTile(tile: Tile, tileX: number, tileY: number) {
+    this.clearTileRequests(tile);
+    if (tile.tileCoords && this.ourTilesMap.get(tile.tileCoords.toString()) === tile) {
+        this.ourTilesMap.delete(tile.tileCoords.toString());
+    }
+    if (tile.tileCoords && !tile.tileCoords.equals(new Vector3(tileX, tileY, this.zoom))) {
+        tile.deleteBuildings();
+        tile.clearTerrainLOD();
+        tile.terrainLoaded = false;
+        tile.elevationHeights = undefined;
+    }
     tile.tileCoords = new Vector3(tileX, tileY, this.zoom); //store for later     
     this.ourTilesMap.set(tile.tileCoords.toString(), tile);
 
+    this.tileRasterVersion.set(tile, this.rasterVersion);
     tile.mesh.setEnabled(false);
     let material: StandardMaterial;
 
@@ -494,7 +540,7 @@ export default class TileSet {
         inProgress: false
     }
     this.tileRequests.push(request);
-    console.log(this.prettyName() + "submitted tile raster load request for: " + tile.tileCoords + " URL: " + url);
+    console.log(this.prettyName() + "submitted tile raster load request for: " + tile.tileCoords);
 
     tile.mesh.name = "Tile_" + tileX + "_" + tileY;
 }
@@ -519,11 +565,19 @@ export default class TileSet {
         reloadTerrain = false,
     ) {
     this.assertRasterSetup("move tiles");
+    if (!Number.isFinite(movX) || !Number.isFinite(movZ)) {
+        throw new RangeError("Tile movement must be finite.");
+    }
+    if (!Number.isInteger(reloadLimitPerFrame) || reloadLimitPerFrame < 0) {
+        throw new RangeError("reloadLimitPerFrame must be a non-negative integer.");
+    }
     for (const t of this.ourTiles) {
         t.mesh.position.x += movX;
         t.mesh.position.z += movZ;
+        t.refreshBoundingBox();
     }
 
+    if (reloadLimitPerFrame === 0) return;
     let tilesReloaded = 0;
 
     for (const t of this.ourTiles) {
@@ -532,7 +586,7 @@ export default class TileSet {
             this.moveHelper(t, new Vector3(this.totalWidthMeters, 0, 0), new Vector3(this.numTiles.x, 0, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
-            if (tilesReloaded < reloadLimitPerFrame) {
+            if (tilesReloaded >= reloadLimitPerFrame) {
                 return;
             }
         }
@@ -543,7 +597,7 @@ export default class TileSet {
             this.moveHelper(t, new Vector3(-this.totalWidthMeters, 0, 0), new Vector3(-this.numTiles.x, 0, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
-            if (tilesReloaded < reloadLimitPerFrame) {
+            if (tilesReloaded >= reloadLimitPerFrame) {
                 return;
             }
         }
@@ -553,7 +607,7 @@ export default class TileSet {
             this.moveHelper(t, new Vector3(0, 0, this.totalHeightMeters), new Vector3(0, -this.numTiles.y, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
-            if (tilesReloaded < reloadLimitPerFrame) {
+            if (tilesReloaded >= reloadLimitPerFrame) {
                 return;
             }
         }
@@ -563,7 +617,7 @@ export default class TileSet {
             this.moveHelper(t, new Vector3(0, 0, -this.totalHeightMeters), new Vector3(0, this.numTiles.y, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
-            if (tilesReloaded < reloadLimitPerFrame) {
+            if (tilesReloaded >= reloadLimitPerFrame) {
                 return;
             }
         }
@@ -580,7 +634,8 @@ export default class TileSet {
 
     t.deleteBuildings();
 
-    t.mesh.position = t.mesh.position.add(meshMoveAmount);
+    t.mesh.position.addInPlace(meshMoveAmount);
+    t.refreshBoundingBox();
     const previousTileCoords = t.tileCoords.clone();
     this.ourTilesMap.delete(t.tileCoords.toString());
 
@@ -591,7 +646,9 @@ export default class TileSet {
         buildingCreator.SubmitLoadTileRequest(t);
     }
     if (reloadTerrain) {
-        void this.ourTerrainMB.updateSingleTerrainTile(t);
+        void this.ourTerrainMB.updateSingleTerrainTile(t).catch((error) => {
+            console.error("Unable to reload terrain for recycled tile:", error);
+        });
     }
 
     this.onTilePositionUpdatedObservable.notifyObservers({

@@ -1,24 +1,16 @@
 import { Scene } from "@babylonjs/core/scene.js";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/index.js";
-import { Button, Control, Rectangle, StackPanel, TextBlock } from "@babylonjs/gui/2D/controls/index.js";
+import { Button, Control, StackPanel } from "@babylonjs/gui/2D/controls/index.js";
 
 export default class Attribution {
      public advancedTexture: AdvancedDynamicTexture;
 
-    private buttonOSM: Button;
-    private buttonMB: Button;
-    private buttonMBLogo: Button;
-    private buttonImprov: Button;
-    private buttonOSMBuildings: Button;
-    private buttonOverture: Button;
-    private buttonGEBCO: Button;
-
-    private attributionList: string[]=[];
+    private readonly attributionList = new Set<string>();
     private ourRightPanel: StackPanel;
     private ourLeftPanel: StackPanel;
     
-    constructor(private scene: Scene) {
-        this.advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI");
+    constructor(scene: Scene) {
+        this.advancedTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI", true, scene);
 
         this.ourRightPanel = new StackPanel("attribution right panel");
         this.ourRightPanel.height = "25px";
@@ -37,169 +29,58 @@ export default class Attribution {
         this.advancedTexture.addControl(this.ourLeftPanel);
     }
 
-    public addAttribution(provider: string) {
-        if(this.attributionList.includes(provider)){
-            return; //we already contain this provider
+    public addAttribution(provider: string): void {
+        if (this.attributionList.has(provider)) return;
+        this.attributionList.add(provider);
+
+        switch (provider) {
+            case "MB":
+                this.addAttribution("OSM");
+                this.addAttribution("MBMODEL");
+                break;
+            case "MBMODEL":
+                this.addLink("button_mb", "© Mapbox", 65, "https://www.mapbox.com/about/maps/");
+                this.addLink("button_improve", "Improve this map", 100, "https://www.mapbox.com/map-feedback/");
+                this.addMapboxLogo();
+                break;
+            case "OSM":
+                this.addLink("button_osm", "© OpenStreetMap contributors", 175, "https://www.openstreetmap.org/copyright");
+                break;
+            case "OSMB":
+                this.addLink("button_osmb", "© OSM Buildings", 100, "https://osmbuildings.org/copyright/");
+                break;
+            case "OVERTURE":
+                this.addAttribution("OSM");
+                this.addLink("button_overture", "© Overture Maps", 105, "https://docs.overturemaps.org/attribution/");
+                break;
+            case "GEBCO":
+                this.addLink("button_gebco", "© GEBCO", 70, "https://www.gebco.net/data-products/gebco-web-services/web-map-service");
+                break;
         }
-              
-        if (provider == "MB") {
-            this.addAttributionOSM();
-            this.attributionList.push("OSM");
-
-            this.addAttributionMapbox();           
-        }
-
-        if (provider == "MBMODEL") {
-            this.addAttributionMapbox();
-        }
-
-        if (provider == "OSM") {
-            this.addAttributionOSM();
-        }
-
-        if (provider == "OSMB") {
-            this.addAttributionOSMBuildings();
-        }
-
-        if (provider == "OVERTURE") {
-            this.addAttributionOSM();
-            this.addAttributionOverture();
-        }
-
-        if (provider == "GEBCO") {
-            this.addAttributionGEBCO();
-        }
-
-        this.attributionList.push(provider);
-    }
-    
-    private addAttributionOSM() {
-        this.buttonOSM = Button.CreateSimpleButton("button_osm", "© OpenStreetMap contributors");
-        this.buttonOSM.width = "175px";
-        this.buttonOSM.height = "25px";
-        this.buttonOSM.color = "blue";
-        this.buttonOSM.alpha = 0.75;
-        this.buttonOSM.thickness = 0;
-        this.buttonOSM.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.buttonOSM.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.buttonOSM.fontSize = "12px";
-        this.buttonOSM.background = "";
-        this.buttonOSM.onPointerUpObservable.add(function () {
-            window.open("https://www.openstreetmap.org/copyright");
-        });
-
-        this.ourRightPanel.addControl(this.buttonOSM);
-    }    
-
-    private addAttributionOSMBuildings() {
-        this.buttonOSMBuildings = Button.CreateSimpleButton("button_osm", "© OSM Buildings");
-        this.buttonOSMBuildings.width = "100px";
-        this.buttonOSMBuildings.height = "25px";
-        this.buttonOSMBuildings.color = "blue";
-        this.buttonOSMBuildings.alpha = 0.75;
-        this.buttonOSMBuildings.thickness = 0;
-        this.buttonOSMBuildings.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.buttonOSMBuildings.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.buttonOSMBuildings.fontSize = "12px";
-        this.buttonOSMBuildings.background = "";
-        this.buttonOSMBuildings.onPointerUpObservable.add(function () {
-            window.open("https://osmbuildings.org/copyright/");
-        });
-
-        this.ourRightPanel.addControl(this.buttonOSMBuildings);
-    }    
-
-    private addAttributionOverture() {
-        this.buttonOverture = Button.CreateSimpleButton("button_overture", "© Overture Maps");
-        this.buttonOverture.width = "105px";
-        this.buttonOverture.height = "25px";
-        this.buttonOverture.color = "blue";
-        this.buttonOverture.alpha = 0.75;
-        this.buttonOverture.thickness = 0;
-        this.buttonOverture.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.buttonOverture.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.buttonOverture.fontSize = "12px";
-        this.buttonOverture.background = "";
-        this.buttonOverture.onPointerUpObservable.add(function () {
-            window.open("https://docs.overturemaps.org/attribution/");
-        });
-
-        this.ourRightPanel.addControl(this.buttonOverture);
     }
 
-    private addAttributionGEBCO() {
-        this.buttonGEBCO = Button.CreateSimpleButton("button_gebco", "© GEBCO");
-        this.buttonGEBCO.width = "70px";
-        this.buttonGEBCO.height = "25px";
-        this.buttonGEBCO.color = "blue";
-        this.buttonGEBCO.alpha = 0.75;
-        this.buttonGEBCO.thickness = 0;
-        this.buttonGEBCO.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.buttonGEBCO.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.buttonGEBCO.fontSize = "12px";
-        this.buttonGEBCO.background = "";
-        this.buttonGEBCO.onPointerUpObservable.add(function () {
-            window.open("https://www.gebco.net/data-products/gebco-web-services/web-map-service");
-        });
-
-        this.ourRightPanel.addControl(this.buttonGEBCO);
+    private addLink(name: string, label: string, width: number, url: string): void {
+        const button = Button.CreateSimpleButton(name, label);
+        button.width = `${width}px`;
+        button.height = "25px";
+        button.color = "blue";
+        button.alpha = 0.75;
+        button.thickness = 0;
+        button.fontSize = "12px";
+        button.background = "";
+        button.onPointerUpObservable.add(() => window.open(url, "_blank", "noopener,noreferrer"));
+        this.ourRightPanel.addControl(button);
     }
 
-
-    /* 
-       https://docs.mapbox.com/help/getting-started/attribution/
-    */
-    private addAttributionMapbox() {
-        this.buttonMB = Button.CreateSimpleButton("button_mb", "© Mapbox");
-        this.buttonMB.width = "65px";
-        //this.buttonMB.left = "-200px";
-        this.buttonMB.height = "25px";
-        this.buttonMB.color = "blue";
-        this.buttonMB.alpha = 0.75;
-        this.buttonMB.thickness = 0;
-        //this.buttonMB.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        //this.buttonMB.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.buttonMB.fontSize = "12px";
-        this.buttonMB.background = "";
-        this.buttonMB.onPointerUpObservable.add(function () {
-            window.open("https://www.mapbox.com/about/maps/");
-        });       
-
-        this.buttonImprov = Button.CreateSimpleButton("button_improve", "Improve this map");
-        this.buttonImprov.width = "100px";
-        this.buttonImprov.height = "25px";
-        this.buttonImprov.color = "blue";
-        this.buttonImprov.alpha = 0.75;
-        this.buttonImprov.thickness = 0;
-        //this.buttonImprov.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        //this.buttonImprov.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.buttonImprov.fontSize = "12px";
-        this.buttonImprov.background = "";
-        this.buttonImprov.onPointerUpObservable.add(function () {
-            window.open("https://www.mapbox.com/map-feedback/");
-        });
-
-        //logo via https://commons.wikimedia.org/wiki/File:Mapbox_logo_2019.svg
-        this.buttonMBLogo = Button.CreateImageOnlyButton("button_logo", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Mapbox_logo_2019.svg/320px-Mapbox_logo_2019.svg.png");
-
-        this.buttonMBLogo.width = "99px";
-        this.buttonMBLogo.height = "30px";
-        this.buttonMBLogo.paddingBottom = "5px";
-        this.buttonMBLogo.paddingTop = "5px";
-        this.buttonMBLogo.paddingLeft = "5px";
-        this.buttonMBLogo.paddingRight = "5px";
-        this.buttonMBLogo.background = "";
-        this.buttonMBLogo.alpha = 0.75;
-        this.buttonMBLogo.thickness = 0;
-        //this.buttonMBLogo.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        //this.buttonMBLogo.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.buttonMBLogo.fontSize = "12px";
-        this.buttonMBLogo.onPointerUpObservable.add(function () {
-            window.open("https://www.mapbox.com/about/maps/");
-        });
-
-        this.ourRightPanel.addControl(this.buttonMB);
-        this.ourRightPanel.addControl(this.buttonImprov);
-        this.ourLeftPanel.addControl(this.buttonMBLogo);
+    private addMapboxLogo(): void {
+        const logo = Button.CreateImageOnlyButton("button_logo", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Mapbox_logo_2019.svg/320px-Mapbox_logo_2019.svg.png");
+        logo.width = "99px";
+        logo.height = "30px";
+        logo.paddingBottom = logo.paddingTop = logo.paddingLeft = logo.paddingRight = "5px";
+        logo.background = "";
+        logo.alpha = 0.75;
+        logo.thickness = 0;
+        logo.onPointerUpObservable.add(() => window.open("https://www.mapbox.com/about/maps/", "_blank", "noopener,noreferrer"));
+        this.ourLeftPanel.addControl(logo);
     }
 }

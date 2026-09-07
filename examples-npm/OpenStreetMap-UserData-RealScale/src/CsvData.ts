@@ -4,7 +4,7 @@ import { Vector2} from "@babylonjs/core/Maths/math";
 
 export default class CsvData 
 { 
-    private parseData: any[];
+    private parseData: string[][] = [];
 
     constructor(){
         
@@ -16,19 +16,22 @@ export default class CsvData
         console.log("  fetch returned: " + res.status);
 
         if (res.status != 200) {
-            return;
+            throw new Error(`Unable to load CSV: HTTP ${res.status}`);
         }
 
         const text = await res.text();
         //console.log("raw text: " + JSON.stringify(text));
 
-        const parseResult = parse(text);
-        this.parseData = parseResult.data as any[];
+        const parseResult = parse<string[]>(text, { skipEmptyLines: true });
+        if (parseResult.errors.length > 0) {
+            throw new Error(parseResult.errors[0].message);
+        }
+        this.parseData = parseResult.data;
 
         //console.log("parseData: " + this.parseData);
     }
 
-    public getRow(row: number): any[] {
+    public getRow(row: number): string[] {
         return this.parseData[row+1]; //skip header
     }
 

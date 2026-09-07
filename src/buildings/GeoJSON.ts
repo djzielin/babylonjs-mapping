@@ -114,57 +114,6 @@ export class GeoJSON {
     constructor(private tileSet: TileSet, private scene: Scene) {
     }
 
-    /*private getFirstCoordinateWorld(f: feature, projection: ProjectionType, zoom?: number): Vector3 {
-        if (zoom === undefined) {
-            zoom = this.tileSet.zoom;
-        }
-
-        if (f.geometry.type == "Polygon") {
-            const ps: polygonSet = f.geometry.coordinates as polygonSet;
-            return this.getFirstCoordinateWorldFromPolygonSet(ps, projection);
-        }
-        else if (f.geometry.type == "MultiPolygon") {
-            const mp: multiPolygonSet = f.geometry.coordinates as multiPolygonSet;
-            return this.getFirstCoordinateWorldFromPolygonSet(mp[0], projection);
-        }
-        else {
-            console.error("unknown geometry type: " + f.geometry.type);
-        }
-
-        return new Vector3(0,0,0);
-    }
-
-    private getFirstCoordinateWorldFromPolygonSet(ps: polygonSet, projection: ProjectionType, zoom?: number): Vector3 {
-        const v2 = new Vector2(ps[0][0][0], ps[0][0][1]);
-        return this.tileSet.ourTileMath.GetWorldPosition(v2, projection, zoom)
-    }
-
-    public getFirstCoordinateTile(f: feature, projection: ProjectionType, zoom: number): Vector3 {
-        if (zoom === undefined) {
-            zoom = this.tileSet.zoom;
-        }
-
-        if (f.geometry.type == "Polygon") {
-            const ps: polygonSet = f.geometry.coordinates as polygonSet;
-            return this.getFirstCoordinateTileFromPolygonSet(ps, projection, zoom);
-        }
-        else if (f.geometry.type == "MultiPolygon") {
-            const mp: multiPolygonSet = f.geometry.coordinates as multiPolygonSet;
-            return this.getFirstCoordinateTileFromPolygonSet(mp[0], projection, zoom);
-        }
-        else {
-            console.error("unknown geometry type: " + f.geometry.type);
-        }
-
-        return new Vector3(0,0,0);
-    }
-
-    private getFirstCoordinateTileFromPolygonSet(ps: polygonSet, projection: ProjectionType, zoom: number): Vector3 {
-        const v2 = new Vector2(ps[0][0][0], ps[0][0][1]);
-        const tileXY= this.tileSet.ourTileMath.GetTilePosition(v2, projection, zoom); //lat lon
-        return new Vector3(tileXY.x, tileXY.y, zoom);
-    }*/
-
     private computeOffset(v1: Vector3, v2: Vector3, lineWidth: number): Vector2 {
         const dx = v2.x - v1.x;
         const dz = v2.z - v1.z;
@@ -190,7 +139,7 @@ export class GeoJSON {
 
         const points = cs.map((coordinate) => {
             const source = new Vector2(coordinate[0], coordinate[1]);
-            return this.tileSet.ourTileMath.EPSG_to_Game(source, epsg);
+            return this.tileSet.getGeometryMath().EPSG_to_Game(source, epsg);
         });
         const outline: coordinateArray = [];
 
@@ -211,6 +160,9 @@ export class GeoJSON {
     }
 
     public generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, flipWinding: boolean, buildings: Buildings) {
+        // GeoJSON allows null geometries and null properties.
+        if (!f.geometry) return;
+        const properties = f.properties ?? {};
         this.validateBuildingLODOptions(buildings.buildingLOD);
 
         // GeoJSON generation is also used directly by a few integrations and
@@ -238,15 +190,15 @@ export class GeoJSON {
         const arrayOfLines: coordinateArrayOfArrays = [];
 
         let height = defaultBuildingHeight;
-        if (f.properties.height !== undefined) {
-            const providedHeight = Number(f.properties.height);
+        if (properties.height !== undefined) {
+            const providedHeight = Number(properties.height);
             if (Number.isFinite(providedHeight)) {
                 height = providedHeight;
             }
         }
-        if (f.properties.Story !== undefined) {
-            let stories = Number(f.properties.Story);
-            if (isNaN(stories)) {
+        if (properties.Story !== undefined) {
+            let stories = Number(properties.Story);
+            if (!Number.isFinite(stories)) {
                 stories = 0;
             }
             if (stories == 0) { //0 just means undefined
@@ -254,7 +206,7 @@ export class GeoJSON {
             }
             height = (stories + 0.5) * 3.0; //not sure if we should do this to account for roof height?
         }
-        const roofSpec = resolveRoofSpec(f.properties ?? {}, height);
+        const roofSpec = resolveRoofSpec(properties, height);
 
         if (f.geometry.type == "Polygon") {
             const ps: polygonSet = f.geometry.coordinates as polygonSet;
@@ -266,14 +218,14 @@ export class GeoJSON {
             }
             const cp: coordinatePair = f.geometry.coordinates as coordinatePair;
             const v = new Vector2(cp[0], cp[1]);
-            const pos = this.tileSet.ourTileMath.EPSG_to_Game(v, epsg);
+            const pos = this.tileSet.getGeometryMath().EPSG_to_Game(v, epsg);
 
             const sphere = MeshBuilder.CreateSphere("sphere", { diameter: pointDiameter }, this.scene);
 
             sphere.position = pos;
             finalMesh = sphere;
         }
-        else if (f.geometry.type == "MultiPolygon" || f.geometry.type == "MultiLineString") {
+        else if (f.geometry.type == "MultiPolygon" || f.geometry.type == "MultiLineString" || f.geometry.type == "LineString") {
 
             const allMeshes: Mesh[] = [];
 
@@ -285,14 +237,14 @@ export class GeoJSON {
                     allMeshes.push(singleMesh);
                 }
             }
-            if (f.geometry.type == "MultiLineString") {
+            if (f.geometry.type == "MultiLineString" || f.geometry.type == "LineString") {
                 //console.log("NEW GEOMETRY TYPE: MultiLineString");
 
                 if (!Number.isFinite(lineWidth) || lineWidth <= 0) {
                     throw new RangeError("lineWidth must be a finite number greater than zero.");
                 }
 
-                const ps: polygonSet = f.geometry.coordinates as polygonSet;
+                const ps: polygonSet = f.geometry.type === "LineString" ? [f.geometry.coordinates as coordinateSet] : f.geometry.coordinates as polygonSet;
                 //console.log("lineset set of length: " + ps.length);              
 
                 for (let i = 0; i < ps.length; i++) {
@@ -319,7 +271,7 @@ export class GeoJSON {
                 finalMesh = allMeshes[0];
             } else {
                 console.log("looks like its time for a merge!");
-                const merged = Mesh.MergeMeshes(allMeshes);
+                const merged = Mesh.MergeMeshes(allMeshes, true, true);
                 if (merged) {
                     finalMesh = merged;
                 } else {
@@ -345,12 +297,12 @@ export class GeoJSON {
         if (f.id !== undefined) {
             finalMesh.name = f.id;
         }
-        if (f.properties.name !== undefined) {
-            finalMesh.name = f.properties.name;
+        if (properties.name !== undefined) {
+            finalMesh.name = properties.name;
         }
 
-        if (f.properties.Name !== undefined) { //NOTE: this is not a mistake, look closely and you can see .name vs .Name
-            finalMesh.name = f.properties.Name;
+        if (properties.Name !== undefined) { //NOTE: this is not a mistake, look closely and you can see .name vs .Name
+            finalMesh.name = properties.Name;
         }
         
         finalMesh.refreshBoundingInfo();
@@ -368,7 +320,7 @@ export class GeoJSON {
             //console.log("looking to place: " + finalMesh.name);
             //console.log("computed center: " + center);
 
-            const bestTile=this.tileSet.ourTileMath.findBestTile(center)
+            const bestTile=this.tileSet.getGeometryMath().findBestTile(center)
 
             if(bestTile){
                 tile=bestTile;
@@ -399,6 +351,7 @@ export class GeoJSON {
         
 
 
+        this.tileSet.projectFeatureMesh(finalMesh);
         const building = new TileBuilding(finalMesh, tile);
 
 
@@ -520,7 +473,7 @@ export class GeoJSON {
 
             const v2 = new Vector2(x, y);
 
-            const coord = this.tileSet.ourTileMath.EPSG_to_Game(v2, epsg);
+            const coord = this.tileSet.getGeometryMath().EPSG_to_Game(v2, epsg);
 
             vArray.push(coord);
         }
@@ -530,7 +483,7 @@ export class GeoJSON {
     private processSinglePolygon(ps: polygonSet, epsg: EPSG_Type, buildingMaterial: StandardMaterial, exaggeration: number, height: number, flipWinding: boolean, roofSpec?: RoofSpec): Mesh {
         const gameCoordinates: coordinateArrayOfArrays = ps.map((ring) => ring.map((coordinate) => {
             const source = new Vector2(coordinate[0], coordinate[1]);
-            return this.tileSet.ourTileMath.EPSG_to_Game(source, epsg);
+            return this.tileSet.getGeometryMath().EPSG_to_Game(source, epsg);
         }));
 
         return this.processSinglePolygonInGameCoordinates(gameCoordinates, buildingMaterial, exaggeration, height, flipWinding, roofSpec);
@@ -577,7 +530,6 @@ export class GeoJSON {
             }
         }
 
-        (globalThis as { earcut?: unknown }).earcut = Earcut;
 
         var orientation = Mesh.DEFAULTSIDE;
         if (holeArray.length > 0) {
@@ -610,14 +562,14 @@ export class GeoJSON {
                 holes: holeArray,
                 sideOrientation: orientation
             },
-            this.scene);
+            this.scene, Earcut);
 
         ourMesh.position.y = wallHeight * heightScaleFixer;
         ourMesh.material = buildingMaterial; //all buildings will use same material
         ourMesh.isPickable = false;
 
         if (roofMesh !== undefined) {
-            const mergedMesh = Mesh.MergeMeshes([ourMesh, roofMesh]);
+            const mergedMesh = Mesh.MergeMeshes([ourMesh, roofMesh], true, true);
             if (mergedMesh !== null) {
                 ourMesh = mergedMesh;
                 ourMesh.material = buildingMaterial;
