@@ -84,14 +84,22 @@ export default class Attribution {
     public setGoogleAttributions(attributions: readonly string[]): void {
         if (!this.googleDataAttribution) {
             this.googleDataAttribution = new TextBlock("google data attribution");
-            this.googleDataAttribution.width = "500px";
+            this.googleDataAttribution.width = "100%";
+            this.googleDataAttribution.paddingLeft = "12px";
+            this.googleDataAttribution.paddingRight = "12px";
+            this.googleDataAttribution.textWrapping = true;
+            this.googleDataAttribution.resizeToFit = true;
+            this.googleDataAttribution.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            this.googleDataAttribution.top = "-28px";
+            this.googleDataAttribution.outlineWidth = 3;
+            this.googleDataAttribution.outlineColor = "#07101c";
             this.googleDataAttribution.height = "25px";
             this.googleDataAttribution.color = "white";
             this.googleDataAttribution.alpha = 0.9;
             this.googleDataAttribution.fontSize = "11px";
             this.googleDataAttribution.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             this.googleDataAttribution.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-            this.ourRightPanel.addControl(this.googleDataAttribution);
+            this.advancedTexture.addControl(this.googleDataAttribution);
         }
         this.googleDataAttribution.text = attributions.length > 0
             ? attributions.join("; ")
@@ -171,13 +179,15 @@ export default class Attribution {
     }
 
     private addAttributionGoogle() {
-        this.buttonGoogle = Button.CreateSimpleButton("button_google", "Google");
-        this.buttonGoogle.width = "60px";
+        if (this.buttonGoogle) return;
+        this.buttonGoogle = Button.CreateSimpleButton("button_google", "Google Maps");
+        this.buttonGoogle.width = "100px";
         this.buttonGoogle.height = "25px";
         this.buttonGoogle.color = "white";
         this.buttonGoogle.alpha = 0.9;
         this.buttonGoogle.thickness = 0;
-        this.buttonGoogle.fontSize = "12px";
+        this.buttonGoogle.fontSize = "16px";
+        this.buttonGoogle.fontFamily = "Arial, sans-serif";
         this.buttonGoogle.background = "";
         this.buttonGoogle.onPointerUpObservable.add(function () {
             window.open("https://developers.google.com/maps/documentation/tile/policies");

@@ -519,6 +519,7 @@ export default class Google3DTiles {
                 attributions: [...model.attributions],
             };
             this.loadedTiles.set(selection.url, result);
+            this.updateAttribution();
             return result;
         });
 
@@ -620,7 +621,14 @@ export default class Google3DTiles {
 
             south = Math.min(south, tileSouth);
             north = Math.max(north, tileNorth);
-            longitudes.push([west, east]);
+            if (east - west >= 360) {
+                longitudes.push([-180, 180]);
+            } else {
+                const normalizedWest = normalizeLongitude(west);
+                const normalizedEast = normalizeLongitude(east);
+                if (normalizedWest <= normalizedEast) longitudes.push([normalizedWest, normalizedEast]);
+                else longitudes.push([normalizedWest, 180], [-180, normalizedEast]);
+            }
         }
 
         return { south, north, longitudes };

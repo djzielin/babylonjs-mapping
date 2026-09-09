@@ -6,6 +6,7 @@ import Google3DTiles, {
   type Google3DTile,
   type Google3DTileset,
   type GoogleModelTileLoader,
+  type LoadedGoogleModelTile,
   type GoogleTilesetLoader,
   parseGoogleGLBMetadata,
 } from "../src/Google3DTiles";
@@ -253,7 +254,7 @@ describe("Google3DTiles regression coverage", () => {
 
   it("disposes a late model response after cancellation", async () => {
     const { engine, scene, tileSet } = createTileSet();
-    let resolve!: (value: any) => void;
+    let resolve!: (value: LoadedGoogleModelTile) => void;
     const asset = new AssetContainer(scene);
     const disposed = vi.spyOn(asset, "dispose");
     const google = new Google3DTiles(tileSet, { apiKey: "test-key",
@@ -306,5 +307,64 @@ describe("Google3DTiles regression coverage", () => {
     expect(await google.load()).toHaveLength(0);
     expect(await google.load()).toHaveLength(1);
     google.dispose(); scene.dispose(); engine.dispose();
+  });
+});
+
+
+describe("Google3DTiles edge cases", () => {
+  it.each([
+    { maxDepth: -1 }, { maxDepth: 1.5 }, { maxTiles: 0 }, { maxTiles: NaN },
+    { exaggeration: 0 }, { exaggeration: Infinity }, { origin: { latitude: 91, longitude: 0 } },
+    { origin: { latitude: 0, longitude: 181 } }, { origin: { latitude: 0, longitude: 0, height: NaN } },
+  ])("rejects invalid options %j without network requests", async (options) => {
+    const { engine, scene, tileSet } = createTileSet();
+    const loader = vi.fn();
+    const google = new Google3DTiles(tileSet, { apiKey: "test-key", ...options, tilesetLoader: loader });
+    await expect(google.load()).rejects.toThrow();
+    expect(loader).not.toHaveBeenCalled();
+    scene.dispose(); engine.dispose();
+  });
+
+  it("selects across the antimeridian", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    tileSet.updateRaster(0, 180, 16);
+    const google = new Google3DTiles(tileSet, { apiKey: "test-key",
+      tilesetLoader: async () => ({ root: { boundingVolume: { region: [-Math.PI, -Math.PI/2, Math.PI, Math.PI/2] }, children: [
+        { boundingVolume: { region: [-Math.PI, -0.01, -Math.PI + 0.01, 0.01] }, content: { uri: "dateline.glb" } },
+        { boundingVolume: { region: [0, -0.01, 0.01, 0.01] }, content: { uri: "greenwich.glb" } },
+      ] } }), modelTileLoader: createModelLoader([]),
+    });
+    expect((await google.load()).map(tile => new URL(tile.url).pathname.split("/").pop())).toEqual(["dateline.glb"]);
+    google.dispose(); scene.dispose(); engine.dispose();
+  });
+
+  it("keeps the newest load when hierarchy responses arrive out of order", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    const resolvers: Array<(value: Google3DTileset) => void> = [];
+    const google = new Google3DTiles(tileSet, { apiKey: "test-key",
+      tilesetLoader: () => new Promise(resolve => resolvers.push(resolve)),
+      modelTileLoader: createModelLoader([]),
+    });
+    const first = google.load();
+    const second = google.load();
+    resolvers[1]({ root: { content: { uri: "new.glb" } } });
+    expect(await second).toHaveLength(1);
+    resolvers[0]({ root: { content: { uri: "old.glb" } } });
+    expect(await first).toEqual([]);
+    expect(google.loadedModelTiles[0].url).toContain("new.glb");
+    google.dispose(); scene.dispose(); engine.dispose();
+  });
+
+  it("inherits a response's session instead of a different branch's latest token", () => {
+    const { engine, scene, tileSet } = createTileSet();
+    const google = new Google3DTiles(tileSet, { apiKey: "test-key" });
+    google.getTileURL("child.json?session=other");
+    const url = new URL(google.getTileURL("model.glb", "https://tile.googleapis.com/v1/3dtiles/child.json?session=parent"));
+    expect(url.searchParams.get("session")).toBe("parent");
+    scene.dispose(); engine.dispose();
+  });
+
+  it.each([new ArrayBuffer(0), createGLB({ extensions: { CESIUM_RTC: { center: [1, 2] } } })])("handles absent or malformed RTC data", (buffer) => {
+    expect(parseGoogleGLBMetadata(buffer).rtcCenter).toBeUndefined();
   });
 });
