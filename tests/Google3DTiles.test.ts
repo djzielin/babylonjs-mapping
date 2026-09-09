@@ -12,6 +12,8 @@ import Google3DTiles, {
 } from "../src/Google3DTiles";
 import { EPSG_Type } from "../src/core/TileMath";
 import TileSet from "../src/TileSet";
+import GlobeSet from "../src/GlobeSet";
+import { PerformanceConfigurator } from "@babylonjs/core/Engines/performanceConfigurator";
 
 vi.mock("../src/core/Attribution", () => ({
   default: class AttributionStub {
@@ -440,4 +442,36 @@ it("does not fall back to distant coarse content after all children are culled",
   });
   expect(await google.load()).toHaveLength(0);
   google.dispose(); scene.dispose(); engine.dispose();
+});
+
+
+describe("Google tiles on a globe", () => {
+  it.each([[0, 0], [36, -78], [-45, 179]])("preserves radial height and metre scale at %s, %s without adding DEM height", async (latitude, longitude) => {
+    const engine = new NullEngine();
+    PerformanceConfigurator.SetMatrixPrecision(true);
+    const scene = new Scene(engine);
+    const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+    globe.createGeometry(new Vector2(1, 1), 20, 2);
+    globe.updateRaster(latitude, longitude, 17);
+    vi.spyOn(globe, "sampleElevation").mockReturnValue(100);
+    const angle = latitude * Math.PI / 180;
+    const e2 = 6.69437999014e-3;
+    const n = 6378137 / Math.sqrt(1 - e2 * Math.sin(angle) ** 2);
+    const lon = longitude * Math.PI / 180;
+    const rtc = new Vector3((n + 120) * Math.cos(angle) * Math.cos(lon), (n + 120) * Math.cos(angle) * Math.sin(lon), (n * (1 - e2) + 120) * Math.sin(angle));
+    const provider = new Google3DTiles(globe, {
+      apiKey: "test",
+      tilesetLoader: async () => ({ root: { content: { uri: "chapel.glb" } } }),
+      modelTileLoader: async () => ({ asset: new AssetContainer(scene), attributions: [], rtcCenter: rtc }),
+    });
+    const [tile] = await provider.load();
+    const world = tile.root.computeWorldMatrix(true);
+    const position = Vector3.TransformCoordinates(Vector3.Zero(), world);
+    expect(Vector3.Distance(position, globe.getSurfacePosition(latitude, longitude, 120 * globe.metresToWorld))).toBeLessThan(globe.metresToWorld);
+    const metre = Vector3.TransformNormal(new Vector3(1, 0, 0), world).length();
+    expect(metre).toBeCloseTo(globe.metresToWorld, 12);
+    provider.dispose();
+    expect(tile.root.isDisposed()).toBe(true);
+    scene.dispose(); engine.dispose();
+  });
 });

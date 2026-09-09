@@ -85,9 +85,12 @@ export default class Tile {
         const ourMeshes: Mesh[]=[];
 
         for(let b of this.buildings){
-            ourMeshes.push(b.mesh);
+            if (!b.mesh.isDisposed() && b.mesh.getTotalVertices() > 0) ourMeshes.push(b.mesh);
         }
 
+        if (this.mergedBuildingMesh && !this.mergedBuildingMesh.isDisposed()) {
+            ourMeshes.push(this.mergedBuildingMesh);
+        }
         return ourMeshes;
     }   
 

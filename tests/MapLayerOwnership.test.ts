@@ -1,3 +1,4 @@
+import Tile from "../src/core/Tile";
 import { describe, expect, it, vi } from "vitest";
 import { MeshBuilder, NullEngine, Scene, StandardMaterial, PBRMaterial, MultiMaterial, VertexBuffer, Vector3 } from "@babylonjs/core";
 import { Constants } from "@babylonjs/core/Engines/constants";
@@ -116,4 +117,22 @@ describe("shared map layer ownership", () => {
         expect(landscapeTerrainLOD(64, 100)).toEqual({ precisions: [48, 32, 16, 8, 4, 2, 0], distances: [100, 250, 800, 1100, 1400, 1650, 1900] });
         expect(landscapeTerrainLOD(32, 16000).distances[0]).toBe(128000);
     });
+});
+
+
+it("merges later building pages without reusing disposed source meshes", () => {
+    const engine = new NullEngine(); const scene = new Scene(engine);
+    const first = MeshBuilder.CreateBox("first", {}, scene);
+    const second = MeshBuilder.CreateBox("second", {}, scene);
+    const origin = new Vector3(45, 35, 20);
+    const merged = mergeMeshesAtOrigin([first, second], origin)!;
+    const third = MeshBuilder.CreateBox("third", {}, scene);
+    const tile = { buildings: [{ mesh: first }, { mesh: second }, { mesh: third }], mergedBuildingMesh: merged };
+    const sources = Tile.prototype.getAllBuildingMeshes.call(tile as never);
+    expect(sources).toEqual([third, merged]);
+    const expectedVertices = third.getTotalVertices() + merged.getTotalVertices();
+    const complete = mergeMeshesAtOrigin(sources, origin)!;
+    expect(complete.getTotalVertices()).toBe(expectedVertices);
+    expect(complete.isDisposed()).toBe(false);
+    scene.dispose(); engine.dispose();
 });

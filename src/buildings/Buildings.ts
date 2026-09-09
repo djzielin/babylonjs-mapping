@@ -727,14 +727,8 @@ export default abstract class Buildings {
                 console.log(this.prettyName() + "processing merge request for tile: " + request.tileCoords);
                 //console.log("  number of buildings in merge: " + request.tile.buildings.length);
 
-                if (request.tile.buildings.length > 1) {
-                    for (let b of request.tile.buildings) {
-                        if (b.mesh.isReady() == false) {
-                            console.error(this.prettyName() + "ERROR: Mesh not ready!");
-                        }
-                    }
-                    //console.log("about to do big merge");
-                    const allMeshes: Mesh[] = request.tile.getAllBuildingMeshes();
+                const allMeshes: Mesh[] = request.tile.getAllBuildingMeshes();
+                if (allMeshes.length > 1) {
                     const merged = this.tileSet.isGlobe
                         ? mergeMeshesAtOrigin(allMeshes, request.tile.mesh.getAbsolutePosition())
                         : Mesh.MergeMeshes(allMeshes, true, true);

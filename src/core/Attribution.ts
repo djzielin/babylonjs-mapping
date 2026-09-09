@@ -113,7 +113,11 @@ export default class Attribution {
         const button = Button.CreateSimpleButton(name, label);
         button.width = `${width}px`;
         button.height = "25px";
-        button.color = "blue";
+        button.color = "white";
+        if (button.textBlock) {
+            button.textBlock.outlineWidth = 3;
+            button.textBlock.outlineColor = "#07101c";
+        }
         button.alpha = 0.75;
         button.thickness = 0;
         button.fontSize = "12px";

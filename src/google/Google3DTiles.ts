@@ -1,3 +1,4 @@
+import type GlobeSet from "../core/GlobeSet.js";
 import { AssetContainer } from "@babylonjs/core/assetContainer.js";
 import { Matrix, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader.js";
@@ -323,7 +324,7 @@ export default class Google3DTiles {
             origin.latitude,
             origin.longitude,
             origin.height ?? 0,
-            this.tileSet.tileScale,
+            this.tileSet.isGlobe ? (this.tileSet as GlobeSet).metresToWorld : this.tileSet.tileScale,
             this.exaggeration,
         ].join(":");
     }
@@ -555,8 +556,9 @@ export default class Google3DTiles {
             Math.sin(origin.latitude * RADIANS_PER_DEGREE),
         );
 
-        const scale = this.tileSet.tileScale;
-        const originOnMap = this.tileSet.ourTileMath.EPSG_to_Game(
+        const globe = this.tileSet.isGlobe ? this.tileSet as GlobeSet : undefined;
+        const scale = globe ? globe.metresToWorld : this.tileSet.tileScale;
+        const originOnMap = globe ? Vector3.Zero() : this.tileSet.ourTileMath.EPSG_to_Game(
             new Vector2(origin.longitude, origin.latitude), EPSG_Type.EPSG_4326,
         );
         const ecefToLocal = Matrix.FromValues(
@@ -568,13 +570,30 @@ export default class Google3DTiles {
         );
         // Undo Babylon's glTF handedness conversion, then convert glTF Y-up
         // to tile Z-up before RTC translation and the accumulated tile matrix.
-        const transform = Matrix.Scaling(this.tileSet.scene.useRightHandedSystem ? 1 : -1, 1, 1)
+        let transform = Matrix.Scaling(this.tileSet.scene.useRightHandedSystem ? 1 : -1, 1, 1)
             .multiply(Matrix.RotationX(Math.PI / 2))
             .multiply(Matrix.Translation(centerEcef.x, centerEcef.y, centerEcef.z))
             .multiply(selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity())
             .multiply(ecefToLocal)
             .multiply(Matrix.Scaling(scale, scale * this.exaggeration, scale))
             .multiply(Matrix.Translation(originOnMap.x, 0, originOnMap.z));
+
+        if (globe) {
+            const normal = globe.getSurfaceNormal(origin.latitude, origin.longitude);
+            const longitude = origin.longitude * RADIANS_PER_DEGREE;
+            const globeEast = new Vector3(-Math.cos(longitude), 0, -Math.sin(longitude));
+            const globeNorth = Vector3.Cross(globeEast, normal).normalize();
+            const surface = globe.getSurfacePosition(origin.latitude, origin.longitude, (origin.height ?? 0) * scale);
+            // Replace the planar translation with a metre-scaled tangent frame.
+            // Google already contains absolute terrain heights; do not add DEM elevation.
+            transform = transform.multiply(Matrix.Translation(-originOnMap.x, 0, -originOnMap.z))
+                .multiply(Matrix.FromValues(
+                    globeEast.x, globeEast.y, globeEast.z, 0,
+                    normal.x, normal.y, normal.z, 0,
+                    globeNorth.x, globeNorth.y, globeNorth.z, 0,
+                    surface.x, surface.y, surface.z, 1,
+                ));
+        }
 
         const root = new TransformNode(
             `Google 3D Tile ${selection.depth}`,
