@@ -18,6 +18,7 @@
     "./lib/core/*": "./lib/core/*.js",
     "./lib/raster/*": "./lib/raster/*.js",
     "./lib/buildings/*": "./lib/buildings/*.js",
+    "./lib/google/*": "./lib/google/*.js",
     "./lib/terrain/*": "./lib/terrain/*.js",
     "./lib/shared/*": "./lib/shared/*.js"
   },
@@ -63,6 +64,8 @@
     "openstreetmaps",
     "OSM",
     "mapbox",
+    "google maps",
+    "3d tiles",
     "globe",
     "spherical maps"
   ],
