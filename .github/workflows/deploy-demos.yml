@@ -54,6 +54,7 @@ jobs:
             mapbox-terrain
             gebco-bathymetry
             google-3d-tiles
+            globe-mode
           )
 
           for demo in "${demos[@]}"; do

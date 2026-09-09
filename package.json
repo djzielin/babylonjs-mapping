@@ -42,7 +42,11 @@
     "test:watch": "vitest",
     "build": "tsc --build tsconfig.npm.json",
     "clean": "rimraf ./lib",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "pretest": "npm run build",
+    "prepack": "npm run build",
+    "check": "npm test",
+    "test:consumer": "node tests.js"
   },
   "publishConfig": {
     "access": "public"
@@ -61,11 +65,14 @@
     "OSM",
     "mapbox",
     "google maps",
-    "3d tiles"
+    "3d tiles",
+    "globe",
+    "spherical maps"
   ],
   "homepage": "https://github.com/djzielin/babylonjs-mapping#readme",
   "files": [
     "lib/**/*",
-    "src/**/*"
+    "src/**/*",
+    "!lib/**/*.tsbuildinfo"
   ]
 }

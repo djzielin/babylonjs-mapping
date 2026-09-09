@@ -1,6 +1,5 @@
 const path = require('path');
 
-console.log('Webpack configuration:', JSON.stringify(module.exports, null, 2));
 
 
 const fs = require('fs');
@@ -41,12 +40,8 @@ module.exports = {
             },
             {
                 test: /\.(png|jpg|gif|env|glb|stl)$/i,
-                use: [{
-                    loader: 'url-loader',
-                    options: {
-                        limit: 8192,
-                    },
-                }, ],
+                type: 'asset',
+                parser: { dataUrlCondition: { maxSize: 8192 } },
             }
         ]
     },

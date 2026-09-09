@@ -18,12 +18,15 @@ export default class Tile {
     minHeight: number;
     maxHeight: number;
     terrainLoaded: boolean;
+    /** Sampled radial elevation in world units, north-to-south row order. */
+    elevationHeights?: number[];
     eastSeamFixed: boolean;
     northSeamFixed: boolean;
     northEastSeamFixed: boolean;
     terrainLODMeshes: Array<Mesh | null>;
     constructor(mesh: Mesh, tileSet: TileSet);
-    private makeSphere;
+    /** Refresh world-space bounds after moving a tile, including frozen meshes. */
+    refreshBoundingBox(): void;
     deleteBuildings(): void;
     clearTerrainLOD(): void;
     hideIndividualBuildings(): void;

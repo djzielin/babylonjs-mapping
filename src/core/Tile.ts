@@ -7,7 +7,6 @@ import type TileBuilding from "./TileBuilding.js";
 import { BoundingBox } from "@babylonjs/core/Culling/boundingBox.js";
 
 import type TileSet from "./TileSet.js";
-import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
@@ -31,6 +30,8 @@ export default class Tile {
     public minHeight: number;
     public maxHeight: number;
     public terrainLoaded=false;
+    /** Sampled radial elevation in world units, north-to-south row order. */
+    public elevationHeights?: number[];
 
     public eastSeamFixed = false;
     public northSeamFixed = false;
@@ -38,34 +39,20 @@ export default class Tile {
     public terrainLODMeshes: Array<Mesh | null> = [];
 
     constructor(public mesh: Mesh, public tileSet: TileSet) {
-        mesh.computeWorldMatrix(true); //we were previously missing this, which caused a bug in the computation of the tile bounds! 
-
-        const originalBox: BoundingBox = mesh.getBoundingInfo().boundingBox;
-        const originalMin: Vector3 = originalBox.minimumWorld;
-        const originalMax: Vector3 = originalBox.maximumWorld;
-
-        const newMin = new Vector3(originalMin.x, -1, originalMin.z);
-        const newMax = new Vector3(originalMax.x, 1, originalMax.z);
-
-        this.box2D = new BoundingBox(newMin, newMax);
-
-        //code for debugging the tile bounds
-        /*const p1 = new Vector3(originalMin.x, 0, originalMin.z);
-        const p2 = new Vector3(originalMax.x, 0, originalMax.z);
-        const p3 = new Vector3(originalMin.x, 0, originalMax.z);
-        const p4 = new Vector3(originalMax.x, 0, originalMin.z);
-
-        this.makeSphere(p1, this.mesh.name + " p1");
-        this.makeSphere(p2, this.mesh.name + " p2");
-        this.makeSphere(p3, this.mesh.name + " p3");
-        this.makeSphere(p4, this.mesh.name + " p4");
-        */
+        this.refreshBoundingBox();
     }
 
-    private makeSphere(p: Vector3, name: string) { //for debugging
-        const sphere = MeshBuilder.CreateSphere("sphere", { diameter: 1.0 }, this.tileSet.scene);
-        sphere.position = p;
-        sphere.name = name;
+    /** Refresh world-space bounds after moving a tile, including frozen meshes. */
+    public refreshBoundingBox(): void {
+        const wasFrozen = this.mesh.isWorldMatrixFrozen;
+        this.mesh.unfreezeWorldMatrix();
+        this.mesh.computeWorldMatrix(true);
+        const bounds = this.mesh.getBoundingInfo().boundingBox;
+        this.box2D = new BoundingBox(
+            new Vector3(bounds.minimumWorld.x, -1, bounds.minimumWorld.z),
+            new Vector3(bounds.maximumWorld.x, 1, bounds.maximumWorld.z),
+        );
+        if (wasFrozen) this.mesh.freezeWorldMatrix();
     }
 
     public deleteBuildings(){
@@ -76,6 +63,7 @@ export default class Tile {
 
         if(this.mergedBuildingMesh!==undefined){
             this.mergedBuildingMesh.dispose();
+            this.mergedBuildingMesh = undefined;
         }
     }
 

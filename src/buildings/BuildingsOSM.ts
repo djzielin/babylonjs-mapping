@@ -34,27 +34,24 @@ export default class BuildingsOSM extends Buildings {
     ];
 
     protected override stripFilePrefix(original: string): string {
-        const prefixLength=35; //51
-        const stripped = original.slice(prefixLength);
-        //console.log("new file URL is: " + stripped);
-        return stripped;
+        const url = new URL(original);
+        return url.pathname + url.search;
     }
 
     public SubmitLoadTileRequest(tile: Tile) {
-        if (tile.tileCoords.z > 16) {
-            console.error(this.prettyName() + "Zoom level of: " + tile.tileCoords.z + " is too large! This means that buildings won't work!");
-            return;
-        }
-
         const storedCoords = tile.tileCoords.clone();
+        const source=storedCoords.clone();
+        if(source.z>16){const factor=2**(source.z-16);source.x=Math.floor(source.x/factor);source.y=Math.floor(source.y/factor);source.z=16;}
+        source.x=((source.x%2**source.z)+2**source.z)%2**source.z;
 
-        const url = this.osmBuildingServers[this.serverNum] + storedCoords.z + "/" + storedCoords.x + "/" + storedCoords.y + ".json"+"?token="+this.accessToken;
+        const url = this.osmBuildingServers[this.serverNum] + source.z + "/" + source.x + "/" + source.y + ".json"+"?token="+encodeURIComponent(this.accessToken);
         this.serverNum = (this.serverNum + 1) % this.osmBuildingServers.length; //increment server to use with wrap around
 
         const request: BuildingRequest = {
             requestType: BuildingRequestType.LoadTile,
             tile: tile,
             tileCoords: storedCoords,
+            sourceTileCoords: source,
             epsgType: EPSG_Type.EPSG_4326,
             url: url,
             inProgress: false,

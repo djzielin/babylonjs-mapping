@@ -1,3 +1,4 @@
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { AssetContainer } from "@babylonjs/core/assetContainer.js";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader.js";
 import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
@@ -63,6 +64,7 @@ export default class BuildingsMB {
     private readonly inFlightTiles = new Map<string, Promise<LoadedMapboxModelTile | undefined>>();
     private desiredTileKeys = new Set<string>();
     private attributionAdded = false;
+    private readonly emptyTileKeys = new Set<string>();
 
     constructor(
         public readonly tileSet: TileSet,
@@ -101,11 +103,16 @@ export default class BuildingsMB {
             `Mapbox landmark tile ${tileCoords.z}/${tileCoords.x}/${tileCoords.y}`,
             this.tileSet.scene,
         );
+        this.updateTileRoot(root, tileCoords);
+        return root;
+    }
+
+    private updateTileRoot(root: TransformNode, tileCoords: Vector3): void {
         const topLeft = new Vector2(
             this.tileSet.ourTileMath.tile_to_lon(tileCoords.x, tileCoords.z),
             this.tileSet.ourTileMath.tile_to_lat(tileCoords.y, tileCoords.z),
         );
-        root.position = this.tileSet.ourTileMath.EPSG_to_Game(
+        root.position = this.tileSet.getGeometryMath().EPSG_to_Game(
             topLeft,
             EPSG_Type.EPSG_4326,
         );
@@ -123,7 +130,6 @@ export default class BuildingsMB {
             this.tileSet.tileScale * this.exaggeration,
         );
         root.rotation.x = -Math.PI / 2;
-        return root;
     }
 
     private disposeTile(key: string): void {
@@ -139,8 +145,10 @@ export default class BuildingsMB {
 
     private loadTile(tileCoords: Vector3): Promise<LoadedMapboxModelTile | undefined> {
         const key = tileCoords.toString();
+        if (this.emptyTileKeys.has(key)) return Promise.resolve(undefined);
         const loaded = this.loadedTiles.get(key);
         if (loaded !== undefined) {
+            if (!this.tileSet.isGlobe) this.updateTileRoot(loaded.root, tileCoords);
             return Promise.resolve(loaded);
         }
 
@@ -154,6 +162,10 @@ export default class BuildingsMB {
             this.tileSet.scene,
         ).then((asset) => {
             if (asset === undefined) {
+                // Most locations have no bespoke model tile. Remember these
+                // responses while exploring nearby overzoomed raster tiles.
+                if (this.emptyTileKeys.size >= 128) this.emptyTileKeys.delete(this.emptyTileKeys.values().next().value!);
+                this.emptyTileKeys.add(key);
                 return undefined;
             }
             if (!this.desiredTileKeys.has(key)) {
@@ -167,6 +179,11 @@ export default class BuildingsMB {
                 node.parent = root;
             }
 
+            if (this.tileSet.isGlobe) {
+                for (const mesh of [...asset.meshes].reverse()) {
+                    if (mesh instanceof Mesh && mesh.getTotalVertices() > 0) this.tileSet.projectFeatureMesh(mesh);
+                }
+            }
             const result = {
                 tileCoords: tileCoords.clone(),
                 root,

@@ -29,11 +29,13 @@ export default class BuildingsMB {
     private readonly inFlightTiles;
     private desiredTileKeys;
     private attributionAdded;
+    private readonly emptyTileKeys;
     constructor(tileSet: TileSet, modelTileLoader?: MapboxModelTileLoader);
     get loadedModelTiles(): readonly LoadedMapboxModelTile[];
     getModelURL(tileCoords: Vector3): string;
     private getRequiredSourceTiles;
     private createTileRoot;
+    private updateTileRoot;
     private disposeTile;
     private loadTile;
     /**

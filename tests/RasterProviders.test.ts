@@ -23,6 +23,20 @@ describe("RasterOSM", () => {
       "https://tile.openstreetmap.org/16/25908/18050.png",
     );
   });
+
+  it("wraps longitude tiles and clamps latitude tiles", () => {
+    const raster = new RasterOSM(tileSetStub as never);
+
+    expect(raster.getRasterURL(new Vector2(4, -1), 2)).toBe(
+      "https://tile.openstreetmap.org/2/0/0.png",
+    );
+    expect(raster.getRasterURL(new Vector2(-1, 99), 2)).toBe(
+      "https://tile.openstreetmap.org/2/3/3.png",
+    );
+    expect(() => raster.getRasterURL(new Vector2(0, 0), -1)).toThrow(
+      "RasterOSM zoom must be a non-negative integer",
+    );
+  });
 });
 
 describe("RasterMB", () => {
@@ -120,4 +134,11 @@ describe("RasterGEBCO", () => {
     expect(bbox[2]).toBeCloseTo(20037508.342789244, 6);
     expect(bbox[3]).toBeCloseTo(-10018754.171394622, 6);
   });
+});
+
+it("uses SRS for WMS 1.1.1", () => {
+  const raster = new RasterGEBCO(tileSetStub as never, { version: "1.1.1" });
+  const params = new URL(raster.getRasterURL(new Vector2(0, 0), 0)).searchParams;
+  expect(params.get("srs")).toBe("EPSG:3857");
+  expect(params.has("crs")).toBe(false);
 });

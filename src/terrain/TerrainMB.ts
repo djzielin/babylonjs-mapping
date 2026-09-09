@@ -8,6 +8,8 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import type Tile from '../core/Tile';
 import type TileSet from "../core/TileSet.js";
+import TerrainRGB from "./TerrainRGB.js";
+import type GlobeSet from "../core/GlobeSet.js";
 
 //import "@babylonjs/core/Materials/standardMaterial"
 //import "@babylonjs/inspector";
@@ -16,23 +18,13 @@ export default class TerrainMB {
     private mbServer: string = "https://api.mapbox.com/v4/";
 
     public globalMinHeight = Number.POSITIVE_INFINITY;
-    private index = 0;
+    private readonly terrainRequests = new WeakMap<Tile, symbol>();
     public accessToken: string = "";
     private heightScaleFixer=0;
     private skuToken: string="";
     //public onAllLoaded: Observable<boolean> = new Observable();
 
     constructor(public tileSet: TileSet, private scene: Scene) {
-        if(this.tileSet){
-            if(this.tileSet.ourTileMath){
-                console.log("we seem to be able to access tileMath here");
-
-            } else{
-                console.error("unable to access tileMath!");
-            }
-        } else{
-            console.error("unable to access tileSet!");
-        }  
         this.skuToken = this.tileSet.ourTileMath.generateSKU();
           
     }  
@@ -45,11 +37,12 @@ export default class TerrainMB {
     //https://www.babylonjs-playground.com/#DXARSP#30
     private GetAsyncTexture (url: string) : Promise<Texture> {
         return new Promise((resolve, reject) => {
-            var texture = new Texture(url, this.scene, true, false, Texture.NEAREST_SAMPLINGMODE, function() {
+            const texture = new Texture(url, this.scene, true, false, Texture.NEAREST_SAMPLINGMODE, function() {
                 console.log("loading texture success!");
                 resolve(texture);
             }, function(message) {
-                reject(message);
+                texture.dispose();
+                reject(new Error(message ?? "Unable to load terrain texture."));
             });    
         })
     }
@@ -60,28 +53,6 @@ export default class TerrainMB {
 
         await Promise.all(this.tileSet.ourTiles.map((tile) => this.updateSingleTerrainTile(tile)));
 
-        //Fix Seams Here
-        /*for (let t of this.ourTiles) {
-            for (let t2 of this.ourTiles) {
-                if ((t.tileCoords.x == (t2.tileCoords.x - 1)) && (t.tileCoords.y == t2.tileCoords.y)) {
-                    if (t.eastSeamFixed == false) {
-                        this.ourMB.fixEastSeam(t,t2);
-                    }
-                }
-                if ((t.tileCoords.x == t2.tileCoords.x) && (t.tileCoords.y == (t2.tileCoords.y+1))) {
-                    if (t.northSeamFixed == false) {
-                        this.ourMB.fixNorthSeam(t,t2);
-                    }
-                }
-                if ((t.tileCoords.x == (t2.tileCoords.x - 1)) && (t.tileCoords.y == (t2.tileCoords.y+1))) {
-                    if (t.northEastSeamFixed == false) {
-                        this.ourMB.fixNorthEastSeam(t,t2);
-                    }
-                }
-            }
-        }
-        */
-        //this.ourMB.getTileTerrain(this.ourTiles[0]); //just one for testing
     }
 
     public setupTerrainLOD(precisions: number[], distances: number[], skirtDepth = this.tileSet.tileWidth): void {
@@ -114,10 +85,11 @@ export default class TerrainMB {
                 lodMesh.position.set(0, 0, 0);
                 lodMesh.name = `${tile.mesh.name}_LOD_${precision}`;
                 lodMesh.material = tile.material;
+                lodMesh.renderingGroupId = tile.mesh.renderingGroupId;
                 lodMesh.isPickable = false;
 
                 this.applyDetailedTerrainToMesh(lodMesh, tile, precision);
-                this.addTerrainSkirt(lodMesh, precision, skirtDepth);
+                if (!this.tileSet.isGlobe) this.addTerrainSkirt(lodMesh, precision, skirtDepth);
 
                 tile.mesh.addLODLevel(distance, lodMesh);
                 tile.terrainLODMeshes.push(lodMesh);
@@ -153,6 +125,10 @@ export default class TerrainMB {
     }
 
     private applyDetailedTerrainToMesh(lodMesh: Mesh, tile: Tile, precision: number): void {
+        if (this.tileSet.isGlobe) {
+            this.applyBoundaryPreservingLOD(lodMesh, tile, precision);
+            return;
+        }
         const sourcePositions = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const lodPositions = lodMesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const sourcePrecision = this.tileSet.meshPrecision;
@@ -184,6 +160,61 @@ export default class TerrainMB {
         lodMesh.updateVerticesData(VertexBuffer.PositionKind, lodPositions);
     }
 
+    /** Decimate the interior, retaining every source edge sample at all LODs. */
+    private applyBoundaryPreservingLOD(mesh: Mesh, tile: Tile, precision: number): void {
+        const source = tile.mesh.getVerticesData(VertexBuffer.PositionKind)!;
+        const full = this.tileSet.meshPrecision, sourceN = full + 1, n = precision + 1;
+        const positions: number[] = [], uvs: number[] = [], indices: number[] = [];
+        const add = (x: number, y: number): number => {
+            const sx = x * full / precision, sy = y * full / precision;
+            const x0 = Math.floor(sx), y0 = Math.floor(sy);
+            const x1 = Math.min(x0 + 1, full), y1 = Math.min(y0 + 1, full);
+            const tx = sx - x0, ty = sy - y0;
+            const index = positions.length / 3;
+            for (let axis = 0; axis < 3; axis++) {
+                const a = source[(y0 * sourceN + x0) * 3 + axis] * (1 - tx) + source[(y0 * sourceN + x1) * 3 + axis] * tx;
+                const b = source[(y1 * sourceN + x0) * 3 + axis] * (1 - tx) + source[(y1 * sourceN + x1) * 3 + axis] * tx;
+                positions.push(a * (1 - ty) + b * ty);
+            }
+            uvs.push(x / precision, 1 - y / precision);
+            return index;
+        };
+        for (let y = 0; y <= precision; y++) for (let x = 0; x <= precision; x++) add(x, y);
+        for (let y = 0; y < precision; y++) for (let x = 0; x < precision; x++) {
+            const a = y * n + x;
+            if (x > 0 && y > 0 && x < precision - 1 && y < precision - 1) {
+                indices.push(a, a + n, a + 1, a + 1, a + n, a + n + 1);
+                continue;
+            }
+            const ring: number[] = [];
+            const corners = [[x, y, a], [x + 1, y, a + 1], [x + 1, y + 1, a + n + 1], [x, y + 1, a + n]];
+            for (let edge = 0; edge < 4; edge++) {
+                const from = corners[edge], to = corners[(edge + 1) % 4];
+                ring.push(from[2]);
+                const outer = edge === 0 ? y === 0 : edge === 1 ? x === precision - 1 : edge === 2 ? y === precision - 1 : x === 0;
+                if (!outer) continue;
+                const horizontal = from[1] === to[1];
+                const start = (horizontal ? from[0] : from[1]) * full / precision;
+                const end = (horizontal ? to[0] : to[1]) * full / precision;
+                const step = end > start ? 1 : -1;
+                let sample = step > 0 ? Math.floor(start) + 1 : Math.ceil(start) - 1;
+                for (; step > 0 ? sample < end : sample > end; sample += step) {
+                    const value = sample * precision / full;
+                    ring.push(add(horizontal ? value : from[0], horizontal ? from[1] : value));
+                }
+            }
+            const center = add(x + 0.5, y + 0.5);
+            for (let i = 0; i < ring.length; i++) indices.push(center, ring[(i + 1) % ring.length], ring[i]);
+        }
+        const normals: number[] = [];
+        VertexData.ComputeNormals(positions, indices, normals);
+        mesh.setVerticesData(VertexBuffer.PositionKind, positions, true);
+        mesh.setVerticesData(VertexBuffer.UVKind, uvs, true);
+        mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
+        mesh.setIndices(indices);
+        mesh.refreshBoundingInfo();
+    }
+
     private addTerrainSkirt(mesh: Mesh, precision: number, skirtDepth: number): void {
         const positions = Array.from(mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray);
         const normals = Array.from(mesh.getVerticesData(VertexBuffer.NormalKind) as FloatArray);
@@ -209,11 +240,15 @@ export default class TerrainMB {
 
         const skirtBottomStart = positions.length / 3;
         for (const vertexIndex of boundary) {
-            positions.push(
-                positions[vertexIndex * 3],
-                positions[vertexIndex * 3 + 1] - skirtDepth,
-                positions[vertexIndex * 3 + 2],
-            );
+            const point = new Vector3(positions[vertexIndex*3], positions[vertexIndex*3+1], positions[vertexIndex*3+2]);
+            if (this.tileSet.isGlobe) {
+                const origin = mesh.parent instanceof Mesh ? mesh.parent.position : Vector3.Zero();
+                point.addInPlace(origin);
+                point.scaleInPlace(Math.max(0.01, 1 - skirtDepth / point.length()));
+                point.subtractInPlace(origin);
+            }
+            else point.y -= skirtDepth;
+            positions.push(point.x, point.y, point.z);
             uvs.push(uvs[vertexIndex * 2], uvs[vertexIndex * 2 + 1]);
         }
 
@@ -224,7 +259,8 @@ export default class TerrainMB {
             const bottomA = skirtBottomStart + index;
             const bottomB = skirtBottomStart + next;
 
-            indices.push(topA, bottomA, topB, topB, bottomA, bottomB);
+            if (this.tileSet.isGlobe) indices.push(topA, topB, bottomA, topB, bottomB, bottomA);
+            else indices.push(topA, bottomA, topB, topB, bottomA, bottomB);
         }
 
         normals.length = positions.length;
@@ -240,6 +276,9 @@ export default class TerrainMB {
 
     //https://docs.mapbox.com/data/tilesets/reference/mapbox-terrain-dem-v1/
     public async updateSingleTerrainTile(tile: Tile) {
+        const request = Symbol();
+        this.terrainRequests.set(tile, request);
+        const heightScale = this.heightScaleFixer;
         tile.clearTerrainLOD();
         tile.terrainLoaded=false;
         tile.eastSeamFixed = false;
@@ -247,19 +286,14 @@ export default class TerrainMB {
         tile.northEastSeamFixed = false;
         this.invalidateTileSeams(tile);
 
-        if(tile.tileCoords.z>15 && this.tileSet.doTerrainResBoost==false){            
-            console.log("DEM not supported beyond level 15 (if not doing res boost)");
-            return;
-        }
-        if(tile.tileCoords.z>14 && this.tileSet.doTerrainResBoost==true){            
-            console.log("DEM not supported beyond 14 (if doing res boost)");
-            return;
-        }
-
         const storedCoords=tile.tileCoords.clone();
 
         tile.dem = []; //to reclaim memory?
 
+        const sourceZoom = Math.min(storedCoords.z, this.tileSet.doTerrainResBoost ? 14 : 15);
+        const factor = 2 ** (storedCoords.z - sourceZoom);
+        const sourceX = ((Math.floor(storedCoords.x / factor) % (2 ** sourceZoom)) + 2 ** sourceZoom) % (2 ** sourceZoom);
+        const sourceY = Math.floor(storedCoords.y / factor);
         const prefix = this.mbServer;
         const boostParam = this.tileSet.doTerrainResBoost ? "@2x" : "";
 
@@ -267,51 +301,32 @@ export default class TerrainMB {
         const mapType = "mapbox.mapbox-terrain-dem-v1";
 
         const extension = ".pngraw";
-        const skuParam = "?sku=" + this.skuToken;
-        const accessParam = "&access_token=" + this.accessToken;
-        const url = prefix + mapType + "/" + (tile.tileCoords.z) + "/" + (tile.tileCoords.x) + "/" + (tile.tileCoords.y) + boostParam + extension + skuParam + accessParam;
-
-        console.log("trying to get: " + url);
-       
-        const ourTex: Texture = await this.GetAsyncTexture(url); //wait for loading to be complete
-
-        if (!ourTex){
-            console.error("unable to load terrain for: " + tile.tileCoords);
-            return;
-        }
-        //console.log("terrain dimensions: " + tile.demDimensions);
-
-        const bufferView = await ourTex.readPixels();
-
-        if (!bufferView) {
-            console.error("unable to read pixels from texture for terrain tile: " + tile.tileCoords);
-        }
-
-        const bufferUint: Uint8Array = new Uint8Array(bufferView!.buffer, bufferView!.byteOffset, bufferView!.byteLength);
-        //console.log("terrain buffer dimensions: " + bufferUint.byteLength)
-
-        if(tile.tileCoords.equals(storedCoords)==false){
-            console.warn("looks like tile coords have changed already! bailing on this update for: " + tile.tileCoords);
-            return;
-        }
-
-        tile.demDimensions = new Vector2(ourTex.getSize().width, ourTex.getSize().height);
-
-        this.convertRGBtoDEM(bufferUint, tile);
-        this.applyDEMToMesh(tile, this.tileSet.meshPrecision);
-
-        tile.terrainLoaded=true;
-
-        this.fixTileSeams();
-
-        /*
-        for(let t of this.tileSet.ourTiles){
-            if(!t.terrainLoaded){
+        const query = new URLSearchParams({ sku: this.skuToken, access_token: this.accessToken });
+        const url = prefix + mapType + "/" + sourceZoom + "/" + sourceX + "/" + sourceY + boostParam + extension + "?" + query;
+        const texture = await this.GetAsyncTexture(url);
+        try {
+            const bufferView = await texture.readPixels();
+            if (tile.mesh.isDisposed() || !tile.tileCoords.equals(storedCoords) || this.terrainRequests.get(tile) !== request) {
                 return;
             }
+            if (!bufferView) {
+                throw new Error("Unable to read terrain texture pixels.");
+            }
+            const pixels = new Uint8Array(bufferView.buffer, bufferView.byteOffset, bufferView.byteLength);
+            const size = texture.getSize();
+            tile.demDimensions = new Vector2(size.width, size.height);
+            this.convertRGBtoDEM(pixels, tile);
+            if (sourceZoom < storedCoords.z) {
+                const grid = TerrainRGB.crop({data: tile.dem, width: size.width, height: size.height}, storedCoords, sourceZoom);
+                tile.dem = Array.from(grid.data);
+                tile.demDimensions = new Vector2(grid.width, grid.height);
+            }
+            this.applyDEMToMesh(tile, this.tileSet.meshPrecision, heightScale);
+            tile.terrainLoaded = true;
+            this.fixTileSeams();
+        } finally {
+            texture.dispose();
         }
-
-        this.onAllLoaded.notifyObservers(true);  */
     }
 
     /** Re-applies every available cardinal and diagonal seam. */
@@ -405,7 +420,12 @@ export default class TerrainMB {
         }
     }
 
-    public applyDEMToMesh(tile: Tile, meshPrecision: number) {
+    public applyDEMToMesh(tile: Tile, meshPrecision: number, heightScale = this.heightScaleFixer) {
+        if (this.tileSet.isGlobe) {
+            const globe = this.tileSet as GlobeSet;
+            globe.setElevationData(tile, tile.dem, tile.demDimensions.x, tile.demDimensions.y, heightScale / this.tileSet.tileScale);
+            return;
+        }
         const positions = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const subdivisions = meshPrecision + 1;
 
@@ -413,15 +433,25 @@ export default class TerrainMB {
             for (let x = 0; x < subdivisions; x++) {
                 const percent = new Vector2(x / (subdivisions - 1), y / (subdivisions - 1));
                 const demIndex = this.computeIndexByPercent(percent, tile.demDimensions);                
-                const height = (tile.dem[demIndex]) * this.heightScaleFixer;
+                const height = (tile.dem[demIndex]) * heightScale;
                 const meshIndex = 1 + (x + y * subdivisions) * 3;
 
                 positions[meshIndex] = height;
             }
         }
 
-        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
-        tile.mesh.refreshBoundingInfo();
+        this.updateTerrainPositions(tile.mesh, positions);
+    }
+
+    private updateTerrainPositions(mesh: Mesh, positions: FloatArray): void {
+        mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
+        const normals = mesh.getVerticesData(VertexBuffer.NormalKind);
+        const indices = mesh.getIndices();
+        if (normals && indices) {
+            VertexData.ComputeNormals(positions, indices, normals);
+            mesh.updateVerticesData(VertexBuffer.NormalKind, normals);
+        }
+        mesh.refreshBoundingInfo();
     }
 
     private computeIndexByPercent(percent: Vector2, maxPixel: Vector2): number {
@@ -435,6 +465,13 @@ export default class TerrainMB {
     }
 
     public fixNorthSeam(tile: Tile, tileUpper: Tile) {
+        if (this.tileSet.isGlobe) {
+            if (!tile.elevationHeights || !tileUpper.elevationHeights) return;
+            const p = this.tileSet.meshPrecision, n = p + 1;
+            for (let x = 0; x <= p; x++) tile.elevationHeights[x] = tileUpper.elevationHeights[x + p * n];
+            this.tileSet.applyElevationGrid(tile, tile.elevationHeights, p);
+            return;
+        }
         const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const positions2 = tileUpper.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const subdivisions = this.tileSet.meshPrecision + 1;
@@ -449,12 +486,18 @@ export default class TerrainMB {
             positions1[meshIndex1] = positions2[meshIndex2];
         }
 
-        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
-        tile.mesh.refreshBoundingInfo();
+        this.updateTerrainPositions(tile.mesh, positions1);
         tile.northSeamFixed = true;
     }
 
     public fixEastSeam(tile: Tile, tileRight: Tile) {
+        if (this.tileSet.isGlobe) {
+            if (!tile.elevationHeights || !tileRight.elevationHeights) return;
+            const p = this.tileSet.meshPrecision, n = p + 1;
+            for (let x = 0; x <= p; x++) tile.elevationHeights[p + x * n] = tileRight.elevationHeights[x * n];
+            this.tileSet.applyElevationGrid(tile, tile.elevationHeights, p);
+            return;
+        }
         const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const positions2 = tileRight.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const subdivisions = this.tileSet.meshPrecision + 1;
@@ -470,12 +513,18 @@ export default class TerrainMB {
             positions1[meshIndex1] = positions2[meshIndex2];
         }
 
-        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
-        tile.mesh.refreshBoundingInfo();
+        this.updateTerrainPositions(tile.mesh, positions1);
         tile.eastSeamFixed = true;
     }
 
     public fixNorthEastSeam(tile: Tile, tileUpperRight: Tile) {
+        if (this.tileSet.isGlobe) {
+            if (!tile.elevationHeights || !tileUpperRight.elevationHeights) return;
+            const p = this.tileSet.meshPrecision, n = p + 1;
+            tile.elevationHeights[p] = tileUpperRight.elevationHeights[p * n];
+            this.tileSet.applyElevationGrid(tile, tile.elevationHeights, p);
+            return;
+        }
         const positions1 = tile.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const positions2 = tileUpperRight.mesh.getVerticesData(VertexBuffer.PositionKind) as FloatArray;
         const subdivisions = this.tileSet.meshPrecision + 1;
@@ -491,70 +540,8 @@ export default class TerrainMB {
 
         positions1[meshIndex1] = positions2[meshIndex2];
 
-        tile.mesh.updateVerticesData(VertexBuffer.PositionKind, positions1);
-        tile.mesh.refreshBoundingInfo();
+        this.updateTerrainPositions(tile.mesh, positions1);
         tile.northEastSeamFixed = true;
     }
     
-    /*
-    //DEM Version of seam fixing
-    public fixNorthSeam(tile: Tile, tileUpper: Tile){
-        const dem1=tile.dem;
-        const dem2=tileUpper.dem;
-        const dimensions=tile.demDimensions;
-
-        for(let x=0; x<dimensions.x;x++){
-            const pos1Index=x;
-            const pos2Index=x+dimensions.x*(dimensions.y-1); //last row
-
-            const height1=dem1[pos1Index];
-            const height2=dem2[pos2Index];
-
-            dem1[pos1Index]=height2;
-        }      
-
-        tile.northSeamFixed = true;
-    }
-
-    //DEM Version of seam fixing
-    public fixEastSeam(tile: Tile, tileRight: Tile) {
-        //console.log("fixing right seam!");
-        //console.log("dem size: "+ tile.dem.length);
-        const dem1 = tile.dem;
-        const dem2 = tileRight.dem;
-        const dimensions = tile.demDimensions;
-        //console.log("dem dimensions: " + dimensions.x + " " + dimensions.y);
-
-        for (let y = 0; y < dimensions.y; y++) {
-            const pos1Index = (dimensions.x - 1) + y * dimensions.x; //right most col
-            const pos2Index = y * dimensions.x; //left most col
-
-            const height1=dem1[pos1Index];
-            const height2 = dem2[pos2Index];
-
-            dem1[pos1Index]=height2;
-        }       
-
-        tile.eastSeamFixed = true;
-    }
-    
-    //DEM Version of seam fixing
-    public fixNorthEastSeam(tile: Tile, tileUpperRight: Tile) {
-
-        //console.log("dem size: "+ tile.dem.length);
-        const dem1 = tile.dem;
-        const dem2 = tileUpperRight.dem;
-        const dimensions = tile.demDimensions;
-
-        const pos1Index = (dimensions.x - 1); //upper right
-        const pos2Index = (dimensions.y - 1) * dimensions.x; //lower left
-
-        const height1 = dem1[pos1Index];
-        const height2 = dem2[pos2Index];
-
-        dem1[pos1Index] = height2;
-    
-        tile.northEastSeamFixed = true;
-    }
-    */
 }

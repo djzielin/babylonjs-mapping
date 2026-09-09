@@ -95,3 +95,16 @@ describe("TileMath line intersections", () => {
     expect(math.v2_to_v3(new Vector2(3, 4))).toEqual(new Vector3(3, 0, 4));
   });
 });
+
+it("selects the closest tile without mutating the caller's position", () => {
+  const tiles = [0, 100, 200].map(x => ({ mesh: { position: new Vector3(x, 0, 0) } }));
+  const math = new TileMath({ tileWidth: 10, ourTiles: tiles } as never);
+  const position = new Vector3(15, 30, 20);
+  expect(math.findBestTile(position)).toBe(tiles[0]);
+  expect(position.y).toBe(30);
+});
+
+it("normalizes longitude across multiple revolutions", () => {
+  expect(math.epsg4326_to_Epsg3857(new Vector2(910, 0)).x)
+    .toBeCloseTo(math.epsg4326_to_Epsg3857(new Vector2(-170, 0)).x);
+});

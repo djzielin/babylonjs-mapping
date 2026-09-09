@@ -70,7 +70,7 @@ export default class TileMath {
         // compensate longitudes passing the 180th meridian
         // from https://github.com/proj4js/proj4js/blob/master/lib/common/adjust_lon.js
         var adjusted =
-            Math.abs(lonLat.x) <= 180 ? lonLat.x : lonLat.x - this.sign(lonLat.x) * 360;
+            Math.abs(lonLat.x) <= 180 ? lonLat.x : ((lonLat.x + 180) % 360 + 360) % 360 - 180;
         const xy: Vector2 = new Vector2(
             A * adjusted * D2R,
             A * Math.log(Math.tan(Math.PI * 0.25 + 0.5 * lonLat.y * D2R)),
@@ -294,10 +294,6 @@ export default class TileMath {
     //https://wiki.openstreetmap.org/wiki/Zoom_levels
     //Stile = C ∙ cos(latitude) / 2^zoomlevel
     public computeTileRealWidthMeters(lat: number, zoom: number): number {
-        if (zoom == 0) {
-            console.log("ERROR: zoom not setup yet!");
-            return 0;
-        }
         console.log("tryign to compute tile width for lat: " + lat);
 
         const C = 40075016.686;
@@ -352,9 +348,8 @@ export default class TileMath {
             console.error("tileSet is undefined!");
             return undefined;
         }
-        position.y=0; //do a 2D analysis
+        const flatPosition = new Vector3(position.x, 0, position.z);
 
-        const tileHalfWidth=this.tileSet.tileWidth*0.500001; //make bounding box just a bit bigger, in the off chance something lands right on the line
         const addMax=new Vector3(this.tileSet.tileWidth*0.5,0,this.tileSet.tileWidth*0.5);
         const addMin=new Vector3(-this.tileSet.tileWidth*0.5,0,-this.tileSet.tileWidth*0.5);
 
@@ -372,14 +367,15 @@ export default class TileMath {
             const tileBox: BoundingBox=new BoundingBox(tMin,tMax);   
             //console.log("box: " + tileBox.center + " " + tileBox.centerWorld);   
 
-            if(tileBox.intersectsPoint(position)){
+            if(tileBox.intersectsPoint(flatPosition)){
                 //console.log("found a tile that can contain this building!");
                 return t;
             }
 
-            const dist = Vector3.Distance(tp, position);
+            const dist = Math.hypot(tp.x - position.x, tp.z - position.z);
             if (dist < closestTileDistance) {
                 closestTile = t;
+                closestTileDistance = dist;
             }
         }
 

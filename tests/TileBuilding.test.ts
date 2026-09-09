@@ -28,6 +28,11 @@ describe("TileBuilding", () => {
 
     expect(building.verticies).toBe(building.vertices);
     expect(uniqueZValues.size).toBeGreaterThan(1);
+    const count = building.vertices.length;
+    mesh.position.x = 5;
+    building.getVertices();
+    expect(building.vertices).toHaveLength(count);
+    expect(Math.min(...building.vertices.map(v => v.x))).toBe(4);
 
     scene.dispose();
     engine.dispose();

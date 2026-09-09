@@ -62,6 +62,8 @@ function defaultVectorTileDecoder(data: ArrayBuffer): VectorTile {
  */
 export default class BuildingsVectorTile extends Buildings {
     public accessToken = "";
+    /** Native source zoom used for detail overzoom. Override for custom services. */
+    public maxSourceZoom = 16;
     public sourceLayers: string[];
     public readonly tileURL: string;
 
@@ -93,21 +95,28 @@ export default class BuildingsVectorTile extends Buildings {
         }
 
         super.generateBuildings();
-        this.tileSet.ourAttribution.addAttribution("MB");
+        if (this.tileURL === MAPBOX_STREETS_VECTOR_TILE_URL) {
+            this.tileSet.ourAttribution.addAttribution("MB");
+        }
     }
 
     public override SubmitLoadTileRequest(tile: Tile): void {
         const tileCoords = tile.tileCoords.clone();
+        const source = tileCoords.clone();
+        const zoom = Math.min(source.z,this.maxSourceZoom), factor=2**(source.z-zoom);
+        source.x=Math.floor(source.x/factor);source.y=Math.floor(source.y/factor);source.z=zoom;
+        source.x=((source.x%2**zoom)+2**zoom)%2**zoom;
         const request: BuildingRequest = {
             requestType: BuildingRequestType.LoadTile,
             tile,
             tileCoords,
+            sourceTileCoords:source,
             epsgType: EPSG_Type.EPSG_4326,
-            url: this.getTileURL(tileCoords),
+            url: this.getTileURL(source),
             inProgress: false,
             flipWinding: false,
         };
-        this.buildingRequests.push(request);
+        this.enqueueBuildingRequest(request);
     }
 
     public override SubmitLoadAllRequest(): void {
@@ -148,9 +157,9 @@ export default class BuildingsVectorTile extends Buildings {
             const vectorTile = this.decoder(data) as unknown as VectorTileLike;
             const collection = this.toFeatureCollection(
                 vectorTile,
-                request.tileCoords.x,
-                request.tileCoords.y,
-                request.tileCoords.z,
+                (request.sourceTileCoords??request.tileCoords).x,
+                (request.sourceTileCoords??request.tileCoords).y,
+                (request.sourceTileCoords??request.tileCoords).z,
             );
             this.ProcessGeoJSON(request, collection);
             this.removeRequest(request);

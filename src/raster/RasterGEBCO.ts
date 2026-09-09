@@ -70,6 +70,9 @@ export default class RasterGEBCO extends Raster {
             throw new RangeError("RasterGEBCO zoom must be a non-negative integer.");
         }
 
+        if (!Number.isFinite(tileCoords.x) || !Number.isFinite(tileCoords.y) || zoom > 30) {
+            throw new RangeError("RasterGEBCO requires finite coordinates and zoom at most 30.");
+        }
         const tileCount = 2 ** zoom;
         const wrappedX = ((Math.floor(tileCoords.x) % tileCount) + tileCount) % tileCount;
         const clampedY = Math.max(0, Math.min(tileCount - 1, Math.floor(tileCoords.y)));
@@ -87,7 +90,7 @@ export default class RasterGEBCO extends Raster {
             request: "GetMap",
             layers: this.layer,
             styles: this.style,
-            crs: "EPSG:3857",
+            [this.version === "1.3.0" ? "crs" : "srs"]: "EPSG:3857",
             bbox: [minX, minY, maxX, maxY].join(","),
             width: String(this.tileSize),
             height: String(this.tileSize),

@@ -6,7 +6,7 @@ export default class TerrainMB {
     private scene;
     private mbServer;
     globalMinHeight: number;
-    private index;
+    private readonly terrainRequests;
     accessToken: string;
     private heightScaleFixer;
     private skuToken;
@@ -17,13 +17,16 @@ export default class TerrainMB {
     setupTerrainLOD(precisions: number[], distances: number[], skirtDepth?: number): void;
     private validateTerrainLOD;
     private applyDetailedTerrainToMesh;
+    /** Decimate the interior, retaining every source edge sample at all LODs. */
+    private applyBoundaryPreservingLOD;
     private addTerrainSkirt;
     updateSingleTerrainTile(tile: Tile): Promise<void>;
     /** Re-applies every available cardinal and diagonal seam. */
     fixTileSeams(): void;
     private invalidateTileSeams;
     private convertRGBtoDEM;
-    applyDEMToMesh(tile: Tile, meshPrecision: number): void;
+    applyDEMToMesh(tile: Tile, meshPrecision: number, heightScale?: number): void;
+    private updateTerrainPositions;
     private computeIndexByPercent;
     fixNorthSeam(tile: Tile, tileUpper: Tile): void;
     fixEastSeam(tile: Tile, tileRight: Tile): void;

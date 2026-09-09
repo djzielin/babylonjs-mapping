@@ -71,6 +71,7 @@ provider.
 | Overture Maps buildings | `BuildingsOverture` | PMTiles source; defaults to the latest public release |
 | GeoServer, WFS, or ArcGIS features | `BuildingsWFS` | Service URL, layer, and source CRS |
 | Google Photorealistic 3D Tiles | `Google3DTiles` | Google Maps Platform API key with Map Tiles API access |
+| Spherical raster maps | `GlobeSet` and `GlobeNavigator` | Any supported raster provider |
 | Mapbox terrain | `TerrainMB` through `TileSet` | Mapbox access token |
 
 External services retain their own usage terms, attribution requirements,
@@ -151,6 +152,55 @@ The [Google 3D Tiles demo](./examples-npm/google-3d-tiles) reads its browser key
 from an ignored `public/google-key.txt` file. The Pages workflow supplies that
 file from the `GOOGLE_MAPS_API_KEY` repository secret, keeping credentials out
 of Git history.
+
+## Globe mode
+
+`GlobeSet` curves Web Mercator raster tiles onto a configurable sphere while
+retaining the raster-provider and tile lifecycle APIs. `GlobeNavigator`
+connects it to an `ArcRotateCamera`, reports the visible geographic center,
+supports animated coordinate-aware flights, and streams raster detail as the
+camera moves or zooms.
+
+```ts
+import { GlobeNavigator, GlobeSet, RasterOSM } from "babylonjs-mapping";
+
+const detail = new GlobeSet(scene, engine, {
+    radius: 50.05,
+    backingSurface: false,
+});
+detail.setRasterProvider(new RasterOSM(detail));
+detail.createGeometry(new Vector2(5, 5), 20, 12);
+
+const globeCamera = new ArcRotateCamera(
+    "globe camera",
+    0,
+    Math.PI / 2,
+    150,
+    Vector3.Zero(),
+    scene,
+);
+globeCamera.attachControl(canvas, true);
+
+const navigator = new GlobeNavigator(detail, globeCamera, {
+    minZoom: 3,
+    maxZoom: 18,
+});
+navigator.setView(35.2271, -80.8431, { zoom: 3 });
+navigator.flyTo(36.1069, -112.1129, { zoom: 11, durationMs: 1400 });
+```
+
+`getSurfacePosition()`, `getSurfaceNormal()`, and
+`getSurfaceCoordinates()` support markers and click-to-fly interactions. Keep
+a low-resolution base globe beneath a detail layer so imagery remains visible
+while higher-resolution tiles load.
+
+For terrain and streamed features, use `GlobeDataController` with the same
+providers used by planar maps. `TerrainRGB` supplies signed elevation data,
+including ocean depth, while `RasterGEBCO` is imagery only. The controller
+loads elevation before draped features, limits concurrent work, and can be
+refreshed with `invalidate()` when sources or settings change. See the
+[globe-mode example](examples-npm/globe-mode) for terrain, bathymetry,
+buildings, roads, imported GeoJSON, and camera navigation.
 
 ## Add Mapbox terrain
 
@@ -245,6 +295,7 @@ Runnable applications are under [`examples-npm`](examples-npm):
 - [OpenStreetMap user data at real scale](examples-npm/OpenStreetMap-UserData-RealScale)
 - [Mapbox terrain](examples-npm/mapbox-terrain)
 - [GEBCO bathymetry](examples-npm/gebco-bathymetry)
+- [Globe navigation](examples-npm/globe-mode)
 
 Each example has its own README and npm scripts. A typical example can be run
 with:

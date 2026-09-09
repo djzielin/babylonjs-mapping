@@ -23,7 +23,7 @@ import "@babylonjs/inspector";
 
 //import TileSet from "babylonjs-mapping";
 import TileSet from "../../../lib/TileSet"
-import BuildingsOSM from "../../../lib/BuildingsOSM";
+import BuildingsOverture, { resolveLatestOvertureBuildingsURL } from "../../../lib/BuildingsOverture";
 import RasterOSM from "../../../lib/RasterOSM";
 import TileMath from "../../../lib/TileMath";
 
@@ -33,7 +33,7 @@ class Game {
     private scene: Scene;
 
     private ourTS: TileSet;
-    private ourOSM: BuildingsOSM;
+    private ourBuildings: BuildingsOverture;
     private ourTileMath: TileMath;
 
     private lastSelectedSphereIndex: number=-1;
@@ -68,20 +68,6 @@ class Game {
                this.engine.resize();
            });
        });
-    }
-
-    public async getKey(url: string): Promise<string> {
-        console.log("trying to fetch: " + url);
-        const res = await fetch(url);
-        console.log("  fetch returned: " + res.status);
-
-        if (res.status != 200) {
-            console.error("unable to load key!");
-            return "";
-        }
-
-        const text = await res.text();
-        return text;
     }
 
     public setupHelpText() {
@@ -124,18 +110,33 @@ class Game {
         this.ourTS.updateRaster(36.0014, -78.9382, 16); //lat, lon, zoom. takes us to Duke University in Durham.
         this.ourTileMath=new TileMath(this.ourTS);
 
-        const accessToken=await this.getKey("osmb-key.txt");
-        this.ourOSM=new BuildingsOSM(this.ourTS);
-        this.ourOSM.accessToken=accessToken;
-        this.ourOSM.doMerge=true;
-        this.ourOSM.exaggeration=1;
-        this.ourOSM.generateBuildings();
+        // Keep rendering the map while the public building archive is discovered.
+        void this.loadBuildings();
 
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program 
         this.scene.debugLayer.show();
         
         this.setupHelpText();        
+    }
+
+    private async loadBuildings(): Promise<void> {
+        try {
+            const archiveURL = await resolveLatestOvertureBuildingsURL();
+            this.ourBuildings = new BuildingsOverture(this.ourTS, archiveURL);
+            this.ourBuildings.doMerge = true;
+            this.ourBuildings.exaggeration = 1;
+            this.ourBuildings.generateBuildings();
+        } catch (error) {
+            console.error("Unable to load Overture buildings", error);
+            const status = new TextBlock("building-status", "Buildings unavailable. Reload to retry.");
+            status.color = "white";
+            status.fontSize = 20;
+            status.top = "45px";
+            status.height = "30px";
+            status.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.ourTS.getAdvancedDynamicTexture().addControl(status);
+        }
     }
 
     private update(): void {
