@@ -1,0 +1,33 @@
+{
+  "name": "hello-world-webxr",
+  "version": "1.0.0",
+  "description": "Explore a miniature Duke campus map in immersive WebXR or on desktop",
+  "main": "index.ts",
+  "dependencies": {
+    "@babylonjs/core": "^6.37.1",
+    "@babylonjs/gui": "^6.37.1",
+    "babylonjs-mapping": "^1.1.44",
+    "@babylonjs/loaders": "^6.49.0"
+  },
+  "devDependencies": {
+    "@types/earcut": "^2.1.4",
+    "clean-webpack-plugin": "^4.0.0",
+    "html-webpack-plugin": "^5.6.0",
+    "source-map-loader": "^4.0.2",
+    "ts-loader": "^9",
+    "typescript": "^5.3.3",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^4.15.1",
+    "webpack-merge": "^5.10.0",
+    "iwer": "2.3.0",
+    "playwright": "1.61.1"
+  },
+  "scripts": {
+    "start": "npx webpack-dev-server --config webpack.config-dev.js",
+    "build": "npx webpack --config webpack.config-prod.js",
+    "test:xr": "node tests/null-headset.mjs"
+  },
+  "author": "David J. Zielinski. original template by Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>",
+  "license": "CC BY-NC-SA 4.0"
+}
