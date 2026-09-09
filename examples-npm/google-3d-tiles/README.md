@@ -15,6 +15,7 @@ Build the current library first, then install its tarball into this example:
 cd ../..
 npm ci
 npm run build
+mkdir -p /tmp/babylonjs-mapping-demo
 npm pack --pack-destination /tmp/babylonjs-mapping-demo
 
 cd examples-npm/google-3d-tiles
@@ -24,7 +25,6 @@ printf '%s' 'YOUR_KEY' > public/google-key.txt
 npm run start
 ```
 
-The default location loads automatically. Choose another location and select
-**Load selected location** to move. Drag to orbit and scroll or pinch to zoom.
-Changing location disposes the previous Google assets before loading the new
-area.
+The default location loads automatically. Choose a location and detail level,
+then select **Load location**. Drag to orbit, scroll or pinch to zoom, or select
+**Reset view**. Changing location disposes the previous Google assets.

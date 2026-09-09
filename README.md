@@ -132,8 +132,8 @@ import { Google3DTiles } from "babylonjs-mapping";
 
 const googleTiles = new Google3DTiles(tiles, {
     apiKey: googleMapsApiKey,
-    maxDepth: 6,
-    maxTiles: 64,
+    maxDepth: 22,
+    maxTiles: 256,
 });
 await googleTiles.load();
 ```
