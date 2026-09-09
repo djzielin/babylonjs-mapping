@@ -1,8 +1,10 @@
 import { AssetContainer } from "@babylonjs/core/assetContainer.js";
-import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Matrix, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
+
+import { EPSG_Type } from "../core/TileMath.js";
 
 import type TileSet from "../core/TileSet.js";
 
@@ -154,7 +156,7 @@ export default class Google3DTiles {
     private session: string | undefined;
     private readonly externalTilesets = new Map<string, Promise<LoadedTileset>>();
     private readonly loadedTiles = new Map<string, LoadedGoogle3DTile>();
-    private readonly inFlightTiles = new Map<string, Promise<LoadedGoogle3DTile | undefined>>();
+    private generation = 0;
     private desiredTiles = new Map<string, TileSelection>();
     private originStateKey = "";
     private googleAttributionAdded = false;
@@ -219,6 +221,7 @@ export default class Google3DTiles {
         this.tileSet.assertRasterSetup("load Google 3D Tiles");
         this.validateOptions();
 
+        const generation = ++this.generation;
         const origin = this.getOrigin();
         const originStateKey = this.getOriginStateKey(origin);
         if (this.originStateKey !== "" && this.originStateKey !== originStateKey) {
@@ -226,7 +229,8 @@ export default class Google3DTiles {
         }
         this.originStateKey = originStateKey;
 
-        await this.loadRootTileset();
+        await this.loadRootTileset(generation);
+        if (generation !== this.generation) return [];
         if (!this.rootTileset) {
             throw new Error("Google 3D Tiles root tileset was not loaded.");
         }
@@ -238,7 +242,11 @@ export default class Google3DTiles {
             0,
             this.getTileSetBounds(),
             desiredTiles,
+            Matrix.Identity(),
+            "REPLACE",
+            generation,
         );
+        if (generation !== this.generation) return [];
         this.desiredTiles = desiredTiles;
 
         for (const url of Array.from(this.loadedTiles.keys())) {
@@ -249,13 +257,14 @@ export default class Google3DTiles {
 
         await Promise.all(
             Array.from(desiredTiles.values(), (selection) => {
-                return this.loadTile(selection, origin).catch((error: unknown) => {
-                    console.warn(`Unable to load Google 3D Tile ${selection.url}:`, error);
+                return this.loadTile(selection, origin, generation).catch((error: unknown) => {
+                    console.warn("Unable to load a Google 3D Tile:", error);
                     return undefined;
                 });
             }),
         );
 
+        if (generation !== this.generation) return [];
         this.updateAttribution();
         return this.loadedModelTiles;
     }
@@ -267,6 +276,8 @@ export default class Google3DTiles {
 
     /** Disposes loaded GLB assets and clears the provider's request caches. */
     public dispose(): void {
+        ++this.generation;
+        this.tileSet.ourAttribution.setGoogleAttributions?.([]);
         this.desiredTiles.clear();
         this.disposeLoadedTiles();
         this.rootTileset = undefined;
@@ -319,14 +330,16 @@ export default class Google3DTiles {
         return this.authenticateURL(this.rootUrl, this.rootUrl, false);
     }
 
-    private async loadRootTileset(): Promise<void> {
+    private async loadRootTileset(generation: number): Promise<void> {
         const rootUrl = this.getRootTilesetURL();
         const requestKey = `${rootUrl}|${this.apiKey}`;
         if (this.rootTileset && this.rootRequestKey === requestKey) {
             return;
         }
 
-        this.rootTileset = await this.tilesetLoader(rootUrl);
+        const tileset = await this.tilesetLoader(rootUrl);
+        if (generation !== this.generation) return;
+        this.rootTileset = tileset;
         if (!this.rootTileset || !this.rootTileset.root) {
             throw new Error("Google 3D Tiles root response did not contain a root tile.");
         }
@@ -344,8 +357,8 @@ export default class Google3DTiles {
         const uriSession = url.searchParams.get("session");
         if (uriSession) {
             this.session = uriSession;
-        } else if (includeSession && this.session) {
-            url.searchParams.set("session", this.session);
+        } else if (includeSession && (new URL(baseUrl).searchParams.get("session") || this.session)) {
+            url.searchParams.set("session", new URL(baseUrl).searchParams.get("session") || this.session!);
         }
         url.searchParams.set("key", this.apiKey);
         return url.toString();
@@ -360,9 +373,12 @@ export default class Google3DTiles {
 
         const request = this.tilesetLoader(url).then((tileset) => {
             if (!tileset || !tileset.root) {
-                throw new Error(`Google 3D Tiles response did not contain a root tile: ${url}`);
+                throw new Error("Google 3D Tiles response did not contain a root tile.");
             }
             return { tileset, url };
+        }).catch((error) => {
+            this.externalTilesets.delete(url);
+            throw error;
         });
         this.externalTilesets.set(url, request);
         return request;
@@ -375,8 +391,10 @@ export default class Google3DTiles {
         bounds: GeographicBounds,
         desiredTiles: Map<string, TileSelection>,
         parentTransform = Matrix.Identity(),
+        parentRefine = "REPLACE",
+        generation = this.generation,
     ): Promise<number> {
-        if (desiredTiles.size >= this.maxTiles || !boundingVolumeIntersects(tile.boundingVolume, bounds)) {
+        if (generation !== this.generation || desiredTiles.size >= this.maxTiles) {
             return 0;
         }
 
@@ -385,6 +403,8 @@ export default class Google3DTiles {
         const accumulatedTransform = tileTransform
             ? tileTransform.multiply(parentTransform)
             : parentTransform;
+        if (!boundingVolumeIntersects(tile.boundingVolume, bounds, accumulatedTransform)) return 0;
+        const refine = tile.refine?.toUpperCase() ?? parentRefine;
         let descendantCount = 0;
 
         if (depth < this.maxDepth) {
@@ -396,6 +416,8 @@ export default class Google3DTiles {
                     bounds,
                     desiredTiles,
                     accumulatedTransform,
+                    refine,
+                    generation,
                 );
                 if (desiredTiles.size >= this.maxTiles) {
                     break;
@@ -419,6 +441,8 @@ export default class Google3DTiles {
                             bounds,
                             desiredTiles,
                             accumulatedTransform,
+                            refine,
+                            generation,
                         );
                     } catch (error) {
                         console.warn("Unable to load a Google 3D Tiles child tileset:", error);
@@ -432,7 +456,7 @@ export default class Google3DTiles {
 
         const keepContent = depth >= this.maxDepth
             || descendantCount === 0
-            || tile.refine?.toUpperCase() === "ADD";
+            || refine === "ADD";
         if (!keepContent) {
             return descendantCount;
         }
@@ -461,22 +485,18 @@ export default class Google3DTiles {
     private async loadTile(
         selection: TileSelection,
         origin: Google3DTilesOrigin,
+        generation: number,
     ): Promise<LoadedGoogle3DTile | undefined> {
         const loaded = this.loadedTiles.get(selection.url);
         if (loaded) {
             return loaded;
         }
 
-        const inFlight = this.inFlightTiles.get(selection.url);
-        if (inFlight) {
-            return inFlight;
-        }
-
         const request = this.modelTileLoader(selection.url, this.tileSet.scene).then((model) => {
             if (!model) {
                 return undefined;
             }
-            if (!this.desiredTiles.has(selection.url)) {
+            if (generation !== this.generation || !this.desiredTiles.has(selection.url)) {
                 model.asset.dispose();
                 return undefined;
             }
@@ -500,11 +520,8 @@ export default class Google3DTiles {
             };
             this.loadedTiles.set(selection.url, result);
             return result;
-        }).finally(() => {
-            this.inFlightTiles.delete(selection.url);
         });
 
-        this.inFlightTiles.set(selection.url, request);
         return request;
     }
 
@@ -535,39 +552,26 @@ export default class Google3DTiles {
             Math.sin(origin.latitude * RADIANS_PER_DEGREE),
         );
 
-        // Babylon's glTF loader adds a right-to-left-handed conversion that
-        // negates source X. The first column therefore maps imported X back to
-        // ECEF -X; the other columns map imported Y/Z directly to ECEF Y/Z.
-        const importedX = new Vector3(-east.x, -up.x, -north.x);
-        const importedY = new Vector3(east.y, up.y, north.y);
-        const importedZ = new Vector3(east.z, up.z, north.z);
         const scale = this.tileSet.tileScale;
-        const centerMinusOrigin = centerEcef.subtract(originEcef);
-        const translation = new Vector3(
-            Vector3.Dot(centerMinusOrigin, east) * scale,
-            Vector3.Dot(centerMinusOrigin, up) * scale,
-            Vector3.Dot(centerMinusOrigin, north) * scale,
+        const originOnMap = this.tileSet.ourTileMath.EPSG_to_Game(
+            new Vector2(origin.longitude, origin.latitude), EPSG_Type.EPSG_4326,
         );
-
-        const coordinateTransform = Matrix.FromValues(
-            importedX.x, importedX.y, importedX.z, 0,
-            importedY.x, importedY.y, importedY.z, 0,
-            importedZ.x, importedZ.y, importedZ.z, 0,
-            translation.x, translation.y, translation.z, 1,
+        const ecefToLocal = Matrix.FromValues(
+            east.x, up.x, north.x, 0,
+            east.y, up.y, north.y, 0,
+            east.z, up.z, north.z, 0,
+            -Vector3.Dot(originEcef, east), -Vector3.Dot(originEcef, up),
+            -Vector3.Dot(originEcef, north), 1,
         );
-        const verticalTransform = Matrix.Scaling(1, this.exaggeration, 1);
-        let transform = coordinateTransform.multiply(verticalTransform);
-        if (selection.transform) {
-            // 3D Tiles matrices use the same column-major array layout as
-            // Babylon's Matrix. Convert imported Babylon coordinates back to
-            // the source right-handed frame before applying the tile matrix.
-            // This keeps tile transforms correct when a non-identity transform
-            // is present in a nested tileset.
-            transform = Matrix.Scaling(-1, 1, 1)
-                .multiply(Matrix.FromArray(selection.transform))
-                .multiply(coordinateTransform)
-                .multiply(verticalTransform);
-        }
+        // Undo Babylon's glTF handedness conversion, then convert glTF Y-up
+        // to tile Z-up before RTC translation and the accumulated tile matrix.
+        const transform = Matrix.Scaling(this.tileSet.scene.useRightHandedSystem ? 1 : -1, 1, 1)
+            .multiply(Matrix.RotationX(Math.PI / 2))
+            .multiply(Matrix.Translation(centerEcef.x, centerEcef.y, centerEcef.z))
+            .multiply(selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity())
+            .multiply(ecefToLocal)
+            .multiply(Matrix.Scaling(scale, scale * this.exaggeration, scale))
+            .multiply(Matrix.Translation(originOnMap.x, 0, originOnMap.z));
 
         const root = new TransformNode(
             `Google 3D Tile ${selection.depth}`,
@@ -758,12 +762,42 @@ function isTilesetContent(content: Google3DTileContent): boolean {
 function boundingVolumeIntersects(
     boundingVolume: Google3DBoundingVolume | undefined,
     bounds: GeographicBounds,
+    transform: Matrix,
 ): boolean {
     const region = boundingVolume?.region;
     if (!region || region.length < 4) {
-        // Box/sphere volumes need a 3D frustum test. Keeping them eligible is
-        // conservative and still lets the maxTiles guard protect the caller.
-        return true;
+        const box = boundingVolume?.box;
+        const sphere = boundingVolume?.sphere;
+        if (!box && !sphere) return true;
+        const values = box ?? sphere!;
+        if (values.length !== (box ? 12 : 4) || !values.every(Number.isFinite)) return true;
+        const center = Vector3.TransformCoordinates(Vector3.FromArray(values), transform);
+        let radius: number;
+        if (box) {
+            // Sum half-axis lengths conservatively encloses a transformed box,
+            // including nonuniform scaling and shear.
+            radius = [3, 6, 9].reduce((sum, offset) => sum +
+                Vector3.TransformNormal(Vector3.FromArray(box, offset), transform).length(), 0);
+        } else {
+            const m = transform.m;
+            const norm1 = Math.max(...[0, 4, 8].map(i => Math.abs(m[i]) + Math.abs(m[i + 1]) + Math.abs(m[i + 2])));
+            const normInf = Math.max(...[0, 1, 2].map(i => Math.abs(m[i]) + Math.abs(m[i + 4]) + Math.abs(m[i + 8])));
+            radius = Math.abs(sphere![3]) * Math.sqrt(norm1 * normInf);
+        }
+        const distance = center.length();
+        if (radius >= distance) return true;
+        // Convert the angular cap's geocentric latitude to geodetic latitude.
+        // Padding by the ellipsoid flattening bounds the angular distortion.
+        const latitude = Math.atan2(center.z, Math.hypot(center.x, center.y)
+            * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED));
+        const angle = Math.asin(radius / distance) * 1.01;
+        const south = Math.max(-Math.PI / 2, latitude - angle);
+        const north = Math.min(Math.PI / 2, latitude + angle);
+        const longitude = Math.atan2(center.y, center.x);
+        const longitudeRadius = south <= -Math.PI / 2 || north >= Math.PI / 2
+            ? Math.PI : Math.asin(Math.min(1, Math.sin(angle) / Math.cos(latitude)));
+        return boundingVolumeIntersects({ region: [longitude - longitudeRadius, south,
+            longitude + longitudeRadius, north] }, bounds, Matrix.Identity());
     }
 
     const regionSouth = region[1] / RADIANS_PER_DEGREE;

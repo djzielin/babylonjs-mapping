@@ -114,7 +114,7 @@ export default class Google3DTiles {
     private session;
     private readonly externalTilesets;
     private readonly loadedTiles;
-    private readonly inFlightTiles;
+    private generation;
     private desiredTiles;
     private originStateKey;
     private googleAttributionAdded;

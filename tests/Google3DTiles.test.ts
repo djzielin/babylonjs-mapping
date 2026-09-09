@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AssetContainer, NullEngine, Scene, TransformNode, Vector2, Vector3 } from "@babylonjs/core";
+import { AssetContainer, Matrix, NullEngine, Scene, TransformNode, Vector2, Vector3 } from "@babylonjs/core";
 
 import Google3DTiles, {
   GOOGLE_3D_TILES_ROOT_URL,
@@ -9,6 +9,7 @@ import Google3DTiles, {
   type GoogleTilesetLoader,
   parseGoogleGLBMetadata,
 } from "../src/Google3DTiles";
+import { EPSG_Type } from "../src/core/TileMath";
 import TileSet from "../src/TileSet";
 
 vi.mock("../src/core/Attribution", () => ({
@@ -176,9 +177,9 @@ describe("Google3DTiles", () => {
       "https://tile.googleapis.com/v1/3dtiles/inside.glb?key=test-key",
     ]);
     expect(loaded[0].root.getWorldMatrix().m[0]).toBeCloseTo(0);
-    expect(loaded[0].root.getWorldMatrix().m[1]).toBeCloseTo(-1);
-    expect(loaded[0].root.getWorldMatrix().m[4]).toBeCloseTo(1);
-    expect(loaded[0].root.getWorldMatrix().m[10]).toBeCloseTo(1);
+    expect(loaded[0].root.getWorldMatrix().m[1]).toBeCloseTo(-tileSet.tileScale, 10);
+    expect(loaded[0].root.getWorldMatrix().m[6]).toBeCloseTo(tileSet.tileScale, 10);
+    expect(loaded[0].root.getWorldMatrix().m[8]).toBeCloseTo(-tileSet.tileScale, 10);
 
     google.dispose();
     scene.dispose();
@@ -207,5 +208,103 @@ describe("Google3DTiles", () => {
 
     scene.dispose();
     engine.dispose();
+  });
+});
+
+
+describe("Google3DTiles regression coverage", () => {
+  it.each([false, true])("rebases, scales and aligns glTF geometry (right handed: %s)", async (rightHanded) => {
+    const { engine, scene, tileSet } = createTileSet();
+    scene.useRightHandedSystem = rightHanded;
+    tileSet.tileScale = 0.5;
+    const google = new Google3DTiles(tileSet, {
+      apiKey: "test-key", exaggeration: 2,
+      tilesetLoader: async () => ({ root: {
+        transform: Array.from(Matrix.Translation(6378137, 0, 0).m),
+        children: [{ transform: Array.from(Matrix.Translation(10, 20, 30).m), content: { uri: "model.glb" } }],
+      } }),
+      modelTileLoader: async () => ({ asset: new AssetContainer(scene), attributions: [], rtcCenter: new Vector3(1, 2, 3) }),
+    });
+    const [tile] = await google.load();
+    // Source glTF (4, 5, 6) -> tile (4, -6, 5) -> RTC -> nested transforms.
+    const point = Vector3.TransformCoordinates(new Vector3(rightHanded ? 4 : -4, 5, 6), tile.root.getWorldMatrix());
+    const mapOrigin = tileSet.ourTileMath.EPSG_to_Game(new Vector2(0, 0), EPSG_Type.EPSG_4326);
+    expect(point.x).toBeCloseTo(mapOrigin.x + 8, 5);
+    expect(point.y).toBeCloseTo(15, 5);
+    expect(point.z).toBeCloseTo(mapOrigin.z + 19, 5);
+    google.dispose(); scene.dispose(); engine.dispose();
+  });
+
+  it("does not resurrect assets when disposed while fetching the hierarchy", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    let resolve!: (value: Google3DTileset) => void;
+    const modelTileLoader = createModelLoader([]);
+    const google = new Google3DTiles(tileSet, { apiKey: "test-key", modelTileLoader,
+      tilesetLoader: () => new Promise(r => { resolve = r; }),
+    });
+    const loading = google.load();
+    google.dispose();
+    resolve({ root: { content: { uri: "late.glb" } } });
+    expect(await loading).toEqual([]);
+    expect(modelTileLoader).not.toHaveBeenCalled();
+    expect(google.tileset).toBeUndefined();
+    scene.dispose(); engine.dispose();
+  });
+
+  it("disposes a late model response after cancellation", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    let resolve!: (value: any) => void;
+    const asset = new AssetContainer(scene);
+    const disposed = vi.spyOn(asset, "dispose");
+    const google = new Google3DTiles(tileSet, { apiKey: "test-key",
+      tilesetLoader: async () => ({ root: { content: { uri: "late.glb" } } }),
+      modelTileLoader: () => new Promise(r => { resolve = r; }),
+    });
+    const loading = google.load();
+    await vi.waitFor(() => expect(resolve).toBeDefined());
+    google.dispose(); resolve({ asset, attributions: [] });
+    expect(await loading).toEqual([]);
+    expect(disposed).toHaveBeenCalledOnce();
+    scene.dispose(); engine.dispose();
+  });
+
+  it("inherits additive refinement and respects the model budget", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    const google = new Google3DTiles(tileSet, { apiKey: "test-key", maxTiles: 2,
+      tilesetLoader: async () => ({ root: { refine: "ADD", children: [{
+        content: { uri: "parent.glb" }, children: [{ content: { uri: "child.glb" } }],
+      }] } }), modelTileLoader: createModelLoader([]),
+    });
+    expect((await google.load()).map(tile => new URL(tile.url).pathname.split("/").pop())).toEqual(["child.glb", "parent.glb"]);
+    google.dispose(); scene.dispose(); engine.dispose();
+  });
+
+  it.each(["box", "sphere"])("filters transformed %s volumes outside the map", async (kind) => {
+    const { engine, scene, tileSet } = createTileSet();
+    tileSet.updateRaster(0, 0, 16);
+    const volume = kind === "box" ? { box: [0,0,0,10,0,0,0,10,0,0,0,10] } : { sphere: [0,0,0,10] };
+    const google = new Google3DTiles(tileSet, { apiKey: "test-key",
+      tilesetLoader: async () => ({ root: { children: [
+        { boundingVolume: volume, transform: Array.from(Matrix.Translation(-6378137,0,0).m), content: { uri: "outside.glb" } },
+        { boundingVolume: volume, transform: Array.from(Matrix.Translation(6378137,0,0).m), content: { uri: "inside.glb" } },
+      ] } }), modelTileLoader: createModelLoader([]),
+    });
+    expect((await google.load()).map(tile => new URL(tile.url).pathname.split("/").pop())).toEqual(["inside.glb"]);
+    google.dispose(); scene.dispose(); engine.dispose();
+  });
+
+  it("retries failed child tilesets on a subsequent load", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    let attempts = 0;
+    const google = new Google3DTiles(tileSet, { apiKey: "test-key",
+      tilesetLoader: async (url) => {
+        if (url.includes("root.json")) return { root: { content: { uri: "child.json" } } };
+        if (++attempts === 1) throw new Error("Temporary failure");
+        return { root: { content: { uri: "model.glb" } } };
+      }, modelTileLoader: createModelLoader([]),
+    });
+    expect(await google.load()).toHaveLength(0);
+    expect(await google.load()).toHaveLength(1);
+    google.dispose(); scene.dispose(); engine.dispose();
   });
 });

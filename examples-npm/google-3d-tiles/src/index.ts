@@ -87,6 +87,7 @@ class Google3DTilesDemo {
         }
 
         this.loadButton.disabled = true;
+        this.locationInput.disabled = true;
         this.setStatus("loading", "Loading the Google 3D Tiles hierarchy…");
         this.canvas.dataset.loadedTiles = "0";
 
@@ -95,7 +96,7 @@ class Google3DTilesDemo {
             this.setLocation();
             this.googleTiles = new Google3DTiles(this.tileSet, {
                 apiKey: this.apiKey,
-                maxDepth: 8,
+                maxDepth: 20,
                 maxTiles: 72,
             });
 
@@ -118,6 +119,7 @@ class Google3DTilesDemo {
             console.error("Unable to load Google Photorealistic 3D Tiles:", error);
         } finally {
             this.loadButton.disabled = false;
+            this.locationInput.disabled = false;
         }
     }
 
