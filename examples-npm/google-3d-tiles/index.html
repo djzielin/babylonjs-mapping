@@ -116,7 +116,7 @@
             }
             .attribution[hidden] { display: none; }
             .attribution a { color: white; font: 16px Arial, sans-serif; text-decoration: none; }
-            @media (max-width: 600px) {
+            @media (max-width: 900px) {
                 .panel { top: auto; bottom: 58px; left: 12px; width: calc(100vw - 24px); padding: 12px; }
                 h1 { font-size: 16px; }
                 .panel p, .controls { display: none; }
@@ -126,7 +126,7 @@
                 #status { margin-top: 8px; min-height: 0; padding: 7px 8px; font-size: 12px; }
             }
             @media (max-height: 570px) {
-                .panel { top: 10px; left: 10px; padding: 12px; }
+                .panel { top: 10px; bottom: auto; left: 10px; width: min(350px, calc(100vw - 20px)); padding: 12px; }
                 .panel p, .controls { display: none; }
             }
         </style>
