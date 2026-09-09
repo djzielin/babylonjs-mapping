@@ -62,11 +62,20 @@
             .source { margin-top: 12px; font-size: 10px; color: #a7b6c9; }
             a { color: #a7cdea; text-underline-offset: 2px; }
             .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+        #controlsToggle { display: none; }
+            @media (max-width: 600px) {
+                #controlPanel { top: auto; bottom: 64px; left: 10px; width: calc(100vw - 20px); padding: 10px; max-height: 55dvh; }
+                #controlsToggle { display: block; margin-bottom: 8px; }
+                #controlPanel:not(.expanded) > :not(#controlsToggle):not(#locationPreset):not(#navigationButtons) { display: none; }
+                #controlPanel.expanded h1 { margin-bottom: 8px; }
+                #googleCredits { max-width: calc(100vw - 24px) !important; }
+            }
         </style>
     </head>
     <body>
         <aside id="controlPanel" aria-label="Globe controls">
             <h1>Earth, in detail</h1>
+            <button id="controlsToggle" type="button" aria-expanded="false">Layers &amp; controls</button>
             <p class="hint">Drag to explore · scroll to zoom</p>
             <div class="actions map-style" role="group" aria-label="Map imagery">
                 <button id="mapView" type="button" aria-pressed="true">Map</button>
@@ -80,7 +89,7 @@
                 <p id="addressStatus" role="status"></p>
             </div>
             <label class="sr-only" for="locationPreset">Destination</label>
-            <select id="locationPreset"></select>
+            <select id="locationPreset" aria-label="Destination"></select>
             <div id="navigationButtons">
                 <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
                 <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
@@ -98,9 +107,12 @@
                 <label class="angle">Tilt<input id="tilt" type="range" min="0" max="89" value="0"><output id="tiltValue">0°</output></label>
                 <label class="angle">Heading<input id="heading" type="range" min="0" max="359" value="0"><output id="headingValue">0°</output></label>
             </div>
+            <label class="toggle"><input id="googleTiles" type="checkbox" checked>Google photorealistic 3D</label>
+            <p id="googleStatus" role="status">Google 3D · zoom in to street scale</p>
             <p id="loadingStatus" role="status">Loading terrain and buildings…</p>
             <details>
                 <summary>More options</summary>
+                <label>Google 3D detail<select id="googleQuality"><option value="auto">Automatic · highest detail nearby</option><option value="20">Balanced</option><option value="22">Highest</option></select></label>
                 <div class="settings">
                     <label class="field">Map style
                         <select id="basemap"><option value="osm">OpenStreetMap</option><option value="gebco">Ocean depth</option><option value="satellite">Satellite (Mapbox token)</option></select>
@@ -126,5 +138,6 @@
             <p class="source">Search: <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noreferrer">© Mapbox</a> / <a href="https://photon.komoot.io" target="_blank" rel="noreferrer">Photon / OSM</a> · Elevation: <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noreferrer">Mapzen / Tilezen</a></p>
         </aside>
         <canvas id="renderCanvas" touch-action="none"></canvas>
+    <div id="googleCredits" hidden style="position:fixed;bottom:30px;right:12px;max-width:75vw;color:white;font:11px Arial;text-align:right;text-shadow:0 1px 3px black;pointer-events:none"><span id="googleSources"></span><br><strong style="font-size:17px">Google Maps</strong></div>
     </body>
 </html>

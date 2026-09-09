@@ -10,6 +10,7 @@ import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 
 import {
+    Google3DTiles,
     GlobeNavigator,
     MapLayerRenderer,
     BuildingReplacementIndex,
@@ -39,6 +40,9 @@ interface LocationPreset {
     heading?: number;
     tilt?: number;
     eyeHeight?: number;
+    distance?: number;
+    google?: boolean;
+    basemap?: "osm" | "satellite" | "gebco";
 }
 
 const GLOBE_RADIUS = 60;
@@ -51,20 +55,25 @@ const HOME_VIEW: LocationPreset = {
 };
 const LOCATIONS: LocationPreset[] = [
     HOME_VIEW,
+    { name: "Duke University · Duke Chapel", latitude: 36.00145, longitude: -78.94032, zoom: 18, heading: 256, tilt: 70, eyeHeight: -20, distance: 350, google: true, basemap: "satellite" },
     {
         name: "Manhattan · buildings",
+        google: false,
+        basemap: "osm",
         latitude: 40.706,
         longitude: -74.009,
         zoom: 16,
     },
     {
         name: "Mariana Trench · seabed",
+        basemap: "gebco",
         latitude: 11.35,
         longitude: 142.2,
         zoom: 8,
     },
     {
         name: "Monterey Canyon · coastline",
+        basemap: "gebco",
         latitude: 36.73,
         longitude: -122.02,
         zoom: 11,
@@ -72,9 +81,10 @@ const LOCATIONS: LocationPreset[] = [
     { name: "Date line · Fiji", latitude: -17.71, longitude: 179.99, zoom: 9 },
     { name: "Grand Canyon", latitude: 36.1069, longitude: -112.1129, zoom: 13 },
     { name: "Mount Everest", latitude: 27.9881, longitude: 86.925, zoom: 13 },
-    { name: "Paris", latitude: 48.8566, longitude: 2.3522, zoom: 15 },
+    { name: "Paris · Eiffel Tower", latitude: 48.8584, longitude: 2.2945, zoom: 18, heading: 310, tilt: 65, eyeHeight: 100, distance: 650, google: true, basemap: "satellite" },
+    { name: "New York · Empire State Building", latitude: 40.7484, longitude: -73.9857, zoom: 17, heading: 330, tilt: 65, eyeHeight: 160, distance: 1000, google: true, basemap: "satellite" },
     { name: "Sydney", latitude: -33.8688, longitude: 151.2093, zoom: 13 },
-    { name: "Tokyo · toward Mount Fuji", latitude: 35.6812, longitude: 139.7671, zoom: 16, heading: 249.5, tilt: 87, eyeHeight: 600 },
+    { name: "Tokyo · toward Mount Fuji", google: false, basemap: "satellite", latitude: 35.6812, longitude: 139.7671, zoom: 16, heading: 249.5, tilt: 87, eyeHeight: 600 },
 ];
 
 class GlobeDemo {
@@ -100,6 +110,13 @@ class GlobeDemo {
     private landmarkRetryAt = 0;
     private distanceLayers: { globe: GlobeSet; data: GlobeDataController; buildings?: BuildingsOverture; key: string; lodKey?: string }[] = [];
     private overtureURL?: string;
+    private googleTiles?: Google3DTiles;
+    private googleKey = "";
+    private googleViewKey = "";
+    private googleTimer?: ReturnType<typeof setTimeout>;
+    private googleGeneration = 0;
+    private googleMeshes = new WeakSet<object>();
+    private photorealisticActive = false;
 
     public constructor() {
         this.canvas = document.getElementById(
@@ -132,13 +149,44 @@ class GlobeDemo {
         }, () => (document.getElementById("mapboxToken") as HTMLInputElement).value);
         this.setupPointerNavigation();
         this.setupDataControls();
+        document.getElementById("controlsToggle")!.addEventListener("click", () => {
+            const expanded = document.getElementById("controlPanel")!.classList.toggle("expanded");
+            document.getElementById("controlsToggle")!.setAttribute("aria-expanded", String(expanded));
+            document.getElementById("controlsToggle")!.textContent = expanded ? "Hide controls" : "Layers & controls";
+        });
+        void fetch("google-key.txt").then(response => response.ok ? response.text() : "")
+            .then(key => {
+                this.googleKey = key.trim();
+                this.scheduleGoogleTiles(true);
+            }).catch(() => { this.googleStatus("Google 3D unavailable: key not configured."); });
+        document.getElementById("googleTiles")!.addEventListener("change", () => this.scheduleGoogleTiles(true));
+        document.getElementById("googleQuality")!.addEventListener("change", () => this.scheduleGoogleTiles(true));
         this.engine.runRenderLoop(() => {
             this.scene.render();
             this.updateOrientation();
             this.updateLandmarks();
             this.updateLandscapeLOD();
+            for (const tile of this.googleTiles?.loadedModelTiles ?? []) {
+                for (const mesh of tile.asset.meshes) {
+                    if (this.googleMeshes.has(mesh)) continue;
+                    this.googleMeshes.add(mesh);
+                    this.layers.add(mesh, 7);
+                }
+            }
             if (performance.now() - this.lastStats > 500) {
                 this.lastStats = performance.now();
+                if (this.inspecting) {
+                    const view = this.navigator.getView();
+                    if (Math.abs(Math.log2(this.inspecting.radius / view.altitude)) > 0.35
+                        && !(view.zoom >= 18 && this.inspecting.radius < view.altitude)
+                        && !(view.zoom <= 3 && this.inspecting.radius > view.altitude)) {
+                        this.navigator.setView(view.latitude, view.longitude, { altitude: this.inspecting.radius });
+                    }
+                }
+                const googleSources = this.googleTiles?.getAttributions() ?? [];
+                document.getElementById("googleSources")!.textContent = googleSources.join("; ");
+                document.getElementById("googleCredits")!.hidden = !(this.googleTiles?.loadedModelTiles.length);
+
                 const stat = this.distanceLayers.reduce<{ active: number; completed: number; failed: number }>((total, layer) => ({
                     active: total.active + layer.data.stats.active,
                     completed: total.completed + layer.data.stats.completed,
@@ -182,6 +230,7 @@ class GlobeDemo {
         this.detailGlobe.createGeometry(new Vector2(5, 5), 20, 16);
         for (const tile of this.detailGlobe.ourTiles)
             this.layers.add(tile.mesh, 6);
+        this.detailGlobe.ourAttribution.advancedTexture.rootContainer.isVisible = false;
         this.data = new GlobeDataController(this.detailGlobe, {
             elevation: this.elevation.load,
             concurrency: 4,
@@ -207,10 +256,10 @@ class GlobeDemo {
                 );
                 if (
                     (document.getElementById("buildings") as HTMLInputElement)
-                        .checked
+                        .checked && !this.photorealisticActive
                 )
                     this.data.options.buildings = this.buildings;
-                this.detailGlobe.ourAttribution.addAttribution("OVERTURE");
+                this.baseGlobe.ourAttribution.addAttribution("OVERTURE");
                 this.data.invalidate();
                 this.configureDistanceLayers();
                 this.message(
@@ -275,7 +324,7 @@ class GlobeDemo {
             this.data.options.elevation = terrain.checked
                 ? this.elevation.load
                 : undefined;
-            this.data.options.buildings = buildings.checked
+            this.data.options.buildings = buildings.checked && !this.photorealisticActive
                 ? this.buildings
                 : undefined;
             this.data.options.exaggeration = Number(exaggeration.value);
@@ -455,7 +504,7 @@ class GlobeDemo {
     private updateLandmarks(): void {
         const enabled = (document.getElementById("landmarks") as HTMLInputElement).checked;
         const token = (document.getElementById("mapboxToken") as HTMLInputElement).value.trim();
-        if (!enabled || !token || this.detailGlobe.zoom < 14) {
+        if (!enabled || !token || this.detailGlobe.zoom < 14 || this.photorealisticActive) {
             const hadModels = !!this.landmarks;
             this.landmarks?.dispose();
             this.landmarks = undefined;
@@ -519,7 +568,7 @@ class GlobeDemo {
             entry.buildings.cancelPendingRequests();
             for (const tile of entry.globe.ourTiles) {
                 tile.deleteBuildings();
-                if ((document.getElementById("buildings") as HTMLInputElement).checked) entry.buildings.SubmitLoadTileRequest(tile);
+                if (!this.photorealisticActive && (document.getElementById("buildings") as HTMLInputElement).checked) entry.buildings.SubmitLoadTileRequest(tile);
             }
         }
     }
@@ -555,15 +604,25 @@ class GlobeDemo {
         preset.addEventListener("change", () => {
             this.exitInspection();
             const location = LOCATIONS[Number(preset.value)];
+            if (location.google !== undefined) {
+                (document.getElementById("googleTiles") as HTMLInputElement).checked = location.google;
+            }
             latitude.value = String(location.latitude);
             longitude.value = String(location.longitude);
             if (location.heading !== undefined) {
                 this.navigator.setView(location.latitude, location.longitude, { zoom: location.zoom });
-                this.orientView(location.tilt ?? 80, location.heading, location.eyeHeight ?? 0);
+                this.orientView(location.tilt ?? 80, location.heading, location.eyeHeight ?? 0, location.distance);
             } else this.navigator.flyTo(location.latitude, location.longitude, {
                 zoom: location.zoom,
                 durationMs: 1400,
             });
+            const basemap = document.getElementById("basemap") as HTMLSelectElement;
+            const style = location.basemap ?? "osm";
+            if (basemap.value !== style) {
+                basemap.value = style;
+                basemap.dispatchEvent(new Event("change"));
+            }
+            this.scheduleGoogleTiles(true);
         });
 
         form.addEventListener("submit", (event) => {
@@ -606,8 +665,71 @@ class GlobeDemo {
             }
             this.updateDistanceLayers(view);
             this.updateReadout(readout, view);
+            this.scheduleGoogleTiles();
         });
         this.updateReadout(readout, this.navigator.getView());
+    }
+
+    private setPhotorealisticActive(active: boolean): void {
+        if (active === this.photorealisticActive) return;
+        this.photorealisticActive = active;
+        const buildings = (document.getElementById("buildings") as HTMLInputElement).checked;
+        this.data.options.buildings = buildings && !active ? this.buildings : undefined;
+        this.data.invalidate();
+        this.configureDistanceLayers();
+    }
+
+    private googleStatus(message: string): void {
+        document.getElementById("googleStatus")!.textContent = message;
+    }
+
+    private scheduleGoogleTiles(force = false): void {
+        const view = this.navigator.getView();
+        const enabled = (document.getElementById("googleTiles") as HTMLInputElement).checked;
+        const quality = (document.getElementById("googleQuality") as HTMLSelectElement).value;
+        const key = enabled && view.zoom >= 16
+            ? `${view.latitude.toFixed(4)}/${view.longitude.toFixed(4)}/${Math.round(view.zoom)}/${quality}` : "";
+        if (!force && key === this.googleViewKey) return;
+        this.googleViewKey = key;
+        clearTimeout(this.googleTimer);
+        const generation = ++this.googleGeneration;
+        this.googleTiles?.dispose();
+        this.googleTiles = undefined;
+        document.getElementById("googleCredits")!.hidden = true;
+        this.canvas.dataset.googleTiles = "0";
+        if (!key) {
+            this.setPhotorealisticActive(false);
+            this.googleStatus(enabled ? "Google 3D · zoom in to street scale" : "Google 3D off");
+            return;
+        }
+        if (!this.googleKey) {
+            this.googleStatus("Google 3D unavailable: key not configured.");
+            return;
+        }
+        this.googleStatus("Google 3D · waiting for view to settle…");
+        this.googleTimer = setTimeout(async () => {
+            if (generation !== this.googleGeneration) return;
+            const provider = this.googleTiles = new Google3DTiles(this.detailGlobe, {
+                apiKey: this.googleKey,
+                maxDepth: quality === "auto" ? (view.zoom >= 17 ? 22 : 20) : Number(quality),
+                maxTiles: 256,
+            });
+            this.googleStatus("Google 3D · loading photorealistic detail…");
+            try {
+                const loaded = await provider.load();
+                if (generation !== this.googleGeneration) return;
+                this.setPhotorealisticActive(loaded.length > 0);
+                this.canvas.dataset.googleTiles = String(loaded.length);
+                document.getElementById("googleSources")!.textContent = provider.getAttributions().join("; ");
+                document.getElementById("googleCredits")!.hidden = loaded.length === 0;
+                this.googleStatus(loaded.length ? `Google 3D · ${loaded.length} tiles${loaded.length === 256 ? " · detail budget reached" : ""}` : "Google 3D · no coverage here");
+            } catch {
+                if (generation === this.googleGeneration) {
+                    this.setPhotorealisticActive(false);
+                    this.googleStatus("Google 3D unavailable · toggle to retry");
+                }
+            }
+        }, 650);
     }
 
     private updateDistanceLayers(view: GlobeView): void {
@@ -631,13 +753,15 @@ class GlobeDemo {
         this.distanceLayers.forEach((layer, index) => {
             const plan = plans[index];
             // At global zooms use a small valid world window rather than repeating tiles.
-            const size = Math.min(plan.size, 2 ** plan.zoom);
+            const size = view.zoom < 8 ? 1 : Math.min(plan.size, 2 ** plan.zoom);
             if (layer.globe.ourTiles.length !== size * size) {
                 layer.globe.createGeometry(new Vector2(size, size), 20, plan.precision);
                 for (const tile of layer.globe.ourTiles) this.layers.add(tile.mesh, plan.group);
                 layer.key = "";
                 layer.data.invalidate();
             }
+            for (const tile of layer.globe.ourTiles) tile.mesh.isVisible = view.zoom >= 8;
+            layer.globe.ourAttribution.advancedTexture.rootContainer.isVisible = false;
             const math = layer.globe.ourTileMath;
             const key = `${plan.zoom}/${math.lon_to_tile(view.longitude, plan.zoom)}/${math.lat_to_tile(Math.max(-85, Math.min(85, view.latitude)), plan.zoom)}`;
             if (layer.key === key) return;
@@ -677,7 +801,7 @@ class GlobeDemo {
                 layer.buildings.creationTimeBudgetMs = 1;
                 layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, index + 1); };
             }
-            layer.data.options.buildings = buildings ? layer.buildings : undefined;
+            layer.data.options.buildings = buildings && !this.photorealisticActive ? layer.buildings : undefined;
             layer.data.options.elevation = terrain ? this.elevation.load : undefined;
             layer.data.options.exaggeration = exaggeration;
             layer.lodKey = undefined;
@@ -707,7 +831,7 @@ class GlobeDemo {
         return { up, east, north };
     }
 
-    private orientView(tilt: number, heading: number, targetHeightMetres = 0): void {
+    private orientView(tilt: number, heading: number, targetHeightMetres = 0, distanceMetres?: number): void {
         const view = this.navigator.getView();
         const { up, east, north } = this.inspectionBasis();
         if (!this.inspecting) {
@@ -721,7 +845,7 @@ class GlobeDemo {
             const target = this.detailGlobe.getSurfacePosition(view.latitude, view.longitude,
                 this.detailGlobe.sampleElevation(view.latitude, view.longitude) + targetHeightMetres * this.detailGlobe.metresToWorld);
             this.camera.detachControl();
-            const camera = new ArcRotateCamera("local inspection", 0, 1, view.altitude, target, this.scene);
+            const camera = new ArcRotateCamera("local inspection", 0, 1, distanceMetres ? distanceMetres * this.detailGlobe.metresToWorld : view.altitude, target, this.scene);
             camera.upVector = up;
             camera.lowerBetaLimit = 0.001;
             camera.upperBetaLimit = Math.PI / 2 - 0.001;
@@ -732,7 +856,18 @@ class GlobeDemo {
             camera.panningSensibility = 0;
             camera.inertia = 0.65;
             camera.angularSensibilityX = camera.angularSensibilityY = 1500;
-            camera.onAfterCheckInputsObservable.add(() => this.keepInspectionAboveGround(camera));
+            let groundHeight = this.detailGlobe.sampleElevation(view.latitude, view.longitude);
+            camera.onAfterCheckInputsObservable.add(() => {
+                const nextHeight = this.detailGlobe.sampleElevation(view.latitude, view.longitude);
+                if (Math.abs(nextHeight - groundHeight) > 1e-10) {
+                    const shift = up.scale(nextHeight - groundHeight);
+                    const position = camera.position.add(shift);
+                    camera.setTarget(camera.getTarget().add(shift));
+                    camera.setPosition(position);
+                    groundHeight = nextHeight;
+                }
+                this.keepInspectionAboveGround(camera);
+            });
             camera.attachControl(this.canvas, true);
             this.scene.activeCamera = camera;
             this.inspecting = camera;

@@ -95,7 +95,7 @@ class Google3DTilesDemo {
         this.camera.setTarget(target);
         this.camera.alpha = Number(this.locationInput.selectedOptions[0].dataset.cameraAlpha ?? -Math.PI / 2.4);
         this.camera.beta = Math.PI / 3.1;
-        this.camera.radius = 440;
+        this.camera.radius = Number(this.locationInput.selectedOptions[0].dataset.cameraRadius ?? 440);
     }
 
     private async load(): Promise<void> {

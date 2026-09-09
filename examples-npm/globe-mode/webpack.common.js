@@ -7,7 +7,7 @@ const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 const appDirectory = fs.realpathSync(process.cwd());
 
 const keyFile = path.join(appDirectory, 'mapbox-key.txt');
-const mapboxToken = process.env.MAPBOX_PUBLIC_TOKEN || (fs.existsSync(keyFile) ? fs.readFileSync(keyFile, 'utf8').trim() : '');
+const mapboxToken = process.env.MAPBOX_PUBLIC_TOKEN || process.env.MAPBOX_ACCESS_TOKEN || (fs.existsSync(keyFile) ? fs.readFileSync(keyFile, 'utf8').trim() : '');
 
 module.exports = {
     resolve: {

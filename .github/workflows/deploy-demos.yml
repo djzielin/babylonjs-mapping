@@ -71,7 +71,7 @@ jobs:
             if [[ -n "${MAPBOX_ACCESS_TOKEN}" && "${demo}" == "mapbox-terrain" ]]; then
               printf '%s' "${MAPBOX_ACCESS_TOKEN}" > "${GITHUB_WORKSPACE}/site/${demo}/mapbox-key.txt"
             fi
-            if [[ -n "${GOOGLE_MAPS_API_KEY}" && "${demo}" == "google-3d-tiles" ]]; then
+            if [[ -n "${GOOGLE_MAPS_API_KEY}" && ( "${demo}" == "google-3d-tiles" || "${demo}" == "globe-mode" ) ]]; then
               printf '%s' "${GOOGLE_MAPS_API_KEY}" > "${GITHUB_WORKSPACE}/site/${demo}/google-key.txt"
             fi
           done
