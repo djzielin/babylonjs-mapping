@@ -21,7 +21,7 @@ import { Control } from "@babylonjs/gui/2D/controls/control";
 import "@babylonjs/core/Materials/standardMaterial"
 import "@babylonjs/inspector";
 
-import { BuildingsOSM, RasterOSM, TileSet } from "babylonjs-mapping";
+import { BuildingsOverture, resolveLatestOvertureBuildingsURL, RasterOSM, TileSet } from "babylonjs-mapping";
 
 class Game {
     private canvas: HTMLCanvasElement;
@@ -29,7 +29,7 @@ class Game {
     private scene: Scene;
 
     private ourTS: TileSet;
-    private ourOSM: BuildingsOSM;
+    private ourBuildings: BuildingsOverture;
 
     private lastSelectedSphereIndex: number=-1;
     private lastSelectedSphere: Mesh;
@@ -63,20 +63,6 @@ class Game {
                this.engine.resize();
            });
        });
-    }
-
-    public async getKey(url: string): Promise<string> {
-        console.log("trying to fetch: " + url);
-        const res = await fetch(url);
-        console.log("  fetch returned: " + res.status);
-
-        if (res.status != 200) {
-            console.error("unable to load key!");
-            return "";
-        }
-
-        const text = await res.text();
-        return text;
     }
 
     public setupHelpText() {
@@ -117,18 +103,33 @@ class Game {
         this.ourTS.createGeometry(new Vector2(4,4), 20, 2); //4x4 tile set, 20m width of each tile, and 2 divisions on each tile
         this.ourTS.updateRaster(36.0014, -78.9382, 16); //lat, lon, zoom. takes us to Duke University in Durham.
 
-        const accessToken=await this.getKey("osmb-key.txt");
-        this.ourOSM=new BuildingsOSM(this.ourTS);
-        this.ourOSM.accessToken=accessToken;
-        this.ourOSM.doMerge=true;
-        this.ourOSM.exaggeration=1;
-        this.ourOSM.generateBuildings();
+        // Keep rendering the map while the public building archive is discovered.
+        void this.loadBuildings();
 
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program 
         this.scene.debugLayer.show();
         
         this.setupHelpText();
+    }
+
+    private async loadBuildings(): Promise<void> {
+        try {
+            const archiveURL = await resolveLatestOvertureBuildingsURL();
+            this.ourBuildings = new BuildingsOverture(this.ourTS, archiveURL);
+            this.ourBuildings.doMerge = true;
+            this.ourBuildings.exaggeration = 1;
+            this.ourBuildings.generateBuildings();
+        } catch (error) {
+            console.error("Unable to load Overture buildings", error);
+            const status = new TextBlock("building-status", "Buildings unavailable. Reload to retry.");
+            status.color = "white";
+            status.fontSize = 20;
+            status.top = "45px";
+            status.height = "30px";
+            status.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.ourTS.getAdvancedDynamicTexture().addControl(status);
+        }
     }
 
     private update(): void {
