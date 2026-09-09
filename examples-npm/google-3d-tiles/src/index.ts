@@ -46,6 +46,10 @@ class Google3DTilesDemo {
         this.tileSet.setRasterProvider(new RasterOSM(this.tileSet));
         this.setLocation();
 
+        this.locationInput.addEventListener("change", () => {
+            this.qualityInput.value = this.locationInput.selectedOptions[0].dataset.detail ?? "22";
+        });
+
         this.form.addEventListener("submit", (event) => {
             event.preventDefault();
             void this.load();
@@ -80,16 +84,16 @@ class Google3DTilesDemo {
 
     private setLocation(): void {
         const [latitude, longitude] = this.locationInput.value.split(",").map(Number);
-        this.tileSet.updateRaster(latitude, longitude, 17);
+        this.tileSet.updateRaster(latitude, longitude, Number(this.locationInput.selectedOptions[0].dataset.zoom ?? 17));
         this.resetView();
     }
 
     private resetView(): void {
         const [latitude, longitude] = this.locationInput.value.split(",").map(Number);
         const target = this.tileSet.ourTileMath.EPSG_to_Game(new Vector2(longitude, latitude), EPSG_Type.EPSG_4326);
-        target.y = 65;
+        target.y = Number(this.locationInput.selectedOptions[0].dataset.targetHeight ?? 65);
         this.camera.setTarget(target);
-        this.camera.alpha = -Math.PI / 2.4;
+        this.camera.alpha = Number(this.locationInput.selectedOptions[0].dataset.cameraAlpha ?? -Math.PI / 2.4);
         this.camera.beta = Math.PI / 3.1;
         this.camera.radius = 440;
     }
@@ -136,7 +140,8 @@ class Google3DTilesDemo {
             this.tileSet.ourAttribution.advancedTexture.rootContainer.isVisible = false;
             this.setStatus(
                 "ready",
-                `${loaded.length} model tiles loaded${sourceCount ? ` · ${sourceCount} credited data source${sourceCount === 1 ? "" : "s"}` : ""}.`,
+                `${loaded.length} model tiles loaded${sourceCount ? ` · ${sourceCount} credited data source${sourceCount === 1 ? "" : "s"}` : ""}.`
+                    + (loaded.length >= this.googleTiles.maxTiles ? " Tile limit reached; lower detail for wider coverage." : ""),
             );
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
