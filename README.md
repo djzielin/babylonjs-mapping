@@ -159,8 +159,15 @@ navigator.flyTo(36.1069, -112.1129, { zoom: 11, durationMs: 1400 });
 `getSurfacePosition()`, `getSurfaceNormal()`, and
 `getSurfaceCoordinates()` support markers and click-to-fly interactions. Keep
 a low-resolution base globe beneath a detail layer so imagery remains visible
-while higher-resolution tiles load. The shared terrain and feature providers
-are projected by `GlobeSet`; see the fidelity example below.
+while higher-resolution tiles load.
+
+For terrain and streamed features, use `GlobeDataController` with the same
+providers used by planar maps. `TerrainRGB` supplies signed elevation data,
+including ocean depth, while `RasterGEBCO` is imagery only. The controller
+loads elevation before draped features, limits concurrent work, and can be
+refreshed with `invalidate()` when sources or settings change. See the
+[globe-mode example](examples-npm/globe-mode) for terrain, bathymetry,
+buildings, roads, imported GeoJSON, and camera navigation.
 
 ## Add Mapbox terrain
 
@@ -323,33 +330,3 @@ Undergraduate, Computer Science / Electrical & Computer Engineering, Duke Univer
 ## License
 
 [MIT](LICENSE.md)
-
-### Globe terrain, bathymetry, and features
-
-`GlobeSet` now reuses the terrain and feature pipeline as well as raster providers. Use `GlobeDataController` to stream detail for the camera's tile window:
-
-```ts
-const engine = new Engine(canvas, true, { useHighPrecisionMatrix: true });
-const globe = new GlobeSet(scene, engine, { radius: 60, geometryBudgetMs: 4 });
-globe.createGeometry(new Vector2(5, 5), 20, 64);
-const terrain = new TerrainRGB(); // signed Mapzen/Tilezen terrain + ocean depths
-const buildings = new BuildingsOverture(globe, await resolveLatestOvertureBuildingsURL());
-const detail = new GlobeDataController(globe, {
-    elevation: terrain.load,
-    buildings,
-    minTerrainZoom: 5,
-    minBuildingZoom: 14,
-    concurrency: 4,
-    exaggeration: 1,
-});
-const navigator = new GlobeNavigator(globe, camera, { maxZoom: 18 });
-navigator.setView(40.706, -74.009, { zoom: 16 });
-```
-
-RasterOSM, RasterMB, RasterWMTS and RasterGEBCO retain their provider APIs. GeoJSON-backed buildings, WFS, Overture and vector-tile roads retain their extrusion/roof/hole/point geometry and are projected once at creation. `BuildingsMB` projects imported landmark meshes, including their materials. `globe.generateTerrain()` through the existing Mapbox terrain provider also supports radial elevations and native-source overzoom. Add other tiled feature providers with `detail.options.features`; `BuildingsWFS.generateBuildings()` continues to support all-data retrieval.
-
-For a numeric GEBCO subset or another signed elevation source, supply an `ElevationLoader` returning `{data, width, height}` in metres, row-major west-to-east/north-to-south, for the requested tile bounds. Honour its `AbortSignal`. Alternatively call `globe.setElevationData(tile, data, width, height, exaggeration)`. Invalid grids are rejected before geometry changes. `RasterGEBCO` supplies imagery only; shaded colours are never decoded as measured depths.
-
-`globe.ourTileMath` converts geographic and world coordinates on the sphere. `getSurfacePosition` retains its world-unit elevation argument; numeric DEM APIs use metres. `sampleElevation` returns loaded radial elevation in world units. Features drape against loaded terrain, so load elevation before generating buildings. `GlobeDataController` enforces that ordering. Existing planar feature billboards are removed on globe projection; detailed geometry remains visible. Terrain LOD uses curved geometry and radial skirts. Source resolution is retained on overzoom; it cannot invent additional measured detail.
-
-The controller bounds concurrent elevation loads, ignores stale completions, retains overlapping tiles, exposes job counters/errors, and has `invalidate()`/`dispose()` lifecycle methods. Dispose it and the navigator when removing a viewer. New source layers or changed settings can be applied with `invalidate()`. The [extensive globe demo](examples-npm/globe-mode) includes terrain, ocean floor, buildings, optional roads/models, imported GeoJSON, a tour, local 3D inspection and live performance readouts.
