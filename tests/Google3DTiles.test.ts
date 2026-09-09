@@ -40,6 +40,7 @@ function createGLB(json: Record<string, unknown>): ArrayBuffer {
   view.setUint32(8, buffer.byteLength, true);
   view.setUint32(12, paddedLength, true);
   view.setUint32(16, 0x4e4f534a, true);
+  new Uint8Array(buffer, 20, paddedLength).fill(32);
   new Uint8Array(buffer, 20, encoded.length).set(encoded);
   return buffer;
 }
@@ -367,4 +368,76 @@ describe("Google3DTiles edge cases", () => {
   it.each([new ArrayBuffer(0), createGLB({ extensions: { CESIUM_RTC: { center: [1, 2] } } })])("handles absent or malformed RTC data", (buffer) => {
     expect(parseGoogleGLBMetadata(buffer).rtcCenter).toBeUndefined();
   });
+});
+
+it("imports an actual GLB through Babylon's default loader and disposes its meshes", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  // Node has Blob/File but no FileReader. Preserve the browser file-reading contract.
+  const fileNames: string[] = [];
+  class TestFileReader {
+    public result: ArrayBuffer | undefined;
+    public onload?: (event: { target: TestFileReader }) => void;
+    public onloadend?: () => void;
+    public readAsArrayBuffer(file: File) {
+      fileNames.push(file.name);
+      void file.arrayBuffer().then(buffer => {
+        this.result = buffer;
+        this.onload?.({ target: this });
+        this.onloadend?.();
+      });
+    }
+    public abort() {}
+  }
+  vi.stubGlobal("FileReader", TestFileReader);
+  const positions = new Float32Array([0, 0, 0, 10, 0, 0, 0, 10, 0]);
+  const glb = createGLB({
+    asset: { version: "2.0", copyright: "Integration fixture" },
+    scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+    extensionsUsed: ["KHR_materials_unlit"],
+    materials: [{ extensions: { KHR_materials_unlit: {} } }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, material: 0 }] }],
+    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [0,0,0], max: [10,10,0] }],
+    bufferViews: [{ buffer: 0, byteLength: positions.byteLength }],
+    buffers: [{ byteLength: positions.byteLength, uri: `data:application/octet-stream;base64,${Buffer.from(positions.buffer).toString("base64")}` }],
+  });
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(glb)));
+  const google = new Google3DTiles(tileSet, { apiKey: "test-key",
+    tilesetLoader: async () => ({ root: {
+      transform: Array.from(Matrix.Translation(6378137, 0, 0).m), contents: [{ uri: "model.glb" }, { uri: "second.glb" }],
+    } }),
+  });
+  try {
+    const [loaded] = await google.load();
+    expect(loaded).toBeDefined();
+    expect(fileNames).toHaveLength(2);
+    expect(new Set(fileNames).size).toBe(2);
+    expect(loaded.asset.meshes.some(mesh => mesh.getTotalVertices() === 3)).toBe(true);
+    expect(google.getAttributions()).toEqual(["Integration fixture"]);
+    expect((loaded.asset.materials[0] as { unlit?: boolean }).unlit).toBe(true);
+    const mesh = loaded.asset.meshes.find(mesh => mesh.getTotalVertices() === 3)!;
+    const point = Vector3.TransformCoordinates(new Vector3(0, 10, 0), mesh.computeWorldMatrix(true));
+    const origin = tileSet.ourTileMath.EPSG_to_Game(new Vector2(0, 0), EPSG_Type.EPSG_4326);
+    expect(point.x).toBeCloseTo(origin.x, 5);
+    expect(point.y).toBeCloseTo(0, 5);
+    expect(point.z).toBeCloseTo(origin.z + 10 * tileSet.tileScale, 5);
+    const meshes = [...loaded.asset.meshes];
+    google.dispose();
+    expect(meshes.every(mesh => mesh.isDisposed())).toBe(true);
+  } finally {
+    google.dispose(); scene.dispose(); engine.dispose(); vi.unstubAllGlobals();
+  }
+});
+
+it("does not fall back to distant coarse content after all children are culled", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  tileSet.updateRaster(0, 0, 16);
+  const google = new Google3DTiles(tileSet, { apiKey: "test-key",
+    tilesetLoader: async () => ({ root: {
+      boundingVolume: { region: [-Math.PI, -Math.PI / 2, Math.PI, Math.PI / 2] },
+      content: { uri: "coarse.glb" },
+      children: [{ boundingVolume: { region: [1, 0, 2, 1] }, content: { uri: "outside.glb" } }],
+    } }), modelTileLoader: createModelLoader([]),
+  });
+  expect(await google.load()).toHaveLength(0);
+  google.dispose(); scene.dispose(); engine.dispose();
 });

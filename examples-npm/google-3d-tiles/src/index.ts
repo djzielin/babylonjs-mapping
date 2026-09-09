@@ -5,12 +5,13 @@ import { Color4 } from "@babylonjs/core/Maths/math.color";
 import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 
-import { Google3DTiles, RasterOSM, TileSet } from "babylonjs-mapping";
+import { EPSG_Type, Google3DTiles, RasterOSM, TileSet } from "babylonjs-mapping";
 
 class Google3DTilesDemo {
     private readonly canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
     private readonly form = document.getElementById("loadForm") as HTMLFormElement;
     private readonly locationInput = document.getElementById("location") as HTMLSelectElement;
+    private readonly qualityInput = document.getElementById("quality") as HTMLSelectElement;
     private readonly loadButton = document.getElementById("loadButton") as HTMLButtonElement;
     private readonly status = document.getElementById("status") as HTMLDivElement;
     private readonly engine = new Engine(this.canvas, true);
@@ -50,6 +51,8 @@ class Google3DTilesDemo {
             void this.load();
         });
 
+        document.getElementById("resetView")!.addEventListener("click", () => this.resetView());
+
         this.engine.runRenderLoop(() => this.scene.render());
         window.addEventListener("resize", () => this.engine.resize());
         void this.initialize();
@@ -77,7 +80,18 @@ class Google3DTilesDemo {
 
     private setLocation(): void {
         const [latitude, longitude] = this.locationInput.value.split(",").map(Number);
-        this.tileSet.updateRaster(latitude, longitude, 16);
+        this.tileSet.updateRaster(latitude, longitude, 17);
+        this.resetView();
+    }
+
+    private resetView(): void {
+        const [latitude, longitude] = this.locationInput.value.split(",").map(Number);
+        const target = this.tileSet.ourTileMath.EPSG_to_Game(new Vector2(longitude, latitude), EPSG_Type.EPSG_4326);
+        target.y = 65;
+        this.camera.setTarget(target);
+        this.camera.alpha = -Math.PI / 2.4;
+        this.camera.beta = Math.PI / 3.1;
+        this.camera.radius = 440;
     }
 
     private async load(): Promise<void> {
@@ -86,8 +100,12 @@ class Google3DTilesDemo {
             return;
         }
 
+        for (const tile of this.tileSet.ourTiles) tile.mesh.isVisible = true;
+        this.tileSet.ourAttribution.advancedTexture.rootContainer.isVisible = true;
+        document.getElementById("attribution")!.hidden = true;
         this.loadButton.disabled = true;
         this.locationInput.disabled = true;
+        this.qualityInput.disabled = true;
         this.setStatus("loading", "Loading the Google 3D Tiles hierarchy…");
         this.canvas.dataset.loadedTiles = "0";
 
@@ -96,8 +114,8 @@ class Google3DTilesDemo {
             this.setLocation();
             this.googleTiles = new Google3DTiles(this.tileSet, {
                 apiKey: this.apiKey,
-                maxDepth: 20,
-                maxTiles: 72,
+                maxDepth: Number(this.qualityInput.value),
+                maxTiles: 256,
             });
 
             const loaded = await this.googleTiles.load();
@@ -108,10 +126,17 @@ class Google3DTilesDemo {
                 return;
             }
 
-            const sourceCount = this.googleTiles.getAttributions().length;
+            // Google terrain uses ellipsoid heights, which can be below the
+            // flat raster plane. Hide that plane so it cannot cut through models.
+            for (const tile of this.tileSet.ourTiles) tile.mesh.isVisible = false;
+            const attributions = this.googleTiles.getAttributions();
+            const sourceCount = attributions.length;
+            document.getElementById("dataCredits")!.textContent = attributions.join("; ");
+            document.getElementById("attribution")!.hidden = false;
+            this.tileSet.ourAttribution.advancedTexture.rootContainer.isVisible = false;
             this.setStatus(
                 "ready",
-                `${loaded.length} model tiles loaded${sourceCount ? ` · ${sourceCount} credited data sources` : ""}.`,
+                `${loaded.length} model tiles loaded${sourceCount ? ` · ${sourceCount} credited data source${sourceCount === 1 ? "" : "s"}` : ""}.`,
             );
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
@@ -120,6 +145,7 @@ class Google3DTilesDemo {
         } finally {
             this.loadButton.disabled = false;
             this.locationInput.disabled = false;
+            this.qualityInput.disabled = false;
         }
     }
 

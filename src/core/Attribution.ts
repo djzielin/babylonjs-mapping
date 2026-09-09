@@ -40,10 +40,7 @@ export default class Attribution {
     }
 
     public addAttribution(provider: string) {
-        //TODO: rewrite this as apparently includes is not in ES2015
-        /*if(this.attributionList.includes(provider)){
-            return; //we already contain this provider
-        }*/
+        if (this.attributionList.includes(provider)) return;
               
         if (provider == "MB") {
             this.addAttributionOSM();

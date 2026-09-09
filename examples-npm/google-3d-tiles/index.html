@@ -84,6 +84,8 @@
                 font-weight: 750;
             }
 
+            .secondary { background: transparent; border-color: #476179; }
+            .row { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
             button:hover { background: #0994e6; }
             button:disabled { cursor: wait; opacity: .6; }
 
@@ -106,6 +108,23 @@
                 font-size: 12px;
             }
 
+            .attribution {
+                position: fixed; bottom: 0; left: 0; width: 100%;
+                display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+                gap: 6px 14px; padding: 8px 14px; background: #071321e8;
+                color: #cfe0ed; font-size: 11px;
+            }
+            .attribution[hidden] { display: none; }
+            .attribution a { color: white; font: 16px Arial, sans-serif; text-decoration: none; }
+            @media (max-width: 600px) {
+                .panel { top: auto; bottom: 58px; left: 12px; width: calc(100vw - 24px); padding: 12px; }
+                h1 { font-size: 16px; }
+                .panel p, .controls { display: none; }
+                label { margin: 7px 0 4px; font-size: 10px; }
+                select, button { min-height: 34px; font-size: 13px; }
+                button { margin-top: 8px; }
+                #status { margin-top: 8px; min-height: 0; padding: 7px 8px; font-size: 12px; }
+            }
             @media (max-height: 570px) {
                 .panel { top: 10px; left: 10px; padding: 12px; }
                 .panel p, .controls { display: none; }
@@ -121,14 +140,27 @@
             <label for="location">Location</label>
             <select id="location" name="location">
                 <option value="40.7484,-73.9857">New York · Empire State Building</option>
-                <option value="35.6762,139.6503">Tokyo · Shinjuku</option>
+                <option value="35.6938,139.7034">Tokyo · Shinjuku</option>
                 <option value="48.8584,2.2945">Paris · Eiffel Tower</option>
                 <option value="37.8199,-122.4783">San Francisco · Golden Gate</option>
             </select>
 
-            <button id="loadButton" type="submit">Load selected location</button>
+            <label for="quality">Detail level</label>
+            <select id="quality" name="quality">
+                <option value="18">Overview · faster loading</option>
+                <option value="20">Neighborhood · balanced</option>
+                <option value="22" selected>Street detail · up to 256 tiles</option>
+            </select>
+            <div class="row">
+                <button id="loadButton" type="submit">Load location</button>
+                <button id="resetView" type="button" class="secondary">Reset view</button>
+            </div>
             <div id="status" role="status" aria-live="polite" data-state="idle">Loading configuration…</div>
             <div class="controls">Drag to orbit · scroll or pinch to zoom</div>
         </form>
+        <footer class="attribution" id="attribution" hidden aria-label="Map attribution">
+            <span id="dataCredits"></span>
+            <a href="https://developers.google.com/maps/documentation/tile/policies" target="_blank" rel="noopener">Google Maps</a>
+        </footer>
     </body>
 </html>
