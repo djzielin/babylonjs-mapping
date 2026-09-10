@@ -81,7 +81,7 @@ const LOCATIONS: LocationPreset[] = [
     { name: "Date line · Fiji", latitude: -17.71, longitude: 179.99, zoom: 9 },
     { name: "Grand Canyon", latitude: 36.1069, longitude: -112.1129, zoom: 13 },
     { name: "Mount Everest", latitude: 27.9881, longitude: 86.925, zoom: 13 },
-    { name: "Paris · Eiffel Tower", latitude: 48.8584, longitude: 2.2945, zoom: 18, heading: 310, tilt: 65, eyeHeight: 100, distance: 650, google: true, basemap: "satellite" },
+    { name: "Paris · Eiffel Tower", latitude: 48.8584, longitude: 2.2945, zoom: 18, heading: 310, tilt: 65, eyeHeight: 160, distance: 750, google: true, basemap: "satellite" },
     { name: "New York · Empire State Building", latitude: 40.7484, longitude: -73.9857, zoom: 17, heading: 330, tilt: 65, eyeHeight: 160, distance: 1000, google: true, basemap: "satellite" },
     { name: "Sydney", latitude: -33.8688, longitude: 151.2093, zoom: 13 },
     { name: "Tokyo · toward Mount Fuji", google: false, basemap: "satellite", latitude: 35.6812, longitude: 139.7671, zoom: 16, heading: 249.5, tilt: 87, eyeHeight: 600 },
