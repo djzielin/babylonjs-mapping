@@ -15,10 +15,12 @@ describe("globe distance LOD", () => {
         expect(Math.abs(tokyo.x - fuji.x)).toBeLessThan(region.size / 2 - 1);
         expect(Math.abs(tokyo.y - fuji.y)).toBeLessThan(region.size / 2 - 1);
     });
-    it("provides source-supported building tiers through the distant visible landscape", () => {
+    it("keeps useful building tiers while bounding distant raster draw calls", () => {
         for (const zoom of [15, 16, 17, 18]) {
             const plans = globeLODPlan(zoom);
-            expect(plans.every(plan => plan.zoom >= MIN_GLOBE_BUILDING_ZOOM)).toBe(true);
+            expect(plans.slice(1).every(plan => plan.zoom >= MIN_GLOBE_BUILDING_ZOOM)).toBe(true);
+            expect(plans[0].zoom).toBeLessThan(MIN_GLOBE_BUILDING_ZOOM);
+            expect(plans.reduce((count, plan) => count + plan.size ** 2, 25)).toBeLessThanOrEqual(345);
             // Preserve the original horizon span of eight zoom-8 tiles.
             expect(plans[0].size / 2 ** plans[0].zoom).toBe(8 / 2 ** 8);
         }

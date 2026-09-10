@@ -1,4 +1,8 @@
+import "@babylonjs/core/Engines/Extensions/engine.query";
+import { EngineInstrumentation } from "@babylonjs/core/Instrumentation/engineInstrumentation";
+import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstrumentation";
 import { RenderingManager } from "@babylonjs/core/Rendering/renderingManager";
+import { TerrainBatcher } from "./TerrainBatcher";
 import { globeLODPlan, MIN_GLOBE_BUILDING_ZOOM } from "./GlobeLODPlan";
 import { setupAddressSearch } from "./AddressSearch";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
@@ -117,23 +121,42 @@ class GlobeDemo {
     private googleGeneration = 0;
     private googleMeshes = new WeakSet<object>();
     private photorealisticActive = false;
+    private engineProfile: EngineInstrumentation;
+    private sceneProfile: SceneInstrumentation;
+    private terrainBatcher: TerrainBatcher;
+    private renderTimes: number[] = [];
+    private gpuTimes: number[] = [];
 
     public constructor() {
         this.canvas = document.getElementById(
             "renderCanvas",
         ) as unknown as HTMLCanvasElement;
         this.engine = new Engine(this.canvas, true, {
+            powerPreference: "high-performance",
             useHighPrecisionMatrix: true,
             stencil: true,
         });
         RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, 8);
         this.scene = new Scene(this.engine);
+        this.scene.skipPointerMovePicking = true;
+        this.engineProfile = new EngineInstrumentation(this.engine);
+        this.engineProfile.captureGPUFrameTime = true;
+        this.sceneProfile = new SceneInstrumentation(this.scene);
+        this.sceneProfile.captureActiveMeshesEvaluationTime = true;
+        this.sceneProfile.captureRenderTargetsRenderTime = true;
+        this.sceneProfile.captureRenderTime = true;
         this.layers = new MapLayerRenderer(this.scene, 7, { logarithmicDepth: true });
     }
 
     public start(): void {
         (document.getElementById("mapboxToken") as HTMLInputElement).value = DEMO_MAPBOX_TOKEN;
         this.createScene();
+        this.terrainBatcher = new TerrainBatcher(this.scene,
+            () => [this.baseGlobe, this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)].map(globe => globe.ourTiles.map(tile => tile.mesh)),
+            (mesh, source) => this.layers.add(mesh, 7 - source.renderingGroupId));
+        document.getElementById("batchTerrain")!.addEventListener("change", () => {
+            this.terrainBatcher.enabled = (document.getElementById("batchTerrain") as HTMLInputElement).checked;
+        });
         this.setupLocationControls();
         setupAddressSearch(result => {
             this.exitInspection();
@@ -162,7 +185,13 @@ class GlobeDemo {
         document.getElementById("googleTiles")!.addEventListener("change", () => this.scheduleGoogleTiles(true));
         document.getElementById("googleQuality")!.addEventListener("change", () => this.scheduleGoogleTiles(true));
         this.engine.runRenderLoop(() => {
+            const renderStart = performance.now();
             this.scene.render();
+            this.renderTimes.push(performance.now() - renderStart);
+            if (this.renderTimes.length > 180) this.renderTimes.shift();
+            const gpuTime = this.engineProfile.gpuFrameTimeCounter.current / 1e6;
+            if (gpuTime > 0) this.gpuTimes.push(gpuTime);
+            if (this.gpuTimes.length > 180) this.gpuTimes.shift();
             this.updateOrientation();
             this.updateLandmarks();
             this.updateLandscapeLOD();
@@ -171,6 +200,9 @@ class GlobeDemo {
                     if (this.googleMeshes.has(mesh)) continue;
                     this.googleMeshes.add(mesh);
                     this.layers.add(mesh, 7);
+                    mesh.freezeWorldMatrix();
+                    mesh.material?.freeze();
+                    mesh.isPickable = false;
                 }
             }
             if (performance.now() - this.lastStats > 500) {
@@ -183,6 +215,12 @@ class GlobeDemo {
                         this.navigator.setView(view.latitude, view.longitude, { altitude: this.inspecting.radius });
                     }
                 }
+                const times = [...this.renderTimes].sort((a, b) => a - b);
+                const gpuTimes = [...this.gpuTimes].sort((a, b) => a - b);
+                const gpuMs = gpuTimes[Math.floor(gpuTimes.length * 0.5)] ?? 0;
+                document.getElementById("renderProfile")!.textContent =
+                    `CPU render p50 ${times[Math.floor(times.length * 0.5)]?.toFixed(2)} ms · p95 ${times[Math.floor(times.length * 0.95)]?.toFixed(2)} ms · GPU p50 ${gpuMs.toFixed(2)} ms · mesh evaluation ${this.sceneProfile.activeMeshesEvaluationTimeCounter.average.toFixed(2)} ms · draw ${this.sceneProfile.renderTimeCounter.average.toFixed(2)} ms · render targets ${this.sceneProfile.renderTargetsRenderTimeCounter.average.toFixed(2)} ms · ${this.sceneProfile.drawCallsCounter.current} draws · ${this.terrainBatcher.stats}`;
+                document.getElementById("gpuInfo")!.textContent = this.engine.getGlInfo().renderer;
                 const googleSources = this.googleTiles?.getAttributions() ?? [];
                 document.getElementById("googleSources")!.textContent = googleSources.join("; ");
                 document.getElementById("googleCredits")!.hidden = !(this.googleTiles?.loadedModelTiles.length);
@@ -214,6 +252,7 @@ class GlobeDemo {
             radius: GLOBE_RADIUS,
         });
         baseGlobe.setRasterProvider(new RasterOSM(baseGlobe));
+        baseGlobe.setOptimizationOptions({ freezeTileWorldMatrices: true, disableTilePicking: true, disableTileCollisions: true });
         baseGlobe.createGeometry(new Vector2(4, 4), 20, 16);
         baseGlobe.updateRaster(40.98, 0, 2);
         for (const mesh of this.scene.meshes) this.layers.add(mesh, 0);
@@ -227,6 +266,7 @@ class GlobeDemo {
             attribution: false,
         });
         this.detailGlobe.setRasterProvider(new RasterOSM(this.detailGlobe));
+        this.detailGlobe.setOptimizationOptions({ freezeTileWorldMatrices: true, disableTilePicking: true, disableTileCollisions: true });
         this.detailGlobe.createGeometry(new Vector2(5, 5), 20, 16);
         for (const tile of this.detailGlobe.ourTiles)
             this.layers.add(tile.mesh, 6);
@@ -555,7 +595,7 @@ class GlobeDemo {
         if (!region || region.lodKey === region.key || region.data.stats.active > 0 || !region.globe.ourTiles.every(tile => tile.terrainLoaded)) return;
         const tile = region.globe.ourTiles[Math.floor(region.globe.ourTiles.length / 2)];
         const width = Vector3.Distance(region.globe.getTileSurfacePosition(tile.tileCoords, 0, 0.5), region.globe.getTileSurfacePosition(tile.tileCoords, 1, 0.5));
-        const lod = landscapeTerrainLOD(region.globe.meshPrecision, width);
+        const lod = landscapeTerrainLOD(region.globe.meshPrecision, width * 4);
         region.globe.setupTerrainLOD(lod.precisions, lod.distances, 10 * region.globe.metresToWorld);
         region.lodKey = region.key;
     }
@@ -740,6 +780,7 @@ class GlobeDemo {
                 const globe = new GlobeSet(this.scene, this.engine, {
                     radius: GLOBE_RADIUS, backingSurface: false, attribution: false, geometryBudgetMs: 0.5,
                 });
+                globe.setOptimizationOptions({ freezeTileWorldMatrices: true, disableTilePicking: true, disableTileCollisions: true });
                 globe.rasterConcurrency = 2;
                 globe.setRasterProvider(new RasterOSM(globe));
                 globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);

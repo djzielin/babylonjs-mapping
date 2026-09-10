@@ -136,3 +136,19 @@ it("merges later building pages without reusing disposed source meshes", () => {
     expect(complete.isDisposed()).toBe(false);
     scene.dispose(); engine.dispose();
 });
+
+
+it("leaves settled material state alone and configures replacement materials", () => {
+    const engine = new NullEngine(); const scene = new Scene(engine);
+    const renderer = new MapLayerRenderer(scene);
+    const mesh = MeshBuilder.CreateBox("tile", {}, scene);
+    const material = mesh.material = new StandardMaterial("first", scene);
+    renderer.add(mesh, 6);
+    const setter = vi.spyOn(material.stencil, "funcRef", "set");
+    for (let i = 0; i < 100; i++) scene.onBeforeRenderObservable.notifyObservers(scene);
+    expect(setter).not.toHaveBeenCalled();
+    mesh.material = new StandardMaterial("replacement", scene);
+    scene.onBeforeRenderObservable.notifyObservers(scene);
+    expect(mesh.material.stencil.funcRef).toBe(7);
+    renderer.dispose(); scene.dispose(); engine.dispose();
+});

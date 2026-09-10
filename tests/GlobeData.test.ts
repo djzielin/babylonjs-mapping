@@ -443,3 +443,25 @@ describe("terrain encodings and overzoom", () => {
         expect(left.data[left.width - 1]).toBe(right.data[0]);
     });
 });
+
+
+it("parks a completed detail queue and wakes it when the globe moves", async () => {
+    const { globe, dispose } = setup();
+    const elevation = vi.fn(async () => grid(100));
+    const data = new GlobeDataController(globe, { elevation });
+    data.update();
+    await Promise.resolve();
+    data.update();
+    const scan = vi.spyOn(globe, "isTileGeometryReady");
+    for (let i = 0; i < 100; i++) data.update();
+    expect(scan).not.toHaveBeenCalled();
+    globe.updateRaster(36, -78, 15);
+    data.update();
+    await Promise.resolve();
+    expect(elevation).toHaveBeenCalledTimes(2);
+    data.invalidate();
+    data.update();
+    await Promise.resolve();
+    expect(elevation).toHaveBeenCalledTimes(3);
+    data.dispose(); dispose();
+});

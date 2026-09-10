@@ -28,6 +28,9 @@ export default class GlobeDataController {
     private ready = new WeakMap<Tile, string>();
     private observer;
     private disposed = false;
+    private settled = false;
+    private tiles: Tile[] | undefined;
+    private positionObserver;
     private providers = new Set<Buildings>();
     constructor(
         public readonly globe: GlobeSet,
@@ -40,12 +43,18 @@ export default class GlobeDataController {
             (options.exaggeration ?? 1) < 0
         )
             throw new RangeError("Invalid globe detail options");
+        this.positionObserver = globe.onTilePositionUpdatedObservable.add(() => { this.settled = false; });
         this.observer = globe.scene.onBeforeRenderObservable.add(() =>
             this.update(),
         );
     }
     public update(): void {
         if (this.disposed) return;
+        if (this.tiles !== this.globe.ourTiles) {
+            this.tiles = this.globe.ourTiles;
+            this.settled = false;
+        }
+        if (this.settled) return;
         for (const [tile, job] of this.jobs)
             if (
                 tile.mesh.isDisposed() ||
@@ -66,6 +75,10 @@ export default class GlobeDataController {
         // Load the area around the viewer before the far corners of large LOD grids.
         const candidates = this.globe.ourTiles.filter(tile => !tile.mesh.isDisposed() && this.globe.isTileGeometryReady(tile)
             && this.ready.get(tile) !== tile.tileCoords.toString() && !this.jobs.has(tile));
+        if (candidates.length === 0 && this.jobs.size === 0 && this.globe.pendingGeometryCount === 0) {
+            this.settled = true;
+            return;
+        }
         const camera = this.globe.scene.activeCamera;
         const visible = new Set(this.options.prioritizeVisible && camera
             ? candidates.filter(tile => camera.isInFrustum(tile.mesh)) : candidates);
@@ -149,6 +162,7 @@ export default class GlobeDataController {
     }
     /** Explicitly retry failures or reload after changing provider settings. */
     public invalidate(): void {
+        this.settled = false;
         for (const job of this.jobs.values()) job.abort.abort();
         this.jobs.clear();
         this.ready = new WeakMap();
@@ -161,6 +175,7 @@ export default class GlobeDataController {
         for (const job of this.jobs.values()) job.abort.abort();
         this.jobs.clear();
         this.globe.scene.onBeforeRenderObservable.remove(this.observer);
+        this.globe.onTilePositionUpdatedObservable.remove(this.positionObserver);
         this.onErrorObservable.clear();
     }
 }
