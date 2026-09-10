@@ -49,6 +49,8 @@ describe("lossless terrain batching", () => {
         const batcher = new TerrainBatcher(scene, () => [], () => {}) as any;
         let source = batcher.snapshot(mesh);
         expect(batcher.valid(source)).toBe(true);
+        mesh.unfreezeWorldMatrix(); mesh.computeWorldMatrix(true); mesh.freezeWorldMatrix();
+        expect(batcher.valid(source)).toBe(true);
         mesh.setVerticesData(VertexBuffer.PositionKind, mesh.getVerticesData(VertexBuffer.PositionKind)!);
         expect(batcher.valid(source)).toBe(false);
         source = batcher.snapshot(mesh);

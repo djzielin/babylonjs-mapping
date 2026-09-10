@@ -25,6 +25,7 @@ import {
     RasterMB,
     GlobeDataController,
     TerrainRGB,
+    Buildings,
     BuildingsOverture,
     BuildingsVectorTile,
     BuildingsMB,
@@ -139,6 +140,7 @@ class GlobeDemo {
         RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, 8);
         this.scene = new Scene(this.engine);
         this.scene.skipPointerMovePicking = true;
+        Buildings.setSceneCreationTimeBudget(this.scene, 1);
         this.engineProfile = new EngineInstrumentation(this.engine);
         this.engineProfile.captureGPUFrameTime = true;
         this.sceneProfile = new SceneInstrumentation(this.scene);
@@ -235,8 +237,10 @@ class GlobeDemo {
                 const totalTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.length, 0);
                 const buildingTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.filter(tile => tile.buildings.length > 0).length, 0);
                 document.getElementById("loadingStatus")!.textContent = `Terrain ${terrainTiles}/${totalTiles} tiles · Buildings ${buildingTiles} tiles${stat.failed ? ` · ${stat.failed} data errors` : ""}`;
+                const featureJobs = [this.buildings, this.roads, ...this.distanceLayers.map(layer => layer.buildings)]
+                    .reduce((count, provider) => count + (provider?.pendingRequestCount ?? 0), 0);
                 document.getElementById("performance")!.textContent =
-                    `${this.engine.getFps().toFixed(0)} FPS · ${this.scene.getActiveMeshes().length} active meshes · ${this.scene.getTotalVertices().toLocaleString()} vertices · ${stat.active} detail jobs · ${stat.completed} completed · ${stat.failed} errors`;
+                    `${this.engine.getFps().toFixed(0)} FPS · ${this.scene.getActiveMeshes().length} active meshes · ${this.scene.getTotalVertices().toLocaleString()} vertices · ${stat.active} detail jobs · ${featureJobs} queued features · ${stat.completed} completed · ${stat.failed} errors`;
             }
         });
         window.addEventListener("resize", () => {
@@ -284,6 +288,7 @@ class GlobeDemo {
                 this.overtureURL = url;
                 this.buildings = new BuildingsOverture(this.detailGlobe, url);
                 this.buildings.doMerge = true;
+                this.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true });
                 this.buildings.buildingMeshFilter = mesh => this.keepBuilding(mesh, this.detailGlobe);
                 this.buildings.buildingsCreatedPerFrame = 32;
                 this.buildings.buildingMeshTransform = (mesh) => {
@@ -403,6 +408,7 @@ class GlobeDemo {
                 this.roads ??= new BuildingsVectorTile(this.detailGlobe);
                 this.roads.accessToken = token;
                 this.roads.doMerge = true;
+                this.roads.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true });
                 this.roads.buildingMaterial.diffuseColor.set(0.92, 0.57, 0.18);
                 this.roads.buildingMeshTransform = (mesh) => {
                     this.layers.add(mesh, 6);
@@ -569,7 +575,12 @@ class GlobeDemo {
         void provider.generateBuildings().then(tiles => {
             if (provider !== this.landmarks || key !== this.landmarkKey) return;
             for (const tile of tiles)
-                for (const mesh of tile.asset.meshes) this.layers.add(mesh, 6);
+                for (const mesh of tile.asset.meshes) {
+                    this.layers.add(mesh, 6);
+                    mesh.freezeWorldMatrix();
+                    mesh.material?.freeze();
+                    mesh.isPickable = false;
+                }
             this.refreshBuildingReplacements();
         }).catch(() => {
             if (provider !== this.landmarks || key !== this.landmarkKey) return;
@@ -577,6 +588,29 @@ class GlobeDemo {
             this.landmarkRetryAt = performance.now() + 15000;
             this.message("Landmark request failed; retrying shortly. Check the Mapbox token if this persists.");
         });
+    }
+
+    private keepBuildingFeature(coordinates: unknown, owner: GlobeSet): boolean {
+        let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
+        const stack: unknown[] = [coordinates];
+        while (stack.length) {
+            const part = stack.pop();
+            if (!Array.isArray(part)) continue;
+            if (typeof part[0] === "number" && typeof part[1] === "number") {
+                west = Math.min(west, part[0]); east = Math.max(east, part[0]);
+                south = Math.min(south, part[1]); north = Math.max(north, part[1]);
+            } else for (const child of part) stack.push(child);
+        }
+        if (!Number.isFinite(west) || east - west > 180) return true;
+        // Skip only footprints wholly inside finer coverage. Boundary-crossing
+        // footprints still reach the existing geometry-based ownership filter.
+        for (const finer of [this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)]) {
+            if (finer.zoom <= owner.zoom) continue;
+            if ([west, east].every(lon => [south, north].every(lat => finer.ourTilesMap.has(
+                new Vector3(finer.ourTileMath.lon_to_tile(lon, finer.zoom), finer.ourTileMath.lat_to_tile(lat, finer.zoom), finer.zoom).toString(),
+            )))) return false;
+        }
+        return true;
     }
 
     private keepBuilding(mesh: import("@babylonjs/core/Meshes/mesh").Mesh, owner: GlobeSet): boolean {
@@ -837,7 +871,9 @@ class GlobeDemo {
             if (this.overtureURL && !layer.buildings) {
                 layer.buildings = new BuildingsOverture(layer.globe, this.overtureURL);
                 layer.buildings.doMerge = true;
+                layer.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true });
                 layer.buildings.buildingMeshFilter = mesh => this.keepBuilding(mesh, layer.globe);
+                layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry.coordinates, layer.globe);
                 layer.buildings.buildingsCreatedPerFrame = 8;
                 layer.buildings.creationTimeBudgetMs = 1;
                 layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, index + 1); };

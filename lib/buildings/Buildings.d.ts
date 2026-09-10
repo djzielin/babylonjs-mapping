@@ -1,3 +1,4 @@
+import { Scene } from "@babylonjs/core/scene.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
@@ -77,6 +78,10 @@ interface GeoFileLoaded {
 export default abstract class Buildings {
     name: string;
     protected tileSet: TileSet;
+    private static sceneBudgets;
+    /** Share a CPU generation budget across every building provider in a scene. */
+    static setSceneCreationTimeBudget(scene: Scene, milliseconds: number): void;
+    get pendingRequestCount(): number;
     /** Directory or URL prefix used for local cached building assets. */
     localPathPrefix: string;
     exaggeration: number;
@@ -108,6 +113,8 @@ export default abstract class Buildings {
     buildingMeshTransform?: (mesh: Mesh) => void;
     /** Reject a generated footprint before it is registered or merged. */
     buildingMeshFilter?: (mesh: Mesh) => boolean;
+    /** Reject unwanted source features before allocating or triangulating meshes. */
+    buildingFeatureFilter?: (feature: GeoJSON.feature, tile: Tile, projection: EPSG_Type | undefined) => boolean;
     retrievalType: RetrievalType;
     protected buildingRequests: BuildingRequest[];
     protected filesLoaded: GeoFileLoaded[];
@@ -178,6 +185,7 @@ export default abstract class Buildings {
     /** CPU budget for feature creation; individual features are atomic. */
     creationTimeBudgetMs: number;
     processBuildingRequests(): void;
+    private processBuildingRequestsWithinBudget;
     generateBuildings(): void;
 }
 export {};

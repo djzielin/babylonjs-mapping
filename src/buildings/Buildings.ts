@@ -104,6 +104,14 @@ interface GeoFileLoaded {
 }
 
 export default abstract class Buildings {
+    private static sceneBudgets = new WeakMap<Scene, { limit: number; frame: number; spent: number }>();
+    /** Share a CPU generation budget across every building provider in a scene. */
+    public static setSceneCreationTimeBudget(scene: Scene, milliseconds: number): void {
+        if (!Number.isFinite(milliseconds) || milliseconds <= 0) throw new RangeError("Invalid scene building budget");
+        Buildings.sceneBudgets.set(scene, { limit: milliseconds, frame: -1, spent: 0 });
+    }
+    public get pendingRequestCount(): number { return this.buildingRequests.length; }
+
 
     //things the user might be interested in changing
     /** Directory or URL prefix used for local cached building assets. */
@@ -143,6 +151,8 @@ export default abstract class Buildings {
     public buildingMeshTransform?: (mesh: Mesh) => void;
     /** Reject a generated footprint before it is registered or merged. */
     public buildingMeshFilter?: (mesh: Mesh) => boolean;
+    /** Reject unwanted source features before allocating or triangulating meshes. */
+    public buildingFeatureFilter?: (feature: GeoJSON.feature, tile: Tile, projection: EPSG_Type | undefined) => boolean;
     public retrievalType: RetrievalType = RetrievalType.IndividualTiles;
 
     protected buildingRequests: BuildingRequest[] = [];
@@ -344,6 +354,7 @@ export default abstract class Buildings {
         const detectedEpsgType = request.epsgType ?? GeoJSON.detectProjection(topLevel);
         for (const f of topLevel.features) {
             if (request.sourceTileCoords && request.sourceTileCoords.z < request.tileCoords.z && !this.featureBelongsToTile(f, request.tileCoords, detectedEpsgType)) continue;
+            if (this.buildingFeatureFilter && !this.buildingFeatureFilter(f, request.tile, detectedEpsgType)) continue;
             const brequest: BuildingRequest = {
                 requestType: BuildingRequestType.CreateBuilding,
                 tile: request.tile,
@@ -607,6 +618,11 @@ export default abstract class Buildings {
             request.requestType === BuildingRequestType.LoadTile && request.inProgress,
         );
         const activeCamera = this.scene.activeCamera;
+        const pendingCreates = new Set<Tile>();
+        for (const request of this.buildingRequests) {
+            if (request.requestType === BuildingRequestType.CreateBuilding && !request.inProgress) pendingCreates.add(request.tile);
+        }
+        const considered = new Set<Tile>();
         let bestIndex: number | undefined;
         let bestDistance = Number.POSITIVE_INFINITY;
 
@@ -619,19 +635,16 @@ export default abstract class Buildings {
                 continue;
             }
             if (request.requestType === BuildingRequestType.MergeAllBuildingsOnTile) {
-                const hasPendingCreate = this.buildingRequests.some((candidate) =>
-                    candidate.requestType === BuildingRequestType.CreateBuilding &&
-                    !candidate.inProgress &&
-                    candidate.tile === request.tile,
-                );
-                if (hasPendingCreate) {
-                    continue;
-                }
+                if (pendingCreates.has(request.tile)) continue;
             }
+            // Requests on one tile have the same distance. Preserve their queue order,
+            // and never recompute a tile's world matrix once per pending feature.
+            if (considered.has(request.tile)) continue;
+            considered.add(request.tile);
 
             let distance = 0;
             if (activeCamera) {
-                request.tile.mesh.computeWorldMatrix(true);
+                request.tile.mesh.computeWorldMatrix();
                 const center = request.tile.mesh.getBoundingInfo().boundingSphere.centerWorld;
                 distance = Vector3.DistanceSquared(center, activeCamera.globalPosition);
             }
@@ -648,7 +661,19 @@ export default abstract class Buildings {
 
     /** CPU budget for feature creation; individual features are atomic. */
     public creationTimeBudgetMs = 4;
-    public processBuildingRequests() {
+    public processBuildingRequests(): void {
+        const budget = Buildings.sceneBudgets.get(this.scene);
+        const start = performance.now();
+        if (budget) {
+            const frame = this.scene.getFrameId();
+            if (budget.frame !== frame) { budget.frame = frame; budget.spent = 0; }
+            if (this.buildingRequests.length && budget.spent >= budget.limit) return;
+        }
+        const remaining = budget ? Math.max(0, budget.limit - budget.spent) : this.creationTimeBudgetMs;
+        try { this.processBuildingRequestsWithinBudget(start + Math.min(this.creationTimeBudgetMs, remaining)); }
+        finally { if (budget) budget.spent += performance.now() - start; }
+    }
+    private processBuildingRequestsWithinBudget(deadline: number): void {
         if (this.sleepRequested) { //lets take a nap for a bit (when we get a 500 server error)
             const timeDiff=Date.now()-this.timeStart;
 
@@ -671,7 +696,6 @@ export default abstract class Buildings {
             return;
         }
 
-        const deadline = performance.now() + this.creationTimeBudgetMs;
         for (let i = 0; i < this.buildingsCreatedPerFrame; i++) { //process certain number of requests per frame
             if (i > 0 && performance.now() >= deadline) return;
             //console.log("requests remaining in queue: " + this.buildingRequests.length);

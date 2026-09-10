@@ -51,7 +51,7 @@ export function terrainBatchGeometry(meshes: Mesh[]): { vertices: VertexData; la
     return { vertices, layers, origin };
 }
 
-type Source = { mesh: Mesh; texture: Texture; buffers: unknown[]; matrix: number; visibility: number };
+type Source = { mesh: Mesh; texture: Texture; buffers: unknown[]; matrix: number; world: Matrix; visibility: number };
 type Batch = { mesh: Mesh; material: StandardMaterial; texture: RawTexture2DArray; sources: Source[] };
 
 /** Batch settled raster tiles without resampling their pixels or simplifying their geometry. */
@@ -72,13 +72,19 @@ export class TerrainBatcher {
     private snapshot(mesh: Mesh): Source {
         return { mesh, texture: (mesh.material as StandardMaterial).diffuseTexture as Texture,
             buffers: [VertexBuffer.PositionKind, VertexBuffer.NormalKind, VertexBuffer.UVKind, VertexBuffer.ColorKind].map(kind => mesh.getVertexBuffer(kind)),
-            matrix: mesh.computeWorldMatrix().updateFlag, visibility: mesh.visibility };
+            matrix: mesh.computeWorldMatrix().updateFlag, world: mesh.getWorldMatrix().clone(), visibility: mesh.visibility };
     }
     private valid(source: Source): boolean {
         const mesh = source.mesh;
-        return !mesh.isDisposed() && mesh.isEnabled() && mesh.isVisible
+        if (mesh.isDisposed()) return false;
+        const world = mesh.computeWorldMatrix();
+        if (world.updateFlag !== source.matrix) {
+            if (!world.equals(source.world)) return false;
+            // Parenting new buildings can recompute an unchanged terrain matrix.
+            source.matrix = world.updateFlag;
+        }
+        return mesh.isEnabled() && mesh.isVisible
             && (mesh.material as StandardMaterial)?.diffuseTexture === source.texture
-            && mesh.computeWorldMatrix().updateFlag === source.matrix
             && mesh.getVertexBuffer(VertexBuffer.PositionKind) === source.buffers[0]
             && mesh.getVertexBuffer(VertexBuffer.NormalKind) === source.buffers[1]
             && mesh.getVertexBuffer(VertexBuffer.UVKind) === source.buffers[2]
