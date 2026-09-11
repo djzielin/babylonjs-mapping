@@ -1,8 +1,9 @@
 {
 	"compilerOptions": {
         "module": "ESNext",
-		"target": "ES5",
-		"moduleResolution": "node",
+        "target": "ES5",
+        "ignoreDeprecations": "6.0",
+        "moduleResolution": "bundler",
 		"strict": true,
 		"noImplicitAny": true,
         "noImplicitReturns": true,

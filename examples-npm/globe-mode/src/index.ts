@@ -134,6 +134,7 @@ class GlobeDemo {
         ) as unknown as HTMLCanvasElement;
         this.engine = new Engine(this.canvas, true, {
             powerPreference: "high-performance",
+            useLargeWorldRendering: true,
             useHighPrecisionMatrix: true,
             stencil: true,
         });
