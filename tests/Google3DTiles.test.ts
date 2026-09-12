@@ -770,3 +770,20 @@ it("keeps usable detail across an explicit region even behind the camera", async
   expect(loaded.some(tile=>tile.url.includes("ugly"))).toBe(false);
   provider.dispose();scene.dispose();engine.dispose();
 });
+
+it("bounds offscreen history without evicting the current view", () => {
+  const {engine,scene,tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet,{maxTiles:1});
+  const selections=new Map();
+  for(const url of ["old-far","old-near","current"]) {
+    const selection={url,depth:1};selections.set(url,selection);
+    (provider as any).loadedSelections.set(url,selection);
+    (provider as any).loadedTiles.set(url,{url,depth:1,root:new TransformNode(url,scene),asset:new AssetContainer(scene),attributions:[]});
+  }
+  vi.spyOn(provider as any,"allowedGeometricError").mockReturnValue(-1);
+  (provider as any).trimVisibleHistory(new Map([["current",selections.get("current")]]));
+  expect(provider.loadedModelTiles).toHaveLength(2);
+  expect(provider.loadedModelTiles.find(tile=>tile.url==="current")?.root.isEnabled()).toBe(true);
+  expect((provider as any).retainedTiles.size).toBe(1);
+  provider.dispose();scene.dispose();engine.dispose();
+});

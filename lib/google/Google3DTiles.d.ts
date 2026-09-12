@@ -188,6 +188,7 @@ export default class Google3DTiles {
     cancelPendingLoad(): void;
     /** Loads content that overlaps the current TileSet. */
     load(): Promise<readonly LoadedGoogle3DTile[]>;
+    private trimVisibleHistory;
     private trimRetainedTiles;
     /** Prepare a bounded surrounding ring after visible loading has finished. */
     prefetchSurroundings(): Promise<void>;

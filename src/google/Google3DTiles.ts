@@ -422,21 +422,23 @@ export default class Google3DTiles {
                 this.retainedTiles.set(url, tile);
             }
         }
-        // Turning does not remove resident geometry. Evict only offscreen history
-        // once two view budgets are resident; a separate cache preserves recent turns.
-        if (this.loadedTiles.size > this.maxTiles * 2) {
-            const candidates = Array.from(this.loadedSelections).filter(([url, selection]) =>
-                this.loadedTiles.has(url) && !desiredTiles.has(url)
-                && this.allowedGeometricError(selection.boundingVolume, selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity()) < 0);
-            candidates.sort((a, b) => this.tilePriority(b[1].boundingVolume, b[1].transform ? Matrix.FromArray(b[1].transform) : Matrix.Identity())
-                - this.tilePriority(a[1].boundingVolume, a[1].transform ? Matrix.FromArray(a[1].transform) : Matrix.Identity()));
-            for (const [url] of candidates) { if (this.loadedTiles.size <= this.maxTiles * 2) break; this.retireTile(url); }
-        }
+        this.trimVisibleHistory(desiredTiles);
         // Bound GPU memory while retaining the most recently visited detail.
         this.trimRetainedTiles();
         this.coverageKey = ""; this.coverageVersion++;
         this.updateAttribution();
         return this.loadedModelTiles;
+    }
+
+    private trimVisibleHistory(desired: Map<string, TileSelection>): void {
+        if (this.loadedTiles.size > this.maxTiles * 2) {
+            const candidates = Array.from(this.loadedSelections).filter(([url, selection]) =>
+                this.loadedTiles.has(url) && !desired.has(url)
+                && this.allowedGeometricError(selection.boundingVolume, selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity()) < 0);
+            candidates.sort((a, b) => this.tilePriority(b[1].boundingVolume, b[1].transform ? Matrix.FromArray(b[1].transform) : Matrix.Identity())
+                - this.tilePriority(a[1].boundingVolume, a[1].transform ? Matrix.FromArray(a[1].transform) : Matrix.Identity()));
+            for (const [url] of candidates) { if (this.loadedTiles.size <= this.maxTiles * 2) break; this.retireTile(url); }
+        }
     }
 
     private trimRetainedTiles(): void {
@@ -1013,6 +1015,7 @@ export default class Google3DTiles {
                 model.root.setEnabled(true);
             }
             for (const url of group.previous) if (!desired.has(url)) this.retireTile(url);
+            this.trimVisibleHistory(this.desiredTiles);
             this.coverageKey = ""; this.coverageVersion++;
             this.updateAttribution();
         }));
@@ -1110,6 +1113,7 @@ export default class Google3DTiles {
             }
             this.loadedTiles.set(selection.url, result);
             this.loadedSelections.set(selection.url, selection);
+            this.trimVisibleHistory(this.desiredTiles);
             this.coverageKey = ""; this.coverageVersion++;
             this.updateAttribution();
             return result;
