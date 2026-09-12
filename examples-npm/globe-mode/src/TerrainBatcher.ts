@@ -47,7 +47,7 @@ export function terrainBatchGeometry(meshes: Mesh[]): { vertices: VertexData; la
         }
     }
     const vertices = new VertexData();
-    vertices.positions = positions; vertices.normals = normals; vertices.uvs = uvs; vertices.colors = colors; vertices.indices = indices;
+    vertices.positions = new Float32Array(positions); vertices.normals = new Float32Array(normals); vertices.uvs = new Float32Array(uvs); vertices.colors = new Float32Array(colors); vertices.indices = new Uint32Array(indices);
     return { vertices, layers, origin };
 }
 
@@ -148,7 +148,7 @@ export class TerrainBatcher {
         new TileTextureArray(material, texture);
         const mesh = new Mesh("batched terrain", this.scene);
         vertices.applyToMesh(mesh);
-        mesh.setVerticesData("tileLayer", layers, false, 1);
+        mesh.setVerticesData("tileLayer", new Float32Array(layers), false, 1);
         mesh.setEnabled(false);
         mesh.position.copyFrom(origin);
         mesh.material = material;

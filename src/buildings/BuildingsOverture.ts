@@ -57,7 +57,7 @@ export default class BuildingsOverture extends Buildings {
     public batchGeometry = false;
     /** Hide covered footprints by updating indices while preserving prepared vertices. */
     public batchVisibilityFilter?: (latitude: number, longitude: number) => boolean;
-    private batches = new WeakMap<Mesh, { batch: Pick<GlobeBuildingBatch, "ranges" | "indices">; mask: string }>();
+    private batches = new WeakMap<Mesh, { batch: { ranges: GlobeBuildingBatch["ranges"]; indices: Uint32Array }; mask: string }>();
     private archive: PMTiles;
     private static archives = new Map<string, PMTiles>();
     private static decoded = new WeakMap<PMTiles, Map<string, Promise<feature[]>>>();
@@ -129,7 +129,7 @@ export default class BuildingsOverture extends Buildings {
                     return features;
                 }).catch(error => { cache!.delete(key); throw error; });
                 cache.set(key, decoded);
-                while (cache.size > 64) cache.delete(cache.keys().next().value!);
+                while (cache.size > 16) cache.delete(cache.keys().next().value!);
             }
             const features = await decoded;
             if (request.cancelled || !request.tile.tileCoords.equals(request.tileCoords)) {
@@ -180,11 +180,12 @@ export default class BuildingsOverture extends Buildings {
         if (request.cancelled || request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) return;
         const mesh = batch.positions.length ? new Mesh("Overture building batch", globe.scene) : undefined;
         if (mesh) {
-            batch.vertexData().applyToMesh(mesh);
+            const vertices = batch.vertexData();
+            vertices.applyToMesh(mesh);
             mesh.position.copyFrom(batch.origin);
             mesh.material = this.buildingMaterial;
             mesh.metadata = { buildingCount: batch.featureCount };
-            this.batches.set(mesh, { batch: { ranges: batch.ranges, indices: batch.indices }, mask: "" });
+            this.batches.set(mesh, { batch: { ranges: batch.ranges, indices: vertices.indices as Uint32Array }, mask: "" });
             mesh.setParent(request.tile.mesh);
             this.buildingMeshTransform?.(mesh);
             this.applyBuildingMeshOptions(mesh);
@@ -218,7 +219,7 @@ export default class BuildingsOverture extends Buildings {
             for (let index = range.start; index < range.end; index++) indices.push(data.batch.indices[index]);
         }
         mesh.setEnabled(indices.length > 0);
-        if (indices.length) mesh.setIndices(indices);
+        if (indices.length) mesh.setIndices(new Uint32Array(indices));
     }
 
     private appendLayerFeatures(

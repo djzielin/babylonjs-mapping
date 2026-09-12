@@ -28,7 +28,7 @@ describe("lossless terrain batching", () => {
                 expect(Vector3.Distance(actual, expected)).toBeLessThan(1e-10);
                 const normal = Vector3.TransformNormal(Vector3.FromArray(normals, i * 3), mesh.getWorldMatrix());
                 expect(Vector3.Distance(Vector3.FromArray(vertices.normals!, (offset + i) * 3), normal)).toBeLessThan(1e-6);
-                expect(Array.from(vertices.uvs!).slice((offset + i) * 2, (offset + i + 1) * 2)).toEqual(Array.from(uv).slice(i * 2, i * 2 + 2));
+                expect(Array.from(vertices.uvs!).slice((offset + i) * 2, (offset + i + 1) * 2)).toEqual(Array.from(Float32Array.from(uv)).slice(i * 2, i * 2 + 2));
                 expect(layers[offset + i]).toBe(layer);
                 expect(vertices.colors![(offset + i) * 4]).toBeCloseTo(layer ? 0.3 : 1);
             }

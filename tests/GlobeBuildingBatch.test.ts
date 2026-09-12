@@ -69,6 +69,8 @@ it("atomically replaces a building batch and keeps the old one if work is cancel
     expect(tile.buildingBatches[0].metadata.buildingCount).toBe(1);
     const mesh=tile.buildingBatches[0];
     const vertices=mesh.getVertexBuffer("position");
+    expect(mesh.getVerticesData("position")).toBeInstanceOf(Float32Array);
+    expect(mesh.getIndices()).toBeInstanceOf(Uint32Array);
     const indices=Array.from(mesh.getIndices()!);
     provider.batchVisibilityFilter=()=>false;
     provider.updateBatchVisibility();

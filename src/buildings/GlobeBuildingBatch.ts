@@ -80,7 +80,7 @@ export class GlobeBuildingBatch {
     }
     public vertexData(): VertexData {
         const data = new VertexData();
-        data.positions = this.positions; data.normals = this.normals; data.indices = this.indices;
+        data.positions = new Float32Array(this.positions); data.normals = new Float32Array(this.normals); data.indices = new Uint32Array(this.indices);
         return data;
     }
 }
