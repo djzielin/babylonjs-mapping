@@ -1,13 +1,9 @@
 {
-    "compilerOptions": {
-        "target": "ES2020",
-        "module": "ESNext",
-        "moduleResolution": "bundler",
-        "strict": true,
-        "esModuleInterop": true,
-        "skipLibCheck": true,
-        "sourceMap": true,
-        "lib": ["DOM", "ES2020"]
-    },
-    "include": ["src/**/*.ts"]
+  "extends": "../../tsconfig.examples.json",
+  "files": [
+    "src/index.ts"
+  ],
+  "compilerOptions": {
+    "strictPropertyInitialization": true
+  }
 }

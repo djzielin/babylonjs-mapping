@@ -1,26 +1,6 @@
 {
-	"compilerOptions": {
-        "module": "esNext",
-		"target": "es5",
-		"ignoreDeprecations": "6.0",
-		"moduleResolution": "bundler",
-		"strict": true,
-		"noImplicitAny": true,
-        "noImplicitReturns": true,
-        "noImplicitThis": true,
-        "strictNullChecks": true,
-        "strictFunctionTypes": true,
-        "skipLibCheck": true,
-		"preserveConstEnums":true,
-		"sourceMap": true,
-		//"watch": false,
-		"strictPropertyInitialization": false,
-		"allowSyntheticDefaultImports":true,
-		//"paths": {
-        //    "babylonjs-mapping": ["../lib"]
-        //}
-	},
-	"files": [
-		"src/index.ts"
-	]
+  "extends": "../../tsconfig.examples.json",
+  "files": [
+    "src/index.ts"
+  ]
 }

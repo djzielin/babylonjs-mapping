@@ -19,7 +19,6 @@ import { TextBlock } from "@babylonjs/gui/2D/controls/textBlock";
 import { Control } from "@babylonjs/gui/2D/controls/control";
 
 import "@babylonjs/core/Materials/standardMaterial"
-import "@babylonjs/inspector";
 
 //import TileSet from "babylonjs-mapping";
 import TileSet from "../../../lib/TileSet"
@@ -92,16 +91,16 @@ class Game {
     private async createScene() {
         this.scene.clearColor = new Color4(135 / 255, 206 / 255, 235 / 255, 1.0);
 
-        var camera = new UniversalCamera("camera1", new Vector3(0, 40, -80), this.scene);
+        const camera = new UniversalCamera("camera1", new Vector3(0, 40, -80), this.scene);
         camera.setTarget(Vector3.Zero());
         camera.attachControl(this.canvas, true);
         camera.speed=0.5;
         camera.angularSensibility=8000;
         
-        var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
+        const light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.5;
 
-        var light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
+        const light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         light2.intensity=0.5;
 
         this.ourTS = new TileSet(this.scene,this.engine);
@@ -113,9 +112,13 @@ class Game {
         // Keep rendering the map while the public building archive is discovered.
         void this.loadBuildings();
 
-        // Show the debug scene explorer and object inspector
-        // You should comment this out when you build your final program 
-        this.scene.debugLayer.show();
+        if (new URLSearchParams(location.search).has("inspector")) {
+            void import("@babylonjs/inspector").then(({ ShowInspector }) => {
+                if (this.scene.isDisposed) return;
+                const inspector = ShowInspector(this.scene);
+                this.scene.onDisposeObservable.addOnce(() => { void inspector.dispose(); });
+            }).catch(error => console.error("Unable to load inspector", error));
+        }
         
         this.setupHelpText();        
     }
@@ -147,5 +150,5 @@ class Game {
 /******* End of the Game class ******/
 
 // start the game
-var game = new Game();
+const game = new Game();
 game.start();
