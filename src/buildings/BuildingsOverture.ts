@@ -60,6 +60,7 @@ export default class BuildingsOverture extends Buildings {
     private batches = new WeakMap<Mesh, { batch: { ranges: GlobeBuildingBatch["ranges"]; indices: Uint32Array }; mask: string }>();
     private archive: PMTiles;
     private static archives = new Map<string, PMTiles>();
+    private static encoded = new WeakMap<PMTiles, Map<string, Promise<Uint8Array | undefined>>>();
     private static decoded = new WeakMap<PMTiles, Map<string, Promise<feature[]>>>();
 
     constructor(
@@ -114,6 +115,27 @@ export default class BuildingsOverture extends Buildings {
             const count = 2 ** z;
             const x = ((Math.floor(request.tileCoords.x / factor) % count) + count) % count;
             const y = Math.floor(request.tileCoords.y / factor);
+            if (factor === 1 && this.batchGeometry && this.doMerge && this.tileSet.isGlobe && !this.buildingMeshFilter && !this.buildingLOD.enabled) {
+                let rawCache = BuildingsOverture.encoded.get(this.archive);
+                if (!rawCache) { rawCache = new Map(); BuildingsOverture.encoded.set(this.archive, rawCache); }
+                const rawKey = `${z}/${x}/${y}`;
+                let raw = rawCache.get(rawKey);
+                if (!raw) {
+                    raw = this.archive.getZxy(z, x, y).then(response => response ? new Uint8Array(response.data) : undefined)
+                        .catch(error => { rawCache!.delete(rawKey); throw error; });
+                    rawCache.set(rawKey, raw);
+                    while (rawCache.size > 16) rawCache.delete(rawCache.keys().next().value!);
+                }
+                const bytes = await raw;
+                if (request.cancelled || !request.tile.tileCoords.equals(request.tileCoords)) { this.removePendingRequest(requestIndex, request); return; }
+                const vector = bytes && new VectorTile(new PbfReader(bytes));
+                const features = function*(provider: BuildingsOverture): Generator<feature> {
+                    if (vector) for (const layer of ["building", "building_part"]) yield* provider.layerFeatures(vector, layer, x, y, z);
+                };
+                await this.buildBatch(request, features(this));
+                this.removePendingRequest(requestIndex, request);
+                return;
+            }
             let cache = BuildingsOverture.decoded.get(this.archive);
             if (!cache) { cache = new Map(); BuildingsOverture.decoded.set(this.archive, cache); }
             const key = `${z}/${x}/${y}`;
@@ -162,7 +184,7 @@ export default class BuildingsOverture extends Buildings {
         }
     }
 
-    private async buildBatch(request: BuildingRequest, features: feature[]): Promise<void> {
+    private async buildBatch(request: BuildingRequest, features: Iterable<feature>): Promise<void> {
         const globe = this.tileSet as GlobeSet;
         const batch = new GlobeBuildingBatch(globe, request.tile.mesh.getAbsolutePosition().clone());
         const specialized: feature[] = [];
@@ -230,6 +252,10 @@ export default class BuildingsOverture extends Buildings {
         z: number,
         output: feature[],
     ): void {
+        for (const feature of this.layerFeatures(vectorTile, layerName, x, y, z)) output.push(feature);
+    }
+
+    private *layerFeatures(vectorTile: VectorTile, layerName: string, x: number, y: number, z: number): Generator<feature> {
         const layer = vectorTile.layers[layerName];
         if (!layer) {
             return;
@@ -256,7 +282,7 @@ export default class BuildingsOverture extends Buildings {
                 properties.name = properties["@name"];
             }
 
-            output.push({
+            yield {
                 id: String(source.id ?? properties.id ?? layerName + "-" + index),
                 type: "Feature",
                 properties,
@@ -264,7 +290,7 @@ export default class BuildingsOverture extends Buildings {
                     type: source.geometry.type,
                     coordinates: source.geometry.coordinates,
                 },
-            });
+            };
         }
     }
 }

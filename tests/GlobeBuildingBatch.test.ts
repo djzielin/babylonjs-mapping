@@ -59,9 +59,13 @@ it("atomically replaces a building batch and keeps the old one if work is cancel
     const old=new Mesh("old batch",scene);tile.buildingBatches.push(old);
     const request:any={tile,tileCoords:tile.tileCoords.clone(),inProgress:true};
     let time=0;const clock=vi.spyOn(performance,"now").mockImplementation(()=>time+=10);
-    const cancelled=(provider as any).buildBatch(request,[feature]);
+    let decoded=0;
+    function* streamingFeatures() { for (let i=0;i<10000;i++) { decoded++; yield feature; } }
+    const cancelled=(provider as any).buildBatch(request,streamingFeatures());
+    expect(decoded).toBe(1);
     expect(old.isDisposed()).toBe(false);
     request.cancelled=true;await cancelled;clock.mockRestore();
+    expect(decoded).toBeLessThanOrEqual(2);
     expect(old.isDisposed()).toBe(false);
     await (provider as any).buildBatch({...request,cancelled:false},[feature]);
     expect(old.isDisposed()).toBe(true);

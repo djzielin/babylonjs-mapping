@@ -22,6 +22,7 @@ export default class BuildingsOverture extends Buildings {
     private batches;
     private archive;
     private static archives;
+    private static encoded;
     private static decoded;
     constructor(tileSet: TileSet, archiveURL: string, retrievalLocation?: RetrievalLocation);
     SubmitLoadTileRequest(tile: Tile): void;
@@ -33,4 +34,5 @@ export default class BuildingsOverture extends Buildings {
     updateBatchVisibility(): void;
     private updateMeshVisibility;
     private appendLayerFeatures;
+    private layerFeatures;
 }
