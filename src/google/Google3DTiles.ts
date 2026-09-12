@@ -440,8 +440,9 @@ export default class Google3DTiles {
     }
 
     private trimRetainedTiles(): void {
-        while (this.retainedTiles.size > Math.max(128, this.maxTiles)) {
-            const url = this.retainedTiles.keys().next().value!;
+        while (this.retainedTiles.size > Math.max(128, Math.min(256, this.maxTiles))) {
+            const url = Array.from(this.retainedTiles.keys()).find(url => !this.pendingModels.has(url) && !this.desiredTiles.has(url));
+            if (!url) break;
             const tile = this.retainedTiles.get(url)!;
             tile.asset.dispose(); tile.root.dispose(false, false);
             this.retainedTiles.delete(url);
@@ -965,6 +966,7 @@ export default class Google3DTiles {
         tile.root.setEnabled(false);
         this.loadedTiles.delete(url);
         this.retainedTiles.set(url, tile);
+        this.trimRetainedTiles();
         this.coverageKey = ""; this.coverageVersion++;
     }
 
@@ -1098,6 +1100,7 @@ export default class Google3DTiles {
             if (generation !== this.generation || !this.desiredTiles.has(selection.url)) {
                 root.setEnabled(false);
                 this.retainedTiles.set(selection.url, result);
+                this.trimRetainedTiles();
                 return undefined;
             }
             if (!activate) {
