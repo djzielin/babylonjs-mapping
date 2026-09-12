@@ -50,6 +50,7 @@ jobs:
           demos=(
             OpenStreetMap-Endless
             OpenStreetMap-HelloWorld
+            hello-world-webxr
             OpenStreetMap-UserData-RealScale
             mapbox-terrain
             gebco-bathymetry
