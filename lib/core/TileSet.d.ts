@@ -132,6 +132,7 @@ export default class TileSet {
     protected showRasterAttribution(): boolean;
     /** Bounded parallel raster requests; each frame scans only the active window. */
     rasterConcurrency: number;
+    private rasterSortAt;
     processTileRequests(): void;
     private processNextTileRequest;
     getAdvancedDynamicTexture(): AdvancedDynamicTexture;

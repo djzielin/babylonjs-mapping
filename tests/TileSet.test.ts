@@ -82,3 +82,18 @@ describe("TileSet updates", () => {
     engine.dispose();
   });
 });
+
+it("processes active image downloads before hundreds of unstarted requests", async () => {
+  const {default:TileSet}=await import("../src/TileSet");
+  const engine=new NullEngine(),scene=new Scene(engine),tiles=new TileSet(scene,engine);
+  const ready={inProgress:true};
+  (tiles as any).tileRequests=[...Array.from({length:576},()=>({inProgress:false})),ready];
+  const processed:unknown[]=[];
+  vi.spyOn(tiles as any,"processNextTileRequest").mockImplementation(()=>{
+    processed.push((tiles as any).tileRequests.shift());
+  });
+  tiles.processTileRequests();
+  expect(processed[0]).toBe(ready);
+  expect(processed).toHaveLength(tiles.rasterConcurrency+1);
+  scene.dispose();engine.dispose();
+});

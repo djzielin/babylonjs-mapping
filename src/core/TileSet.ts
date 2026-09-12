@@ -280,8 +280,22 @@ export default class TileSet {
 
     /** Bounded parallel raster requests; each frame scans only the active window. */
     public rasterConcurrency = 6;
+    private rasterSortAt = 0;
     public processTileRequests(): void {
-        const count = Math.min(this.tileRequests.length, this.rasterConcurrency);
+        const active = this.tileRequests.filter(request => request.inProgress);
+        const waiting = this.tileRequests.filter(request => !request.inProgress);
+        const camera = this.scene.activeCamera;
+        if (camera && performance.now() >= this.rasterSortAt) {
+            this.rasterSortAt = performance.now() + 100;
+            const distance = new Map(waiting.map(request => [request, Vector3.DistanceSquared(
+                camera.globalPosition, request.mesh.getBoundingInfo().boundingSphere.centerWorld)]));
+            const visible = new Set(waiting.filter(request => camera.isInFrustum(request.mesh)));
+            waiting.sort((a, b) => Number(visible.has(b)) - Number(visible.has(a)) || distance.get(a)! - distance.get(b)!);
+        }
+        // Completed downloads must not wait a whole rotation behind unstarted
+        // requests. Consume them now and fill their network slots in this frame.
+        this.tileRequests = active.concat(waiting);
+        const count = Math.min(this.tileRequests.length, this.rasterConcurrency + active.length);
         if (count === 0) { this.processNextTileRequest(); return; }
         for (let i=0; i<count; i++) {
             const request=this.tileRequests[0];
