@@ -278,25 +278,25 @@ export default class Google3DTiles {
                     const radius = volume.box ? [3, 6, 9].reduce((sum, offset) => sum + Vector3.TransformNormal(Vector3.FromArray(values, offset), transform).length(), 0) : values[3];
                     const lat = Math.atan2(center.z, Math.hypot(center.x, center.y) * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED)) / RADIANS_PER_DEGREE;
                     const lon = Math.atan2(center.y, center.x) / RADIANS_PER_DEGREE;
-                    const delta = radius / 6300000 / RADIANS_PER_DEGREE + 0.01;
+                    const delta = radius / 6300000 / RADIANS_PER_DEGREE + 0.0001;
                     south = lat - delta; north = lat + delta;
                     const longitudeDelta = delta / Math.max(0.01, Math.cos(Math.max(Math.abs(south), Math.abs(north)) * RADIANS_PER_DEGREE));
                     west = lon - longitudeDelta; east = lon + longitudeDelta;
                 }
-                if (east < west || east - west > 1 || north - south > 1 || west < -180 || east > 180) {
+                if (east < west || (Math.ceil((east - west) * 1000) + 1) * (Math.ceil((north - south) * 1000) + 1) > 4096 || west < -180 || east > 180) {
                     this.broadCoverage.push(selection); continue;
                 }
-                for (let x = Math.floor(west * 100); x <= Math.floor(east * 100); x++)
-                    for (let y = Math.floor(south * 100); y <= Math.floor(north * 100); y++) {
+                for (let x = Math.floor(west * 1000); x <= Math.floor(east * 1000); x++)
+                    for (let y = Math.floor(south * 1000); y <= Math.floor(north * 1000); y++) {
                         const cell = `${x}/${y}`;
                         const entries = this.coverageIndex.get(cell) ?? [];
                         entries.push(selection); this.coverageIndex.set(cell, entries);
                     }
             }
         }
-        const nearby = this.coverageIndex.get(`${Math.floor(longitude * 100)}/${Math.floor(latitude * 100)}`) ?? [];
-        return [...nearby, ...this.broadCoverage].some(selection => verticalIntersectsVolume(
-            latitude, longitude, selection.boundingVolume!, selection.transform));
+        const nearby = this.coverageIndex.get(`${Math.floor(longitude * 1000)}/${Math.floor(latitude * 1000)}`) ?? [];
+        for (const selection of nearby) if (verticalIntersectsVolume(latitude, longitude, selection.boundingVolume!, selection.transform)) return true;
+        return this.broadCoverage.some(selection => verticalIntersectsVolume(latitude, longitude, selection.boundingVolume!, selection.transform));
     }
 
     /** The last root tileset response, if load() has been called. */
