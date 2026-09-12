@@ -104,7 +104,7 @@ class GlobeDemo {
     private camera: ArcRotateCamera;
     private layers: MapLayerRenderer;
     private replacements = new BuildingReplacementIndex();
-    private lastCoverageCount = 0;
+    private lastCoverageRevision = -1;
     private lastCoverageRefresh = 0;
     private replacementSignatures = new WeakMap<object, string>();
     private data: GlobeDataController;
@@ -221,9 +221,9 @@ class GlobeDemo {
             }
             if (performance.now() - this.lastStats > 500) {
                 this.scheduleGoogleTiles();
-                const coverageCount = this.googleTiles?.loadedModelTiles.length ?? 0;
-                if (coverageCount !== this.lastCoverageCount && performance.now() - this.lastCoverageRefresh > 250) {
-                    this.lastCoverageCount = coverageCount;
+                const coverageRevision = this.googleTiles?.coverageRevision ?? -1;
+                if (coverageRevision !== this.lastCoverageRevision && performance.now() - this.lastCoverageRefresh > 250) {
+                    this.lastCoverageRevision = coverageRevision;
                     this.lastCoverageRefresh = performance.now();
                     this.refreshBuildingReplacements();
                     for (const tile of this.landmarks?.loadedModelTiles ?? []) for (const mesh of tile.asset.meshes) {
@@ -845,7 +845,7 @@ class GlobeDemo {
             const provider = this.googleTiles ??= new Google3DTiles(this.detailGlobe, {
                 apiKey: this.googleKey,
                 origin: { latitude: view.latitude, longitude: view.longitude },
-                maxTiles: 1024,
+                maxTiles: 2048,
                 maximumDisplayGeometricError: 33,
                 cullToCamera: true,
                 coverageRadius: 50000,
@@ -853,6 +853,8 @@ class GlobeDemo {
             });
             provider.maxDepth = quality === "auto" || quality === "32" ? 64 : Number(quality);
             provider.coverageRadius = 50000;
+            provider.coverageRegion = view.latitude > 40.4 && view.latitude < 41 && view.longitude > -74.3 && view.longitude < -73.6
+                ? { south: 40.68, north: 40.89, west: -74.03, east: -73.90 } : undefined;
             provider.maximumScreenSpaceError = quality === "20" ? 2 : quality === "auto" ? 1 : 0.75;
             this.googleLoading = true;
             this.googleStatus("Google 3D · streaming nearby detail…");
@@ -892,7 +894,7 @@ class GlobeDemo {
                 globe.setRasterProvider(new RasterOSM(globe));
                 globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);
                 for (const tile of globe.ourTiles) this.registerTerrain(tile.mesh, plan.group);
-                const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: plan.group === 3 ? 8 : plan.group === 2 ? 4 : 2, minTerrainZoom: 5, prioritizeVisible: true, minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14 });
+                const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: plan.group >= 3 ? 8 : 4, minTerrainZoom: 5, prioritizeVisible: true, minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14 });
                 this.distanceLayers.push({ globe, data, key: "" });
             }
             this.configureDistanceLayers();

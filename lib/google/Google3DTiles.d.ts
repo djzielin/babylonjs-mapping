@@ -71,6 +71,13 @@ export interface Google3DTilesOptions {
     maxTiles?: number;
     /** Optional minimum coverage radius around the current map center, in metres. */
     coverageRadius?: number;
+    /** Keep usable Google coverage across this region, including behind the camera. */
+    coverageRegion?: {
+        south: number;
+        north: number;
+        west: number;
+        east: number;
+    };
     /** Stop refinement once source geometric error is below this value in metres. */
     maximumGeometricError?: number;
     /** Projected geometric error in physical pixels; globe scenes only. */
@@ -119,6 +126,7 @@ export default class Google3DTiles {
     maxTiles: number;
     exaggeration: number;
     coverageRadius?: number;
+    coverageRegion?: Google3DTilesOptions["coverageRegion"];
     maximumGeometricError: number;
     maximumScreenSpaceError?: number;
     maximumDisplayGeometricError?: number;
@@ -156,6 +164,8 @@ export default class Google3DTiles {
     /** Content currently attached to the Babylon scene. */
     get loadedModelTiles(): readonly LoadedGoogle3DTile[];
     private coverageKey;
+    private coverageVersion;
+    get coverageRevision(): number;
     private coverageIndex;
     private broadCoverage;
     private loadedSelections;

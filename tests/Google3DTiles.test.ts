@@ -749,3 +749,24 @@ it("prepares offscreen content without replacing visible models", async () => {
   expect(provider.loadedModelTiles.some(t=>t.url.includes("behind.glb"))).toBe(true);
   provider.dispose();scene.dispose();engine.dispose();
 });
+
+it("keeps usable detail across an explicit region even behind the camera", async () => {
+  const engine=new NullEngine(),scene=new Scene(engine);
+  const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+  globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,12);
+  const eye=globe.getSurfacePosition(0,0,100*globe.metresToWorld);
+  const camera=new ArcRotateCamera("look",0,1,1,globe.getSurfacePosition(0,0.01),scene);
+  camera.setPosition(eye);camera.minZ=1e-7;camera.getViewMatrix(true);camera.getProjectionMatrix(true);
+  const sphere=(lon:number)=>{const a=lon*Math.PI/180;return {sphere:[6378137*Math.cos(a),6378137*Math.sin(a),0,100]};};
+  const provider=new Google3DTiles(globe,{apiKey:"test",maximumScreenSpaceError:1,cullToCamera:true,coverageRadius:10000,
+    maximumDisplayGeometricError:33, coverageRegion:{south:-0.01,north:0.01,west:-0.02,east:0.02},
+    tilesetLoader:async()=>({root:{children:[
+      {boundingVolume:sphere(0.01),geometricError:0,content:{uri:"front.glb"}},
+      {boundingVolume:sphere(-0.01),geometricError:128,content:{uri:"ugly.glb"},children:[
+        {boundingVolume:sphere(-0.01),geometricError:16,content:{uri:"usable-behind.glb"}}]},
+    ]}}),modelTileLoader:createModelLoader([])});
+  const loaded=await provider.load();
+  expect(loaded.some(tile=>tile.url.includes("usable-behind"))).toBe(true);
+  expect(loaded.some(tile=>tile.url.includes("ugly"))).toBe(false);
+  provider.dispose();scene.dispose();engine.dispose();
+});

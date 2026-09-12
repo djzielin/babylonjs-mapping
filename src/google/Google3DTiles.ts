@@ -97,6 +97,8 @@ export interface Google3DTilesOptions {
     maxTiles?: number;
     /** Optional minimum coverage radius around the current map center, in metres. */
     coverageRadius?: number;
+    /** Keep usable Google coverage across this region, including behind the camera. */
+    coverageRegion?: { south: number; north: number; west: number; east: number };
     /** Stop refinement once source geometric error is below this value in metres. */
     maximumGeometricError?: number;
     /** Projected geometric error in physical pixels; globe scenes only. */
@@ -178,6 +180,7 @@ export default class Google3DTiles {
     public maxTiles: number;
     public exaggeration: number;
     public coverageRadius?: number;
+    public coverageRegion?: Google3DTilesOptions["coverageRegion"];
     public maximumGeometricError = 0;
     public maximumScreenSpaceError?: number;
     public maximumDisplayGeometricError?: number;
@@ -211,7 +214,7 @@ export default class Google3DTiles {
         queueMicrotask(() => {
             this.networkDrainQueued = false;
             this.networkWaiters.sort((a, b) => a.priority - b.priority);
-            while (this.networkActive < 12 && this.networkWaiters.length) {
+            while (this.networkActive < 24 && this.networkWaiters.length) {
                 this.networkActive++;
                 this.networkWaiters.shift()!.resume();
             }
@@ -235,6 +238,7 @@ export default class Google3DTiles {
         this.maxTiles = options.maxTiles ?? 64;
         this.exaggeration = options.exaggeration ?? 1;
         this.coverageRadius = options.coverageRadius;
+        this.coverageRegion = options.coverageRegion;
         this.maximumGeometricError = options.maximumGeometricError ?? 0;
         this.maximumScreenSpaceError = options.maximumScreenSpaceError;
         this.maximumDisplayGeometricError = options.maximumDisplayGeometricError;
@@ -252,6 +256,8 @@ export default class Google3DTiles {
     }
 
     private coverageKey = "";
+    private coverageVersion = 0;
+    public get coverageRevision(): number { return this.coverageVersion; }
     private coverageIndex = new Map<string, TileSelection[]>();
     private broadCoverage: TileSelection[] = [];
     private loadedSelections = new Map<string, TileSelection>();
@@ -428,7 +434,7 @@ export default class Google3DTiles {
         }
         // Bound GPU memory while retaining the most recently visited detail.
         this.trimRetainedTiles();
-        this.coverageKey = "";
+        this.coverageKey = ""; this.coverageVersion++;
         this.updateAttribution();
         return this.loadedModelTiles;
     }
@@ -703,7 +709,7 @@ export default class Google3DTiles {
             camera && Array.from(camera.getViewMatrix().m), camera && Array.from(camera.getProjectionMatrix().m),
             this.tileSet.scene.getEngine().getRenderHeight(), budget, this.maxDepth,
             this.maximumScreenSpaceError, this.maximumDisplayGeometricError, this.cullToCamera,
-            this.maximumGeometricError, this.originStateKey, this.rootRequestKey, surroundings]);
+            this.maximumGeometricError, this.originStateKey, this.rootRequestKey, surroundings, this.coverageRegion]);
         if (this.frontierCache?.key === key) {
             for (const selection of this.frontierCache.selections) {
                 desired.set(selection.url, selection);
@@ -711,6 +717,12 @@ export default class Google3DTiles {
             }
             return;
         }
+        const requiredBounds: GeographicBounds | undefined = this.coverageRegion && {
+            south: this.coverageRegion.south, north: this.coverageRegion.north,
+            longitudes: [[this.coverageRegion.west, this.coverageRegion.east]],
+        };
+        const required = (volume: Google3DBoundingVolume | undefined, transform: Matrix) =>
+            !!requiredBounds && boundingVolumeIntersects(volume, requiredBounds, transform);
         let hierarchyFailed = false;
         let lastYield = performance.now();
         const firstContent = async (tile: Google3DTile, responseUrl: string, depth: number,
@@ -722,8 +734,11 @@ export default class Google3DTiles {
             if (generation !== this.generation || depth > this.maxDepth) return [];
             const transform = getTileTransform(tile)?.multiply(parentTransform) ?? parentTransform;
             if (!boundingVolumeIntersects(tile.boundingVolume, bounds, transform)) return [];
-            const allowed = this.allowedGeometricError(tile.boundingVolume, transform, surroundings);
-            if (allowed < 0) return [];
+            let allowed = this.allowedGeometricError(tile.boundingVolume, transform, surroundings);
+            const inRegion = required(tile.boundingVolume, transform);
+            if (allowed < 0 && !inRegion) return [];
+            if (inRegion) allowed = allowed < 0 ? this.maximumDisplayGeometricError ?? 33
+                : Math.min(allowed, this.maximumDisplayGeometricError ?? 33);
             const refine = tile.refine?.toUpperCase() ?? parentRefine;
             const contents = getTileContents(tile);
             const selections = contents.filter(content => !isTilesetContent(content)).map(content => ({
@@ -793,9 +808,13 @@ export default class Google3DTiles {
                 const bandA = Math.floor(Math.log2(1 + distances.get(a)! / 250));
                 const bandB = Math.floor(Math.log2(1 + distances.get(b)! / 250));
                 const backgroundOrder = front ? Number(front.get(a)) - Number(front.get(b)) : 0;
-                return backgroundOrder || bandA - bandB || b.priority - a.priority || distances.get(a)! - distances.get(b)!;
+                // Reserve part of the frontier for usable city-wide coverage
+                // after the first nearby detail patch has been selected.
+                const coverageOrder = count >= Math.min(128, budget / 4) ? Number(!renderable(b) && required(b.tile.boundingVolume, b.transform))
+                    - Number(!renderable(a) && required(a.tile.boundingVolume, a.transform)) : 0;
+                return coverageOrder || backgroundOrder || bandA - bandB || b.priority - a.priority || distances.get(a)! - distances.get(b)!;
             });
-            while (queue.length && pending.size < 8) {
+            while (queue.length && pending.size < 16) {
                 const node = queue.shift()!;
                 if (node.priority <= 1) { settle(node); continue; }
                 pending.set(node, children(node).then(next => ({ node, next }), () => ({ node, next: undefined })));
@@ -946,7 +965,7 @@ export default class Google3DTiles {
         tile.root.setEnabled(false);
         this.loadedTiles.delete(url);
         this.retainedTiles.set(url, tile);
-        this.coverageKey = "";
+        this.coverageKey = ""; this.coverageVersion++;
     }
 
     /** Commit disjoint replacement subtrees only after every new model is ready. */
@@ -992,7 +1011,7 @@ export default class Google3DTiles {
                 model.root.setEnabled(true);
             }
             for (const url of group.previous) if (!desired.has(url)) this.retireTile(url);
-            this.coverageKey = "";
+            this.coverageKey = ""; this.coverageVersion++;
             this.updateAttribution();
         }));
     }
@@ -1035,7 +1054,7 @@ export default class Google3DTiles {
                 this.retainedTiles.delete(selection.url);
                 this.loadedTiles.set(selection.url, retained);
                 this.loadedSelections.set(selection.url, selection);
-                this.coverageKey = "";
+                this.coverageKey = ""; this.coverageVersion++;
                 retained.root.setEnabled(true);
             }
             return retained;
@@ -1088,7 +1107,7 @@ export default class Google3DTiles {
             }
             this.loadedTiles.set(selection.url, result);
             this.loadedSelections.set(selection.url, selection);
-            this.coverageKey = "";
+            this.coverageKey = ""; this.coverageVersion++;
             this.updateAttribution();
             return result;
         });
@@ -1187,7 +1206,7 @@ export default class Google3DTiles {
         }
         this.retainedTiles.clear();
         this.loadedSelections.clear();
-        this.coverageKey = "";
+        this.coverageKey = ""; this.coverageVersion++;
         for (const url of Array.from(this.loadedTiles.keys())) {
             this.disposeTile(url);
         }
