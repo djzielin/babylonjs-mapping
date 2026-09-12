@@ -85,3 +85,6 @@ export { default as MapLayerRenderer } from "./core/MapLayerRenderer.js";
 export { default as BuildingReplacementIndex } from "./buildings/BuildingReplacementIndex.js";
 
 export { landscapeTerrainLOD } from "./terrain/LandscapeLOD.js";
+
+export { setMappingDebugLogger } from "./shared/Diagnostics.js";
+export type { MappingDebugLogger } from "./shared/Diagnostics.js";

@@ -1,4 +1,4 @@
-import { Engine } from "@babylonjs/core/Engines/engine.js";
+import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { BoundingBox } from "@babylonjs/core/Culling/boundingBox.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
@@ -102,7 +102,7 @@ export default class GlobeSet extends TileSet {
 
     public constructor(
         scene: Scene,
-        engine: Engine,
+        engine: AbstractEngine,
         options: GlobeSetOptions = {},
     ) {
         super(scene, engine);

@@ -1,5 +1,5 @@
 import { Scene } from "@babylonjs/core/scene.js";
-import { Engine } from "@babylonjs/core/Engines/engine.js";
+import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
@@ -92,12 +92,8 @@ export default class TileSet {
     optimizationOptions: Required<TileSetOptimizationOptions>;
     private isGeometrySetup;
     private isRasterSetup;
-    /**
-    * this doesn't do much, just sets up a linkage between our library and users main project
-    * @param scene the babylonjs scene, helps us get around a bug, where the main app and the library are in 2 different contexts
-    * @param engine see above description for scene
-    */
-    constructor(scene: Scene, engine: Engine);
+    /** Bind map resources to the explicitly supplied scene and rendering engine. */
+    constructor(scene: Scene, engine: AbstractEngine);
     /**
      * Returns whether the tile meshes have been created and are ready for use.
      */

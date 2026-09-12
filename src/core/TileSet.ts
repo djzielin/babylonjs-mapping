@@ -1,6 +1,6 @@
+import { debugLog } from "../shared/Diagnostics.js";
 import { Scene } from "@babylonjs/core/scene.js";
-import { Engine } from "@babylonjs/core/Engines/engine.js";
-import { EngineStore } from "@babylonjs/core/Engines/engineStore.js";
+import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
@@ -122,17 +122,8 @@ export default class TileSet {
     private isGeometrySetup: boolean = false;
     private isRasterSetup: boolean = false;
 
-    /**
-    * this doesn't do much, just sets up a linkage between our library and users main project
-    * @param scene the babylonjs scene, helps us get around a bug, where the main app and the library are in 2 different contexts
-    * @param engine see above description for scene
-    */
-    constructor(public scene: Scene, private engine: Engine) {
-
-        EngineStore._LastCreatedScene = this.scene; //gets around a babylonjs bug where we aren't in the same context between the main app and the mapping library
-        if (!EngineStore.Instances.includes(this.engine)) {
-            EngineStore.Instances.push(this.engine);
-        }
+    /** Bind map resources to the explicitly supplied scene and rendering engine. */
+    constructor(public scene: Scene, private engine: AbstractEngine) {
 
         this.ourAttribution = new Attribution(this.scene);
         this.ourTileMath = new TileMath(this);
@@ -310,7 +301,7 @@ export default class TileSet {
 
     if (this.tileRequests.length == 0) {
         if (this.requestsProcessedSinceCaughtUp > 0) {
-            console.log(this.prettyName() + "caught up on all tile generation requests! (processed " + this.requestsProcessedSinceCaughtUp + " requests)");
+            debugLog(() => [this.prettyName() + "caught up on all tile generation requests! (processed " + this.requestsProcessedSinceCaughtUp + " requests)"]);
             this.requestsProcessedSinceCaughtUp = 0;
             this.onCaughtUpObservable.notifyObservers(true);
         }
@@ -323,7 +314,7 @@ export default class TileSet {
     if (request.requestType == TileRequestType.LoadTile) {
         if (request.inProgress == false) {
             if (this.tileRequests.filter(r => r.inProgress).length >= this.rasterConcurrency) return;
-            console.log(this.prettyName() + "trying to load tile raster: " + request.tileCoords);
+            debugLog(() => [this.prettyName() + "trying to load tile raster: " + request.tileCoords]);
             request.texture = new Texture(request.url, this.scene);
             request.inProgress = true;
 
@@ -334,7 +325,7 @@ export default class TileSet {
         if (request.inProgress == true) {
             if (request.texture) {
                 if (request.texture.isReady()) {
-                    console.log(this.prettyName() + "tile raster is ready: " + request.tileCoords);
+                    debugLog(() => [this.prettyName() + "tile raster is ready: " + request.tileCoords]);
 
                     const material = request.mesh.material as StandardMaterial;
                     material.unfreeze();
@@ -556,7 +547,7 @@ export default class TileSet {
         inProgress: false
     }
     this.tileRequests.push(request);
-    console.log(this.prettyName() + "submitted tile raster load request for: " + tile.tileCoords);
+    debugLog(() => [this.prettyName() + "submitted tile raster load request for: " + tile.tileCoords]);
 
     tile.mesh.name = "Tile_" + tileX + "_" + tileY;
 }
@@ -598,7 +589,7 @@ export default class TileSet {
 
     for (const t of this.ourTiles) {
         if (t.mesh.position.x < this.xmin) {
-            console.log("Tile: " + t.tileCoords + " is below xMin");
+            debugLog(() => ["Tile: " + t.tileCoords + " is below xMin"]);
             this.moveHelper(t, new Vector3(this.totalWidthMeters, 0, 0), new Vector3(this.numTiles.x, 0, 0), buildingCreator, reloadTerrain);
 
             tilesReloaded++;
@@ -608,7 +599,7 @@ export default class TileSet {
         }
 
         if (t.mesh.position.x > this.xmax) {
-            console.log("Tile: " + t.tileCoords + " is above xMax");
+            debugLog(() => ["Tile: " + t.tileCoords + " is above xMax"]);
 
             this.moveHelper(t, new Vector3(-this.totalWidthMeters, 0, 0), new Vector3(-this.numTiles.x, 0, 0), buildingCreator, reloadTerrain);
 
@@ -618,7 +609,7 @@ export default class TileSet {
             }
         }
         if (t.mesh.position.z < this.zmin) {
-            console.log("Tile: " + t.tileCoords + " is below zmin");
+            debugLog(() => ["Tile: " + t.tileCoords + " is below zmin"]);
 
             this.moveHelper(t, new Vector3(0, 0, this.totalHeightMeters), new Vector3(0, -this.numTiles.y, 0), buildingCreator, reloadTerrain);
 
@@ -628,7 +619,7 @@ export default class TileSet {
             }
         }
         if (t.mesh.position.z > this.zmax) {
-            console.log("Tile: " + t.tileCoords + " is above zmax");
+            debugLog(() => ["Tile: " + t.tileCoords + " is above zmax"]);
 
             this.moveHelper(t, new Vector3(0, 0, -this.totalHeightMeters), new Vector3(0, this.numTiles.y, 0), buildingCreator, reloadTerrain);
 

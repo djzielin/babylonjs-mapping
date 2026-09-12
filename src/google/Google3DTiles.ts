@@ -1,7 +1,7 @@
 import type GlobeSet from "../core/GlobeSet.js";
 import { AssetContainer } from "@babylonjs/core/assetContainer.js";
 import { Frustum, Matrix, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
-import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader.js";
+import { LoadAssetContainerAsync } from "@babylonjs/core/Loading/sceneLoader.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
@@ -1313,13 +1313,10 @@ async function defaultModelTileLoader(
     const metadata = parseGoogleGLBMetadata(buffer);
     // Babylon uses the file name in embedded-texture cache keys. Each
     // GLB has a different image atlas, even when all images are called image0.
-    const file = new File(
-        [buffer],
-        `google-photorealistic-tile-${nextModelFileId++}.glb`,
-        { type: "model/gltf-binary" },
-    );
     await import("@babylonjs/loaders/glTF/index.js");
-    const asset = await SceneLoader.LoadAssetContainerAsync("", file, scene, undefined, ".glb");
+    const asset = await LoadAssetContainerAsync(new Uint8Array(buffer), scene, {
+        pluginExtension: ".glb", name: `google-photorealistic-tile-${nextModelFileId++}.glb`,
+    });
     return {
         asset,
         attributions: metadata.attributions,
