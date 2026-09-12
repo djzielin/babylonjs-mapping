@@ -6,7 +6,8 @@
     "dependencies": {
         "@babylonjs/core": "^6.49.0",
         "@babylonjs/gui": "^6.49.0",
-        "babylonjs-mapping": "^1.1.44"
+        "babylonjs-mapping": "^1.1.44",
+        "egm96-universal": "^1.1.1"
     },
     "devDependencies": {
         "clean-webpack-plugin": "^4.0.0",

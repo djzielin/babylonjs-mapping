@@ -1,3 +1,5 @@
+import { lookFromEye, moveEye } from "./FirstPersonNavigation";
+import { TerrainTransition } from "./TerrainTransition";
 import "@babylonjs/core/Engines/Extensions/engine.query";
 import { EngineInstrumentation } from "@babylonjs/core/Instrumentation/engineInstrumentation";
 import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstrumentation";
@@ -102,6 +104,9 @@ class GlobeDemo {
     private camera: ArcRotateCamera;
     private layers: MapLayerRenderer;
     private replacements = new BuildingReplacementIndex();
+    private lastCoverageCount = 0;
+    private lastCoverageRefresh = 0;
+    private replacementSignatures = new WeakMap<object, string>();
     private data: GlobeDataController;
     private elevation = new TerrainRGB();
     private buildings?: BuildingsOverture;
@@ -122,9 +127,13 @@ class GlobeDemo {
     private googleGeneration = 0;
     private googleMeshes = new WeakSet<object>();
     private photorealisticActive = false;
+    private googleLoading = false;
+    private googlePrefetchTimer: ReturnType<typeof setTimeout> | undefined;
+    private movementKeys = new Set<string>();
     private engineProfile: EngineInstrumentation;
     private sceneProfile: SceneInstrumentation;
     private terrainBatcher: TerrainBatcher;
+    private terrainTransition = new TerrainTransition();
     private renderTimes: number[] = [];
     private gpuTimes: number[] = [];
 
@@ -136,6 +145,7 @@ class GlobeDemo {
             powerPreference: "high-performance",
             useHighPrecisionMatrix: true,
             stencil: true,
+            adaptToDeviceRatio: true,
         });
         RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, 8);
         this.scene = new Scene(this.engine);
@@ -153,9 +163,10 @@ class GlobeDemo {
     public start(): void {
         (document.getElementById("mapboxToken") as HTMLInputElement).value = DEMO_MAPBOX_TOKEN;
         this.createScene();
+        this.scene.onDisposeObservable.add(() => this.terrainTransition.dispose());
         this.terrainBatcher = new TerrainBatcher(this.scene,
             () => [this.baseGlobe, this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)].map(globe => globe.ourTiles.map(tile => tile.mesh)),
-            (mesh, source) => this.layers.add(mesh, 7 - source.renderingGroupId));
+            (mesh, source) => this.registerTerrain(mesh, 7 - source.renderingGroupId));
         document.getElementById("batchTerrain")!.addEventListener("change", () => {
             this.terrainBatcher.enabled = (document.getElementById("batchTerrain") as HTMLInputElement).checked;
         });
@@ -187,6 +198,8 @@ class GlobeDemo {
         document.getElementById("googleTiles")!.addEventListener("change", () => this.scheduleGoogleTiles(true));
         document.getElementById("googleQuality")!.addEventListener("change", () => this.scheduleGoogleTiles(true));
         this.engine.runRenderLoop(() => {
+            this.updateMovement();
+            this.terrainTransition.update(performance.now());
             const renderStart = performance.now();
             this.scene.render();
             this.renderTimes.push(performance.now() - renderStart);
@@ -208,15 +221,18 @@ class GlobeDemo {
                 }
             }
             if (performance.now() - this.lastStats > 500) {
-                this.lastStats = performance.now();
-                if (this.inspecting) {
-                    const view = this.navigator.getView();
-                    if (Math.abs(Math.log2(this.inspecting.radius / view.altitude)) > 0.35
-                        && !(view.zoom >= 18 && this.inspecting.radius < view.altitude)
-                        && !(view.zoom <= 3 && this.inspecting.radius > view.altitude)) {
-                        this.navigator.setView(view.latitude, view.longitude, { altitude: this.inspecting.radius });
+                this.scheduleGoogleTiles();
+                const coverageCount = this.googleTiles?.loadedModelTiles.length ?? 0;
+                if (!this.googleLoading && coverageCount !== this.lastCoverageCount && performance.now() - this.lastCoverageRefresh > 2000) {
+                    this.lastCoverageCount = coverageCount;
+                    this.lastCoverageRefresh = performance.now();
+                    this.refreshBuildingReplacements();
+                    for (const tile of this.landmarks?.loadedModelTiles ?? []) for (const mesh of tile.asset.meshes) {
+                        const point = this.detailGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
+                        mesh.setEnabled(!this.googleTiles?.coversLocation(point.latitude, point.longitude));
                     }
                 }
+                this.lastStats = performance.now();
                 const times = [...this.renderTimes].sort((a, b) => a - b);
                 const gpuTimes = [...this.gpuTimes].sort((a, b) => a - b);
                 const gpuMs = gpuTimes[Math.floor(gpuTimes.length * 0.5)] ?? 0;
@@ -240,13 +256,25 @@ class GlobeDemo {
                 const featureJobs = [this.buildings, this.roads, ...this.distanceLayers.map(layer => layer.buildings)]
                     .reduce((count, provider) => count + (provider?.pendingRequestCount ?? 0), 0);
                 document.getElementById("performance")!.textContent =
-                    `${this.engine.getFps().toFixed(0)} FPS · ${this.scene.getActiveMeshes().length} active meshes · ${this.scene.getTotalVertices().toLocaleString()} vertices · ${stat.active} detail jobs · ${featureJobs} queued features · ${stat.completed} completed · ${stat.failed} errors`;
+                    `${this.engine.getFps().toFixed(0)} FPS · ${this.scene.getActiveMeshes().length} active meshes · ${this.scene.getTotalVertices().toLocaleString()} vertices · ${stat.active} detail jobs · ${featureJobs} queued features · ${stat.completed} completed · ${stat.failed} errors${this.googleTiles ? ` · Google: ${this.googleTiles.stats.modelRequests} fetched / ${this.googleTiles.stats.reusedModels} reused · last update ${this.canvas.dataset.googleLoadMs ?? "—"} ms` : ""}`;
             }
         });
+        const requestedPreset = new URLSearchParams(window.location.search).get("preset");
+        if (requestedPreset) {
+            const index = LOCATIONS.findIndex(location => location.name.toLowerCase().startsWith(requestedPreset.toLowerCase()));
+            if (index >= 0) {
+                const preset = document.getElementById("locationPreset") as HTMLSelectElement;
+                preset.value = String(index); preset.dispatchEvent(new Event("change"));
+            }
+        }
         window.addEventListener("resize", () => {
             this.engine.resize();
             this.navigator.refresh(true);
         });
+    }
+
+    private registerTerrain(mesh: import("@babylonjs/core/Meshes/abstractMesh").AbstractMesh, level: number): void {
+        this.layers.add(mesh, level);
     }
 
     private createScene(): void {
@@ -259,7 +287,7 @@ class GlobeDemo {
         baseGlobe.setOptimizationOptions({ freezeTileWorldMatrices: true, disableTilePicking: true, disableTileCollisions: true });
         baseGlobe.createGeometry(new Vector2(4, 4), 20, 16);
         baseGlobe.updateRaster(40.98, 0, 2);
-        for (const mesh of this.scene.meshes) this.layers.add(mesh, 0);
+        for (const mesh of this.scene.meshes) this.registerTerrain(mesh, 0);
 
         // The detail layer follows the camera. Its small radial offset avoids
         // z-fighting while the zoom-2 base remains visible during tile loads.
@@ -273,13 +301,13 @@ class GlobeDemo {
         this.detailGlobe.setOptimizationOptions({ freezeTileWorldMatrices: true, disableTilePicking: true, disableTileCollisions: true });
         this.detailGlobe.createGeometry(new Vector2(5, 5), 20, 16);
         for (const tile of this.detailGlobe.ourTiles)
-            this.layers.add(tile.mesh, 6);
+            this.registerTerrain(tile.mesh, 6);
         this.detailGlobe.ourAttribution.advancedTexture.rootContainer.isVisible = false;
         this.data = new GlobeDataController(this.detailGlobe, {
             elevation: this.elevation.load,
             concurrency: 4,
             minTerrainZoom: 5,
-            minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM,
+            minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14,
             exaggeration: 1,
         });
         this.data.onErrorObservable.add((error) => this.message(error.message));
@@ -288,11 +316,12 @@ class GlobeDemo {
                 this.overtureURL = url;
                 this.buildings = new BuildingsOverture(this.detailGlobe, url);
                 this.buildings.doMerge = true;
-                this.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true });
+                this.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
+                this.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry.coordinates, this.detailGlobe);
                 this.buildings.buildingMeshFilter = mesh => this.keepBuilding(mesh, this.detailGlobe);
                 this.buildings.buildingsCreatedPerFrame = 32;
                 this.buildings.buildingMeshTransform = (mesh) => {
-                    this.layers.add(mesh, 6);
+                    this.layers.add(mesh, 7);
                 };
                 this.buildings.buildingMaterial.diffuseColor.set(
                     0.86,
@@ -301,14 +330,14 @@ class GlobeDemo {
                 );
                 if (
                     (document.getElementById("buildings") as HTMLInputElement)
-                        .checked && !this.photorealisticActive
+                        .checked
                 )
                     this.data.options.buildings = this.buildings;
                 this.baseGlobe.ourAttribution.addAttribution("OVERTURE");
                 this.data.invalidate();
                 this.configureDistanceLayers();
                 this.message(
-                    "Terrain and Overture buildings ready. Buildings stream at zoom 14+.",
+                    "Terrain and Overture buildings ready.",
                 );
             })
             .catch((error) =>
@@ -369,7 +398,7 @@ class GlobeDemo {
             this.data.options.elevation = terrain.checked
                 ? this.elevation.load
                 : undefined;
-            this.data.options.buildings = buildings.checked && !this.photorealisticActive
+            this.data.options.buildings = buildings.checked
                 ? this.buildings
                 : undefined;
             this.data.options.exaggeration = Number(exaggeration.value);
@@ -408,10 +437,10 @@ class GlobeDemo {
                 this.roads ??= new BuildingsVectorTile(this.detailGlobe);
                 this.roads.accessToken = token;
                 this.roads.doMerge = true;
-                this.roads.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true });
+                this.roads.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 this.roads.buildingMaterial.diffuseColor.set(0.92, 0.57, 0.18);
                 this.roads.buildingMeshTransform = (mesh) => {
-                    this.layers.add(mesh, 6);
+                    this.layers.add(mesh, 7);
                 };
             }
             this.data.options.features =
@@ -522,7 +551,7 @@ class GlobeDemo {
                             this.detailGlobe,
                         ));
                     settings.buildingMeshTransform = (mesh) => {
-                        this.layers.add(mesh, 6);
+                        this.layers.add(mesh, 7);
                     };
                     const generator = new GeoJSON.GeoJSON(
                         this.detailGlobe,
@@ -550,7 +579,7 @@ class GlobeDemo {
     private updateLandmarks(): void {
         const enabled = (document.getElementById("landmarks") as HTMLInputElement).checked;
         const token = (document.getElementById("mapboxToken") as HTMLInputElement).value.trim();
-        if (!enabled || !token || this.detailGlobe.zoom < 14 || this.photorealisticActive) {
+        if (!enabled || !token || this.detailGlobe.zoom < 14) {
             const hadModels = !!this.landmarks;
             this.landmarks?.dispose();
             this.landmarks = undefined;
@@ -566,17 +595,25 @@ class GlobeDemo {
         if (this.detailGlobe.pendingGeometryCount > 0 || this.data.stats.active > 0) return;
         // Landmark requests follow geography independently of the slower
         // footprint queue, including custom addresses and drag navigation.
-        const key = this.detailGlobe.ourTiles.map(t => t.tileCoords.toString()).join("|");
+        const landmarkGlobe = this.distanceLayers[3]?.globe.zoom >= 14
+            ? this.distanceLayers[3].globe : this.detailGlobe;
+        if (this.landmarks && this.landmarks.tileSet !== landmarkGlobe) {
+            this.landmarks.dispose(); this.landmarks = undefined; this.landmarkKey = "";
+        }
+        const key = landmarkGlobe.ourTiles.map(t => t.tileCoords.toString()).join("|");
         if (key === this.landmarkKey) return;
         if (performance.now() < this.landmarkRetryAt) return;
         this.landmarkKey = key;
-        const provider = this.landmarks ??= new BuildingsMB(this.detailGlobe);
+        const provider = this.landmarks ??= new BuildingsMB(landmarkGlobe);
         provider.accessToken = token;
         void provider.generateBuildings().then(tiles => {
             if (provider !== this.landmarks || key !== this.landmarkKey) return;
             for (const tile of tiles)
                 for (const mesh of tile.asset.meshes) {
-                    this.layers.add(mesh, 6);
+                    mesh.computeWorldMatrix(true);
+                    const location = landmarkGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
+                    mesh.setEnabled(!this.googleTiles?.coversLocation(location.latitude, location.longitude));
+                    this.layers.add(mesh, 7);
                     mesh.freezeWorldMatrix();
                     mesh.material?.freeze();
                     mesh.isPickable = false;
@@ -602,10 +639,11 @@ class GlobeDemo {
             } else for (const child of part) stack.push(child);
         }
         if (!Number.isFinite(west) || east - west > 180) return true;
+        if (this.googleTiles?.coversLocation((south + north) / 2, (west + east) / 2)) return false;
         // Skip only footprints wholly inside finer coverage. Boundary-crossing
         // footprints still reach the existing geometry-based ownership filter.
         for (const finer of [this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)]) {
-            if (finer.zoom <= owner.zoom) continue;
+            if (finer.zoom <= owner.zoom || finer.zoom > 14) continue;
             if ([west, east].every(lon => [south, north].every(lat => finer.ourTilesMap.has(
                 new Vector3(finer.ourTileMath.lon_to_tile(lon, finer.zoom), finer.ourTileMath.lat_to_tile(lat, finer.zoom), finer.zoom).toString(),
             )))) return false;
@@ -616,8 +654,9 @@ class GlobeDemo {
     private keepBuilding(mesh: import("@babylonjs/core/Meshes/mesh").Mesh, owner: GlobeSet): boolean {
         const center = mesh.getBoundingInfo().boundingBox.centerWorld;
         const position = owner.getSurfaceCoordinates(center);
+        if (this.googleTiles?.coversLocation(position.latitude, position.longitude)) return false;
         for (const finer of [this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)]) {
-            if (finer.zoom <= owner.zoom) continue;
+            if (finer.zoom <= owner.zoom || finer.zoom > 14) continue;
             const coordinate = new Vector3(finer.ourTileMath.lon_to_tile(position.longitude, finer.zoom), finer.ourTileMath.lat_to_tile(position.latitude, finer.zoom), finer.zoom);
             if (finer.ourTilesMap.has(coordinate.toString())) return false;
         }
@@ -636,13 +675,27 @@ class GlobeDemo {
 
     private refreshBuildingReplacements(): void {
         const models = this.landmarks?.loadedModelTiles.flatMap(tile => tile.asset.meshes) ?? [];
-        this.replacements.setModels(models.filter((mesh): mesh is import("@babylonjs/core/Meshes/mesh").Mesh => mesh.getTotalVertices() > 0) as import("@babylonjs/core/Meshes/mesh").Mesh[]);
+        this.replacements.setModels(models.filter((mesh): mesh is import("@babylonjs/core/Meshes/mesh").Mesh => mesh.isEnabled() && mesh.getTotalVertices() > 0) as import("@babylonjs/core/Meshes/mesh").Mesh[]);
         for (const entry of [{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]) {
-            if (!entry.buildings || entry.globe.zoom < MIN_GLOBE_BUILDING_ZOOM) continue;
-            entry.buildings.cancelPendingRequests();
+            if (!entry.buildings || entry.globe.zoom < MIN_GLOBE_BUILDING_ZOOM || entry.globe.zoom > 14) continue;
             for (const tile of entry.globe.ourTiles) {
+                const math = entry.globe.ourTileMath;
+                const points = [0, 0.5, 1].flatMap(x => [0, 0.5, 1].map(y => ({
+                    longitude: math.tile_to_lon(tile.tileCoords.x + x, tile.tileCoords.z),
+                    latitude: math.tile_to_lat(tile.tileCoords.y + y, tile.tileCoords.z),
+                })));
+                const coverage = points.map(point => this.googleTiles?.coversLocation(point.latitude, point.longitude) ? "1" : "0").join("");
+                const localModels = models.filter(mesh => {
+                    const point = entry.globe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
+                    return math.lon_to_tile(point.longitude, tile.tileCoords.z) === tile.tileCoords.x
+                        && math.lat_to_tile(point.latitude, tile.tileCoords.z) === tile.tileCoords.y;
+                }).map(mesh => `${mesh.uniqueId}:${mesh.isEnabled()}`).join(",");
+                const signature = `${tile.tileCoords}/${coverage}/${localModels}`;
+                if (this.replacementSignatures.get(tile) === signature) continue;
+                this.replacementSignatures.set(tile, signature);
+                entry.buildings.cancelPendingRequests(tile);
                 tile.deleteBuildings();
-                if (!this.photorealisticActive && (document.getElementById("buildings") as HTMLInputElement).checked) entry.buildings.SubmitLoadTileRequest(tile);
+                if ((document.getElementById("buildings") as HTMLInputElement).checked) entry.buildings.SubmitLoadTileRequest(tile);
             }
         }
     }
@@ -726,6 +779,7 @@ class GlobeDemo {
         });
 
         this.navigator.onViewChangedObservable.add((view) => {
+            this.terrainTransition.capture(this.detailGlobe, view.zoom);
             const precision = view.zoom < 5 ? 16 : 64;
             if (this.detailGlobe.meshPrecision !== precision) {
                 this.detailGlobe.createGeometry(
@@ -734,7 +788,7 @@ class GlobeDemo {
                     precision,
                 );
                 for (const tile of this.detailGlobe.ourTiles)
-                    this.layers.add(tile.mesh, 6);
+                    this.registerTerrain(tile.mesh, 6);
                 this.data.invalidate();
             }
             this.updateDistanceLayers(view);
@@ -745,12 +799,12 @@ class GlobeDemo {
     }
 
     private setPhotorealisticActive(active: boolean): void {
-        if (active === this.photorealisticActive) return;
         this.photorealisticActive = active;
         const buildings = (document.getElementById("buildings") as HTMLInputElement).checked;
-        this.data.options.buildings = buildings && !active ? this.buildings : undefined;
-        this.data.invalidate();
+        this.data.options.buildings = buildings ? this.buildings : undefined;
         this.configureDistanceLayers();
+        this.landmarkKey = "";
+        this.refreshBuildingReplacements();
     }
 
     private googleStatus(message: string): void {
@@ -761,49 +815,70 @@ class GlobeDemo {
         const view = this.navigator.getView();
         const enabled = (document.getElementById("googleTiles") as HTMLInputElement).checked;
         const quality = (document.getElementById("googleQuality") as HTMLSelectElement).value;
-        const key = enabled && view.zoom >= 16
-            ? `${view.latitude.toFixed(4)}/${view.longitude.toFixed(4)}/${Math.round(view.zoom)}/${quality}` : "";
+        const math = this.detailGlobe.ourTileMath;
+        // Small distance changes can reveal new detail before crossing a raster zoom level.
+        const direction = this.scene.activeCamera!.getForwardRay().direction;
+        const bearing = [direction.x, direction.y, direction.z].map(value => Math.round(value * 10)).join("/");
+        const distanceStep = Math.round(Math.log(Math.max(view.altitude, 1e-9)) / Math.log(1.05));
+        const positionStep = Math.max(2, Math.min(150, view.altitude / this.detailGlobe.metresToWorld * 0.08));
+        const positionKey = `${Math.round(view.latitude * 111320 / positionStep)}/${Math.round(view.longitude * 111320 * Math.cos(view.latitude * Math.PI / 180) / positionStep)}`;
+        const key = enabled && view.zoom >= 12
+            ? `${math.lon_to_tile(view.longitude, view.zoom)}/${math.lat_to_tile(view.latitude, view.zoom)}/${view.zoom}/${quality}/${bearing}/${distanceStep}/${positionKey}` : "";
         if (!force && key === this.googleViewKey) return;
         this.googleViewKey = key;
         clearTimeout(this.googleTimer);
+        clearTimeout(this.googlePrefetchTimer);
+        this.googleTiles?.cancelPendingLoad();
         const generation = ++this.googleGeneration;
-        this.googleTiles?.dispose();
-        this.googleTiles = undefined;
-        document.getElementById("googleCredits")!.hidden = true;
-        this.canvas.dataset.googleTiles = "0";
         if (!key) {
+            this.googleTiles?.dispose(); this.googleTiles = undefined;
+            document.getElementById("googleCredits")!.hidden = true;
+            this.canvas.dataset.googleTiles = "0";
             this.setPhotorealisticActive(false);
             this.googleStatus(enabled ? "Google 3D · zoom in to street scale" : "Google 3D off");
             return;
         }
-        if (!this.googleKey) {
-            this.googleStatus("Google 3D unavailable: key not configured.");
-            return;
-        }
-        this.googleStatus("Google 3D · waiting for view to settle…");
+        if (!this.googleKey) return;
         this.googleTimer = setTimeout(async () => {
             if (generation !== this.googleGeneration) return;
-            const provider = this.googleTiles = new Google3DTiles(this.detailGlobe, {
+            if (this.googleLoading) this.googleTiles?.cancelPendingLoad();
+            const { meanSeaLevel } = await import("egm96-universal");
+            if (generation !== this.googleGeneration) return;
+            const provider = this.googleTiles ??= new Google3DTiles(this.detailGlobe, {
                 apiKey: this.googleKey,
-                maxDepth: quality === "auto" ? (view.zoom >= 17 ? 22 : 20) : Number(quality),
-                maxTiles: 256,
+                origin: { latitude: view.latitude, longitude: view.longitude },
+                maxTiles: 1024,
+                maximumDisplayGeometricError: 33,
+                cullToCamera: true,
+                coverageRadius: 50000,
+                heightOffset: -meanSeaLevel(view.latitude, view.longitude),
             });
-            this.googleStatus("Google 3D · loading photorealistic detail…");
+            provider.maxDepth = quality === "auto" || quality === "32" ? 64 : Number(quality);
+            provider.coverageRadius = 50000;
+            provider.maximumScreenSpaceError = quality === "20" ? 2 : quality === "auto" ? 1 : 0.75;
+            this.googleLoading = true;
+            this.googleStatus("Google 3D · streaming nearby detail…");
+            const started = performance.now();
             try {
                 const loaded = await provider.load();
                 if (generation !== this.googleGeneration) return;
                 this.setPhotorealisticActive(loaded.length > 0);
                 this.canvas.dataset.googleTiles = String(loaded.length);
+                this.canvas.dataset.googleLoadMs = String(Math.round(performance.now() - started));
                 document.getElementById("googleSources")!.textContent = provider.getAttributions().join("; ");
                 document.getElementById("googleCredits")!.hidden = loaded.length === 0;
-                this.googleStatus(loaded.length ? `Google 3D · ${loaded.length} tiles${loaded.length === 256 ? " · detail budget reached" : ""}` : "Google 3D · no coverage here");
-            } catch {
-                if (generation === this.googleGeneration) {
-                    this.setPhotorealisticActive(false);
-                    this.googleStatus("Google 3D unavailable · toggle to retry");
-                }
+                this.googleStatus(loaded.length ? `Google 3D · ${loaded.length} tiles` : "Google 3D · no coverage here");
+                this.googlePrefetchTimer = setTimeout(() => {
+                    if (generation === this.googleGeneration) void provider.prefetchSurroundings().catch(() => undefined);
+                }, 1000);
+            } catch (error) {
+                const reason = (error instanceof Error ? error.message : String(error)).replace(/https?:\/\/\S+/g, "[request]");
+                console.warn("Google 3D loading failed:", reason);
+                if (generation === this.googleGeneration) this.googleStatus(`Google 3D unavailable · ${reason}`);
+            } finally {
+                if (generation === this.googleGeneration) this.googleLoading = false;
             }
-        }, 650);
+        }, 35);
     }
 
     private updateDistanceLayers(view: GlobeView): void {
@@ -818,8 +893,8 @@ class GlobeDemo {
                 globe.rasterConcurrency = 2;
                 globe.setRasterProvider(new RasterOSM(globe));
                 globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);
-                for (const tile of globe.ourTiles) this.layers.add(tile.mesh, plan.group);
-                const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: plan.group === 2 ? 4 : 2, minTerrainZoom: 5, prioritizeVisible: true, minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM });
+                for (const tile of globe.ourTiles) this.registerTerrain(tile.mesh, plan.group);
+                const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: plan.group === 2 ? 4 : 2, minTerrainZoom: 5, prioritizeVisible: true, minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14 });
                 this.distanceLayers.push({ globe, data, key: "" });
             }
             this.configureDistanceLayers();
@@ -831,7 +906,7 @@ class GlobeDemo {
             const size = view.zoom < 8 ? 1 : Math.min(plan.size, 2 ** plan.zoom);
             if (layer.globe.ourTiles.length !== size * size) {
                 layer.globe.createGeometry(new Vector2(size, size), 20, plan.precision);
-                for (const tile of layer.globe.ourTiles) this.layers.add(tile.mesh, plan.group);
+                for (const tile of layer.globe.ourTiles) this.registerTerrain(tile.mesh, plan.group);
                 layer.key = "";
                 layer.data.invalidate();
             }
@@ -840,6 +915,7 @@ class GlobeDemo {
             const math = layer.globe.ourTileMath;
             const key = `${plan.zoom}/${math.lon_to_tile(view.longitude, plan.zoom)}/${math.lat_to_tile(Math.max(-85, Math.min(85, view.latitude)), plan.zoom)}`;
             if (layer.key === key) return;
+            this.terrainTransition.capture(layer.globe, plan.zoom);
             layer.key = key;
             layer.globe.updateRaster(view.latitude, view.longitude, plan.zoom);
         });
@@ -852,6 +928,7 @@ class GlobeDemo {
         else if (style === "satellite" && token) {
             const raster = new RasterMB(globe);
             raster.accessToken = token;
+            raster.doResBoost = true;
             globe.setRasterProvider(raster);
         } else globe.setRasterProvider(new RasterOSM(globe));
     }
@@ -871,26 +948,32 @@ class GlobeDemo {
             if (this.overtureURL && !layer.buildings) {
                 layer.buildings = new BuildingsOverture(layer.globe, this.overtureURL);
                 layer.buildings.doMerge = true;
-                layer.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true });
+                layer.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 layer.buildings.buildingMeshFilter = mesh => this.keepBuilding(mesh, layer.globe);
                 layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry.coordinates, layer.globe);
-                layer.buildings.buildingsCreatedPerFrame = 8;
-                layer.buildings.creationTimeBudgetMs = 1;
-                layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, index + 1); };
+                layer.buildings.buildingsCreatedPerFrame = 64;
+                layer.buildings.creationTimeBudgetMs = 2;
+                layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, 7); };
             }
-            layer.data.options.buildings = buildings && !this.photorealisticActive ? layer.buildings : undefined;
+            const terrainChanged = layer.data.options.elevation !== (terrain ? this.elevation.load : undefined)
+                || layer.data.options.exaggeration !== exaggeration;
+            const buildingsChanged = layer.data.options.buildings !== (buildings ? layer.buildings : undefined);
+            layer.data.options.buildings = buildings ? layer.buildings : undefined;
             layer.data.options.elevation = terrain ? this.elevation.load : undefined;
             layer.data.options.exaggeration = exaggeration;
             layer.lodKey = undefined;
             if (!terrain) for (const tile of layer.globe.ourTiles) {
                 if (layer.globe.isTileGeometryReady(tile)) layer.globe.applyElevationGrid(tile, new Array((layer.globe.meshPrecision + 1) ** 2).fill(0), layer.globe.meshPrecision);
             }
-            layer.data.invalidate();
+            if (terrainChanged || buildingsChanged) layer.data.invalidate(!terrainChanged);
         });
     }
 
     private exitInspection(): void {
         if (!this.inspecting) return;
+        const view = this.navigator.getView();
+        this.navigator.setViewSource();
+        this.navigator.setView(view.latitude, view.longitude, { altitude: view.altitude });
         this.inspecting.dispose();
         this.inspecting = undefined;
         this.scene.activeCamera = this.camera;
@@ -900,7 +983,7 @@ class GlobeDemo {
     }
 
     private inspectionBasis() {
-        const view = this.navigator.getView();
+        const view = this.inspecting ? this.detailGlobe.getSurfaceCoordinates(this.inspecting.position) : this.navigator.getView();
         const up = this.detailGlobe.getSurfaceNormal(view.latitude, view.longitude);
         const longitude = view.longitude * Math.PI / 180;
         const east = new Vector3(-Math.cos(longitude), 0, -Math.sin(longitude));
@@ -910,6 +993,7 @@ class GlobeDemo {
 
     private orientView(tilt: number, heading: number, targetHeightMetres = 0, distanceMetres?: number): void {
         const view = this.navigator.getView();
+        const preserveEye = this.inspecting?.position.clone();
         const { up, east, north } = this.inspectionBasis();
         if (!this.inspecting) {
             if (this.tourTimer) {
@@ -925,29 +1009,20 @@ class GlobeDemo {
             const camera = new ArcRotateCamera("local inspection", 0, 1, distanceMetres ? distanceMetres * this.detailGlobe.metresToWorld : view.altitude, target, this.scene);
             camera.upVector = up;
             camera.lowerBetaLimit = 0.001;
-            camera.upperBetaLimit = Math.PI / 2 - 0.001;
+            camera.upperBetaLimit = Math.PI - 0.001;
             camera.minZ = Math.max(0.0000001, view.altitude * 0.0001);
             camera.lowerRadiusLimit = Math.max(0.00001, view.altitude / 100);
             camera.upperRadiusLimit = view.altitude * 8;
             camera.wheelDeltaPercentage = 0.03;
-            camera.panningSensibility = 0;
+            camera.panningSensibility = 500 / camera.radius;
             camera.inertia = 0.65;
             camera.angularSensibilityX = camera.angularSensibilityY = 1500;
-            let groundHeight = this.detailGlobe.sampleElevation(view.latitude, view.longitude);
-            camera.onAfterCheckInputsObservable.add(() => {
-                const nextHeight = this.detailGlobe.sampleElevation(view.latitude, view.longitude);
-                if (Math.abs(nextHeight - groundHeight) > 1e-10) {
-                    const shift = up.scale(nextHeight - groundHeight);
-                    const position = camera.position.add(shift);
-                    camera.setTarget(camera.getTarget().add(shift));
-                    camera.setPosition(position);
-                    groundHeight = nextHeight;
-                }
-                this.keepInspectionAboveGround(camera);
-            });
-            camera.attachControl(this.canvas, true);
+            // Local exploration uses translation and looking, never an orbit pivot.
+            camera.inputs.clear();
+            camera.onAfterCheckInputsObservable.add(() => this.keepInspectionAboveGround(camera));
             this.scene.activeCamera = camera;
             this.inspecting = camera;
+            this.navigator.setViewSource(camera);
             document.getElementById("inspect")!.textContent = "Top down";
         }
         const camera = this.inspecting;
@@ -957,7 +1032,9 @@ class GlobeDemo {
             .subtract(north.scale(Math.sin(pitch) * Math.cos(bearing)))
             .subtract(east.scale(Math.sin(pitch) * Math.sin(bearing)));
         camera.inertialAlphaOffset = camera.inertialBetaOffset = 0;
-        camera.setPosition(camera.getTarget().add(offset.scale(camera.radius)));
+        if (preserveEye) {
+            lookFromEye(camera, up, offset);
+        } else camera.setPosition(camera.getTarget().add(offset.scale(camera.radius)));
         this.keepInspectionAboveGround(camera);
         this.syncOrientationControls(tilt, heading);
     }
@@ -968,14 +1045,14 @@ class GlobeDemo {
         const minimum = this.detailGlobe.sampleElevation(location.latitude, location.longitude)
             + 2 * this.detailGlobe.metresToWorld;
         if (location.elevation < minimum) {
-            camera.setPosition(this.detailGlobe.getSurfacePosition(location.latitude, location.longitude, minimum));
+            moveEye(camera, this.detailGlobe.getSurfacePosition(location.latitude, location.longitude, minimum).subtract(camera.position));
             camera.inertialBetaOffset = camera.inertialRadiusOffset = 0;
         }
     }
 
     private syncOrientationControls(tilt: number, heading: number): void {
         for (const [id, value] of [["tilt", tilt], ["heading", heading]] as const) {
-            const rounded = id === "heading" ? Math.round(value) % 360 : Math.min(89, Math.round(value));
+            const rounded = id === "heading" ? Math.round(value) % 360 : Math.min(179, Math.round(value));
             const input = document.getElementById(id) as HTMLInputElement;
             const output = document.getElementById(`${id}Value`)!;
             if (input.value !== String(rounded)) input.value = String(rounded);
@@ -992,12 +1069,82 @@ class GlobeDemo {
         this.syncOrientationControls(tilt, heading);
     }
 
+    private translateInspection(shift: Vector3): void {
+        const camera = this.inspecting;
+        if (!camera) return;
+        moveEye(camera, shift);
+        this.keepInspectionAboveGround(camera);
+    }
+
+    private movementSpeed(): number {
+        const location = this.detailGlobe.getSurfaceCoordinates(this.inspecting!.position);
+        const height = location.elevation - this.detailGlobe.sampleElevation(location.latitude, location.longitude);
+        return Math.max(10 * this.detailGlobe.metresToWorld, height * 0.8);
+    }
+
+    private updateMovement(): void {
+        const camera = this.inspecting;
+        if (!camera) return;
+        const forwardInput = Number(this.movementKeys.has("w")) - Number(this.movementKeys.has("s"));
+        const rightInput = Number(this.movementKeys.has("d")) - Number(this.movementKeys.has("a"));
+        const verticalInput = Number(this.movementKeys.has("e")) - Number(this.movementKeys.has("q"));
+        if (!forwardInput && !rightInput && !verticalInput) return;
+        const { up, north } = this.inspectionBasis();
+        const forward = camera.getTarget().subtract(camera.position);
+        forward.subtractInPlace(up.scale(Vector3.Dot(forward, up)));
+        if (forward.lengthSquared() < 1e-16) forward.copyFrom(north);
+        forward.normalize();
+        const right = Vector3.Cross(up, forward).normalize();
+        const direction = forward.scale(forwardInput).add(right.scale(rightInput)).add(up.scale(verticalInput)).normalize();
+        this.translateInspection(direction.scale(this.movementSpeed()
+            * (this.movementKeys.has("shift") ? 4 : 1) * Math.min(this.engine.getDeltaTime(), 50) / 1000));
+    }
+
     private setupPointerNavigation(): void {
+        let lookPointer: number | undefined;
+        let lastX = 0, lastY = 0, lookTilt = 0, lookHeading = 0;
+        this.canvas.addEventListener("contextmenu", event => event.preventDefault());
+        this.canvas.addEventListener("pointerdown", event => {
+            if (!this.inspecting || event.button !== 0 && event.button !== 2) return;
+            event.preventDefault();
+            this.canvas.focus();
+            lookPointer = event.pointerId;
+            lookTilt = Number((document.getElementById("tilt") as HTMLInputElement).value);
+            lookHeading = Number((document.getElementById("heading") as HTMLInputElement).value);
+            lastX = event.clientX; lastY = event.clientY;
+            this.canvas.setPointerCapture(event.pointerId);
+        });
+        this.canvas.addEventListener("pointermove", event => {
+            if (!this.inspecting || event.pointerId !== lookPointer) return;
+            const dx = event.clientX - lastX, dy = event.clientY - lastY;
+            lastX = event.clientX; lastY = event.clientY;
+            lookTilt = Math.max(0.1, Math.min(179, lookTilt - dy * 0.15));
+            lookHeading = (lookHeading + dx * 0.15 + 360) % 360;
+            this.orientView(lookTilt, lookHeading);
+        });
+        const stopLooking = () => { lookPointer = undefined; };
+        this.canvas.addEventListener("pointerup", stopLooking);
+        this.canvas.addEventListener("pointercancel", stopLooking);
+        this.canvas.addEventListener("lostpointercapture", stopLooking);
+        window.addEventListener("keydown", event => {
+            const target = event.target as HTMLInputElement;
+            if (target?.tagName === "TEXTAREA" || target?.isContentEditable
+                || target?.tagName === "INPUT" && target.type !== "range" && target.type !== "checkbox") return;
+            if (this.inspecting && ["w", "a", "s", "d", "q", "e", "shift"].includes(event.key.toLowerCase()) && !event.ctrlKey && !event.metaKey) {
+                event.preventDefault(); this.movementKeys.add(event.key.toLowerCase());
+            }
+        });
+        window.addEventListener("keyup", event => this.movementKeys.delete(event.key.toLowerCase()));
+        window.addEventListener("blur", () => this.movementKeys.clear());
         this.canvas.addEventListener(
             "wheel",
             (event) => {
-                if (this.inspecting) return;
                 event.preventDefault();
+                if (this.inspecting) {
+                    const direction = this.inspecting.getTarget().subtract(this.inspecting.position).normalize();
+                    this.translateInspection(direction.scale(-Math.max(-300, Math.min(300, event.deltaY)) / 300 * this.movementSpeed()));
+                    return;
+                }
                 const view = this.navigator.getView();
                 const direction = event.deltaY < 0 ? 1 : -1;
                 const targetZoom = Math.max(
@@ -1027,8 +1174,8 @@ class GlobeDemo {
             if (this.inspecting) return;
             const rect = this.canvas.getBoundingClientRect();
             const coordinates = this.navigator.getCoordinatesAtScreenPoint(
-                event.clientX - rect.left,
-                event.clientY - rect.top,
+                (event.clientX - rect.left) * this.engine.getRenderWidth() / rect.width,
+                (event.clientY - rect.top) * this.engine.getRenderHeight() / rect.height,
             );
             if (coordinates === undefined) {
                 return;
@@ -1044,7 +1191,7 @@ class GlobeDemo {
 
     private changeZoom(change: number): void {
         if (this.inspecting) {
-            this.inspecting.radius = Math.max(this.inspecting.lowerRadiusLimit!, Math.min(this.inspecting.upperRadiusLimit!, this.inspecting.radius * 2 ** -change));
+            this.translateInspection(this.inspecting.getTarget().subtract(this.inspecting.position).normalize().scale(this.movementSpeed() * change));
             return;
         }
         const view = this.navigator.getView();

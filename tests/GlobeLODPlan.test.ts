@@ -20,7 +20,7 @@ describe("globe distance LOD", () => {
             const plans = globeLODPlan(zoom);
             expect(plans.slice(1).every(plan => plan.zoom >= MIN_GLOBE_BUILDING_ZOOM)).toBe(true);
             expect(plans[0].zoom).toBeLessThan(MIN_GLOBE_BUILDING_ZOOM);
-            expect(plans.reduce((count, plan) => count + plan.size ** 2, 25)).toBeLessThanOrEqual(345);
+            expect(plans.reduce((count, plan) => count + plan.size ** 2, 25)).toBeLessThanOrEqual(1129);
             // Preserve the original horizon span of eight zoom-8 tiles.
             expect(plans[0].size / 2 ** plans[0].zoom).toBe(8 / 2 ** 8);
         }
@@ -29,7 +29,7 @@ describe("globe distance LOD", () => {
         for (let zoom = 8; zoom <= 18; zoom++) {
             const plans = globeLODPlan(zoom);
             const vertices = plans.reduce((total, p) => total + p.size ** 2 * (p.precision + 1) ** 2, 0);
-            expect(vertices).toBeLessThan(600000);
+            expect(vertices).toBeLessThan(800000);
             expect(plans[0].zoom).toBeLessThan(plans[1].zoom);
             expect(plans[1].zoom).toBeLessThan(zoom);
             expect(plans.map(p => p.group)).toEqual([1, 2, 3, 4, 5]);

@@ -326,6 +326,7 @@ export default class TileSet {
                     material.unfreeze();
 
                     material.diffuseTexture = request.texture;
+                    material.diffuseTexture.anisotropicFilteringLevel = this.engine.getCaps().maxAnisotropy;
                     material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
                     material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
                     material.diffuseTexture.hasAlpha = this.hasAlpha;

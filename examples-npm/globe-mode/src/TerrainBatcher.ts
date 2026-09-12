@@ -132,6 +132,7 @@ export class TerrainBatcher {
             let read = this.pixels.get(texture);
             if (!read) { read = Promise.resolve(texture.readPixels()); this.pixels.set(texture, read); }
             const pixels = await read;
+            this.pixels.delete(texture);
             if (!pixels || pixels.byteLength !== size.width * size.height * 4) { this.lastError = "Unsupported texture readback"; return; }
             if (!this.enabled || !sources.every(source => this.valid(source))) { this.lastError = "Tiles changed during readback"; return; }
             data.set(new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength), i * size.width * size.height * 4);

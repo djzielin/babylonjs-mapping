@@ -76,7 +76,7 @@
         <aside id="controlPanel" aria-label="Globe controls">
             <h1>Earth, in detail</h1>
             <button id="controlsToggle" type="button" aria-expanded="false">Layers &amp; controls</button>
-            <p class="hint">Drag to explore · scroll to zoom</p>
+            <p class="hint">Drag to look · WASD move · Q/E down/up · Shift faster · scroll to fly</p>
             <div class="actions map-style" role="group" aria-label="Map imagery">
                 <button id="mapView" type="button" aria-pressed="true">Map</button>
                 <button id="satelliteView" type="button" aria-pressed="false">Satellite</button>
@@ -104,7 +104,7 @@
                 <button id="tour" type="button">Guided tour</button>
             </div>
             <div class="orientation" role="group" aria-label="Viewing angle">
-                <label class="angle">Tilt<input id="tilt" type="range" min="0" max="89" value="0"><output id="tiltValue">0°</output></label>
+                <label class="angle">Tilt<input id="tilt" type="range" min="0" max="179" value="0"><output id="tiltValue">0°</output></label>
                 <label class="angle">Heading<input id="heading" type="range" min="0" max="359" value="0"><output id="headingValue">0°</output></label>
             </div>
             <label class="toggle"><input id="googleTiles" type="checkbox" checked>Google photorealistic 3D</label>
@@ -112,7 +112,7 @@
             <p id="loadingStatus" role="status">Loading terrain and buildings…</p>
             <details>
                 <summary>More options</summary>
-                <label>Google 3D detail<select id="googleQuality"><option value="auto">Automatic · highest detail nearby</option><option value="20">Balanced</option><option value="22">Highest</option></select></label>
+                <label>Google 3D detail<select id="googleQuality"><option value="auto">Automatic · highest detail nearby</option><option value="20">Balanced</option><option value="32">Highest</option></select></label>
                 <div class="settings">
                     <label class="field">Map style
                         <select id="basemap"><option value="osm">OpenStreetMap</option><option value="gebco">Ocean depth</option><option value="satellite">Satellite (Mapbox token)</option></select>
