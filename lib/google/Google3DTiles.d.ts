@@ -75,6 +75,8 @@ export interface Google3DTilesOptions {
     maximumGeometricError?: number;
     /** Projected geometric error in physical pixels; globe scenes only. */
     maximumScreenSpaceError?: number;
+    /** Omit budget-limited content above this source error (metres), leaving room for a fallback provider. */
+    maximumDisplayGeometricError?: number;
     /** Stream only bounding volumes intersecting the active camera frustum. */
     cullToCamera?: boolean;
     /** Metres added to ellipsoid heights to match the scene vertical datum. */
@@ -119,6 +121,7 @@ export default class Google3DTiles {
     coverageRadius?: number;
     maximumGeometricError: number;
     maximumScreenSpaceError?: number;
+    maximumDisplayGeometricError?: number;
     cullToCamera: boolean;
     heightOffset: number;
     readonly stats: {
@@ -126,6 +129,7 @@ export default class Google3DTiles {
         modelRequests: number;
         reusedModels: number;
         detailLimitedTiles: number;
+        sourceLimitedTiles: number;
     };
     origin?: Google3DTilesOrigin;
     private readonly tilesetLoader;
@@ -141,8 +145,12 @@ export default class Google3DTiles {
     private originStateKey;
     private googleAttributionAdded;
     private pendingModels;
+    private selectionEye?;
+    private frontierCache?;
     private networkActive;
     private networkWaiters;
+    private networkDrainQueued;
+    private drainNetwork;
     private networkSlot;
     constructor(tileSet: TileSet, options?: Google3DTilesOptions);
     /** Content currently attached to the Babylon scene. */
@@ -170,6 +178,9 @@ export default class Google3DTiles {
     cancelPendingLoad(): void;
     /** Loads content that overlaps the current TileSet. */
     load(): Promise<readonly LoadedGoogle3DTile[]>;
+    private trimRetainedTiles;
+    /** Prepare a bounded surrounding ring after visible loading has finished. */
+    prefetchSurroundings(): Promise<void>;
     /** Alias matching the building-provider lifecycle used by older examples. */
     generateBuildings(): Promise<readonly LoadedGoogle3DTile[]>;
     /** Disposes loaded GLB assets and clears the provider's request caches. */
@@ -181,6 +192,7 @@ export default class Google3DTiles {
     private loadRootTileset;
     private authenticateURL;
     private loadExternalTileset;
+    private cameraEye;
     private tilePriority;
     private allowedGeometricError;
     /** A complete renderable frontier: refine the largest projected error first.
