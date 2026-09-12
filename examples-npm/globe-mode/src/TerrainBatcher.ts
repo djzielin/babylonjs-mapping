@@ -67,7 +67,15 @@ export class TerrainBatcher {
     constructor(private scene: Scene, private groups: () => Mesh[][], private register: (mesh: Mesh, source: Mesh) => void) {
         if ((scene.getEngine() as Engine).webGLVersion < 2) return;
         scene.onBeforeRenderObservable.add(() => this.update());
-        scene.onDisposeObservable.add(() => this.batches.forEach(batch => this.release(batch)));
+        const engine = scene.getEngine();
+        const lost = engine.onContextLostObservable.add(() => {
+            this.batches.forEach(batch => this.release(batch));
+            this.batches = [];
+        });
+        scene.onDisposeObservable.add(() => {
+            engine.onContextLostObservable.remove(lost);
+            this.batches.forEach(batch => this.release(batch));
+        });
     }
     private snapshot(mesh: Mesh): Source {
         return { mesh, texture: (mesh.material as StandardMaterial).diffuseTexture as Texture,
@@ -139,6 +147,10 @@ export class TerrainBatcher {
         }
         const { vertices, layers, origin } = terrainBatchGeometry(sources.map(source => source.mesh));
         const texture = RawTexture2DArray.CreateRGBATexture(data, size.width, size.height, sources.length, this.scene, true, false, sources[0].texture.samplingMode);
+        // Derived pixels can be regenerated from the original raster textures.
+        // Avoid retaining a second city-sized CPU copy for context restoration;
+        // context loss releases these batches and the originals rebuild normally.
+        texture.getInternalTexture()!._bufferView = null;
         texture.anisotropicFilteringLevel = sources[0].texture.anisotropicFilteringLevel;
         texture.wrapU = texture.wrapV = Texture.CLAMP_ADDRESSMODE;
         const material = (sources[0].mesh.material as StandardMaterial).clone("batched terrain");

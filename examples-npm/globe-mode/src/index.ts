@@ -321,7 +321,7 @@ class GlobeDemo {
                 this.buildings.batchVisibilityFilter = (lat, lon) => !this.googleTiles?.coversLocation(lat, lon);
                 this.buildings.loadConcurrency = 6;
                 this.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
-                this.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry.coordinates, this.detailGlobe);
+                this.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry.coordinates, this.detailGlobe, Number(feature.properties?.height) || 4);
                 this.buildings.buildingsCreatedPerFrame = 32;
                 this.buildings.buildingMeshTransform = (mesh) => {
                     this.layers.add(mesh, 7);
@@ -630,7 +630,7 @@ class GlobeDemo {
         });
     }
 
-    private keepBuildingFeature(coordinates: unknown, owner: GlobeSet): boolean {
+    private keepBuildingFeature(coordinates: unknown, owner: GlobeSet, height = 4): boolean {
         let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
         const stack: unknown[] = [coordinates];
         while (stack.length) {
@@ -651,6 +651,14 @@ class GlobeDemo {
             )))) return false;
         }
         const point = owner.getSurfacePosition((south + north) / 2, (west + east) / 2);
+        if (owner.zoom < 14 && this.scene.activeCamera) {
+            const camera = this.scene.activeCamera;
+            const metres = Math.max(height, (north - south) * 111320,
+                (east - west) * 111320 * Math.cos((south + north) * Math.PI / 360));
+            const distance = Math.max(1, Vector3.Distance(point, camera.globalPosition) / owner.metresToWorld);
+            const pixels = metres / distance * this.engine.getRenderHeight() / (2 * Math.tan(camera.fov / 2));
+            if (pixels < 1) return false;
+        }
         return this.replacements.keepPoint(point, point, 20000 * owner.metresToWorld);
     }
 
@@ -954,7 +962,7 @@ class GlobeDemo {
                 layer.buildings.batchVisibilityFilter = (lat, lon) => !this.googleTiles?.coversLocation(lat, lon);
                 layer.buildings.loadConcurrency = 6;
                 layer.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
-                layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry.coordinates, layer.globe);
+                layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry.coordinates, layer.globe, Number(feature.properties?.height) || 4);
                 layer.buildings.buildingsCreatedPerFrame = 64;
                 layer.buildings.creationTimeBudgetMs = 2;
                 layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, 7); };
