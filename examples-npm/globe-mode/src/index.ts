@@ -190,12 +190,11 @@ class GlobeDemo {
             document.getElementById("controlsToggle")!.setAttribute("aria-expanded", String(expanded));
             document.getElementById("controlsToggle")!.textContent = expanded ? "Hide controls" : "Layers & controls";
         });
-        void fetch("google-key.txt").then(response => response.ok ? response.text() : "")
-            .then(key => {
-                this.googleKey = key.trim();
-                this.scheduleGoogleTiles(true);
-            }).catch(() => { this.googleStatus("Google 3D unavailable: key not configured."); });
-        document.getElementById("googleTiles")!.addEventListener("change", () => this.scheduleGoogleTiles(true));
+        void this.readGoogleKey();
+        document.getElementById("googleTiles")!.addEventListener("change", () => {
+            if (!this.googleKey && (document.getElementById("googleTiles") as HTMLInputElement).checked) void this.readGoogleKey();
+            else this.scheduleGoogleTiles(true);
+        });
         document.getElementById("googleQuality")!.addEventListener("change", () => this.scheduleGoogleTiles(true));
         this.engine.runRenderLoop(() => {
             this.updateMovement();
@@ -223,7 +222,7 @@ class GlobeDemo {
             if (performance.now() - this.lastStats > 500) {
                 this.scheduleGoogleTiles();
                 const coverageCount = this.googleTiles?.loadedModelTiles.length ?? 0;
-                if (!this.googleLoading && coverageCount !== this.lastCoverageCount && performance.now() - this.lastCoverageRefresh > 2000) {
+                if (coverageCount !== this.lastCoverageCount && performance.now() - this.lastCoverageRefresh > 250) {
                     this.lastCoverageCount = coverageCount;
                     this.lastCoverageRefresh = performance.now();
                     this.refreshBuildingReplacements();
@@ -251,7 +250,7 @@ class GlobeDemo {
                 const globes = [this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)];
                 const terrainTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.filter(tile => tile.terrainLoaded).length, 0);
                 const totalTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.length, 0);
-                const buildingTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.filter(tile => tile.buildings.length > 0).length, 0);
+                const buildingTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.filter(tile => tile.buildings.length > 0 || tile.buildingBatches.length > 0).length, 0);
                 document.getElementById("loadingStatus")!.textContent = `Terrain ${terrainTiles}/${totalTiles} tiles · Buildings ${buildingTiles} tiles${stat.failed ? ` · ${stat.failed} data errors` : ""}`;
                 const featureJobs = [this.buildings, this.roads, ...this.distanceLayers.map(layer => layer.buildings)]
                     .reduce((count, provider) => count + (provider?.pendingRequestCount ?? 0), 0);
@@ -316,9 +315,11 @@ class GlobeDemo {
                 this.overtureURL = url;
                 this.buildings = new BuildingsOverture(this.detailGlobe, url);
                 this.buildings.doMerge = true;
+                this.buildings.batchGeometry = true;
+                this.buildings.batchVisibilityFilter = (lat, lon) => !this.googleTiles?.coversLocation(lat, lon);
+                this.buildings.loadConcurrency = 6;
                 this.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 this.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry.coordinates, this.detailGlobe);
-                this.buildings.buildingMeshFilter = mesh => this.keepBuilding(mesh, this.detailGlobe);
                 this.buildings.buildingsCreatedPerFrame = 32;
                 this.buildings.buildingMeshTransform = (mesh) => {
                     this.layers.add(mesh, 7);
@@ -639,7 +640,6 @@ class GlobeDemo {
             } else for (const child of part) stack.push(child);
         }
         if (!Number.isFinite(west) || east - west > 180) return true;
-        if (this.googleTiles?.coversLocation((south + north) / 2, (west + east) / 2)) return false;
         // Skip only footprints wholly inside finer coverage. Boundary-crossing
         // footprints still reach the existing geometry-based ownership filter.
         for (const finer of [this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)]) {
@@ -648,19 +648,8 @@ class GlobeDemo {
                 new Vector3(finer.ourTileMath.lon_to_tile(lon, finer.zoom), finer.ourTileMath.lat_to_tile(lat, finer.zoom), finer.zoom).toString(),
             )))) return false;
         }
-        return true;
-    }
-
-    private keepBuilding(mesh: import("@babylonjs/core/Meshes/mesh").Mesh, owner: GlobeSet): boolean {
-        const center = mesh.getBoundingInfo().boundingBox.centerWorld;
-        const position = owner.getSurfaceCoordinates(center);
-        if (this.googleTiles?.coversLocation(position.latitude, position.longitude)) return false;
-        for (const finer of [this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)]) {
-            if (finer.zoom <= owner.zoom || finer.zoom > 14) continue;
-            const coordinate = new Vector3(finer.ourTileMath.lon_to_tile(position.longitude, finer.zoom), finer.ourTileMath.lat_to_tile(position.latitude, finer.zoom), finer.zoom);
-            if (finer.ourTilesMap.has(coordinate.toString())) return false;
-        }
-        return this.replacements.keepFootprint(mesh, center, 20000 * owner.metresToWorld);
+        const point = owner.getSurfacePosition((south + north) / 2, (west + east) / 2);
+        return this.replacements.keepPoint(point, point, 20000 * owner.metresToWorld);
     }
 
     private updateLandscapeLOD(): void {
@@ -678,6 +667,7 @@ class GlobeDemo {
         this.replacements.setModels(models.filter((mesh): mesh is import("@babylonjs/core/Meshes/mesh").Mesh => mesh.isEnabled() && mesh.getTotalVertices() > 0) as import("@babylonjs/core/Meshes/mesh").Mesh[]);
         for (const entry of [{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]) {
             if (!entry.buildings || entry.globe.zoom < MIN_GLOBE_BUILDING_ZOOM || entry.globe.zoom > 14) continue;
+            entry.buildings.updateBatchVisibility();
             for (const tile of entry.globe.ourTiles) {
                 const math = entry.globe.ourTileMath;
                 const points = [0, 0.5, 1].flatMap(x => [0, 0.5, 1].map(y => ({
@@ -690,11 +680,11 @@ class GlobeDemo {
                     return math.lon_to_tile(point.longitude, tile.tileCoords.z) === tile.tileCoords.x
                         && math.lat_to_tile(point.latitude, tile.tileCoords.z) === tile.tileCoords.y;
                 }).map(mesh => `${mesh.uniqueId}:${mesh.isEnabled()}`).join(",");
-                const signature = `${tile.tileCoords}/${coverage}/${localModels}`;
+                const signature = `${tile.tileCoords}/${entry.buildings.batchGeometry ? "batched" : coverage}/${localModels}`;
                 if (this.replacementSignatures.get(tile) === signature) continue;
                 this.replacementSignatures.set(tile, signature);
                 entry.buildings.cancelPendingRequests(tile);
-                tile.deleteBuildings();
+                if (!entry.buildings.batchGeometry) tile.deleteBuildings();
                 if ((document.getElementById("buildings") as HTMLInputElement).checked) entry.buildings.SubmitLoadTileRequest(tile);
             }
         }
@@ -811,6 +801,14 @@ class GlobeDemo {
         document.getElementById("googleStatus")!.textContent = message;
     }
 
+    private async readGoogleKey(): Promise<void> {
+        try {
+            const response = await fetch("google-key.txt", { cache: "no-store" });
+            this.googleKey = response.ok ? (await response.text()).trim() : "";
+        } catch { this.googleKey = ""; }
+        this.scheduleGoogleTiles(true);
+    }
+
     private scheduleGoogleTiles(force = false): void {
         const view = this.navigator.getView();
         const enabled = (document.getElementById("googleTiles") as HTMLInputElement).checked;
@@ -838,7 +836,7 @@ class GlobeDemo {
             this.googleStatus(enabled ? "Google 3D · zoom in to street scale" : "Google 3D off");
             return;
         }
-        if (!this.googleKey) return;
+        if (!this.googleKey) { this.googleStatus("Google 3D unavailable · local key missing; toggle to retry"); return; }
         this.googleTimer = setTimeout(async () => {
             if (generation !== this.googleGeneration) return;
             if (this.googleLoading) this.googleTiles?.cancelPendingLoad();
@@ -894,7 +892,7 @@ class GlobeDemo {
                 globe.setRasterProvider(new RasterOSM(globe));
                 globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);
                 for (const tile of globe.ourTiles) this.registerTerrain(tile.mesh, plan.group);
-                const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: plan.group === 2 ? 4 : 2, minTerrainZoom: 5, prioritizeVisible: true, minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14 });
+                const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: plan.group === 3 ? 8 : plan.group === 2 ? 4 : 2, minTerrainZoom: 5, prioritizeVisible: true, minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14 });
                 this.distanceLayers.push({ globe, data, key: "" });
             }
             this.configureDistanceLayers();
@@ -948,8 +946,10 @@ class GlobeDemo {
             if (this.overtureURL && !layer.buildings) {
                 layer.buildings = new BuildingsOverture(layer.globe, this.overtureURL);
                 layer.buildings.doMerge = true;
+                layer.buildings.batchGeometry = true;
+                layer.buildings.batchVisibilityFilter = (lat, lon) => !this.googleTiles?.coversLocation(lat, lon);
+                layer.buildings.loadConcurrency = 6;
                 layer.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
-                layer.buildings.buildingMeshFilter = mesh => this.keepBuilding(mesh, layer.globe);
                 layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry.coordinates, layer.globe);
                 layer.buildings.buildingsCreatedPerFrame = 64;
                 layer.buildings.creationTimeBudgetMs = 2;
