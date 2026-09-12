@@ -156,7 +156,7 @@ export default abstract class Buildings {
     get retrevialLocation(): RetrievalLocation;
     set retrevialLocation(value: RetrievalLocation);
     /** Invalidate queued and in-flight feature work when replacing a layer. */
-    cancelPendingRequests(): void;
+    cancelPendingRequests(tile?: Tile): void;
     abstract SubmitLoadTileRequest(tile: Tile): void;
     abstract SubmitLoadAllRequest(): void;
     ProcessGeoJSON(request: BuildingRequest, topLevel: GeoJSON.topLevel): void;
@@ -181,6 +181,8 @@ export default abstract class Buildings {
     protected doSave(text: string): void;
     private processLoadedGeoJSON;
     protected handleLoadTileRequest(request: BuildingRequest, requestIndex?: number): void;
+    private priorityTile?;
+    private priorityTileUntil;
     private selectBuildingRequestIndex;
     /** CPU budget for feature creation; individual features are atomic. */
     creationTimeBudgetMs: number;

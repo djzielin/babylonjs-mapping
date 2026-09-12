@@ -16,6 +16,8 @@ export default class BuildingsOverture extends Buildings {
     /** Tile coordinate keys to omit, useful when a finer building tier covers them. */
     excludedTileKeys: Set<string>;
     private archive;
+    private static archives;
+    private static decoded;
     constructor(tileSet: TileSet, archiveURL: string, retrievalLocation?: RetrievalLocation);
     SubmitLoadTileRequest(tile: Tile): void;
     SubmitLoadAllRequest(): void;

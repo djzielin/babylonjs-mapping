@@ -336,9 +336,9 @@ export default abstract class Buildings {
     }
 
     /** Invalidate queued and in-flight feature work when replacing a layer. */
-    public cancelPendingRequests(): void {
-        for (const request of this.buildingRequests) request.cancelled = true;
-        this.buildingRequests = [];
+    public cancelPendingRequests(tile?: Tile): void {
+        for (const request of this.buildingRequests) if (!tile || request.tile === tile) request.cancelled = true;
+        this.buildingRequests = this.buildingRequests.filter(request => !request.cancelled);
     }
 
     public abstract SubmitLoadTileRequest(tile: Tile): void;
@@ -592,6 +592,8 @@ export default abstract class Buildings {
         return;
     }
 
+    private priorityTile?: Tile;
+    private priorityTileUntil = 0;
     private selectBuildingRequestIndex(): number | undefined {
         if (this.buildingRequests.length === 0) {
             return undefined;
@@ -614,6 +616,14 @@ export default abstract class Buildings {
             return undefined;
         }
 
+        // Drain a short run from the nearest tile without rescanning every queued
+        // city footprint for each individual extrusion. Reprioritize within 50 ms.
+        if (this.priorityTile && performance.now() < this.priorityTileUntil) {
+            const index = this.buildingRequests.findIndex(request => request.tile === this.priorityTile
+                && !request.inProgress && request.requestType === BuildingRequestType.CreateBuilding);
+            if (index >= 0) return index;
+        }
+        this.priorityTile = undefined;
         const loadInProgress = this.buildingRequests.some((request) =>
             request.requestType === BuildingRequestType.LoadTile && request.inProgress,
         );
@@ -656,6 +666,10 @@ export default abstract class Buildings {
             }
         }
 
+        if (bestIndex !== undefined && this.buildingRequests[bestIndex].requestType === BuildingRequestType.CreateBuilding) {
+            this.priorityTile = this.buildingRequests[bestIndex].tile;
+            this.priorityTileUntil = performance.now() + 50;
+        }
         return bestIndex;
     }
 

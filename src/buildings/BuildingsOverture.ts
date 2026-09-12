@@ -50,6 +50,8 @@ export default class BuildingsOverture extends Buildings {
     /** Tile coordinate keys to omit, useful when a finer building tier covers them. */
     public excludedTileKeys: Set<string> = new Set();
     private archive: PMTiles;
+    private static archives = new Map<string, PMTiles>();
+    private static decoded = new WeakMap<PMTiles, Map<string, Promise<feature[]>>>();
 
     constructor(
         tileSet: TileSet,
@@ -57,7 +59,9 @@ export default class BuildingsOverture extends Buildings {
         retrievalLocation = RetrievalLocation.Remote,
     ) {
         super("Overture", tileSet, retrievalLocation);
-        this.archive = new PMTiles(archiveURL);
+        this.archive = BuildingsOverture.archives.get(archiveURL) ?? new PMTiles(archiveURL);
+        BuildingsOverture.archives.set(archiveURL, this.archive);
+        while (BuildingsOverture.archives.size > 4) BuildingsOverture.archives.delete(BuildingsOverture.archives.keys().next().value!);
     }
 
     public override SubmitLoadTileRequest(tile: Tile): void {
@@ -101,23 +105,28 @@ export default class BuildingsOverture extends Buildings {
             const count = 2 ** z;
             const x = ((Math.floor(request.tileCoords.x / factor) % count) + count) % count;
             const y = Math.floor(request.tileCoords.y / factor);
-            const tileResponse = await this.archive.getZxy(z, x, y);
-
-            if (request.tile.tileCoords.equals(request.tileCoords) === false) {
+            let cache = BuildingsOverture.decoded.get(this.archive);
+            if (!cache) { cache = new Map(); BuildingsOverture.decoded.set(this.archive, cache); }
+            const key = `${z}/${x}/${y}`;
+            let decoded = cache.get(key);
+            if (!decoded) {
+                decoded = this.archive.getZxy(z, x, y).then(response => {
+                    const features: feature[] = [];
+                    if (response) {
+                        const vectorTile = new VectorTile(new PbfReader(response.data));
+                        this.appendLayerFeatures(vectorTile, "building", x, y, z, features);
+                        this.appendLayerFeatures(vectorTile, "building_part", x, y, z, features);
+                    }
+                    return features;
+                }).catch(error => { cache!.delete(key); throw error; });
+                cache.set(key, decoded);
+                while (cache.size > 64) cache.delete(cache.keys().next().value!);
+            }
+            const features = await decoded;
+            if (request.cancelled || !request.tile.tileCoords.equals(request.tileCoords)) {
                 this.removePendingRequest(requestIndex, request);
                 return;
             }
-
-            if (!tileResponse) {
-                this.removePendingRequest(requestIndex, request);
-                return;
-            }
-
-            const vectorTile = new VectorTile(new PbfReader(tileResponse.data));
-            const features: feature[] = [];
-
-            this.appendLayerFeatures(vectorTile, "building", x, y, z, features);
-            this.appendLayerFeatures(vectorTile, "building_part", x, y, z, features);
 
             const collection: topLevel = {
                 type: "FeatureCollection",
