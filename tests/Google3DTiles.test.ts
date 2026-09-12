@@ -683,6 +683,7 @@ it("preserves visible detail when a reduced budget cannot replace it adequately"
   provider.maxTiles=1;
   expect(await provider.load()).toEqual(first);
   expect(first.every(tile=>tile.root.isEnabled())).toBe(true);
+  expect(provider.stats.modelRequests).toBe(2);
   provider.dispose();scene.dispose();engine.dispose();
 });
 
