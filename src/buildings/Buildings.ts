@@ -732,7 +732,7 @@ export default abstract class Buildings {
             if (request.requestType == BuildingRequestType.LoadTile) {
 
                 this.handleLoadTileRequest(request, rIndex);
-                return;
+                continue;
             }
 
             if (request.requestType == BuildingRequestType.CreateBuilding) {

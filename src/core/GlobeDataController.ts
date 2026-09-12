@@ -30,6 +30,7 @@ export default class GlobeDataController {
     private terrainReady = new WeakMap<Tile, string>();
     private observer;
     private disposed = false;
+    private refillTimer?: ReturnType<typeof setTimeout>;
     private settled = false;
     private tiles: Tile[] | undefined;
     private positionObserver;
@@ -161,6 +162,12 @@ export default class GlobeDataController {
         } finally {
             if (this.jobs.get(tile)?.abort === abort) this.jobs.delete(tile);
             this.stats.active--;
+            // Fill the released slot immediately, including when rendering is
+            // throttled. update() reprioritizes from the latest camera each time.
+            if (!this.disposed && this.refillTimer === undefined) this.refillTimer = setTimeout(() => {
+                this.refillTimer = undefined;
+                this.update();
+            }, 0);
         }
     }
     /** Explicitly retry failures or reload after changing provider settings. */
@@ -175,6 +182,7 @@ export default class GlobeDataController {
     }
     public dispose(): void {
         this.disposed = true;
+        clearTimeout(this.refillTimer);
         for (const provider of this.providers) provider.cancelPendingRequests();
         for (const job of this.jobs.values()) job.abort.abort();
         this.jobs.clear();

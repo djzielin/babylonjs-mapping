@@ -378,6 +378,22 @@ describe("bounded detail streaming", () => {
         data.dispose();
         dispose();
     });
+    it("refills completed downloads without waiting for another rendered frame", async () => {
+        vi.useFakeTimers();
+        const { globe, dispose } = setup(2);
+        const pending: ((value: ElevationGrid) => void)[] = [];
+        const loader = vi.fn(() => new Promise<ElevationGrid>(resolve => pending.push(resolve)));
+        const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
+        try {
+            data.update();
+            expect(loader).toHaveBeenCalledTimes(1);
+            pending[0](grid(10));
+            await Promise.resolve();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(loader).toHaveBeenCalledTimes(2);
+            expect(data.stats.active).toBe(1);
+        } finally { data.dispose(); dispose(); vi.useRealTimers(); }
+    });
     it("starts terrain nearest the viewer before distant grid corners", () => {
         const { globe, dispose } = setup(5);
         const loader = vi.fn((_coords: Vector3, _signal: AbortSignal) => new Promise<ElevationGrid>(() => {}));

@@ -30,6 +30,7 @@ export default class GlobeDataController {
     private terrainReady;
     private observer;
     private disposed;
+    private refillTimer?;
     private settled;
     private tiles;
     private positionObserver;
