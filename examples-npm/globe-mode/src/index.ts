@@ -7,6 +7,7 @@ import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstr
 import { RenderingManager } from "@babylonjs/core/Rendering/renderingManager";
 import { TerrainBatcher } from "./TerrainBatcher";
 import { installResidentMeshCandidates } from "./ResidentMeshCandidates";
+import { MotionFrameProfile } from "./MotionFrameProfile";
 import { globeLODPlan, MIN_GLOBE_BUILDING_ZOOM } from "./GlobeLODPlan";
 import { setupAddressSearch } from "./AddressSearch";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
@@ -140,6 +141,7 @@ class GlobeDemo {
     private terrainTransition = new TerrainTransition();
     private renderTimes: number[] = [];
     private gpuTimes: number[] = [];
+    private framePacing = new MotionFrameProfile();
 
     public constructor() {
         this.canvas = document.getElementById(
@@ -170,6 +172,7 @@ class GlobeDemo {
         (document.getElementById("mapboxToken") as HTMLInputElement).value = DEMO_MAPBOX_TOKEN;
         this.createScene();
         this.scene.onDisposeObservable.add(() => this.terrainTransition.dispose());
+        document.addEventListener("visibilitychange", () => this.framePacing.reset());
         this.terrainBatcher = new TerrainBatcher(this.scene,
             () => [this.baseGlobe, this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)].map(globe => globe.ourTiles.map(tile => tile.mesh)),
             (mesh, source) => this.registerTerrain(mesh, 7 - source.renderingGroupId));
@@ -222,6 +225,7 @@ class GlobeDemo {
             }
             const renderStart = performance.now();
             this.scene.render();
+            this.framePacing.sample(performance.now(), this.scene.activeCamera!.getViewMatrix().m, !document.hidden);
             this.renderTimes.push(performance.now() - renderStart);
             if (this.renderTimes.length > 180) this.renderTimes.shift();
             const gpuTime = this.engineProfile.gpuFrameTimeCounter.current / 1e6;
@@ -246,8 +250,9 @@ class GlobeDemo {
                 const times = [...this.renderTimes].sort((a, b) => a - b);
                 const gpuTimes = [...this.gpuTimes].sort((a, b) => a - b);
                 const gpuMs = gpuTimes[Math.floor(gpuTimes.length * 0.5)] ?? 0;
+                const motion = this.framePacing.summary(true);
                 document.getElementById("renderProfile")!.textContent =
-                    `CPU render p50 ${times[Math.floor(times.length * 0.5)]?.toFixed(2)} ms · p95 ${times[Math.floor(times.length * 0.95)]?.toFixed(2)} ms · GPU p50 ${gpuMs.toFixed(2)} ms · mesh evaluation ${this.sceneProfile.activeMeshesEvaluationTimeCounter.average.toFixed(2)} ms · draw ${this.sceneProfile.renderTimeCounter.average.toFixed(2)} ms · render targets ${this.sceneProfile.renderTargetsRenderTimeCounter.average.toFixed(2)} ms · ${this.sceneProfile.drawCallsCounter.current} draws · ${this.terrainBatcher.stats}`;
+                    `CPU render p50 ${times[Math.floor(times.length * 0.5)]?.toFixed(2)} ms · p95 ${times[Math.floor(times.length * 0.95)]?.toFixed(2)} ms · GPU p50 ${gpuMs.toFixed(2)} ms · moving ${motion.fps.toFixed(0)} FPS / p95 ${motion.p95.toFixed(2)} ms (${motion.samples} frames) · mesh evaluation ${this.sceneProfile.activeMeshesEvaluationTimeCounter.average.toFixed(2)} ms · draw ${this.sceneProfile.renderTimeCounter.average.toFixed(2)} ms · render targets ${this.sceneProfile.renderTargetsRenderTimeCounter.average.toFixed(2)} ms · ${this.sceneProfile.drawCallsCounter.current} draws · ${this.terrainBatcher.stats}`;
                 document.getElementById("gpuInfo")!.textContent = this.engine.getGlInfo().renderer;
                 const googleSources = this.googleTiles?.getAttributions() ?? [];
                 document.getElementById("googleSources")!.textContent = googleSources.join("; ");
@@ -740,6 +745,7 @@ class GlobeDemo {
         longitude.value = String(HOME_VIEW.longitude);
 
         preset.addEventListener("change", () => {
+            this.framePacing.reset();
             this.exitInspection();
             const location = LOCATIONS[Number(preset.value)];
             if (location.google !== undefined) {
