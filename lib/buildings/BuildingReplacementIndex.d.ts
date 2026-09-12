@@ -2,8 +2,9 @@ import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 /** Prefer detailed models only where their actual geometry covers a footprint. */
 export default class BuildingReplacementIndex {
-    private meshes;
+    private root?;
     setModels(meshes: Mesh[]): void;
+    private build;
     keepFootprint(mesh: Mesh, up?: Vector3, rayLength?: number): boolean;
     keepPoint(center: Vector3, up?: Vector3, rayLength?: number): boolean;
 }
