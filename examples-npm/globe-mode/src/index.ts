@@ -6,6 +6,7 @@ import { EngineInstrumentation } from "@babylonjs/core/Instrumentation/engineIns
 import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstrumentation";
 import { RenderingManager } from "@babylonjs/core/Rendering/renderingManager";
 import { TerrainBatcher } from "./TerrainBatcher";
+import { installResidentMeshCandidates } from "./ResidentMeshCandidates";
 import { globeLODPlan, MIN_GLOBE_BUILDING_ZOOM } from "./GlobeLODPlan";
 import { setupAddressSearch } from "./AddressSearch";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
@@ -127,6 +128,8 @@ class GlobeDemo {
     private googleTimer?: ReturnType<typeof setTimeout>;
     private googleGeneration = 0;
     private googleMeshes = new WeakSet<object>();
+    private registeredGoogleTiles?: Google3DTiles;
+    private registeredGoogleRevision = -1;
     private photorealisticActive = false;
     private googleLoading = false;
     private googlePrefetchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -151,6 +154,7 @@ class GlobeDemo {
         DracoCompression.DefaultNumWorkers = Math.min(8, Math.max(1, Math.floor(navigator.hardwareConcurrency / 2) || 1));
         RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, 8);
         this.scene = new Scene(this.engine);
+        installResidentMeshCandidates(this.scene);
         this.scene.skipPointerMovePicking = true;
         Buildings.setSceneCreationTimeBudget(this.scene, 1);
         this.engineProfile = new EngineInstrumentation(this.engine);
@@ -201,6 +205,21 @@ class GlobeDemo {
         this.engine.runRenderLoop(() => {
             this.updateMovement();
             this.terrainTransition.update(performance.now());
+            const googleRevision = this.googleTiles?.coverageRevision ?? -1;
+            if (this.registeredGoogleTiles !== this.googleTiles || this.registeredGoogleRevision !== googleRevision) {
+                this.registeredGoogleTiles = this.googleTiles;
+                this.registeredGoogleRevision = googleRevision;
+                for (const tile of this.googleTiles?.loadedModelTiles ?? []) {
+                    for (const mesh of tile.asset.meshes) {
+                        if (this.googleMeshes.has(mesh)) continue;
+                        this.googleMeshes.add(mesh);
+                        this.layers.add(mesh, 7);
+                        mesh.freezeWorldMatrix();
+                        mesh.material?.freeze();
+                        mesh.isPickable = false;
+                    }
+                }
+            }
             const renderStart = performance.now();
             this.scene.render();
             this.renderTimes.push(performance.now() - renderStart);
@@ -211,16 +230,6 @@ class GlobeDemo {
             this.updateOrientation();
             this.updateLandmarks();
             this.updateLandscapeLOD();
-            for (const tile of this.googleTiles?.loadedModelTiles ?? []) {
-                for (const mesh of tile.asset.meshes) {
-                    if (this.googleMeshes.has(mesh)) continue;
-                    this.googleMeshes.add(mesh);
-                    this.layers.add(mesh, 7);
-                    mesh.freezeWorldMatrix();
-                    mesh.material?.freeze();
-                    mesh.isPickable = false;
-                }
-            }
             if (performance.now() - this.lastStats > 500) {
                 this.scheduleGoogleTiles();
                 const coverageRevision = this.googleTiles?.coverageRevision ?? -1;
