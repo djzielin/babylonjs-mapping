@@ -1,3 +1,4 @@
+import { DracoCompression } from "@babylonjs/core/Meshes/Compression/dracoCompression";
 import { lookFromEye, moveEye } from "./FirstPersonNavigation";
 import { TerrainTransition } from "./TerrainTransition";
 import "@babylonjs/core/Engines/Extensions/engine.query";
@@ -147,6 +148,7 @@ class GlobeDemo {
             stencil: true,
             adaptToDeviceRatio: true,
         });
+        DracoCompression.DefaultNumWorkers = Math.min(8, Math.max(1, Math.floor(navigator.hardwareConcurrency / 2) || 1));
         RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, 8);
         this.scene = new Scene(this.engine);
         this.scene.skipPointerMovePicking = true;
