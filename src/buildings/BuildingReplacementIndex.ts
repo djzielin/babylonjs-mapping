@@ -12,6 +12,9 @@ export default class BuildingReplacementIndex {
     public keepFootprint(mesh: Mesh, up = Vector3.Up(), rayLength = 10000): boolean {
         mesh.computeWorldMatrix(true);
         const center = mesh.getBoundingInfo().boundingBox.centerWorld;
+        return this.keepPoint(center, up, rayLength);
+    }
+    public keepPoint(center: Vector3, up = Vector3.Up(), rayLength = 10000): boolean {
         const normal = up.normalizeToNew();
         const ray = new Ray(center.add(normal.scale(rayLength)), normal.negate(), rayLength * 2);
         for (const candidate of this.meshes) {

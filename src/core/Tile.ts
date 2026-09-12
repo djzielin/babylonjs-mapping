@@ -20,6 +20,7 @@ export default class Tile {
     // BUILDINGS
     //////////////////////////////////
     public buildings: TileBuilding[]=[];
+    public buildingBatches: Mesh[] = [];
     public mergedBuildingMesh: Mesh | undefined=undefined;
 
     //////////////////////////////////
@@ -56,6 +57,8 @@ export default class Tile {
     }
 
     public deleteBuildings(){
+        this.buildingBatches.forEach(mesh => mesh.dispose());
+        this.buildingBatches = [];
         for(let m of this.buildings){
             m.dispose();
         }
@@ -82,7 +85,7 @@ export default class Tile {
     }
 
     public getAllBuildingMeshes(){
-        const ourMeshes: Mesh[]=[];
+        const ourMeshes: Mesh[]=(this.buildingBatches ?? []).filter(mesh => !mesh.isDisposed());
 
         for(let b of this.buildings){
             if (!b.mesh.isDisposed() && b.mesh.getTotalVertices() > 0) ourMeshes.push(b.mesh);

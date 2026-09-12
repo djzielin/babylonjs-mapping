@@ -1,3 +1,7 @@
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import type GlobeSet from "../core/GlobeSet.js";
+import { GlobeBuildingBatch } from "./GlobeBuildingBatch.js";
+import { resolveRoofSpec } from "./RoofBuilder.js";
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 import { PMTiles } from "pmtiles";
@@ -49,6 +53,11 @@ export async function resolveLatestOvertureBuildingsURL(
 export default class BuildingsOverture extends Buildings {
     /** Tile coordinate keys to omit, useful when a finer building tier covers them. */
     public excludedTileKeys: Set<string> = new Set();
+    /** Direct globe batches when doMerge is enabled and no per-mesh filter is installed. */
+    public batchGeometry = false;
+    /** Hide covered footprints by updating indices while preserving prepared vertices. */
+    public batchVisibilityFilter?: (latitude: number, longitude: number) => boolean;
+    private batches = new WeakMap<Mesh, { batch: Pick<GlobeBuildingBatch, "ranges" | "indices">; mask: string }>();
     private archive: PMTiles;
     private static archives = new Map<string, PMTiles>();
     private static decoded = new WeakMap<PMTiles, Map<string, Promise<feature[]>>>();
@@ -143,12 +152,73 @@ export default class BuildingsOverture extends Buildings {
                     return tx===((request.tileCoords.x%n)+n)%n && ty===request.tileCoords.y;
                 }),
             };
-            this.ProcessGeoJSON(request, collection);
+            if (this.batchGeometry && this.doMerge && this.tileSet.isGlobe && !this.buildingMeshFilter && !this.buildingLOD.enabled)
+                await this.buildBatch(request, collection.features);
+            else this.ProcessGeoJSON(request, collection);
             this.removePendingRequest(requestIndex, request);
         } catch (error) {
             console.error(this.prettyName() + "unable to load PMTiles building data:", error);
             this.removePendingRequest(requestIndex, request);
         }
+    }
+
+    private async buildBatch(request: BuildingRequest, features: feature[]): Promise<void> {
+        const globe = this.tileSet as GlobeSet;
+        const batch = new GlobeBuildingBatch(globe, request.tile.mesh.getAbsolutePosition().clone());
+        const specialized: feature[] = [];
+        let yielded = performance.now();
+        for (const feature of features) {
+            if (request.cancelled || !request.tile.tileCoords.equals(request.tileCoords)) return;
+            if (this.buildingFeatureFilter && !this.buildingFeatureFilter(feature, request.tile, request.epsgType)) continue;
+            if (resolveRoofSpec(feature.properties ?? {}, Number(feature.properties?.height) || this.defaultBuildingHeight)) specialized.push(feature);
+            else batch.append(feature, this.defaultBuildingHeight, this.exaggeration);
+            if (performance.now() - yielded > 4) {
+                await new Promise<void>(resolve => setTimeout(resolve, 0));
+                yielded = performance.now();
+            }
+        }
+        if (request.cancelled || request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) return;
+        const mesh = batch.positions.length ? new Mesh("Overture building batch", globe.scene) : undefined;
+        if (mesh) {
+            batch.vertexData().applyToMesh(mesh);
+            mesh.position.copyFrom(batch.origin);
+            mesh.material = this.buildingMaterial;
+            mesh.metadata = { buildingCount: batch.featureCount };
+            this.batches.set(mesh, { batch: { ranges: batch.ranges, indices: batch.indices }, mask: "" });
+            mesh.setParent(request.tile.mesh);
+            this.buildingMeshTransform?.(mesh);
+            this.applyBuildingMeshOptions(mesh);
+        }
+        // Swap only when the complete new tile is usable.
+        request.tile.deleteBuildings();
+        if (mesh) { request.tile.buildingBatches.push(mesh); this.updateMeshVisibility(mesh); }
+        if (specialized.length) this.ProcessGeoJSON({ ...request, mergeAfterLoad: false }, { type: "FeatureCollection", features: specialized });
+    }
+
+    public updateBatchVisibility(): void {
+        for (const tile of this.tileSet.ourTiles) {
+            for (const mesh of tile.buildingBatches) this.updateMeshVisibility(mesh);
+            if (this.batchGeometry && this.tileSet.isGlobe) for (const building of tile.buildings) {
+                const point = (this.tileSet as GlobeSet).getSurfaceCoordinates(building.mesh.getBoundingInfo().boundingBox.centerWorld);
+                building.mesh.setEnabled(!this.batchVisibilityFilter || this.batchVisibilityFilter(point.latitude, point.longitude));
+            }
+        }
+    }
+
+    private updateMeshVisibility(mesh: Mesh): void {
+        const data = this.batches.get(mesh);
+        if (!data || mesh.isDisposed()) return;
+        const visible = data.batch.ranges.map(range => !this.batchVisibilityFilter || this.batchVisibilityFilter(range.latitude, range.longitude));
+        const mask = visible.map(value => value ? "1" : "0").join("");
+        if (data.mask === mask) return;
+        data.mask = mask;
+        const indices: number[] = [];
+        for (let i = 0; i < visible.length; i++) if (visible[i]) {
+            const range = data.batch.ranges[i];
+            for (let index = range.start; index < range.end; index++) indices.push(data.batch.indices[index]);
+        }
+        mesh.setEnabled(indices.length > 0);
+        if (indices.length) mesh.setIndices(indices);
     }
 
     private appendLayerFeatures(

@@ -118,6 +118,7 @@ export default abstract class Buildings {
     public localPathPrefix = "map_cache/";
     public exaggeration = 1.0;
     public doMerge = false;
+    public loadConcurrency = 1;
     /**
      * Optional per-feature rectangle billboards for distant buildings.
      * LOD is disabled by default and should be configured before generation.
@@ -624,9 +625,8 @@ export default abstract class Buildings {
             if (index >= 0) return index;
         }
         this.priorityTile = undefined;
-        const loadInProgress = this.buildingRequests.some((request) =>
-            request.requestType === BuildingRequestType.LoadTile && request.inProgress,
-        );
+        const loadInProgress = this.buildingRequests.filter(request =>
+            request.requestType === BuildingRequestType.LoadTile && request.inProgress).length >= this.loadConcurrency;
         const activeCamera = this.scene.activeCamera;
         const pendingCreates = new Set<Tile>();
         for (const request of this.buildingRequests) {

@@ -5,4 +5,5 @@ export default class BuildingReplacementIndex {
     private meshes;
     setModels(meshes: Mesh[]): void;
     keepFootprint(mesh: Mesh, up?: Vector3, rayLength?: number): boolean;
+    keepPoint(center: Vector3, up?: Vector3, rayLength?: number): boolean;
 }

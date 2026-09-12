@@ -86,6 +86,7 @@ export default abstract class Buildings {
     localPathPrefix: string;
     exaggeration: number;
     doMerge: boolean;
+    loadConcurrency: number;
     /**
      * Optional per-feature rectangle billboards for distant buildings.
      * LOD is disabled by default and should be configured before generation.
