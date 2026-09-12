@@ -465,3 +465,40 @@ it("parks a completed detail queue and wakes it when the globe moves", async () 
     expect(elevation).toHaveBeenCalledTimes(3);
     data.dispose(); dispose();
 });
+
+
+it("coalesces overzoom DEM requests without one caller cancelling its neighbours", async () => {
+    const terrain = new TerrainRGB({ maxZoom: 0 });
+    let resolve!: (grid: ElevationGrid) => void;
+    const fetchGrid = vi.spyOn(terrain as any, "fetchGrid").mockImplementation(() => new Promise<ElevationGrid>(done => { resolve = done; }));
+    const cancelled = new AbortController();
+    const first = terrain.load(new Vector3(0, 0, 1), cancelled.signal);
+    const second = terrain.load(new Vector3(1, 0, 1), new AbortController().signal);
+    cancelled.abort();
+    resolve({ data: [0, 1, 2, 3], width: 2, height: 2 });
+    await expect(first).rejects.toThrow();
+    expect((await second).data[0]).toBe(1);
+    await terrain.load(new Vector3(0, 0, 1), new AbortController().signal);
+    expect(fetchGrid).toHaveBeenCalledTimes(1);
+});
+
+
+it("overzooms DEM at its source resolution instead of manufacturing redundant samples", () => {
+    const data = Float32Array.from({ length: 256 * 256 }, (_, i) => (i % 256) + Math.floor(i / 256) * 2);
+    const cropped = TerrainRGB.crop({ data, width: 256, height: 256 }, new Vector3(3, 4, 18), 15);
+    expect(cropped.width).toBe(33);
+    expect(cropped.height).toBe(33);
+    for (let y = 0; y < 33; y++) for (let x = 0; x < 33; x++)
+        expect(cropped.data[y * 33 + x]).toBe(96 + x + 2 * (128 + y));
+});
+
+it("keeps higher-resolution imagery from duplicating the full-detail building tier", async () => {
+    const {globe, dispose} = setup(1,35,-79,15);
+    const buildings={SubmitLoadTileRequest:vi.fn(),cancelPendingRequests:vi.fn()} as any;
+    const data=new GlobeDataController(globe,{buildings,minBuildingZoom:10,maxBuildingZoom:14});
+    data.update();await Promise.resolve();
+    expect(buildings.SubmitLoadTileRequest).not.toHaveBeenCalled();
+    globe.updateRaster(35,-79,14);data.update();await Promise.resolve();
+    expect(buildings.SubmitLoadTileRequest).toHaveBeenCalledOnce();
+    data.dispose();dispose();
+});

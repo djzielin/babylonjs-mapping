@@ -8,6 +8,7 @@ export interface GlobeDataOptions {
     features?: Buildings[];
     minTerrainZoom?: number;
     minBuildingZoom?: number;
+    maxBuildingZoom?: number;
     concurrency?: number;
     /** Prefer the active camera frustum when streaming large landscape windows. */
     prioritizeVisible?: boolean;
@@ -26,6 +27,7 @@ export default class GlobeDataController {
     };
     private jobs;
     private ready;
+    private terrainReady;
     private observer;
     private disposed;
     private settled;
@@ -36,6 +38,6 @@ export default class GlobeDataController {
     update(): void;
     private load;
     /** Explicitly retry failures or reload after changing provider settings. */
-    invalidate(): void;
+    invalidate(preserveTerrain?: boolean): void;
     dispose(): void;
 }
