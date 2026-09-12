@@ -38,6 +38,28 @@ describe("lossless terrain batching", () => {
         expect(vertices.positions!.length / 3).toBe(offset);
         scene.dispose(); engine.dispose();
     });
+    it("restores original tiles on context loss so derived pixel copies are unnecessary", () => {
+        const engine = new NullEngine();
+        Object.defineProperty(engine, "webGLVersion", { value: 2 });
+        const scene = new Scene(engine);
+        const source = MeshBuilder.CreateGround("source", {}, scene);
+        const sourceMaterial = new StandardMaterial("source", scene);
+        sourceMaterial.diffuseTexture = RawTexture.CreateRGBATexture(new Uint8Array(16), 2, 2, scene);
+        source.material = sourceMaterial;
+        const batcher = new TerrainBatcher(scene, () => [], () => {}) as any;
+        const derived = MeshBuilder.CreateGround("derived", {}, scene);
+        const material = new StandardMaterial("derived", scene);
+        const texture = RawTexture.CreateRGBATexture(new Uint8Array(16), 2, 2, scene);
+        batcher.batches.push({ mesh: derived, material, texture, sources: [batcher.snapshot(source)] });
+        batcher.owned.add(source); source.visibility = 0;
+        engine.onContextLostObservable.notifyObservers(engine);
+        expect(source.visibility).toBe(1);
+        expect(source.isDisposed()).toBe(false);
+        expect(derived.isDisposed()).toBe(true);
+        expect(batcher.owned.size).toBe(0);
+        expect(batcher.batches).toHaveLength(0);
+        scene.dispose(); engine.dispose();
+    });
     it("invalidates batches when geometry, imagery, visibility or position changes", () => {
         const engine = new NullEngine();
         const scene = new Scene(engine);
