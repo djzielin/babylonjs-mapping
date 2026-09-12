@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AssetContainer, Matrix, NullEngine, Scene, TransformNode, Vector2, Vector3 } from "@babylonjs/core";
+import { ArcRotateCamera, AssetContainer, Matrix, NullEngine, Scene, TransformNode, Vector2, Vector3 } from "@babylonjs/core";
 
 import Google3DTiles, {
   GOOGLE_3D_TILES_ROOT_URL,
@@ -82,6 +82,75 @@ describe("parseGoogleGLBMetadata", () => {
 });
 
 describe("Google3DTiles", () => {
+  it("reuses model assets and hierarchy when zooming out and back", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    const requests: string[] = [];
+    const tilesetLoader = vi.fn(async () => ({ root: {
+      content: { uri: "coarse.glb" }, children: [{ content: { uri: "fine.glb" } }],
+    } }));
+    const provider = new Google3DTiles(tileSet, { apiKey: "test", tilesetLoader,
+      modelTileLoader: createModelLoader(requests), maxDepth: 1 });
+    const fine = (await provider.load())[0];
+    provider.maxDepth = 0;
+    await provider.load();
+    expect(fine.root.isEnabled()).toBe(false);
+    provider.maxDepth = 1;
+    expect((await provider.load())[0].asset).toBe(fine.asset);
+    expect(fine.root.isEnabled()).toBe(true);
+    expect(requests).toHaveLength(2);
+    expect(tilesetLoader).toHaveBeenCalledTimes(1);
+    provider.dispose(); scene.dispose(); engine.dispose();
+  });
+
+  it("streams the first model before a slower sibling hierarchy finishes", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    let release!: (value: Google3DTileset) => void;
+    const slow = new Promise<Google3DTileset>(resolve => { release = resolve; });
+    const requests: string[] = [];
+    const provider = new Google3DTiles(tileSet, { apiKey: "test",
+      tilesetLoader: async url => url.includes("slow.json") ? slow : { root: { children: [
+        { content: { uri: "first.glb" } }, { content: { uri: "slow.json" } },
+      ] } }, modelTileLoader: createModelLoader(requests) });
+    const loading = provider.load();
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    release({ root: { content: { uri: "second.glb" } } });
+    await loading;
+    expect(requests).toHaveLength(2);
+    provider.dispose(); scene.dispose(); engine.dispose();
+  });
+
+  it.each([
+    { region: [-0.001, -0.001, 0.001, 0.001, 0, 200] },
+    { box: [6378137, 0, 0, 200, 0, 0, 0, 200, 0, 0, 0, 200] },
+    { sphere: [6378137, 0, 0, 200] },
+  ])("limits building replacement to successfully loaded coverage %j", async boundingVolume => {
+    const { engine, scene, tileSet } = createTileSet();
+    const provider = new Google3DTiles(tileSet, {
+      apiKey: "test", tilesetLoader: async () => ({ root: { boundingVolume, content: { uri: "model.glb" } } }),
+      modelTileLoader: createModelLoader([]),
+    });
+    expect(provider.coversLocation(0, 0)).toBe(false);
+    await provider.load();
+    expect(provider.coversLocation(0, 0)).toBe(true);
+    expect(provider.coversLocation(1, 1)).toBe(false);
+    provider.dispose();
+    expect(provider.coversLocation(0, 0)).toBe(false);
+    scene.dispose(); engine.dispose();
+  });
+
+  it("keeps parent content when replacement descendants are empty", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    const requests: string[] = [];
+    const provider = new Google3DTiles(tileSet, {
+      apiKey: "test", tilesetLoader: async () => ({ root: {
+        content: { uri: "parent.glb" }, children: [{ geometricError: 0 }],
+      } }), modelTileLoader: createModelLoader(requests),
+    });
+    expect(await provider.load()).toHaveLength(1);
+    expect(requests[0]).toContain("parent.glb");
+    provider.dispose(); scene.dispose(); engine.dispose();
+  });
+
   it("adds the API key and session to Google child URLs while traversing content", async () => {
     const { engine, scene, tileSet } = createTileSet();
     const requests: string[] = [];
@@ -430,10 +499,10 @@ it("imports an actual GLB through Babylon's default loader and disposes its mesh
   }
 });
 
-it("does not fall back to distant coarse content after all children are culled", async () => {
+it.each([undefined, 1])("does not fall back to distant coarse content after all children are culled (SSE: %s)", async maximumScreenSpaceError => {
   const { engine, scene, tileSet } = createTileSet();
   tileSet.updateRaster(0, 0, 16);
-  const google = new Google3DTiles(tileSet, { apiKey: "test-key",
+  const google = new Google3DTiles(tileSet, { apiKey: "test-key", maximumScreenSpaceError,
     tilesetLoader: async () => ({ root: {
       boundingVolume: { region: [-Math.PI, -Math.PI / 2, Math.PI, Math.PI / 2] },
       content: { uri: "coarse.glb" },
@@ -470,8 +539,251 @@ describe("Google tiles on a globe", () => {
     expect(Vector3.Distance(position, globe.getSurfacePosition(latitude, longitude, 120 * globe.metresToWorld))).toBeLessThan(globe.metresToWorld);
     const metre = Vector3.TransformNormal(new Vector3(1, 0, 0), world).length();
     expect(metre).toBeCloseTo(globe.metresToWorld, 12);
+    provider.heightOffset = 32;
+    const [shifted] = await provider.load();
+    const shiftedPosition = Vector3.TransformCoordinates(Vector3.Zero(), shifted.root.computeWorldMatrix(true));
+    expect(Vector3.Distance(shiftedPosition, globe.getSurfacePosition(latitude, longitude, 152 * globe.metresToWorld))).toBeLessThan(globe.metresToWorld);
     provider.dispose();
     expect(tile.root.isDisposed()).toBe(true);
     scene.dispose(); engine.dispose();
   });
+});
+
+
+it("refines visible Google geometry as its projected error grows", async () => {
+  const engine = new NullEngine({ renderWidth: 1000, renderHeight: 1000, textureSize: 512, deterministicLockstep: false, lockstepMaxSteps: 4 });
+  const scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2);
+  globe.updateRaster(0, 0, 17);
+  const target = globe.getSurfacePosition(0, 0);
+  const camera = new ArcRotateCamera("view", 0, 1, 1, target, scene);
+  const bounds = { sphere: [6378137, 0, 0, 10] };
+  const provider = new Google3DTiles(globe, { apiKey: "test", maximumScreenSpaceError: 1,
+    tilesetLoader: async () => ({ root: { boundingVolume: { box: [0, 0, 0, 7645212, 0, 0, 0, 7645212, 0, 0, 0, 7645212] }, geometricError: 1e100, children: [{ boundingVolume: bounds, geometricError: 1, content: { uri: "coarse.glb" },
+      children: [{ boundingVolume: bounds, geometricError: 0, content: { uri: "fine.glb" } }] }] } }),
+    modelTileLoader: createModelLoader([]) });
+  camera.setPosition(globe.getSurfacePosition(0, 0, 10000 * globe.metresToWorld));
+  camera.getViewMatrix(true); camera.getProjectionMatrix(true);
+  expect((await provider.load())[0].url).toContain("coarse.glb");
+  camera.setPosition(globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld));
+  camera.getViewMatrix(true); camera.getProjectionMatrix(true);
+  expect((await provider.load())[0].url).toContain("fine.glb");
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
+it("keeps complete sibling coverage when refinement reaches the tile budget", async () => {
+  const {engine, scene, tileSet} = createTileSet();
+  const provider = new Google3DTiles(tileSet, {apiKey:"test", maximumScreenSpaceError:1, maxTiles:3,
+    tilesetLoader:async () => ({root:{children:[
+      {content:{uri:"west.glb"},children:[{content:{uri:"west-1.glb"}},{content:{uri:"west-2.glb"}}]},
+      {content:{uri:"east.glb"},children:[{content:{uri:"east-1.glb"}},{content:{uri:"east-2.glb"}}]},
+    ]}}), modelTileLoader:createModelLoader([])});
+  const tiles = await provider.load();
+  expect(tiles).toHaveLength(3);
+  expect(provider.stats.modelRequests).toBe(3);
+  expect(provider.stats.detailLimitedTiles).toBe(1);
+  expect(tiles.some(tile => tile.url.includes("west"))).toBe(true);
+  expect(tiles.some(tile => tile.url.includes("east"))).toBe(true);
+  expect(tiles.filter(tile => /west-/.test(tile.url))).toHaveLength(2);
+  expect(tiles.some(tile => tile.url.includes("east.glb"))).toBe(true);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
+it("replaces a parent only after the complete child batch is ready", async () => {
+  const {engine, scene, tileSet} = createTileSet();
+  let finish!: () => void;
+  let started!: () => void;
+  const waiting = new Promise<void>(resolve => {started=resolve;});
+  const slow = new Promise<void>(resolve => {finish=resolve;});
+  const provider = new Google3DTiles(tileSet,{apiKey:"test",maximumScreenSpaceError:1,maxDepth:0,
+    tilesetLoader:async () => ({root:{content:{uri:"parent.glb"},children:[{content:{uri:"fast.glb"}},{content:{uri:"slow.glb"}}]}}),
+    modelTileLoader:async url => {
+      if(url.includes("slow.glb")) {started(); await slow;}
+      return {asset:new AssetContainer(scene),attributions:[]};
+    }});
+  const [parent]=await provider.load();
+  provider.maxDepth=4;
+  const replacement=provider.load(); await waiting;
+  expect(parent.root.isEnabled()).toBe(true);
+  expect(provider.loadedModelTiles.map(tile=>tile.url)).toEqual([parent.url]);
+  finish(); await replacement;
+  expect(parent.root.isEnabled()).toBe(false);
+  expect(provider.stats.modelRequests).toBe(3);
+  expect(provider.loadedModelTiles).toHaveLength(2);
+  expect(provider.loadedModelTiles.every(tile=>tile.root.isEnabled())).toBe(true);
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("retains parent coverage when a replacement model fails", async () => {
+  const {engine, scene, tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet,{apiKey:"test",maximumScreenSpaceError:1,maxDepth:0,
+    tilesetLoader:async()=>({root:{content:{uri:"parent.glb"},children:[{content:{uri:"failed.glb"}}]}}),
+    modelTileLoader:async url=>url.includes("failed")?undefined:{asset:new AssetContainer(scene),attributions:[]}});
+  const [parent]=await provider.load(); provider.maxDepth=4;
+  expect(await provider.load()).toEqual([parent]);
+  expect(parent.root.isEnabled()).toBe(true);
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("leaves distorted budget fallbacks to the conventional map provider", async () => {
+  const {engine, scene, tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet,{apiKey:"test",maximumScreenSpaceError:1,maximumDisplayGeometricError:4,maxTiles:2,
+    tilesetLoader:async()=>({root:{children:[
+      {geometricError:1,content:{uri:"sharp.glb"}},
+      {geometricError:64,content:{uri:"distorted.glb"},children:[{content:{uri:"fine-a.glb"}},{content:{uri:"fine-b.glb"}}]},
+    ]}}),modelTileLoader:createModelLoader([])});
+  const tiles=await provider.load();
+  expect(tiles).toHaveLength(1);expect(tiles[0].url).toContain("sharp.glb");
+  expect(provider.stats.modelRequests).toBe(1);
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("reuses a stable budget frontier without additional model requests", async () => {
+  const {engine, scene, tileSet} = createTileSet();
+  const requests: string[] = [];
+  const provider = new Google3DTiles(tileSet, {apiKey:"test",maximumScreenSpaceError:1,maxTiles:3,
+    tilesetLoader:async()=>({root:{children:[
+      {content:{uri:"a.glb"},children:[{content:{uri:"a1.glb"}},{content:{uri:"a2.glb"}}]},
+      {content:{uri:"b.glb"},children:[{content:{uri:"b1.glb"}},{content:{uri:"b2.glb"}}]},
+    ]}}),modelTileLoader:createModelLoader(requests)});
+  const first = await provider.load();
+  const count = requests.length;
+  expect(await provider.load()).toEqual(first);
+  expect(requests).toHaveLength(count);
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("shares an in-flight model across camera reloads", async () => {
+  const {engine, scene, tileSet} = createTileSet();
+  let release!: () => void, started!: () => void;
+  const start = new Promise<void>(resolve => {started=resolve;});
+  const wait = new Promise<void>(resolve => {release=resolve;});
+  let requests=0;
+  const provider=new Google3DTiles(tileSet,{apiKey:"test",maximumScreenSpaceError:1,
+    tilesetLoader:async()=>({root:{content:{uri:"shared.glb"}}}),
+    modelTileLoader:async()=>{requests++;started();await wait;return {asset:new AssetContainer(scene),attributions:[]};}});
+  const first=provider.load();await start;
+  provider.cancelPendingLoad();
+  const second=provider.load();
+  release();await Promise.all([first,second]);
+  expect(requests).toBe(1);
+  expect(provider.loadedModelTiles).toHaveLength(1);
+  expect(provider.loadedModelTiles[0].root.isEnabled()).toBe(true);
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("preserves visible detail when a reduced budget cannot replace it adequately", async () => {
+  const {engine, scene, tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet,{apiKey:"test",maximumScreenSpaceError:1,maxTiles:4,
+    tilesetLoader:async()=>({root:{geometricError:100,content:{uri:"coarse.glb"},children:[
+      {content:{uri:"fine-a.glb"}},{content:{uri:"fine-b.glb"}},
+    ]}}),modelTileLoader:createModelLoader([])});
+  const first=await provider.load();
+  provider.maxTiles=1;
+  expect(await provider.load()).toEqual(first);
+  expect(first.every(tile=>tile.root.isEnabled())).toBe(true);
+  expect(provider.stats.modelRequests).toBe(2);
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("loads from the eye outward even when the orbit target is elsewhere", async () => {
+  const engine=new NullEngine(),scene=new Scene(engine);
+  const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+  globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,12);
+  const camera=new ArcRotateCamera("eye",0,1,1,globe.getSurfacePosition(0,0.05),scene);
+  camera.setPosition(globe.getSurfacePosition(0,0,100*globe.metresToWorld));
+  camera.getViewMatrix(true);
+  const requests:string[]=[];
+  const angle=0.05*Math.PI/180;
+  const provider=new Google3DTiles(globe,{apiKey:"test",maximumScreenSpaceError:1,maxTiles:2,coverageRadius:10000,
+    tilesetLoader:async()=>({root:{children:[
+      {boundingVolume:{sphere:[6378137*Math.cos(angle),6378137*Math.sin(angle),0,10]},content:{uri:"target.glb"}},
+      {boundingVolume:{sphere:[6378137,0,0,10]},content:{uri:"eye.glb"}},
+    ]}}),modelTileLoader:createModelLoader(requests)});
+  await provider.load();expect(requests).toHaveLength(2);expect(requests[0]).toContain("eye.glb");
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("commits nearby refinement without waiting for unrelated distant hierarchy", async () => {
+  const {engine,scene,tileSet}=createTileSet();
+  let release!:()=>void, reached!:()=>void;
+  const blocked=new Promise<void>(resolve=>{release=resolve;});
+  const waiting=new Promise<void>(resolve=>{reached=resolve;});
+  const provider=new Google3DTiles(tileSet,{apiKey:"test",maximumScreenSpaceError:1,maxDepth:1,
+    tilesetLoader:async url=>{
+      if(url.includes("far.json")){reached();await blocked;return {root:{content:{uri:"far-fine.glb"}}};}
+      return {root:{children:[{content:{uri:"near.glb"},children:[{content:{uri:"near-fine.glb"}}]},
+        {content:{uri:"far.glb"},children:[{content:{uri:"far.json"}}]}]}};
+    },modelTileLoader:createModelLoader([])});
+  const old=await provider.load();
+  provider.maxDepth=8;const work=provider.load();await waiting;
+  await vi.waitFor(()=>expect(provider.loadedModelTiles.some(tile=>tile.url.includes("near-fine.glb"))).toBe(true));
+  expect(old.find(tile=>tile.url.includes("far.glb"))!.root.isEnabled()).toBe(true);
+  release();await work;
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("prepares offscreen content without replacing visible models", async () => {
+  const engine=new NullEngine(),scene=new Scene(engine);
+  const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+  globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,12);
+  const eye=globe.getSurfacePosition(0,0,100*globe.metresToWorld);
+  const camera=new ArcRotateCamera("look",0,1,1,globe.getSurfacePosition(0,0.01),scene);
+  camera.setPosition(eye);camera.minZ=1e-7;camera.getViewMatrix(true);camera.getProjectionMatrix(true);
+  const sphere=(lon:number)=>{const a=lon*Math.PI/180;return {sphere:[6378137*Math.cos(a),6378137*Math.sin(a),0,100]};};
+  const requests:string[]=[];
+  const provider=new Google3DTiles(globe,{apiKey:"test",maximumScreenSpaceError:1,cullToCamera:true,coverageRadius:10000,
+    tilesetLoader:async()=>({root:{children:[
+      {boundingVolume:sphere(0.01),geometricError:0,content:{uri:"front.glb"}},
+      {boundingVolume:sphere(-0.01),geometricError:0,content:{uri:"behind.glb"}},
+    ]}}),modelTileLoader:createModelLoader(requests)});
+  const before=await provider.load();expect(before).toHaveLength(1);
+  await provider.prefetchSurroundings();
+  expect(provider.loadedModelTiles).toEqual(before);
+  expect(requests).toHaveLength(2);
+  camera.setTarget(globe.getSurfacePosition(0,-0.01));camera.setPosition(eye);camera.getViewMatrix(true);
+  await provider.load();
+  expect(requests).toHaveLength(2);
+  expect(before[0].root.isEnabled()).toBe(true);
+  expect(provider.loadedModelTiles.some(t=>t.url.includes("behind.glb"))).toBe(true);
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("keeps usable detail across an explicit region even behind the camera", async () => {
+  const engine=new NullEngine(),scene=new Scene(engine);
+  const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+  globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,12);
+  const eye=globe.getSurfacePosition(0,0,100*globe.metresToWorld);
+  const camera=new ArcRotateCamera("look",0,1,1,globe.getSurfacePosition(0,0.01),scene);
+  camera.setPosition(eye);camera.minZ=1e-7;camera.getViewMatrix(true);camera.getProjectionMatrix(true);
+  const sphere=(lon:number)=>{const a=lon*Math.PI/180;return {sphere:[6378137*Math.cos(a),6378137*Math.sin(a),0,100]};};
+  const provider=new Google3DTiles(globe,{apiKey:"test",maximumScreenSpaceError:1,cullToCamera:true,coverageRadius:10000,
+    maximumDisplayGeometricError:33, coverageRegion:{south:-0.01,north:0.01,west:-0.02,east:0.02},
+    tilesetLoader:async()=>({root:{children:[
+      {boundingVolume:sphere(0.01),geometricError:0,content:{uri:"front.glb"}},
+      {boundingVolume:sphere(-0.01),geometricError:128,content:{uri:"ugly.glb"},children:[
+        {boundingVolume:sphere(-0.01),geometricError:16,content:{uri:"usable-behind.glb"}}]},
+    ]}}),modelTileLoader:createModelLoader([])});
+  const loaded=await provider.load();
+  expect(loaded.some(tile=>tile.url.includes("usable-behind"))).toBe(true);
+  expect(loaded.some(tile=>tile.url.includes("ugly"))).toBe(false);
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("bounds offscreen history without evicting the current view", () => {
+  const {engine,scene,tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet,{maxTiles:1});
+  const selections=new Map();
+  for(const url of ["old-far","old-near","current"]) {
+    const selection={url,depth:1};selections.set(url,selection);
+    (provider as any).loadedSelections.set(url,selection);
+    (provider as any).loadedTiles.set(url,{url,depth:1,root:new TransformNode(url,scene),asset:new AssetContainer(scene),attributions:[]});
+  }
+  vi.spyOn(provider as any,"allowedGeometricError").mockReturnValue(-1);
+  (provider as any).trimVisibleHistory(new Map([["current",selections.get("current")]]));
+  expect(provider.loadedModelTiles).toHaveLength(2);
+  expect(provider.loadedModelTiles.find(tile=>tile.url==="current")?.root.isEnabled()).toBe(true);
+  expect((provider as any).retainedTiles.size).toBe(1);
+  provider.dispose();scene.dispose();engine.dispose();
 });

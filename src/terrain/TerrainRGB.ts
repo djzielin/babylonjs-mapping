@@ -18,6 +18,7 @@ export interface TerrainRGBOptions {
 /** Numeric DEM streaming, including negative ocean depths. No GPU readback. */
 export default class TerrainRGB {
     private cache = new Map<string, ElevationGrid>();
+    private pending = new Map<string, Promise<ElevationGrid>>();
     private url: string;
     private encoding: "terrarium" | "mapbox";
     private maxZoom: number;
@@ -62,7 +63,7 @@ export default class TerrainRGB {
         sourceZoom: number,
     ): ElevationGrid {
         const factor = 2 ** (coordinates.z - sourceZoom),
-            size = grid.width + 1;
+            size = Math.max(2, Math.ceil(grid.width / factor) + 1);
         const ox = ((coordinates.x % factor) + factor) % factor,
             oy = ((coordinates.y % factor) + factor) % factor;
         const data = new Float32Array(size * size);
@@ -102,39 +103,43 @@ export default class TerrainRGB {
             .replace("{z}", String(z))
             .replace("{x}", String(x))
             .replace("{y}", String(y));
+        signal.throwIfAborted();
         let grid = this.cache.get(url);
         if (!grid) {
-            const response = await fetch(url, { signal });
-            if (!response.ok)
-                throw new Error(`Elevation HTTP ${response.status}`);
-            const bitmap = await createImageBitmap(await response.blob(), {
-                colorSpaceConversion: "none",
-                premultiplyAlpha: "none",
-            });
-            try {
-                signal.throwIfAborted();
-                const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-                const context = canvas.getContext("2d")!;
-                context.drawImage(bitmap, 0, 0);
-                grid = {
-                    data: TerrainRGB.decode(
-                        context.getImageData(0, 0, bitmap.width, bitmap.height)
-                            .data,
-                        this.encoding,
-                    ),
-                    width: bitmap.width,
-                    height: bitmap.height,
-                };
-            } finally {
-                bitmap.close();
+            let pending = this.pending.get(url);
+            if (!pending) {
+                // Overzoomed children share one decoded source. A moving caller must
+                // not abort the same request still needed by its neighbours.
+                pending = this.fetchGrid(url).then(grid => {
+                    this.cache.set(url, grid);
+                    while (this.cache.size > this.cacheSize) this.cache.delete(this.cache.keys().next().value!);
+                    return grid;
+                }).finally(() => this.pending.delete(url));
+                this.pending.set(url, pending);
             }
+            grid = await pending;
         }
+        signal.throwIfAborted();
         this.cache.delete(url);
         this.cache.set(url, grid);
         while (this.cache.size > this.cacheSize)
             this.cache.delete(this.cache.keys().next().value!);
         return TerrainRGB.crop(grid, coords, z);
     };
+    private async fetchGrid(url: string): Promise<ElevationGrid> {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Elevation HTTP ${response.status}`);
+        const bitmap = await createImageBitmap(await response.blob(), {
+            colorSpaceConversion: "none", premultiplyAlpha: "none",
+        });
+        try {
+            const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+            const context = canvas.getContext("2d")!;
+            context.drawImage(bitmap, 0, 0);
+            return { data: TerrainRGB.decode(context.getImageData(0, 0, bitmap.width, bitmap.height).data, this.encoding),
+                width: bitmap.width, height: bitmap.height };
+        } finally { bitmap.close(); }
+    }
     public clearCache(): void {
         this.cache.clear();
     }

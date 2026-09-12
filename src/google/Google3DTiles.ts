@@ -1,8 +1,9 @@
 import type GlobeSet from "../core/GlobeSet.js";
 import { AssetContainer } from "@babylonjs/core/assetContainer.js";
-import { Matrix, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Frustum, Matrix, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader.js";
 import type { Scene } from "@babylonjs/core/scene.js";
+import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
 
 import { EPSG_Type } from "../core/TileMath.js";
@@ -94,6 +95,20 @@ export interface Google3DTilesOptions {
     maxDepth?: number;
     /** Maximum number of GLB content tiles kept in the scene. */
     maxTiles?: number;
+    /** Optional minimum coverage radius around the current map center, in metres. */
+    coverageRadius?: number;
+    /** Keep usable Google coverage across this region, including behind the camera. */
+    coverageRegion?: { south: number; north: number; west: number; east: number };
+    /** Stop refinement once source geometric error is below this value in metres. */
+    maximumGeometricError?: number;
+    /** Projected geometric error in physical pixels; globe scenes only. */
+    maximumScreenSpaceError?: number;
+    /** Omit budget-limited content above this source error (metres), leaving room for a fallback provider. */
+    maximumDisplayGeometricError?: number;
+    /** Stream only bounding volumes intersecting the active camera frustum. */
+    cullToCamera?: boolean;
+    /** Metres added to ellipsoid heights to match the scene vertical datum. */
+    heightOffset?: number;
     /** Multiplier applied to the local vertical axis after loading. */
     exaggeration?: number;
     /** Explicit local origin. Defaults to TileSet.centerCoords. */
@@ -125,9 +140,23 @@ interface GeographicBounds {
 }
 
 interface TileSelection {
+    geometricError?: number;
+    ancestors?: string[];
+    boundingVolume?: Google3DBoundingVolume;
     url: string;
     depth: number;
     transform?: number[];
+}
+
+interface FrontierTile {
+    tile: Google3DTile;
+    responseUrl: string;
+    depth: number;
+    transform: Matrix;
+    refine: string;
+    selections: TileSelection[];
+    ancestors: string[];
+    priority: number;
 }
 
 interface LoadedTileset {
@@ -150,6 +179,14 @@ export default class Google3DTiles {
     public maxDepth: number;
     public maxTiles: number;
     public exaggeration: number;
+    public coverageRadius?: number;
+    public coverageRegion?: Google3DTilesOptions["coverageRegion"];
+    public maximumGeometricError = 0;
+    public maximumScreenSpaceError?: number;
+    public maximumDisplayGeometricError?: number;
+    public cullToCamera = false;
+    public heightOffset = 0;
+    public readonly stats = { hierarchyRequests: 0, modelRequests: 0, reusedModels: 0, detailLimitedTiles: 0, sourceLimitedTiles: 0 };
     public origin?: Google3DTilesOrigin;
 
     private readonly tilesetLoader: GoogleTilesetLoader;
@@ -159,10 +196,38 @@ export default class Google3DTiles {
     private session: string | undefined;
     private readonly externalTilesets = new Map<string, Promise<LoadedTileset>>();
     private readonly loadedTiles = new Map<string, LoadedGoogle3DTile>();
+    private retainedTiles = new Map<string, LoadedGoogle3DTile>();
     private generation = 0;
     private desiredTiles = new Map<string, TileSelection>();
     private originStateKey = "";
     private googleAttributionAdded = false;
+    private pendingModels = new Map<string, { generation: number; request: Promise<LoadedGoogle3DTile | undefined> }>();
+    private selectionEye?: Vector3;
+    private frontierCache?: { key: string; selections: TileSelection[] };
+    private networkActive = 0;
+    private networkWaiters: Array<{ priority: number; resume: () => void }> = [];
+
+    private networkDrainQueued = false;
+    private drainNetwork(): void {
+        if (this.networkDrainQueued) return;
+        this.networkDrainQueued = true;
+        queueMicrotask(() => {
+            this.networkDrainQueued = false;
+            this.networkWaiters.sort((a, b) => a.priority - b.priority);
+            while (this.networkActive < 24 && this.networkWaiters.length) {
+                this.networkActive++;
+                this.networkWaiters.shift()!.resume();
+            }
+        });
+    }
+    private async networkSlot<T>(work: () => Promise<T>, priority = 0): Promise<T> {
+        await new Promise<void>(resolve => {
+            this.networkWaiters.push({ priority, resume: resolve });
+            this.drainNetwork();
+        });
+        try { return await work(); }
+        finally { this.networkActive--; this.drainNetwork(); }
+    }
 
     constructor(
         public readonly tileSet: TileSet,
@@ -172,6 +237,13 @@ export default class Google3DTiles {
         this.maxDepth = options.maxDepth ?? 20;
         this.maxTiles = options.maxTiles ?? 64;
         this.exaggeration = options.exaggeration ?? 1;
+        this.coverageRadius = options.coverageRadius;
+        this.coverageRegion = options.coverageRegion;
+        this.maximumGeometricError = options.maximumGeometricError ?? 0;
+        this.maximumScreenSpaceError = options.maximumScreenSpaceError;
+        this.maximumDisplayGeometricError = options.maximumDisplayGeometricError;
+        this.cullToCamera = options.cullToCamera ?? false;
+        this.heightOffset = options.heightOffset ?? 0;
         this.origin = options.origin;
         this.apiKey = options.apiKey ?? "";
         this.tilesetLoader = options.tilesetLoader ?? defaultTilesetLoader;
@@ -181,6 +253,56 @@ export default class Google3DTiles {
     /** Content currently attached to the Babylon scene. */
     public get loadedModelTiles(): readonly LoadedGoogle3DTile[] {
         return Array.from(this.loadedTiles.values());
+    }
+
+    private coverageKey = "";
+    private coverageVersion = 0;
+    public get coverageRevision(): number { return this.coverageVersion; }
+    private coverageIndex = new Map<string, TileSelection[]>();
+    private broadCoverage: TileSelection[] = [];
+    private loadedSelections = new Map<string, TileSelection>();
+
+    /** Whether loaded model bounds cover this geographic position. */
+    public coversLocation(latitude: number, longitude: number): boolean {
+        const key = `${this.generation}/${this.loadedTiles.size}`;
+        if (this.coverageKey !== key) {
+            this.coverageKey = key;
+            this.coverageIndex.clear(); this.broadCoverage = [];
+            for (const url of this.loadedTiles.keys()) {
+                const selection = this.loadedSelections.get(url) ?? this.desiredTiles.get(url);
+                if (!selection?.boundingVolume) continue;
+                const volume = selection.boundingVolume;
+                let west: number, east: number, south: number, north: number;
+                if (volume.region) {
+                    [west, south, east, north] = volume.region.map(value => value / RADIANS_PER_DEGREE);
+                } else {
+                    const values = volume.box ?? volume.sphere;
+                    if (!values) continue;
+                    const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+                    const center = Vector3.TransformCoordinates(Vector3.FromArray(values), transform);
+                    if (center.length() < WGS84_SEMI_MAJOR_AXIS / 2) { this.broadCoverage.push(selection); continue; }
+                    const radius = volume.box ? [3, 6, 9].reduce((sum, offset) => sum + Vector3.TransformNormal(Vector3.FromArray(values, offset), transform).length(), 0) : values[3];
+                    const lat = Math.atan2(center.z, Math.hypot(center.x, center.y) * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED)) / RADIANS_PER_DEGREE;
+                    const lon = Math.atan2(center.y, center.x) / RADIANS_PER_DEGREE;
+                    const delta = radius / 6300000 / RADIANS_PER_DEGREE + 0.0001;
+                    south = lat - delta; north = lat + delta;
+                    const longitudeDelta = delta / Math.max(0.01, Math.cos(Math.max(Math.abs(south), Math.abs(north)) * RADIANS_PER_DEGREE));
+                    west = lon - longitudeDelta; east = lon + longitudeDelta;
+                }
+                if (east < west || (Math.ceil((east - west) * 1000) + 1) * (Math.ceil((north - south) * 1000) + 1) > 4096 || west < -180 || east > 180) {
+                    this.broadCoverage.push(selection); continue;
+                }
+                for (let x = Math.floor(west * 1000); x <= Math.floor(east * 1000); x++)
+                    for (let y = Math.floor(south * 1000); y <= Math.floor(north * 1000); y++) {
+                        const cell = `${x}/${y}`;
+                        const entries = this.coverageIndex.get(cell) ?? [];
+                        entries.push(selection); this.coverageIndex.set(cell, entries);
+                    }
+            }
+        }
+        const nearby = this.coverageIndex.get(`${Math.floor(longitude * 1000)}/${Math.floor(latitude * 1000)}`) ?? [];
+        for (const selection of nearby) if (verticalIntersectsVolume(latitude, longitude, selection.boundingVolume!, selection.transform)) return true;
+        return this.broadCoverage.some(selection => verticalIntersectsVolume(latitude, longitude, selection.boundingVolume!, selection.transform));
     }
 
     /** The last root tileset response, if load() has been called. */
@@ -219,11 +341,16 @@ export default class Google3DTiles {
         return this.authenticateURL(uri, baseUrl);
     }
 
+    /** Cancel queued work while retaining the visible scene and hierarchy cache. */
+    public cancelPendingLoad(): void { this.generation++; }
+
     /** Loads content that overlaps the current TileSet. */
     public async load(): Promise<readonly LoadedGoogle3DTile[]> {
         this.tileSet.assertRasterSetup("load Google 3D Tiles");
         this.validateOptions();
 
+        this.selectionEye = this.cameraEye();
+        const residentAtStart = new Set([...this.loadedTiles.keys(), ...this.retainedTiles.keys()]);
         const generation = ++this.generation;
         const origin = this.getOrigin();
         const originStateKey = this.getOriginStateKey(origin);
@@ -239,7 +366,32 @@ export default class Google3DTiles {
         }
 
         const desiredTiles = new Map<string, TileSelection>();
-        await this.collectTileContent(
+        this.desiredTiles = desiredTiles;
+        const modelRequests: Promise<unknown>[] = [];
+        const residentAncestors = new Set<string>();
+        for (const [url, selection] of this.loadedSelections) if (this.loadedTiles.has(url))
+            for (const ancestor of selection.ancestors ?? []) residentAncestors.add(ancestor);
+        const startModel = (selection: TileSelection) => {
+            modelRequests.push(this.loadTile(selection, origin, generation).catch((error: unknown) => {
+                console.warn("Unable to load a Google 3D Tile.");
+            }));
+        };
+        if (this.maximumScreenSpaceError) {
+            await this.selectFrontier(desiredTiles, generation, selection => {
+                desiredTiles.set(selection.url, selection);
+                if (residentAncestors.has(selection.url) && selection.geometricError !== undefined
+                    && selection.geometricError > this.allowedGeometricError(selection.boundingVolume,
+                        selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity())) return;
+                const overlapsExisting = selection.ancestors?.some(url => this.loadedTiles.has(url))
+                    || residentAncestors.has(selection.url);
+                // New, disjoint coverage can appear immediately. Overlapping
+                // refinements still commit as a complete replacement subtree.
+                modelRequests.push(this.loadTile(selection, origin, generation, !overlapsExisting).catch(() => undefined));
+            });
+            if (Array.from(desiredTiles.keys()).some(url => !this.loadedTiles.has(url))) {
+                await this.loadReplacementGroups(desiredTiles, origin, generation);
+            }
+        } else await this.collectTileContent(
             this.rootTileset.root,
             this.getRootTilesetURL(),
             0,
@@ -248,28 +400,75 @@ export default class Google3DTiles {
             Matrix.Identity(),
             "REPLACE",
             generation,
+            startModel,
         );
         if (generation !== this.generation) return [];
         this.desiredTiles = desiredTiles;
 
+        await Promise.all(modelRequests);
+        if (generation !== this.generation) return [];
+        this.stats.reusedModels += Array.from(desiredTiles.keys()).filter(url => residentAtStart.has(url) && this.loadedTiles.has(url)).length;
+        // Keep the previous view visible while its replacement is streaming.
         for (const url of Array.from(this.loadedTiles.keys())) {
             if (!desiredTiles.has(url)) {
-                this.disposeTile(url);
+                const previous = this.loadedSelections.get(url);
+                if (this.maximumScreenSpaceError && previous) {
+                    const transform = previous.transform ? Matrix.FromArray(previous.transform) : Matrix.Identity();
+                    if (boundingVolumeIntersects(previous.boundingVolume, this.getTileSetBounds(), transform)) continue;
+                }
+                const tile = this.loadedTiles.get(url)!;
+                tile.root.setEnabled(false);
+                this.loadedTiles.delete(url);
+                this.retainedTiles.set(url, tile);
             }
         }
-
-        await Promise.all(
-            Array.from(desiredTiles.values(), (selection) => {
-                return this.loadTile(selection, origin, generation).catch((error: unknown) => {
-                    console.warn("Unable to load a Google 3D Tile:", error);
-                    return undefined;
-                });
-            }),
-        );
-
-        if (generation !== this.generation) return [];
+        this.trimVisibleHistory(desiredTiles);
+        // Bound GPU memory while retaining the most recently visited detail.
+        this.trimRetainedTiles();
+        this.coverageKey = ""; this.coverageVersion++;
         this.updateAttribution();
         return this.loadedModelTiles;
+    }
+
+    private trimVisibleHistory(desired: Map<string, TileSelection>): void {
+        if (this.loadedTiles.size > this.maxTiles * 2) {
+            const candidates = Array.from(this.loadedSelections).filter(([url, selection]) =>
+                this.loadedTiles.has(url) && !desired.has(url)
+                && this.allowedGeometricError(selection.boundingVolume, selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity()) < 0);
+            candidates.sort((a, b) => this.tilePriority(b[1].boundingVolume, b[1].transform ? Matrix.FromArray(b[1].transform) : Matrix.Identity())
+                - this.tilePriority(a[1].boundingVolume, a[1].transform ? Matrix.FromArray(a[1].transform) : Matrix.Identity()));
+            for (const [url] of candidates) { if (this.loadedTiles.size <= this.maxTiles * 2) break; this.retireTile(url); }
+        }
+    }
+
+    private trimRetainedTiles(): void {
+        while (this.retainedTiles.size > Math.max(128, Math.min(256, this.maxTiles))) {
+            const url = Array.from(this.retainedTiles.keys()).find(url => !this.pendingModels.has(url) && !this.desiredTiles.has(url));
+            if (!url) break;
+            const tile = this.retainedTiles.get(url)!;
+            tile.asset.dispose(); tile.root.dispose(false, false);
+            this.retainedTiles.delete(url);
+            this.loadedSelections.delete(url);
+        }
+    }
+
+    /** Prepare a bounded surrounding ring after visible loading has finished. */
+    public async prefetchSurroundings(): Promise<void> {
+        if (!this.rootTileset || !this.maximumScreenSpaceError) return;
+        const generation = this.generation;
+        const origin = this.getOrigin();
+        const selections = new Map<string, TileSelection>();
+        const requests: Promise<unknown>[] = [];
+        let models = 0;
+        await this.selectFrontier(selections, generation, selection => {
+            if (generation !== this.generation || this.loadedTiles.has(selection.url) || this.retainedTiles.has(selection.url) || models >= 128) return;
+            const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+            if (this.allowedGeometricError(selection.boundingVolume, transform) >= 0) return;
+            models++;
+            requests.push(this.loadTile(selection, origin, generation, false).catch(() => undefined));
+        }, true);
+        await Promise.all(requests);
+        this.trimRetainedTiles();
     }
 
     /** Alias matching the building-provider lifecycle used by older examples. */
@@ -303,6 +502,15 @@ export default class Google3DTiles {
         if (!Number.isFinite(this.exaggeration) || this.exaggeration <= 0) {
             throw new RangeError("exaggeration must be a finite number greater than zero.");
         }
+        if (this.coverageRadius !== undefined && (!Number.isFinite(this.coverageRadius) || this.coverageRadius <= 0))
+            throw new RangeError("coverageRadius must be positive and finite.");
+        if (this.maximumScreenSpaceError !== undefined && (!Number.isFinite(this.maximumScreenSpaceError) || this.maximumScreenSpaceError <= 0))
+            throw new RangeError("maximumScreenSpaceError must be positive and finite.");
+        if (this.maximumDisplayGeometricError !== undefined && (!Number.isFinite(this.maximumDisplayGeometricError) || this.maximumDisplayGeometricError <= 0))
+            throw new RangeError("maximumDisplayGeometricError must be positive and finite.");
+        if (!Number.isFinite(this.heightOffset)) throw new RangeError("heightOffset must be finite.");
+        if (!Number.isFinite(this.maximumGeometricError) || this.maximumGeometricError < 0)
+            throw new RangeError("maximumGeometricError must be non-negative and finite.");
         if (!this.rootUrl.trim()) {
             throw new Error("rootUrl must not be empty.");
         }
@@ -324,6 +532,7 @@ export default class Google3DTiles {
             origin.latitude,
             origin.longitude,
             origin.height ?? 0,
+            this.heightOffset,
             this.tileSet.isGlobe ? (this.tileSet as GlobeSet).metresToWorld : this.tileSet.tileScale,
             this.exaggeration,
         ].join(":");
@@ -340,6 +549,7 @@ export default class Google3DTiles {
             return;
         }
 
+        this.stats.hierarchyRequests++;
         const tileset = await this.tilesetLoader(rootUrl);
         if (generation !== this.generation) return;
         this.rootTileset = tileset;
@@ -367,14 +577,21 @@ export default class Google3DTiles {
         return url.toString();
     }
 
-    private async loadExternalTileset(uri: string, baseUrl: string): Promise<LoadedTileset> {
+    private async loadExternalTileset(uri: string, baseUrl: string, priority = 0, generation = this.generation): Promise<LoadedTileset> {
         const url = this.authenticateURL(uri, baseUrl);
         const cached = this.externalTilesets.get(url);
         if (cached) {
-            return cached;
+            return cached.catch(error => {
+                if (generation === this.generation && error instanceof DOMException && error.name === "AbortError")
+                    return this.loadExternalTileset(uri, baseUrl, priority, generation);
+                throw error;
+            });
         }
 
-        const request = this.tilesetLoader(url).then((tileset) => {
+        const request = this.networkSlot(() => {
+            if (generation !== this.generation) throw new DOMException("Superseded tile selection", "AbortError");
+            this.stats.hierarchyRequests++; return this.tilesetLoader(url);
+        }, priority).then((tileset) => {
             if (!tileset || !tileset.root) {
                 throw new Error("Google 3D Tiles response did not contain a root tile.");
             }
@@ -387,6 +604,263 @@ export default class Google3DTiles {
         return request;
     }
 
+    private cameraEye(): Vector3 {
+        const camera = this.tileSet.scene.activeCamera;
+        if (camera && this.tileSet.isGlobe) {
+            camera.getViewMatrix();
+            const globe = this.tileSet as GlobeSet;
+            const location = globe.getSurfaceCoordinates(camera.globalPosition);
+            return geographicToECEF({ latitude: location.latitude, longitude: location.longitude,
+                height: location.elevation / globe.metresToWorld - this.heightOffset });
+        }
+        return geographicToECEF({ latitude: this.tileSet.centerCoords.y, longitude: this.tileSet.centerCoords.x });
+    }
+
+    private tilePriority(volume: Google3DBoundingVolume | undefined, transform: Matrix): number {
+        if (!volume) return 0;
+        const eye = this.selectionEye ?? this.cameraEye();
+        const values = volume.box ?? volume.sphere;
+        if (!values) return 0;
+        const center = Vector3.TransformCoordinates(Vector3.FromArray(values), transform);
+        if (volume.box) {
+            const axes = [3, 6, 9].map(offset => Vector3.TransformNormal(Vector3.FromArray(values, offset), transform));
+            const delta = eye.subtract(center), closest = center.clone();
+            const orthogonal = axes.every((axis, i) => axes.every((other, j) => i === j
+                || Math.abs(Vector3.Dot(axis, other)) <= 1e-6 * axis.length() * other.length()));
+            if (orthogonal) {
+                for (const axis of axes) if (axis.lengthSquared()) closest.addInPlace(axis.scale(
+                    Math.max(-1, Math.min(1, Vector3.Dot(delta, axis) / axis.lengthSquared()))));
+                return Vector3.Distance(eye, closest);
+            }
+            return Math.max(0, Vector3.Distance(eye, center) - axes.reduce((sum, axis) => sum + axis.length(), 0));
+        }
+        const scale = Math.max(...[Vector3.Right(), Vector3.Up(), Vector3.Forward()].map(axis => Vector3.TransformNormal(axis, transform).length()));
+        return Math.max(0, Vector3.Distance(eye, center) - volume.sphere![3] * scale);
+    }
+
+    private allowedGeometricError(volume: Google3DBoundingVolume | undefined, transform: Matrix, surroundings = false): number {
+        const camera = this.tileSet.scene.activeCamera;
+        if (!this.maximumScreenSpaceError || !this.tileSet.isGlobe || !camera || !volume) return this.maximumGeometricError;
+        const globe = this.tileSet as GlobeSet;
+        const eye = this.selectionEye ?? this.cameraEye();
+        let center: Vector3;
+        let radius = 0;
+        if (volume.box) {
+            center = Vector3.TransformCoordinates(Vector3.FromArray(volume.box), transform);
+            const axes = [3, 6, 9].map(offset => Vector3.TransformNormal(Vector3.FromArray(volume.box!, offset), transform));
+            const orthogonal = axes.every((axis, i) => axes.every((other, j) => i === j
+                || Math.abs(Vector3.Dot(axis, other)) <= 1e-6 * axis.length() * other.length()));
+            radius = orthogonal ? Math.hypot(...axes.map(axis => axis.length()))
+                : axes.reduce((sum, axis) => sum + axis.length(), 0);
+        } else if (volume.sphere) {
+            center = Vector3.TransformCoordinates(Vector3.FromArray(volume.sphere), transform);
+            radius = volume.sphere[3] * Math.max(...[Vector3.Right(), Vector3.Up(), Vector3.Forward()].map(axis => Vector3.TransformNormal(axis, transform).length()));
+        } else if (volume.region) {
+            const [west, south, east, north, low, high] = volume.region;
+            center = geographicToECEF({ latitude: (south + north) / 2 / RADIANS_PER_DEGREE,
+                longitude: (west + east) / 2 / RADIANS_PER_DEGREE, height: (low + high) / 2 });
+            for (const latitude of [south, north]) for (const longitude of [west, east])
+                radius = Math.max(radius, Vector3.Distance(center, geographicToECEF({ latitude: latitude / RADIANS_PER_DEGREE, longitude: longitude / RADIANS_PER_DEGREE, height: high })));
+        } else return this.maximumGeometricError;
+        // Globe-spanning hierarchy volumes contain the Earth centre and have no
+        // meaningful surface latitude. Refine them before doing camera projection.
+        if (center.length() <= radius + WGS84_SEMI_MAJOR_AXIS * 0.1) return 0;
+        const longitude = Math.atan2(center.y, center.x);
+        const horizontal = Math.hypot(center.x, center.y);
+        let latitude = Math.atan2(center.z, horizontal * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED));
+        let altitude = 0;
+        for (let i = 0; i < 5; i++) {
+            const normal = WGS84_SEMI_MAJOR_AXIS / Math.sqrt(1 - WGS84_FIRST_ECCENTRICITY_SQUARED * Math.sin(latitude) ** 2);
+            altitude = horizontal / Math.max(1e-12, Math.cos(latitude)) - normal;
+            latitude = Math.atan2(center.z, horizontal * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED * normal / (normal + altitude)));
+        }
+        const world = globe.getSurfacePosition(latitude / RADIANS_PER_DEGREE, longitude / RADIANS_PER_DEGREE,
+            (altitude + this.heightOffset) * globe.metresToWorld);
+        // Keep broad coverage behind the camera, but spend detail on the visible view.
+        const planes = Frustum.GetPlanes(camera.getTransformationMatrix());
+        const visible = !planes.some(plane => plane.dotCoordinate(world) < -radius * globe.metresToWorld);
+        if (this.cullToCamera && !visible && !surroundings) return -1;
+        let distance = Math.max(1, Vector3.Distance(eye, center) - radius);
+        if (volume.box) {
+            // A sphere around a long city block greatly exaggerates proximity.
+            // Measure distance to its oriented box for the refinement decision.
+            const axes = [3, 6, 9].map(offset => Vector3.TransformNormal(Vector3.FromArray(volume.box!, offset), transform));
+            const orthogonal = axes.every((axis, i) => axes.every((other, j) => i === j
+                || Math.abs(Vector3.Dot(axis, other)) < 1e-6 * axis.length() * other.length()));
+            if (orthogonal) {
+                const delta = eye.subtract(center);
+                const closest = center.clone();
+                for (const axis of axes) {
+                    const lengthSquared = axis.lengthSquared();
+                    if (lengthSquared) closest.addInPlace(axis.scale(Math.max(-1, Math.min(1, Vector3.Dot(delta, axis) / lengthSquared))));
+                }
+                distance = Math.max(1, Vector3.Distance(eye, closest));
+            }
+        }
+        return this.maximumScreenSpaceError * (visible ? 1 : 4) * 2 * distance * Math.tan(camera.fov / 2)
+            / this.tileSet.scene.getEngine().getRenderHeight();
+    }
+
+    /** A complete renderable frontier: refine the largest projected error first.
+     * A budget limit leaves a parent in place instead of dropping its siblings.
+     */
+    private async selectFrontier(desired: Map<string, TileSelection>, generation: number, onStable: (selection: TileSelection) => void, surroundings = false): Promise<void> {
+        const bounds = this.getTileSetBounds();
+        const budget = surroundings ? Math.min(512, this.maxTiles) : this.maxTiles;
+        const camera = this.tileSet.scene.activeCamera;
+        const key = JSON.stringify([bounds, this.selectionEye?.asArray(),
+            camera && Array.from(camera.getViewMatrix().m), camera && Array.from(camera.getProjectionMatrix().m),
+            this.tileSet.scene.getEngine().getRenderHeight(), budget, this.maxDepth,
+            this.maximumScreenSpaceError, this.maximumDisplayGeometricError, this.cullToCamera,
+            this.maximumGeometricError, this.originStateKey, this.rootRequestKey, surroundings, this.coverageRegion]);
+        if (this.frontierCache?.key === key) {
+            for (const selection of this.frontierCache.selections) {
+                desired.set(selection.url, selection);
+                if (!this.loadedTiles.has(selection.url)) onStable(selection);
+            }
+            return;
+        }
+        const requiredBounds: GeographicBounds | undefined = this.coverageRegion && {
+            south: this.coverageRegion.south, north: this.coverageRegion.north,
+            longitudes: [[this.coverageRegion.west, this.coverageRegion.east]],
+        };
+        const required = (volume: Google3DBoundingVolume | undefined, transform: Matrix) =>
+            !!requiredBounds && boundingVolumeIntersects(volume, requiredBounds, transform);
+        let hierarchyFailed = false;
+        let lastYield = performance.now();
+        const firstContent = async (tile: Google3DTile, responseUrl: string, depth: number,
+            parentTransform: Matrix, parentRefine: string, ancestors: string[] = []): Promise<FrontierTile[]> => {
+            if (performance.now() - lastYield > 6) {
+                lastYield = performance.now();
+                await new Promise<void>(resolve => setTimeout(resolve, 0));
+            }
+            if (generation !== this.generation || depth > this.maxDepth) return [];
+            const transform = getTileTransform(tile)?.multiply(parentTransform) ?? parentTransform;
+            if (!boundingVolumeIntersects(tile.boundingVolume, bounds, transform)) return [];
+            let allowed = this.allowedGeometricError(tile.boundingVolume, transform, surroundings);
+            const inRegion = required(tile.boundingVolume, transform);
+            if (allowed < 0 && !inRegion) return [];
+            if (inRegion) allowed = allowed < 0 ? this.maximumDisplayGeometricError ?? 33
+                : Math.min(allowed, this.maximumDisplayGeometricError ?? 33);
+            const refine = tile.refine?.toUpperCase() ?? parentRefine;
+            const contents = getTileContents(tile);
+            const selections = contents.filter(content => !isTilesetContent(content)).map(content => ({
+                url: this.authenticateURL(getContentURI(content), responseUrl), depth, ancestors, geometricError: tile.geometricError,
+                boundingVolume: tile.boundingVolume,
+                transform: transform.isIdentity() ? undefined : Array.from(transform.m),
+            }));
+            const node: FrontierTile = { tile, responseUrl, depth, transform, refine, selections, ancestors,
+                priority: (tile.geometricError ?? Infinity) / Math.max(allowed, 1e-12) };
+            if (selections.length) return [node];
+            return children(node);
+        };
+        const children = async (node: FrontierTile): Promise<FrontierTile[]> => {
+            if (node.depth >= this.maxDepth) return [];
+            const branches = (node.tile.children ?? []).map(child => firstContent(child, node.responseUrl,
+                node.depth + 1, node.transform, node.refine, node.ancestors.concat(node.selections.map(selection => selection.url))));
+            for (const content of getTileContents(node.tile).filter(isTilesetContent)) {
+                branches.push(this.loadExternalTileset(getContentURI(content), node.responseUrl,
+                    this.tilePriority(node.tile.boundingVolume, node.transform), generation).then(external => firstContent(external.tileset.root,
+                        external.url, node.depth + 1, node.transform, node.refine, node.ancestors.concat(node.selections.map(selection => selection.url)))));
+            }
+            return (await Promise.all(branches)).reduce((all, branch) => all.concat(branch), [] as FrontierTile[]);
+        };
+        const initial = await firstContent(this.rootTileset!.root, this.getRootTilesetURL(), 0, Matrix.Identity(), "REPLACE");
+        const frontier = new Set(initial);
+        let count = initial.reduce((sum, node) => sum + node.selections.length, 0);
+        if (count > budget) throw new Error("The first renderable Google tile level exceeds the configured tile budget.");
+        const queue = [...initial];
+        const settled = new Set<FrontierTile>();
+        const renderable = (node: FrontierTile) => this.maximumDisplayGeometricError === undefined
+            || (node.tile.geometricError ?? 0) <= this.maximumDisplayGeometricError;
+        const settle = (node: FrontierTile) => {
+            if (settled.has(node)) return;
+            settled.add(node);
+            if (renderable(node)) node.selections.forEach(onStable);
+        };
+        const commits: Promise<void>[] = [];
+        const committed = new Set<string>();
+        let checkedSettled = -1;
+        const flushReplacements = () => {
+            if (surroundings || checkedSettled === settled.size) return;
+            checkedSettled = settled.size;
+            const groups = new Map<string, FrontierTile[]>();
+            for (const node of frontier) for (const selection of node.selections) {
+                const ancestor = [...(selection.ancestors ?? []), selection.url].find(url => this.loadedTiles.has(url));
+                if (!ancestor || committed.has(ancestor)) continue;
+                const members = groups.get(ancestor) ?? [];
+                if (!members.includes(node)) members.push(node);
+                groups.set(ancestor, members);
+            }
+            for (const [ancestor, members] of groups) {
+                if (!members.every(node => settled.has(node) && renderable(node))
+                    || members.some(node => node.selections.some(selection => selection.url === ancestor))) continue;
+                committed.add(ancestor);
+                const batch = new Map<string, TileSelection>();
+                for (const node of members) for (const selection of node.selections) batch.set(selection.url, selection);
+                commits.push(this.loadReplacementGroups(batch, this.getOrigin(), generation));
+            }
+        };
+        type Expansion = { node: FrontierTile; next: FrontierTile[] | undefined };
+        const pending = new Map<FrontierTile, Promise<Expansion>>();
+        while ((queue.length || pending.size) && generation === this.generation) {
+            if (count >= budget) { queue.splice(0).forEach(settle); }
+            const distances = new Map(queue.map(node => [node, this.tilePriority(node.tile.boundingVolume, node.transform)]));
+            const front = surroundings ? new Map(queue.map(node => [node, this.allowedGeometricError(node.tile.boundingVolume, node.transform) >= 0])) : undefined;
+            queue.sort((a, b) => {
+                const bandA = Math.floor(Math.log2(1 + distances.get(a)! / 250));
+                const bandB = Math.floor(Math.log2(1 + distances.get(b)! / 250));
+                const backgroundOrder = front ? Number(front.get(a)) - Number(front.get(b)) : 0;
+                // Reserve part of the frontier for usable city-wide coverage
+                // after the first nearby detail patch has been selected.
+                const coverageOrder = count >= Math.min(128, budget / 4) ? Number(!renderable(b) && required(b.tile.boundingVolume, b.transform))
+                    - Number(!renderable(a) && required(a.tile.boundingVolume, a.transform)) : 0;
+                return coverageOrder || backgroundOrder || bandA - bandB || b.priority - a.priority || distances.get(a)! - distances.get(b)!;
+            });
+            while (queue.length && pending.size < 16) {
+                const node = queue.shift()!;
+                if (node.priority <= 1) { settle(node); continue; }
+                pending.set(node, children(node).then(next => ({ node, next }), () => ({ node, next: undefined })));
+            }
+            flushReplacements();
+            if (!pending.size) continue;
+            const { node, next } = await Promise.race(Array.from(pending.values()));
+            pending.delete(node);
+            if (generation !== this.generation) return;
+            if (!next) { hierarchyFailed = true; settle(node); continue; }
+            const extra = next.reduce((sum, child) => sum + child.selections.length, 0)
+                    - (node.refine === "ADD" ? 0 : node.selections.length);
+                if (!next.length) {
+                    const contents = getTileContents(node.tile);
+                    const leaf = !(node.tile.children?.length) && !contents.some(isTilesetContent);
+                    const visibleEmptyChild = node.tile.children?.some(child => {
+                        if (getTileContents(child).length || child.children?.length) return false;
+                        const transform = getTileTransform(child)?.multiply(node.transform) ?? node.transform;
+                        return boundingVolumeIntersects(child.boundingVolume, bounds, transform)
+                            && this.allowedGeometricError(child.boundingVolume, transform, surroundings) >= 0;
+                    });
+                    if (node.depth >= this.maxDepth || leaf || visibleEmptyChild) settle(node);
+                    else { frontier.delete(node); count -= node.selections.length; }
+                    continue;
+                }
+                if (count + extra > budget) { settle(node); continue; }
+                if (node.refine !== "ADD") frontier.delete(node);
+                else settle(node);
+                next.forEach(child => { frontier.add(child); queue.push(child); });
+                count += extra;
+        }
+        if (generation !== this.generation) return;
+        flushReplacements();
+        await Promise.all(commits);
+        if (generation !== this.generation) return;
+        if (!surroundings) this.stats.detailLimitedTiles = Array.from(frontier).filter(node => node.priority > 1
+            && node.depth < this.maxDepth && ((node.tile.children?.length ?? 0) > 0 || getTileContents(node.tile).some(isTilesetContent))).length;
+        if (!surroundings) this.stats.sourceLimitedTiles = Array.from(frontier).filter(node => node.priority > 1
+            && !(node.tile.children?.length) && !getTileContents(node.tile).some(isTilesetContent)).length;
+        for (const node of frontier) if (renderable(node)) for (const selection of node.selections) desired.set(selection.url, selection);
+        if (!hierarchyFailed && !surroundings) this.frontierCache = { key, selections: Array.from(desired.values()) };
+    }
+
     private async collectTileContent(
         tile: Google3DTile,
         responseUrl: string,
@@ -396,6 +870,7 @@ export default class Google3DTiles {
         parentTransform = Matrix.Identity(),
         parentRefine = "REPLACE",
         generation = this.generation,
+        onSelection?: (selection: TileSelection) => void,
     ): Promise<number> {
         if (generation !== this.generation || desiredTiles.size >= this.maxTiles) {
             return 0;
@@ -410,22 +885,16 @@ export default class Google3DTiles {
         const refine = tile.refine?.toUpperCase() ?? parentRefine;
         let descendantCount = 0;
 
-        if (depth < this.maxDepth) {
-            for (const child of tile.children ?? []) {
-                descendantCount += await this.collectTileContent(
-                    child,
-                    responseUrl,
-                    depth + 1,
-                    bounds,
-                    desiredTiles,
-                    accumulatedTransform,
-                    refine,
-                    generation,
-                );
-                if (desiredTiles.size >= this.maxTiles) {
-                    break;
-                }
-            }
+        const allowedError = this.allowedGeometricError(tile.boundingVolume, accumulatedTransform);
+        if (allowedError < 0) return 0;
+        const sufficientDetail = contents.some(content => !isTilesetContent(content))
+            && tile.geometricError !== undefined && tile.geometricError <= allowedError;
+        if (depth < this.maxDepth && !sufficientDetail) {
+            const childCounts = await Promise.all((tile.children ?? []).map(child => this.collectTileContent(
+                child, responseUrl, depth + 1, bounds, desiredTiles,
+                accumulatedTransform, refine, generation, onSelection,
+            )));
+            descendantCount += childCounts.reduce((sum, count) => sum + count, 0);
 
             if (desiredTiles.size < this.maxTiles) {
                 for (const content of contents) {
@@ -436,6 +905,8 @@ export default class Google3DTiles {
                         const external = await this.loadExternalTileset(
                             getContentURI(content),
                             responseUrl,
+                            this.tilePriority(tile.boundingVolume, accumulatedTransform),
+                            generation,
                         );
                         descendantCount += await this.collectTileContent(
                             external.tileset.root,
@@ -446,9 +917,10 @@ export default class Google3DTiles {
                             accumulatedTransform,
                             refine,
                             generation,
+                            onSelection,
                         );
                     } catch (error) {
-                        console.warn("Unable to load a Google 3D Tiles child tileset:", error);
+                        if (generation === this.generation) console.warn("Unable to load a Google 3D Tiles child tileset:", error);
                     }
                     if (desiredTiles.size >= this.maxTiles) {
                         break;
@@ -457,9 +929,12 @@ export default class Google3DTiles {
             }
         }
 
-        const keepContent = depth >= this.maxDepth
+        const keepContent = sufficientDetail || depth >= this.maxDepth
             || (!(tile.children?.length) && !contents.some(isTilesetContent))
-            || refine === "ADD";
+            || refine === "ADD"
+            || (descendantCount === 0 && tile.children?.some(child =>
+                !getTileContents(child).length && !child.children?.length
+                && boundingVolumeIntersects(child.boundingVolume, bounds, accumulatedTransform)));
         if (!keepContent) {
             return descendantCount;
         }
@@ -474,10 +949,12 @@ export default class Google3DTiles {
                 desiredTiles.set(url, {
                     url,
                     depth,
+                    boundingVolume: tile.boundingVolume,
                     transform: accumulatedTransform.isIdentity()
                         ? undefined
                         : Array.from(accumulatedTransform.m),
                 });
+                onSelection?.(desiredTiles.get(url)!);
                 descendantCount++;
             }
         }
@@ -485,21 +962,117 @@ export default class Google3DTiles {
         return descendantCount;
     }
 
-    private async loadTile(
+    private retireTile(url: string): void {
+        const tile = this.loadedTiles.get(url);
+        if (!tile) return;
+        tile.root.setEnabled(false);
+        this.loadedTiles.delete(url);
+        this.retainedTiles.set(url, tile);
+        this.trimRetainedTiles();
+        this.coverageKey = ""; this.coverageVersion++;
+    }
+
+    /** Commit disjoint replacement subtrees only after every new model is ready. */
+    private async loadReplacementGroups(desired: Map<string, TileSelection>, origin: Google3DTilesOrigin, generation: number): Promise<void> {
+        const groups = new Map<string, { next: TileSelection[]; previous: Set<string> }>();
+        for (const selection of Array.from(desired.values())) {
+            const finerVisible = Array.from(this.loadedSelections).filter(([url, old]) => this.loadedTiles.has(url)
+                && old.ancestors?.includes(selection.url));
+            const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+            if (finerVisible.length && selection.geometricError !== undefined
+                && selection.geometricError > this.allowedGeometricError(selection.boundingVolume, transform)) {
+                // The budget is not permission to visibly coarsen resident detail.
+                desired.delete(selection.url);
+                for (const [url, old] of finerVisible) desired.set(url, old);
+                continue;
+            }
+            const ancestor = selection.ancestors?.find(url => this.loadedTiles.has(url));
+            const key = ancestor ?? selection.url;
+            let group = groups.get(key);
+            if (!group) { group = { next: [], previous: new Set() }; groups.set(key, group); }
+            group.next.push(selection);
+            if (ancestor) group.previous.add(ancestor);
+            for (const [url, old] of this.loadedSelections) {
+                if (this.loadedTiles.has(url) && old.ancestors?.includes(selection.url)) group.previous.add(url);
+            }
+        }
+        await Promise.all(Array.from(groups.values()).map(async group => {
+            const models = await Promise.all(group.next.map(selection => this.loadTile(selection, origin, generation, false).catch(() => undefined)));
+            if (generation !== this.generation) return;
+            if (models.some(model => !model)) {
+                // Failed refinement must not remove valid coverage.
+                for (const url of group.previous) {
+                    const old = this.loadedSelections.get(url);
+                    if (old) desired.set(url, old);
+                }
+                return;
+            }
+            for (let i = 0; i < models.length; i++) {
+                const model = models[i]!;
+                this.retainedTiles.delete(model.url);
+                this.loadedTiles.set(model.url, model);
+                this.loadedSelections.set(model.url, group.next[i]);
+                model.root.setEnabled(true);
+            }
+            for (const url of group.previous) if (!desired.has(url)) this.retireTile(url);
+            this.trimVisibleHistory(this.desiredTiles);
+            this.coverageKey = ""; this.coverageVersion++;
+            this.updateAttribution();
+        }));
+    }
+
+    private loadTile(selection: TileSelection, origin: Google3DTilesOrigin, generation: number, activate = true): Promise<LoadedGoogle3DTile | undefined> {
+        const existing = this.pendingModels.get(selection.url);
+        if (existing?.generation === generation) return existing.request;
+        if (existing) {
+            // Camera movement can still need a download started by the previous view.
+            return existing.request.catch(() => undefined).then(() => {
+                if (generation !== this.generation) return undefined;
+                return this.loadTile(selection, origin, generation, activate);
+            });
+        }
+        const request = this.loadTileAsset(selection, origin, generation, activate);
+        const entry = { generation, request };
+        this.pendingModels.set(selection.url, entry);
+        void request.then(() => {
+            if (this.pendingModels.get(selection.url) === entry) this.pendingModels.delete(selection.url);
+        }, () => {
+            if (this.pendingModels.get(selection.url) === entry) this.pendingModels.delete(selection.url);
+        });
+        return request;
+    }
+
+    private async loadTileAsset(
         selection: TileSelection,
         origin: Google3DTilesOrigin,
         generation: number,
+        activate = true,
     ): Promise<LoadedGoogle3DTile | undefined> {
         const loaded = this.loadedTiles.get(selection.url);
         if (loaded) {
             return loaded;
         }
 
-        const request = this.modelTileLoader(selection.url, this.tileSet.scene).then((model) => {
+        const retained = this.retainedTiles.get(selection.url);
+        if (retained) {
+            if (activate) {
+                this.retainedTiles.delete(selection.url);
+                this.loadedTiles.set(selection.url, retained);
+                this.loadedSelections.set(selection.url, selection);
+                this.coverageKey = ""; this.coverageVersion++;
+                retained.root.setEnabled(true);
+            }
+            return retained;
+        }
+        const request = this.networkSlot(async () => {
+            if (generation !== this.generation) return undefined;
+            this.stats.modelRequests++;
+            return this.modelTileLoader(selection.url, this.tileSet.scene);
+        }, this.tilePriority(selection.boundingVolume, selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity())).then((model) => {
             if (!model) {
                 return undefined;
             }
-            if (generation !== this.generation || !this.desiredTiles.has(selection.url)) {
+            if (this.getOriginStateKey(origin) !== this.originStateKey) {
                 model.asset.dispose();
                 return undefined;
             }
@@ -509,6 +1082,12 @@ export default class Google3DTiles {
                 origin,
                 model.rtcCenter,
             );
+            // Preserve the source image resolution while keeping oblique views
+            // sharp and mip transitions smooth. Babylon clamps to hardware caps.
+            for (const texture of model.asset.textures) {
+                texture.anisotropicFilteringLevel = this.tileSet.scene.getEngine().getCaps().maxAnisotropy;
+                if (texture instanceof Texture) texture.updateSamplingMode(Texture.TRILINEAR_SAMPLINGMODE);
+            }
             model.asset.addAllToScene();
             for (const node of model.asset.rootNodes) {
                 node.parent = root;
@@ -521,7 +1100,21 @@ export default class Google3DTiles {
                 asset: model.asset,
                 attributions: [...model.attributions],
             };
+            if (generation !== this.generation || !this.desiredTiles.has(selection.url)) {
+                root.setEnabled(false);
+                this.retainedTiles.set(selection.url, result);
+                this.trimRetainedTiles();
+                return undefined;
+            }
+            if (!activate) {
+                root.setEnabled(false);
+                this.retainedTiles.set(selection.url, result);
+                return result;
+            }
             this.loadedTiles.set(selection.url, result);
+            this.loadedSelections.set(selection.url, selection);
+            this.trimVisibleHistory(this.desiredTiles);
+            this.coverageKey = ""; this.coverageVersion++;
             this.updateAttribution();
             return result;
         });
@@ -583,7 +1176,7 @@ export default class Google3DTiles {
             const longitude = origin.longitude * RADIANS_PER_DEGREE;
             const globeEast = new Vector3(-Math.cos(longitude), 0, -Math.sin(longitude));
             const globeNorth = Vector3.Cross(globeEast, normal).normalize();
-            const surface = globe.getSurfacePosition(origin.latitude, origin.longitude, (origin.height ?? 0) * scale);
+            const surface = globe.getSurfacePosition(origin.latitude, origin.longitude, ((origin.height ?? 0) + this.heightOffset) * scale);
             // Replace the planar translation with a metre-scaled tangent frame.
             // Google already contains absolute terrain heights; do not add DEM elevation.
             transform = transform.multiply(Matrix.Translation(-originOnMap.x, 0, -originOnMap.z))
@@ -614,6 +1207,13 @@ export default class Google3DTiles {
     }
 
     private disposeLoadedTiles(): void {
+        this.frontierCache = undefined;
+        for (const tile of this.retainedTiles.values()) {
+            tile.asset.dispose(); tile.root.dispose(false, false);
+        }
+        this.retainedTiles.clear();
+        this.loadedSelections.clear();
+        this.coverageKey = ""; this.coverageVersion++;
         for (const url of Array.from(this.loadedTiles.keys())) {
             this.disposeTile(url);
         }
@@ -652,6 +1252,16 @@ export default class Google3DTiles {
             }
         }
 
+        if (this.coverageRadius) {
+            const center = this.tileSet.centerCoords;
+            const angular = this.coverageRadius / WGS84_SEMI_MAJOR_AXIS / RADIANS_PER_DEGREE;
+            south = Math.max(-90, center.y - angular); north = Math.min(90, center.y + angular);
+            const longitudeRadius = Math.min(180, angular / Math.max(0.01, Math.cos(center.y * RADIANS_PER_DEGREE)));
+            const west = normalizeLongitude(center.x - longitudeRadius), east = normalizeLongitude(center.x + longitudeRadius);
+            longitudes.length = 0;
+            if (west <= east) longitudes.push([west, east]);
+            else longitudes.push([west, 180], [-180, east]);
+        }
         const origin = this.getOrigin();
         const latitude = origin.latitude * RADIANS_PER_DEGREE;
         const longitude = origin.longitude * RADIANS_PER_DEGREE;
@@ -923,4 +1533,49 @@ function geographicToECEF(origin: Google3DTilesOrigin): Vector3 {
         (radius * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED) + height)
             * sinLatitude,
     );
+}
+
+// Intersect a geographic vertical segment with the tile's oriented volume.
+// Unlike a longitude/latitude AABB, this respects rotated Google tile edges.
+function verticalIntersectsVolume(latitude: number, longitude: number,
+    volume: Google3DBoundingVolume, transform?: number[]): boolean {
+    if (volume.region) {
+        const region = volume.region;
+        const lon = longitude * RADIANS_PER_DEGREE, lat = latitude * RADIANS_PER_DEGREE;
+        return lat >= region[1] && lat <= region[3]
+            && (region[0] <= region[2] ? lon >= region[0] && lon <= region[2] : lon >= region[0] || lon <= region[2]);
+    }
+    let start = geographicToECEF({ latitude, longitude, height: -12000 });
+    let end = geographicToECEF({ latitude, longitude, height: 12000 });
+    if (transform) {
+        const inverse = Matrix.Invert(Matrix.FromArray(transform));
+        start = Vector3.TransformCoordinates(start, inverse);
+        end = Vector3.TransformCoordinates(end, inverse);
+    }
+    const direction = end.subtract(start);
+    if (volume.box?.length === 12) {
+        const box = volume.box, center = Vector3.FromArray(box);
+        let near = 0, far = 1;
+        for (let i = 3; i < 12; i += 3) {
+            const axis = Vector3.FromArray(box, i), length = axis.length();
+            if (length === 0) return false;
+            axis.scaleInPlace(1 / length);
+            const position = Vector3.Dot(start.subtract(center), axis);
+            const velocity = Vector3.Dot(direction, axis);
+            if (Math.abs(velocity) < 1e-10) {
+                if (Math.abs(position) > length) return false;
+            } else {
+                const a = (-length - position) / velocity, b = (length - position) / velocity;
+                near = Math.max(near, Math.min(a, b)); far = Math.min(far, Math.max(a, b));
+                if (near > far) return false;
+            }
+        }
+        return true;
+    }
+    if (volume.sphere?.length === 4) {
+        const center = Vector3.FromArray(volume.sphere);
+        const t = Math.max(0, Math.min(1, Vector3.Dot(center.subtract(start), direction) / direction.lengthSquared()));
+        return Vector3.DistanceSquared(start.add(direction.scale(t)), center) <= volume.sphere[3] ** 2;
+    }
+    return false;
 }

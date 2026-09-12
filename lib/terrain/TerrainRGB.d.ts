@@ -14,6 +14,7 @@ export interface TerrainRGBOptions {
 /** Numeric DEM streaming, including negative ocean depths. No GPU readback. */
 export default class TerrainRGB {
     private cache;
+    private pending;
     private url;
     private encoding;
     private maxZoom;
@@ -23,5 +24,6 @@ export default class TerrainRGB {
     /** Resample a child of an overzoomed source without losing its geographic bounds. */
     static crop(grid: ElevationGrid, coordinates: Vector3, sourceZoom: number): ElevationGrid;
     load: ElevationLoader;
+    private fetchGrid;
     clearCache(): void;
 }

@@ -23,6 +23,19 @@ describe("shared map layer ownership", () => {
         expect(index.keepFootprint(footprint)).toBe(true);
         scene.dispose(); engine.dispose();
     });
+    it("avoids testing every landmark for each city footprint", () => {
+        const engine = new NullEngine(); const scene = new Scene(engine);
+        const models = Array.from({ length: 512 }, (_, i) => {
+            const mesh = MeshBuilder.CreateBox("landmark", { size: 1 }, scene);
+            mesh.position.x = i * 10;
+            return mesh;
+        });
+        const index = new BuildingReplacementIndex(); index.setModels(models);
+        const bounds = models.map(mesh => vi.spyOn(mesh, "getWorldMatrix"));
+        expect(index.keepPoint(new Vector3(0, 0, 0))).toBe(false);
+        expect(bounds.reduce((sum, spy) => sum + spy.mock.calls.length, 0)).toBeLessThan(10);
+        scene.dispose(); engine.dispose();
+    });
     it("preserves depth between tiers and reserves covered pixels for the finer tier", () => {
         const engine = new NullEngine(); const scene = new Scene(engine);
         const renderer = new MapLayerRenderer(scene);

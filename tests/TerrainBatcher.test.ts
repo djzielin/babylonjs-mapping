@@ -28,7 +28,7 @@ describe("lossless terrain batching", () => {
                 expect(Vector3.Distance(actual, expected)).toBeLessThan(1e-10);
                 const normal = Vector3.TransformNormal(Vector3.FromArray(normals, i * 3), mesh.getWorldMatrix());
                 expect(Vector3.Distance(Vector3.FromArray(vertices.normals!, (offset + i) * 3), normal)).toBeLessThan(1e-6);
-                expect(Array.from(vertices.uvs!).slice((offset + i) * 2, (offset + i + 1) * 2)).toEqual(Array.from(uv).slice(i * 2, i * 2 + 2));
+                expect(Array.from(vertices.uvs!).slice((offset + i) * 2, (offset + i + 1) * 2)).toEqual(Array.from(Float32Array.from(uv)).slice(i * 2, i * 2 + 2));
                 expect(layers[offset + i]).toBe(layer);
                 expect(vertices.colors![(offset + i) * 4]).toBeCloseTo(layer ? 0.3 : 1);
             }
@@ -36,6 +36,28 @@ describe("lossless terrain batching", () => {
             offset += mesh.getTotalVertices(); indexOffset += indices.length;
         }
         expect(vertices.positions!.length / 3).toBe(offset);
+        scene.dispose(); engine.dispose();
+    });
+    it("restores original tiles on context loss so derived pixel copies are unnecessary", () => {
+        const engine = new NullEngine();
+        Object.defineProperty(engine, "webGLVersion", { value: 2 });
+        const scene = new Scene(engine);
+        const source = MeshBuilder.CreateGround("source", {}, scene);
+        const sourceMaterial = new StandardMaterial("source", scene);
+        sourceMaterial.diffuseTexture = RawTexture.CreateRGBATexture(new Uint8Array(16), 2, 2, scene);
+        source.material = sourceMaterial;
+        const batcher = new TerrainBatcher(scene, () => [], () => {}) as any;
+        const derived = MeshBuilder.CreateGround("derived", {}, scene);
+        const material = new StandardMaterial("derived", scene);
+        const texture = RawTexture.CreateRGBATexture(new Uint8Array(16), 2, 2, scene);
+        batcher.batches.push({ mesh: derived, material, texture, sources: [batcher.snapshot(source)] });
+        batcher.owned.add(source); source.visibility = 0;
+        engine.onContextLostObservable.notifyObservers(engine);
+        expect(source.visibility).toBe(1);
+        expect(source.isDisposed()).toBe(false);
+        expect(derived.isDisposed()).toBe(true);
+        expect(batcher.owned.size).toBe(0);
+        expect(batcher.batches).toHaveLength(0);
         scene.dispose(); engine.dispose();
     });
     it("invalidates batches when geometry, imagery, visibility or position changes", () => {

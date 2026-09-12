@@ -72,6 +72,14 @@ export default class GlobeNavigator {
     private lastRasterUpdate = Number.NEGATIVE_INFINITY;
     private lastViewSignature?: string;
     private lastSurfaceHeight = 0;
+    private viewSource?: ArcRotateCamera;
+
+    /** Track an alternate local camera without taking over its input. */
+    public setViewSource(camera?: ArcRotateCamera): void {
+        this.viewSource = camera;
+        this.lastRasterKey = undefined;
+        this.lastViewSignature = undefined;
+    }
 
     public constructor(
         public readonly globe: GlobeSet,
@@ -112,6 +120,12 @@ export default class GlobeNavigator {
 
     /** Return the geographic point at the center of the camera view. */
     public getView(): GlobeView {
+        if (this.viewSource) {
+            const point = this.globe.getSurfaceCoordinates(this.viewSource.position);
+            const altitude = Math.max(0, point.elevation - this.globe.sampleElevation(point.latitude, point.longitude));
+            return { latitude: point.latitude, longitude: point.longitude, altitude,
+                zoom: this.getZoomForAltitude(altitude) };
+        }
         const latitude = 90 - this.camera.beta / DEGREES_TO_RADIANS;
         const longitude = this.wrapLongitude(this.camera.alpha / DEGREES_TO_RADIANS - 90);
         const altitude = Math.max(0, this.camera.radius - this.globe.radius - this.globe.sampleElevation(latitude, longitude));
@@ -214,7 +228,7 @@ export default class GlobeNavigator {
     public refresh(forceRasterUpdate = false): GlobeView {
         const current = this.getView();
         const surface = this.globe.sampleElevation(current.latitude, current.longitude);
-        if (!this.flight) this.camera.radius += surface - this.lastSurfaceHeight;
+        if (!this.flight && !this.viewSource) this.camera.radius += surface - this.lastSurfaceHeight;
         this.lastSurfaceHeight = surface;
         this.camera.lowerRadiusLimit = this.globe.radius + surface + this.getAltitudeForZoom(this.maxZoom);
         this.camera.minZ = Math.max(0.0000001, current.altitude * 0.001);

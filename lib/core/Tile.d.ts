@@ -12,6 +12,7 @@ export default class Tile {
     tileCoords: Vector3;
     box2D: BoundingBox;
     buildings: TileBuilding[];
+    buildingBatches: Mesh[];
     mergedBuildingMesh: Mesh | undefined;
     dem: number[];
     demDimensions: Vector2;

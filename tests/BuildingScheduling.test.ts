@@ -37,6 +37,24 @@ describe("building scheduling", () => {
         expect(far.mesh.getWorldMatrix().updateFlag).toBe(revision);
         scene.dispose(); engine.dispose();
     });
+    it("fills available download slots in one turn, nearest camera first", () => {
+        const { scene, engine, provider } = setup();
+        scene.activeCamera = new UniversalCamera("camera", Vector3.Zero(), scene);
+        provider.setOptimizationOptions({ prioritizeRequestsByDistance: true });
+        provider.loadConcurrency = 3;
+        provider.creationTimeBudgetMs = 100;
+        const queue = [90, 10, 50, 30].map(x => {
+            const mesh = MeshBuilder.CreateGround("tile", {}, scene);
+            mesh.position.x = x; mesh.computeWorldMatrix(true);
+            return { tile: { mesh, tileCoords: new Vector3(x, 0, 1) }, tileCoords: new Vector3(x, 0, 1), requestType: BuildingRequestType.LoadTile };
+        });
+        provider.setQueue(queue);
+        const starts: number[] = [];
+        vi.spyOn(provider as any, "handleLoadTileRequest").mockImplementation((request: any) => { request.inProgress = true; starts.push(request.tileCoords.x); });
+        provider.processBuildingRequests();
+        expect(starts).toEqual([10, 30, 50]);
+        scene.dispose(); engine.dispose();
+    });
     it("shares the generation budget across providers and renews it on the next frame", () => {
         const { scene, engine, provider } = setup();
         const other = new Provider("other", { scene } as TileSet, RetrievalLocation.Local);

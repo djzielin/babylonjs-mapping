@@ -14,7 +14,7 @@ class Google3DTilesDemo {
     private readonly qualityInput = document.getElementById("quality") as HTMLSelectElement;
     private readonly loadButton = document.getElementById("loadButton") as HTMLButtonElement;
     private readonly status = document.getElementById("status") as HTMLDivElement;
-    private readonly engine = new Engine(this.canvas, true);
+    private readonly engine = new Engine(this.canvas, true, { powerPreference: "high-performance", adaptToDeviceRatio: true });
     private readonly scene = new Scene(this.engine);
     private readonly camera: ArcRotateCamera;
     private readonly tileSet: TileSet;
@@ -47,7 +47,7 @@ class Google3DTilesDemo {
         this.setLocation();
 
         this.locationInput.addEventListener("change", () => {
-            this.qualityInput.value = this.locationInput.selectedOptions[0].dataset.detail ?? "22";
+            this.qualityInput.value = this.locationInput.selectedOptions[0].dataset.detail ?? "32";
         });
 
         this.form.addEventListener("submit", (event) => {
@@ -119,7 +119,7 @@ class Google3DTilesDemo {
             this.googleTiles = new Google3DTiles(this.tileSet, {
                 apiKey: this.apiKey,
                 maxDepth: Number(this.qualityInput.value),
-                maxTiles: 256,
+                maxTiles: 512,
             });
 
             const loaded = await this.googleTiles.load();

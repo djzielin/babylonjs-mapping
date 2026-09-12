@@ -47,7 +47,7 @@ export function terrainBatchGeometry(meshes: Mesh[]): { vertices: VertexData; la
         }
     }
     const vertices = new VertexData();
-    vertices.positions = positions; vertices.normals = normals; vertices.uvs = uvs; vertices.colors = colors; vertices.indices = indices;
+    vertices.positions = new Float32Array(positions); vertices.normals = new Float32Array(normals); vertices.uvs = new Float32Array(uvs); vertices.colors = new Float32Array(colors); vertices.indices = new Uint32Array(indices);
     return { vertices, layers, origin };
 }
 
@@ -67,7 +67,15 @@ export class TerrainBatcher {
     constructor(private scene: Scene, private groups: () => Mesh[][], private register: (mesh: Mesh, source: Mesh) => void) {
         if ((scene.getEngine() as Engine).webGLVersion < 2) return;
         scene.onBeforeRenderObservable.add(() => this.update());
-        scene.onDisposeObservable.add(() => this.batches.forEach(batch => this.release(batch)));
+        const engine = scene.getEngine();
+        const lost = engine.onContextLostObservable.add(() => {
+            this.batches.forEach(batch => this.release(batch));
+            this.batches = [];
+        });
+        scene.onDisposeObservable.add(() => {
+            engine.onContextLostObservable.remove(lost);
+            this.batches.forEach(batch => this.release(batch));
+        });
     }
     private snapshot(mesh: Mesh): Source {
         return { mesh, texture: (mesh.material as StandardMaterial).diffuseTexture as Texture,
@@ -132,12 +140,17 @@ export class TerrainBatcher {
             let read = this.pixels.get(texture);
             if (!read) { read = Promise.resolve(texture.readPixels()); this.pixels.set(texture, read); }
             const pixels = await read;
+            this.pixels.delete(texture);
             if (!pixels || pixels.byteLength !== size.width * size.height * 4) { this.lastError = "Unsupported texture readback"; return; }
             if (!this.enabled || !sources.every(source => this.valid(source))) { this.lastError = "Tiles changed during readback"; return; }
             data.set(new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength), i * size.width * size.height * 4);
         }
         const { vertices, layers, origin } = terrainBatchGeometry(sources.map(source => source.mesh));
         const texture = RawTexture2DArray.CreateRGBATexture(data, size.width, size.height, sources.length, this.scene, true, false, sources[0].texture.samplingMode);
+        // Derived pixels can be regenerated from the original raster textures.
+        // Avoid retaining a second city-sized CPU copy for context restoration;
+        // context loss releases these batches and the originals rebuild normally.
+        texture.getInternalTexture()!._bufferView = null;
         texture.anisotropicFilteringLevel = sources[0].texture.anisotropicFilteringLevel;
         texture.wrapU = texture.wrapV = Texture.CLAMP_ADDRESSMODE;
         const material = (sources[0].mesh.material as StandardMaterial).clone("batched terrain");
@@ -147,7 +160,7 @@ export class TerrainBatcher {
         new TileTextureArray(material, texture);
         const mesh = new Mesh("batched terrain", this.scene);
         vertices.applyToMesh(mesh);
-        mesh.setVerticesData("tileLayer", layers, false, 1);
+        mesh.setVerticesData("tileLayer", new Float32Array(layers), false, 1);
         mesh.setEnabled(false);
         mesh.position.copyFrom(origin);
         mesh.material = material;

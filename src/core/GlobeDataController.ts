@@ -10,6 +10,7 @@ export interface GlobeDataOptions {
     features?: Buildings[];
     minTerrainZoom?: number;
     minBuildingZoom?: number;
+    maxBuildingZoom?: number;
     concurrency?: number;
     /** Prefer the active camera frustum when streaming large landscape windows. */
     prioritizeVisible?: boolean;
@@ -26,8 +27,10 @@ export default class GlobeDataController {
     };
     private jobs = new Map<Tile, { key: string; abort: AbortController }>();
     private ready = new WeakMap<Tile, string>();
+    private terrainReady = new WeakMap<Tile, string>();
     private observer;
     private disposed = false;
+    private refillTimer?: ReturnType<typeof setTimeout>;
     private settled = false;
     private tiles: Tile[] | undefined;
     private positionObserver;
@@ -111,7 +114,7 @@ export default class GlobeDataController {
         const coords = tile.tileCoords.clone();
         try {
             if (
-                this.options.elevation &&
+                this.options.elevation && this.terrainReady.get(tile) !== key &&
                 coords.z >= (this.options.minTerrainZoom ?? 5)
             ) {
                 const grid = await this.options.elevation(coords, abort.signal);
@@ -128,6 +131,7 @@ export default class GlobeDataController {
                     grid.height,
                     this.options.exaggeration ?? 1,
                 );
+                this.terrainReady.set(tile, key);
             }
             if (
                 abort.signal.aborted ||
@@ -135,7 +139,7 @@ export default class GlobeDataController {
                 tile.tileCoords.toString() !== key
             )
                 return;
-            if (coords.z >= (this.options.minBuildingZoom ?? 14)) {
+            if (coords.z >= (this.options.minBuildingZoom ?? 14) && coords.z <= (this.options.maxBuildingZoom ?? Infinity)) {
                 for (const provider of [
                     this.options.buildings,
                     ...(this.options.features ?? []),
@@ -158,10 +162,17 @@ export default class GlobeDataController {
         } finally {
             if (this.jobs.get(tile)?.abort === abort) this.jobs.delete(tile);
             this.stats.active--;
+            // Fill the released slot immediately, including when rendering is
+            // throttled. update() reprioritizes from the latest camera each time.
+            if (!this.disposed && this.refillTimer === undefined) this.refillTimer = setTimeout(() => {
+                this.refillTimer = undefined;
+                this.update();
+            }, 0);
         }
     }
     /** Explicitly retry failures or reload after changing provider settings. */
-    public invalidate(): void {
+    public invalidate(preserveTerrain = false): void {
+        if (!preserveTerrain) this.terrainReady = new WeakMap();
         this.settled = false;
         for (const job of this.jobs.values()) job.abort.abort();
         this.jobs.clear();
@@ -171,6 +182,7 @@ export default class GlobeDataController {
     }
     public dispose(): void {
         this.disposed = true;
+        clearTimeout(this.refillTimer);
         for (const provider of this.providers) provider.cancelPendingRequests();
         for (const job of this.jobs.values()) job.abort.abort();
         this.jobs.clear();

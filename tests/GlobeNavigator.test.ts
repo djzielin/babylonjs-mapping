@@ -47,6 +47,23 @@ function createNavigator() {
 }
 
 describe("GlobeNavigator", () => {
+    it("centers LOD on a moving local camera rather than the old orbit target", () => {
+        const { engine, scene, globe, navigator } = createNavigator();
+        const local = new ArcRotateCamera("local", 0, 1, 0.01, globe.getSurfacePosition(35, -79), scene);
+        local.setPosition(globe.getSurfacePosition(36, -78, 0.005));
+        navigator.setViewSource(local);
+        let view = navigator.refresh(true);
+        expect(view.latitude).toBeCloseTo(36, 6);
+        expect(view.longitude).toBeCloseTo(-78, 6);
+        expect(globe.centerCoords.x).toBeCloseTo(-78, 6);
+        local.setPosition(globe.getSurfacePosition(36.01, -78.02, 0.005));
+        view = navigator.refresh(true);
+        expect(view.latitude).toBeCloseTo(36.01, 6);
+        expect(view.longitude).toBeCloseTo(-78.02, 6);
+        navigator.setViewSource();
+        navigator.dispose(); scene.dispose(); engine.dispose();
+    });
+
     it.each([[0, 12], [60, 12], [0, 18], [60, 18]])(
         "keeps a close-up drag proportional to screen pixels at latitude %s and zoom %s",
         (latitude, zoom) => {

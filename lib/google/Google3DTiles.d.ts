@@ -69,6 +69,25 @@ export interface Google3DTilesOptions {
     maxDepth?: number;
     /** Maximum number of GLB content tiles kept in the scene. */
     maxTiles?: number;
+    /** Optional minimum coverage radius around the current map center, in metres. */
+    coverageRadius?: number;
+    /** Keep usable Google coverage across this region, including behind the camera. */
+    coverageRegion?: {
+        south: number;
+        north: number;
+        west: number;
+        east: number;
+    };
+    /** Stop refinement once source geometric error is below this value in metres. */
+    maximumGeometricError?: number;
+    /** Projected geometric error in physical pixels; globe scenes only. */
+    maximumScreenSpaceError?: number;
+    /** Omit budget-limited content above this source error (metres), leaving room for a fallback provider. */
+    maximumDisplayGeometricError?: number;
+    /** Stream only bounding volumes intersecting the active camera frustum. */
+    cullToCamera?: boolean;
+    /** Metres added to ellipsoid heights to match the scene vertical datum. */
+    heightOffset?: number;
     /** Multiplier applied to the local vertical axis after loading. */
     exaggeration?: number;
     /** Explicit local origin. Defaults to TileSet.centerCoords. */
@@ -106,6 +125,20 @@ export default class Google3DTiles {
     maxDepth: number;
     maxTiles: number;
     exaggeration: number;
+    coverageRadius?: number;
+    coverageRegion?: Google3DTilesOptions["coverageRegion"];
+    maximumGeometricError: number;
+    maximumScreenSpaceError?: number;
+    maximumDisplayGeometricError?: number;
+    cullToCamera: boolean;
+    heightOffset: number;
+    readonly stats: {
+        hierarchyRequests: number;
+        modelRequests: number;
+        reusedModels: number;
+        detailLimitedTiles: number;
+        sourceLimitedTiles: number;
+    };
     origin?: Google3DTilesOrigin;
     private readonly tilesetLoader;
     private readonly modelTileLoader;
@@ -114,13 +147,30 @@ export default class Google3DTiles {
     private session;
     private readonly externalTilesets;
     private readonly loadedTiles;
+    private retainedTiles;
     private generation;
     private desiredTiles;
     private originStateKey;
     private googleAttributionAdded;
+    private pendingModels;
+    private selectionEye?;
+    private frontierCache?;
+    private networkActive;
+    private networkWaiters;
+    private networkDrainQueued;
+    private drainNetwork;
+    private networkSlot;
     constructor(tileSet: TileSet, options?: Google3DTilesOptions);
     /** Content currently attached to the Babylon scene. */
     get loadedModelTiles(): readonly LoadedGoogle3DTile[];
+    private coverageKey;
+    private coverageVersion;
+    get coverageRevision(): number;
+    private coverageIndex;
+    private broadCoverage;
+    private loadedSelections;
+    /** Whether loaded model bounds cover this geographic position. */
+    coversLocation(latitude: number, longitude: number): boolean;
     /** The last root tileset response, if load() has been called. */
     get tileset(): Google3DTileset | undefined;
     /** The session token discovered in the tileset's child URIs. */
@@ -134,8 +184,14 @@ export default class Google3DTiles {
      * the URI as baseUrl.
      */
     getTileURL(uri: string, baseUrl?: string): string;
+    /** Cancel queued work while retaining the visible scene and hierarchy cache. */
+    cancelPendingLoad(): void;
     /** Loads content that overlaps the current TileSet. */
     load(): Promise<readonly LoadedGoogle3DTile[]>;
+    private trimVisibleHistory;
+    private trimRetainedTiles;
+    /** Prepare a bounded surrounding ring after visible loading has finished. */
+    prefetchSurroundings(): Promise<void>;
     /** Alias matching the building-provider lifecycle used by older examples. */
     generateBuildings(): Promise<readonly LoadedGoogle3DTile[]>;
     /** Disposes loaded GLB assets and clears the provider's request caches. */
@@ -147,8 +203,19 @@ export default class Google3DTiles {
     private loadRootTileset;
     private authenticateURL;
     private loadExternalTileset;
+    private cameraEye;
+    private tilePriority;
+    private allowedGeometricError;
+    /** A complete renderable frontier: refine the largest projected error first.
+     * A budget limit leaves a parent in place instead of dropping its siblings.
+     */
+    private selectFrontier;
     private collectTileContent;
+    private retireTile;
+    /** Commit disjoint replacement subtrees only after every new model is ready. */
+    private loadReplacementGroups;
     private loadTile;
+    private loadTileAsset;
     private createTileRoot;
     private disposeTile;
     private disposeLoadedTiles;

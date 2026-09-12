@@ -51,6 +51,9 @@ export default class GlobeNavigator {
     private lastRasterUpdate;
     private lastViewSignature?;
     private lastSurfaceHeight;
+    private viewSource?;
+    /** Track an alternate local camera without taking over its input. */
+    setViewSource(camera?: ArcRotateCamera): void;
     constructor(globe: GlobeSet, camera: ArcRotateCamera, options?: GlobeNavigatorOptions);
     /** Return the geographic point at the center of the camera view. */
     getView(): GlobeView;
