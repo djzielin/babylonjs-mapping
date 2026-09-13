@@ -406,6 +406,17 @@ describe("bounded detail streaming", () => {
         expect(first.y).toBe(cy);
         data.dispose(); dispose();
     });
+    it("prioritizes the camera eye over a distant orbit target", () => {
+        const { globe, scene, dispose } = setup(5);
+        const nearest = globe.ourTiles[0];
+        const camera = new ArcRotateCamera("eye", 0, 1, 1, globe.getSurfacePosition(35, -79), scene);
+        const center = nearest.mesh.getBoundingInfo().boundingSphere.centerWorld;
+        camera.setPosition(center.scale(1.00001)); camera.getViewMatrix(true);
+        const loader = vi.fn((_coords: Vector3, _signal: AbortSignal) => new Promise<ElevationGrid>(() => {}));
+        const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
+        try { data.update(); expect(loader.mock.calls[0]?.[0]).toEqual(nearest.tileCoords); }
+        finally { data.dispose(); dispose(); }
+    });
     it("reports errors once and explicitly retries on invalidation", async () => {
         const { globe, dispose } = setup();
         const loader = vi.fn(async () => {

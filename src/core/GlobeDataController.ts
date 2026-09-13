@@ -1,3 +1,4 @@
+import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
 import type GlobeSet from "./GlobeSet.js";
 import type Tile from "./Tile.js";
@@ -68,10 +69,12 @@ export default class GlobeDataController {
                 this.stats.cancelled++;
             }
         if (this.stats.active >= (this.options.concurrency ?? 4)) return;
+        const camera = this.globe.scene.activeCamera;
         const centerX = this.globe.ourTileMath.lon_to_tileExact(this.globe.centerCoords.x, this.globe.zoom);
         const centerY = this.globe.ourTileMath.lat_to_tileExact(this.globe.centerCoords.y, this.globe.zoom);
         const count = 2 ** this.globe.zoom;
         const distance = (tile: Tile) => {
+            if (camera) return Vector3.DistanceSquared(camera.globalPosition, tile.mesh.getBoundingInfo().boundingSphere.centerWorld);
             const dx = Math.abs(tile.tileCoords.x + 0.5 - centerX);
             return Math.min(dx, count - dx) ** 2 + (tile.tileCoords.y + 0.5 - centerY) ** 2;
         };
@@ -82,10 +85,10 @@ export default class GlobeDataController {
             this.settled = true;
             return;
         }
-        const camera = this.globe.scene.activeCamera;
+        const distances = new Map(candidates.map(tile => [tile, distance(tile)]));
         const visible = new Set(this.options.prioritizeVisible && camera
             ? candidates.filter(tile => camera.isInFrustum(tile.mesh)) : candidates);
-        candidates.sort((a, b) => Number(visible.has(b)) - Number(visible.has(a)) || distance(a) - distance(b));
+        candidates.sort((a, b) => Number(visible.has(b)) - Number(visible.has(a)) || distances.get(a)! - distances.get(b)!);
         for (const tile of candidates) {
             if (
                 !tile.tileCoords ||

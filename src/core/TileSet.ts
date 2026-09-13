@@ -272,9 +272,12 @@ export default class TileSet {
     /** Bounded parallel raster requests; each frame scans only the active window. */
     public rasterConcurrency = 6;
     private rasterSortAt = 0;
+    private activeRasterRequests: TileRequest[] = [];
+    private waitingRasterRequests: TileRequest[] = [];
     public processTileRequests(): void {
-        const active = this.tileRequests.filter(request => request.inProgress);
-        const waiting = this.tileRequests.filter(request => !request.inProgress);
+        const active = this.activeRasterRequests, waiting = this.waitingRasterRequests;
+        active.length = waiting.length = 0;
+        for (const request of this.tileRequests) (request.inProgress ? active : waiting).push(request);
         const camera = this.scene.activeCamera;
         if (camera && performance.now() >= this.rasterSortAt) {
             this.rasterSortAt = performance.now() + 100;
@@ -285,8 +288,12 @@ export default class TileSet {
         }
         // Completed downloads must not wait a whole rotation behind unstarted
         // requests. Consume them now and fill their network slots in this frame.
-        this.tileRequests = active.concat(waiting);
-        const count = Math.min(this.tileRequests.length, this.rasterConcurrency + active.length);
+        const activeCount = active.length;
+        let cursor = 0;
+        for (const request of active) this.tileRequests[cursor++] = request;
+        for (const request of waiting) this.tileRequests[cursor++] = request;
+        active.length = waiting.length = 0;
+        const count = Math.min(this.tileRequests.length, this.rasterConcurrency + activeCount);
         if (count === 0) { this.processNextTileRequest(); return; }
         for (let i=0; i<count; i++) {
             const request=this.tileRequests[0];
