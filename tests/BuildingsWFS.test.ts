@@ -273,3 +273,16 @@ it.each([404, 503])("bounds building retries for HTTP %i", async (status) => {
     vi.useRealTimers();
   }
 });
+
+it("requests geographic bounds in an explicit CRS from projected ArcGIS services", () => {
+  const { engine, scene, tileSet, buildings } = createBuildings();
+  try {
+    buildings.setupAGOL();
+    buildings.SubmitLoadTileRequest(tileSet.ourTiles[0]);
+    const query = new URL(buildings.getRequests()[0].url!).searchParams;
+    expect(query.get("srsName")).toBe("urn:ogc:def:crs:EPSG::4326");
+    expect(query.get("bbox")?.endsWith(",urn:ogc:def:crs:EPSG::4326")).toBe(true);
+    buildings.setupGeoServer();
+    expect(buildings.urlOutput).not.toContain("srsName");
+  } finally { scene.dispose(); engine.dispose(); }
+});

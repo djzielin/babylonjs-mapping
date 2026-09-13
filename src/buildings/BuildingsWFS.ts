@@ -31,7 +31,7 @@ export default class BuildingsWFS extends Buildings {
     public setupAGOL() {
         this.agolFeatureServiceQueryURL = undefined;
         this.urlVersion = "&version=2.0.0";
-        this.urlOutput = "&outputFormat=GEOJSON";
+        this.urlOutput = "&outputFormat=GEOJSON&srsName=urn:ogc:def:crs:EPSG::4326";
         this.flipWinding = true;
         this.paginateRequests = true;
     }
@@ -115,7 +115,7 @@ export default class BuildingsWFS extends Buildings {
             bboxValues.y + "," +
             bboxValues.z + "," +
             bboxValues.w + "," +
-            "urn:ogc:def:crs:EPSG:4326";
+            "urn:ogc:def:crs:EPSG::4326";
 
         let requestURL = this.url + this.urlService + this.urlVersion + this.urlRequest + urlFeature + this.urlOutput + urlBox;
         let pagination: BuildingRequest["pagination"];
