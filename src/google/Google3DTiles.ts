@@ -1,3 +1,4 @@
+import { PriorityQueue } from "../shared/PriorityQueue.js";
 import type GlobeSet from "../core/GlobeSet.js";
 import { AssetContainer } from "@babylonjs/core/assetContainer.js";
 import { Frustum, Matrix, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
@@ -777,7 +778,7 @@ export default class Google3DTiles {
         const frontier = new Set(initial);
         let count = initial.reduce((sum, node) => sum + node.selections.length, 0);
         if (count > budget) throw new Error("The first renderable Google tile level exceeds the configured tile budget.");
-        const queue = [...initial];
+        let preferCoverage = false;
         const settled = new Set<FrontierTile>();
         const renderable = (node: FrontierTile) => this.maximumDisplayGeometricError === undefined
             || (node.tile.geometricError ?? 0) <= this.maximumDisplayGeometricError;
@@ -809,22 +810,30 @@ export default class Google3DTiles {
                 commits.push(this.loadReplacementGroups(batch, this.getOrigin(), generation));
             }
         };
+        const priorities = new WeakMap<FrontierTile, { distance: number; band: number; background: number; coverage: number }>();
+        const priority = (node: FrontierTile) => {
+            let value = priorities.get(node);
+            if (!value) {
+                const distance = this.tilePriority(node.tile.boundingVolume, node.transform);
+                value = { distance, band: Math.floor(Math.log2(1 + distance / 250)),
+                    background: surroundings ? Number(this.allowedGeometricError(node.tile.boundingVolume, node.transform) >= 0) : 0,
+                    coverage: Number(!renderable(node) && required(node.tile.boundingVolume, node.transform)) };
+                priorities.set(node, value);
+            }
+            return value;
+        };
+        const queue = new PriorityQueue<FrontierTile>((a, b) => {
+            const pa = priority(a), pb = priority(b);
+            return (preferCoverage ? pb.coverage - pa.coverage : 0) || pa.background - pb.background
+                || pa.band - pb.band || b.priority - a.priority || pa.distance - pb.distance;
+        });
+        initial.forEach(node => queue.push(node));
         type Expansion = { node: FrontierTile; next: FrontierTile[] | undefined };
         const pending = new Map<FrontierTile, Promise<Expansion>>();
         while ((queue.length || pending.size) && generation === this.generation) {
-            if (count >= budget) { queue.splice(0).forEach(settle); }
-            const distances = new Map(queue.map(node => [node, this.tilePriority(node.tile.boundingVolume, node.transform)]));
-            const front = surroundings ? new Map(queue.map(node => [node, this.allowedGeometricError(node.tile.boundingVolume, node.transform) >= 0])) : undefined;
-            queue.sort((a, b) => {
-                const bandA = Math.floor(Math.log2(1 + distances.get(a)! / 250));
-                const bandB = Math.floor(Math.log2(1 + distances.get(b)! / 250));
-                const backgroundOrder = front ? Number(front.get(a)) - Number(front.get(b)) : 0;
-                // Reserve part of the frontier for usable city-wide coverage
-                // after the first nearby detail patch has been selected.
-                const coverageOrder = count >= Math.min(128, budget / 4) ? Number(!renderable(b) && required(b.tile.boundingVolume, b.transform))
-                    - Number(!renderable(a) && required(a.tile.boundingVolume, a.transform)) : 0;
-                return coverageOrder || backgroundOrder || bandA - bandB || b.priority - a.priority || distances.get(a)! - distances.get(b)!;
-            });
+            if (count >= budget) while (queue.length) settle(queue.shift()!);
+            const coverage = count >= Math.min(128, budget / 4);
+            if (coverage !== preferCoverage) { preferCoverage = coverage; queue.rebuild(); }
             while (queue.length && pending.size < 16) {
                 const node = queue.shift()!;
                 if (node.priority <= 1) { settle(node); continue; }
