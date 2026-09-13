@@ -1,3 +1,4 @@
+import "@babylonjs/core/Culling/ray.js";
 import { debugLog } from "../shared/Diagnostics.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";

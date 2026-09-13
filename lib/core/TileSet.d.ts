@@ -1,3 +1,4 @@
+import "@babylonjs/core/Culling/ray.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
