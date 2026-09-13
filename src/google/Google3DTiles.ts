@@ -787,15 +787,23 @@ export default class Google3DTiles {
             settled.add(node);
             if (renderable(node)) node.selections.forEach(onStable);
         };
+        // Only content resident before selection can need a staged replacement.
+        // Newly settled tiles are final frontier members for this generation.
+        const replacementRoots = new Set(this.loadedTiles.keys());
+        const replacementAncestors = new WeakMap<TileSelection, string | null>();
         const commits: Promise<void>[] = [];
         const committed = new Set<string>();
         let checkedSettled = -1;
         const flushReplacements = () => {
-            if (surroundings || checkedSettled === settled.size) return;
+            if (surroundings || !replacementRoots.size || checkedSettled === settled.size) return;
             checkedSettled = settled.size;
             const groups = new Map<string, FrontierTile[]>();
             for (const node of frontier) for (const selection of node.selections) {
-                const ancestor = [...(selection.ancestors ?? []), selection.url].find(url => this.loadedTiles.has(url));
+                let ancestor = replacementAncestors.get(selection);
+                if (ancestor === undefined) {
+                    ancestor = [...(selection.ancestors ?? []), selection.url].find(url => replacementRoots.has(url)) ?? null;
+                    replacementAncestors.set(selection, ancestor);
+                }
                 if (!ancestor || committed.has(ancestor)) continue;
                 const members = groups.get(ancestor) ?? [];
                 if (!members.includes(node)) members.push(node);
