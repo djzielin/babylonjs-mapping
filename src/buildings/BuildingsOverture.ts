@@ -62,7 +62,7 @@ export default class BuildingsOverture extends Buildings {
     public batchGeometry = false;
     /** Hide covered footprints by updating indices while preserving prepared vertices. */
     public batchVisibilityFilter?: (latitude: number, longitude: number) => boolean;
-    private batches = new WeakMap<Mesh, { batch: { ranges: GlobeBuildingBatch["ranges"]; indices: Uint32Array }; mask: string }>();
+    private batches = new WeakMap<Mesh, { batch: { ranges: GlobeBuildingBatch["ranges"]; indices: Uint32Array }; mask: Uint8Array }>();
     private archive: PMTiles;
     private static archives = new Map<string, PMTiles>();
     private static encoded = new WeakMap<PMTiles, Map<string, Promise<Uint8Array | undefined>>>();
@@ -247,7 +247,7 @@ export default class BuildingsOverture extends Buildings {
             mesh.position.copyFrom(batch.origin);
             mesh.material = this.buildingMaterial;
             mesh.metadata = { buildingCount: result?.featureCount ?? batch.featureCount };
-            this.batches.set(mesh, { batch: { ranges: result?.ranges ?? batch.ranges, indices: vertices.indices as Uint32Array }, mask: "" });
+            this.batches.set(mesh, { batch: { ranges: result?.ranges ?? batch.ranges, indices: vertices.indices as Uint32Array }, mask: new Uint8Array() });
             mesh.setParent(request.tile.mesh);
             this.buildingMeshTransform?.(mesh);
             this.applyBuildingMeshOptions(mesh);
@@ -271,17 +271,28 @@ export default class BuildingsOverture extends Buildings {
     private updateMeshVisibility(mesh: Mesh): void {
         const data = this.batches.get(mesh);
         if (!data || mesh.isDisposed()) return;
-        const visible = data.batch.ranges.map(range => !this.batchVisibilityFilter || this.batchVisibilityFilter(range.latitude, range.longitude));
-        const mask = visible.map(value => value ? "1" : "0").join("");
-        if (data.mask === mask) return;
-        data.mask = mask;
-        const indices: number[] = [];
-        for (let i = 0; i < visible.length; i++) if (visible[i]) {
-            const range = data.batch.ranges[i];
-            for (let index = range.start; index < range.end; index++) indices.push(data.batch.indices[index]);
+        const ranges = data.batch.ranges;
+        const mask = new Uint8Array(ranges.length);
+        let count = 0, changed = data.mask.length !== mask.length;
+        for (let i = 0; i < ranges.length; i++) {
+            const range = ranges[i];
+            mask[i] = Number(!this.batchVisibilityFilter || this.batchVisibilityFilter(range.latitude, range.longitude));
+            if (mask[i]) count += range.end - range.start;
+            if (mask[i] !== data.mask[i]) changed = true;
         }
-        mesh.setEnabled(indices.length > 0);
-        if (indices.length) mesh.setIndices(new Uint32Array(indices));
+        if (!changed) return;
+        data.mask = mask;
+        mesh.setEnabled(count > 0);
+        if (!count) return;
+        if (count === data.batch.indices.length) { mesh.setIndices(data.batch.indices); return; }
+        const indices = new Uint32Array(count);
+        let offset = 0;
+        for (let i = 0; i < ranges.length; i++) if (mask[i]) {
+            const range = ranges[i];
+            indices.set(data.batch.indices.subarray(range.start, range.end), offset);
+            offset += range.end - range.start;
+        }
+        mesh.setIndices(indices);
     }
 
     private appendLayerFeatures(
