@@ -205,7 +205,7 @@ export default class Google3DTiles {
     private selectionEye?: Vector3;
     private frontierCache?: { key: string; selections: TileSelection[] };
     private networkActive = 0;
-    private networkWaiters: Array<{ priority: number | (() => number); resume: () => void }> = [];
+    private networkWaiters: Array<{ priority: number | (() => number); resume: () => void; distance?: number; evaluatedAt?: number }> = [];
 
     private networkDrainQueued = false;
     private drainNetwork(): void {
@@ -213,11 +213,15 @@ export default class Google3DTiles {
         this.networkDrainQueued = true;
         queueMicrotask(() => {
             this.networkDrainQueued = false;
-            // Evaluate once per drain, using the current eye. Comparing callbacks
-            // inside sort would repeatedly recompute geographic bounds.
-            this.networkWaiters = this.networkWaiters.map(waiter => ({ waiter,
-                distance: typeof waiter.priority === "function" ? waiter.priority() : waiter.priority,
-            })).sort((a, b) => a.distance - b.distance).map(entry => entry.waiter);
+            if (this.networkActive >= 24) return;
+            // Cache geographic comparisons until a new camera generation. A
+            // saturated queue needs no sorting while downloads are in flight.
+            for (const waiter of this.networkWaiters) {
+                if (waiter.evaluatedAt === this.generation) continue;
+                waiter.distance = typeof waiter.priority === "function" ? waiter.priority() : waiter.priority;
+                waiter.evaluatedAt = this.generation;
+            }
+            this.networkWaiters.sort((a, b) => a.distance! - b.distance!);
             while (this.networkActive < 24 && this.networkWaiters.length) {
                 this.networkActive++;
                 this.networkWaiters.shift()!.resume();
