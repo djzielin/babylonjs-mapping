@@ -858,8 +858,8 @@ export default class Google3DTiles {
         };
         const queue = new PriorityQueue<FrontierTile>((a, b) => {
             const pa = priority(a), pb = priority(b);
-            return (preferCoverage ? pb.coverage - pa.coverage : 0) || pa.background - pb.background
-                || pa.band - pb.band || b.priority - a.priority || pa.distance - pb.distance;
+            return pa.background - pb.background || pa.band - pb.band
+                || (preferCoverage ? pb.coverage - pa.coverage : 0) || b.priority - a.priority || pa.distance - pb.distance;
         });
         initial.forEach(node => queue.push(node));
         type Expansion = { node: FrontierTile; next: FrontierTile[] | undefined };
