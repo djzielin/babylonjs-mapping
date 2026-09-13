@@ -149,16 +149,16 @@ class Game {
     private async createScene() {
         this.scene.clearColor = new Color4(135 / 255, 206 / 255, 235 / 255, 1.0);
 
-        var camera = new UniversalCamera("camera1", Vector3.Zero(), this.scene);
+        const camera = new UniversalCamera("camera1", Vector3.Zero(), this.scene);
         camera.attachControl(this.canvas, true);
         camera.speed=3;
         camera.angularSensibility=8000;
         camera.maxZ = 2000;
 
-        var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
+        const light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.5;
 
-        var light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
+        const light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         light2.intensity=0.5;
 
         const [mapboxKey, oneGeoKey] = await Promise.all([
@@ -598,13 +598,13 @@ class Game {
         buildings.buildingMeshTransform = (mesh) => {
             mesh.unfreezeWorldMatrix();
             mesh.computeWorldMatrix(true);
-            mesh.refreshBoundingInfo();
+            mesh.refreshBoundingInfo({});
             const bounds = mesh.getBoundingInfo().boundingBox;
             const terrainSample = bounds.centerWorld.add(alignment);
             mesh.position.y += this.sampleTerrainHeight(terrainSample) -
                 bounds.minimumWorld.y + 0.01;
             mesh.computeWorldMatrix(true);
-            mesh.refreshBoundingInfo();
+            mesh.refreshBoundingInfo({});
         };
     }
 
@@ -631,7 +631,7 @@ class Game {
             mesh.unfreezeWorldMatrix();
             mesh.position.addInPlace(alignment);
             mesh.computeWorldMatrix(true);
-            mesh.refreshBoundingInfo();
+            mesh.refreshBoundingInfo({});
             mesh.addLODLevel(cullDistance, null);
             mesh.freezeWorldMatrix();
         }
@@ -647,7 +647,7 @@ class Game {
                 mesh.unfreezeWorldMatrix();
                 mesh.position.addInPlace(alignment);
                 mesh.computeWorldMatrix(true);
-                mesh.refreshBoundingInfo();
+                mesh.refreshBoundingInfo({});
                 mesh.addLODLevel(60, null);
                 mesh.freezeWorldMatrix();
             }
@@ -684,7 +684,7 @@ class Game {
             for (const mesh of tile.asset.meshes) {
                 if (mesh.getTotalVertices() > 0) {
                     mesh.computeWorldMatrix(true);
-                    mesh.refreshBoundingInfo();
+                    mesh.refreshBoundingInfo({});
                     const bounds = mesh.getBoundingInfo().boundingBox;
                     const groundHeight = this.sampleTerrainHeight(bounds.centerWorld);
                     const elevationOffset = groundHeight - bounds.minimumWorld.y + 0.01;
@@ -694,7 +694,7 @@ class Game {
                         ),
                     );
                     mesh.computeWorldMatrix(true);
-                    mesh.refreshBoundingInfo();
+                    mesh.refreshBoundingInfo({});
                     mesh.material = landmarkMaterial;
                     mesh.isPickable = false;
                 }
@@ -805,5 +805,5 @@ class Game {
 /******* End of the Game class ******/
 
 // start the game
-var game = new Game();
+const game = new Game();
 game.start();

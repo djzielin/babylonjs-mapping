@@ -1,5 +1,5 @@
 import { Scene } from "@babylonjs/core/scene.js";
-import type Tile from '../core/Tile';
+import type Tile from '../core/Tile.js';
 import type TileSet from "../core/TileSet.js";
 export default class TerrainMB {
     tileSet: TileSet;

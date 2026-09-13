@@ -162,6 +162,7 @@ export default class BuildingsOverture extends Buildings {
             const collection: topLevel = {
                 type: "FeatureCollection",
                 features: factor === 1 ? features : features.filter(feature => {
+                    if (!feature.geometry) return false;
                     const polygons = feature.geometry.type === 'Polygon'
                         ? [feature.geometry.coordinates as number[][][]] : feature.geometry.coordinates as number[][][][];
                     const points = polygons.reduce<number[][]>((all,p) => all.concat(p[0]), []);

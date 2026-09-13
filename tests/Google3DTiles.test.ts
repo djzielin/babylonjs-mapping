@@ -480,8 +480,8 @@ it("imports an actual GLB through Babylon's default loader and disposes its mesh
   try {
     const [loaded] = await google.load();
     expect(loaded).toBeDefined();
-    expect(fileNames).toHaveLength(2);
-    expect(new Set(fileNames).size).toBe(2);
+    expect(fileNames).toHaveLength(0); // Binary loading no longer copies through File/FileReader.
+    expect(google.loadedModelTiles).toHaveLength(2);
     expect(loaded.asset.meshes.some(mesh => mesh.getTotalVertices() === 3)).toBe(true);
     expect(google.getAttributions()).toEqual(["Integration fixture"]);
     expect((loaded.asset.materials[0] as { unlit?: boolean }).unlit).toBe(true);

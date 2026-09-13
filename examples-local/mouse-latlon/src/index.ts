@@ -1,3 +1,4 @@
+import { PointerEventTypes } from "@babylonjs/core/Events/pointerEvents";
 /* Web-Based-VR-Tutorial Project Template
 * Author: Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>
 * License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
@@ -22,7 +23,6 @@ import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import {EPSG_Type} from "../../../lib/TileMath"; 
 
 import "@babylonjs/core/Materials/standardMaterial"
-import "@babylonjs/inspector";
 
 //import TileSet from "babylonjs-mapping";
 import TileSet from "../../../lib/TileSet"
@@ -115,16 +115,16 @@ class Game {
         this.scene.clearColor = new Color4(135 / 255, 206 / 255, 235 / 255, 1.0);
         this.setupMaterials();
 
-        var camera = new UniversalCamera("camera1", new Vector3(0, 40, -80), this.scene);
+        const camera = new UniversalCamera("camera1", new Vector3(0, 40, -80), this.scene);
         camera.setTarget(Vector3.Zero());
         camera.attachControl(this.canvas, true);
         camera.speed = 0.5;
         camera.angularSensibility = 8000;
 
-        var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
+        const light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.5;
 
-        var light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
+        const light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         light2.intensity = 0.5;
 
         // Create a sphere mesh and apply the red material
@@ -147,21 +147,23 @@ class Game {
         this.ourOSM.exaggeration=1;
         this.ourOSM.generateBuildings();
 
-        // Show the debug scene explorer and object inspector
-        // You should comment this out when you build your final program 
-        this.scene.debugLayer.show();
+        if (new URLSearchParams(location.search).has("inspector")) {
+            void import("@babylonjs/inspector").then(({ ShowInspector }) => {
+                if (this.scene.isDisposed) return;
+                const inspector = ShowInspector(this.scene);
+                this.scene.onDisposeObservable.addOnce(() => { void inspector.dispose(); });
+            }).catch(error => console.error("Unable to load inspector", error));
+        }
 
         this.setupHelpText();
         this.setupMouseCallback();
     }
 
-    public setupMouseCallback() { //original from ChatGPT
-        // Mouse move event listener
-        this.canvas.addEventListener("mousemove", (event) => {
-            this.scene.debugLayer.hide();
-
-            const pickResult = this.scene.pick(event.clientX, event.clientY); // Get 3D coordinates from 2D mouse position
-            this.scene.debugLayer.show();
+    public setupMouseCallback() {
+        this.scene.onPointerObservable.add(info => {
+            if (info.type !== PointerEventTypes.POINTERMOVE || !info.pickInfo) return;
+            const event = info.event;
+            const pickResult = info.pickInfo;
 
             this.textBlock.text = `Mouse 2D pos: (${event.clientX}, ${event.clientY})\n`
 
@@ -212,5 +214,5 @@ class Game {
 /******* End of the Game class ******/
 
 // start the game
-var game = new Game();
+const game = new Game();
 game.start();

@@ -1,6 +1,7 @@
 import { DracoCompression } from "@babylonjs/core/Meshes/Compression/dracoCompression";
 import { lookFromEye, moveEye } from "./FirstPersonNavigation";
 import { TerrainTransition } from "./TerrainTransition";
+import "@babylonjs/core/Engines/AbstractEngine/abstractEngine.timeQuery";
 import "@babylonjs/core/Engines/Extensions/engine.query";
 import { EngineInstrumentation } from "@babylonjs/core/Instrumentation/engineInstrumentation";
 import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstrumentation";
@@ -149,6 +150,7 @@ class GlobeDemo {
         ) as unknown as HTMLCanvasElement;
         this.engine = new Engine(this.canvas, true, {
             powerPreference: "high-performance",
+            useLargeWorldRendering: true,
             useHighPrecisionMatrix: true,
             stencil: true,
             adaptToDeviceRatio: true,
@@ -337,7 +339,7 @@ class GlobeDemo {
                 this.buildings.batchVisibilityFilter = (lat, lon) => !this.googleTiles?.coversLocation(lat, lon);
                 this.buildings.loadConcurrency = 6;
                 this.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
-                this.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry.coordinates, this.detailGlobe, Number(feature.properties?.height) || 4);
+                this.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, this.detailGlobe, Number(feature.properties?.height) || 4);
                 this.buildings.buildingsCreatedPerFrame = 32;
                 this.buildings.buildingMeshTransform = (mesh) => {
                     this.layers.add(mesh, 7);
@@ -979,7 +981,7 @@ class GlobeDemo {
                 layer.buildings.batchVisibilityFilter = (lat, lon) => !this.googleTiles?.coversLocation(lat, lon);
                 layer.buildings.loadConcurrency = 6;
                 layer.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
-                layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry.coordinates, layer.globe, Number(feature.properties?.height) || 4);
+                layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, layer.globe, Number(feature.properties?.height) || 4);
                 layer.buildings.buildingsCreatedPerFrame = 64;
                 layer.buildings.creationTimeBudgetMs = 2;
                 layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, 7); };

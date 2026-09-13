@@ -27,6 +27,7 @@ export class GlobeBuildingBatch {
         else this.indices.push(a, b, c);
     }
     public append(feature: feature, defaultHeight: number, exaggeration: number): void {
+        if (!feature.geometry || !["Polygon", "MultiPolygon"].includes(feature.geometry.type)) return;
         const startIndex = this.indices.length;
         let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
         const polygons = feature.geometry.type === "Polygon" ? [feature.geometry.coordinates as number[][][]]

@@ -122,6 +122,8 @@ describe("BuildingsWFS pagination", () => {
       location: {
         href: "https://example.test/viewers/local-load/index.html",
       },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     });
 
     try {

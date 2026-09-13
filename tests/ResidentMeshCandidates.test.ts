@@ -1,3 +1,4 @@
+import "@babylonjs/core/Meshes/instancedMesh.js";
 import "@babylonjs/core/Materials/standardMaterial.js";
 import { describe, expect, it, vi } from "vitest";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";

@@ -15,6 +15,11 @@ const appDirectory = fs.realpathSync(process.cwd());
 
 module.exports = {
     resolve: {
+        // Local library imports and demo imports must share one Babylon runtime.
+        alias: Object.fromEntries(['core', 'gui', 'loaders'].map(name => {
+            const packageName = `@babylonjs/${name}`;
+            return [packageName, path.dirname(require.resolve(`${packageName}/package.json`))];
+        })),
         extensions: ['.ts', '.js']
     },
     output: {
@@ -25,6 +30,7 @@ module.exports = {
         rules: [{
                 test: /\.(js|mjs|jsx|ts|tsx)$/,
                 loader: 'source-map-loader',
+                exclude: /node_modules/,
                 enforce: 'pre',
             },
             { //per https://stackoverflow.com/questions/70964723/webpack-5-in-ceate-react-app-cant-resolve-not-fully-specified-routes

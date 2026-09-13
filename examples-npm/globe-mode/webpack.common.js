@@ -25,6 +25,7 @@ module.exports = {
             {
                 test: /\.(js|mjs|jsx|ts|tsx)$/,
                 loader: 'source-map-loader',
+                exclude: /node_modules/,
                 enforce: 'pre'
             },
             {

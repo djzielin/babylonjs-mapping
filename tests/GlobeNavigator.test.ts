@@ -83,6 +83,7 @@ describe("GlobeNavigator", () => {
             };
             const before = project();
             const pointers = camera.inputs.attached.pointers as ArcRotateCameraPointersInput;
+            pointers.onButtonDown({ button: 0, ctrlKey: false, altKey: false, shiftKey: false });
             pointers.onTouch(null, 20, 20);
             camera._checkInputs();
             const after = project();

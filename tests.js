@@ -28,6 +28,7 @@ async function main() {
                 {
                     name: "babylonjs-mapping-consumer",
                     private: true,
+                    type: "module",
                 },
                 null,
                 2,
@@ -87,6 +88,7 @@ async function main() {
             consumerDir,
         );
 
+        run("node", ["./src/index.js"], consumerDir);
         run("npx", ["webpack", "--config", "webpack.config.cjs"], consumerDir);
 
         const bundlePath = path.join(consumerDir, "dist", "bundle.js");
