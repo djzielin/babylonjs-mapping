@@ -15,6 +15,11 @@ const appDirectory = fs.realpathSync(process.cwd());
 
 module.exports = {
     resolve: {
+        // Local library imports and demo imports must share one Babylon runtime.
+        alias: Object.fromEntries(['core', 'gui', 'loaders'].map(name => {
+            const packageName = `@babylonjs/${name}`;
+            return [packageName, path.dirname(require.resolve(`${packageName}/package.json`))];
+        })),
         extensions: ['.ts', '.js']
     },
     output: {
