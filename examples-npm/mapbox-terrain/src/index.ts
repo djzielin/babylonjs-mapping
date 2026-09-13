@@ -78,7 +78,7 @@ class Game {
 
         const text = await res.text();
      
-        this.mapboxKey=text;
+        this.mapboxKey=text.trim();
     }
 
     public setupHelpText() {
@@ -140,12 +140,12 @@ class Game {
 
         this.ourTS.updateRaster(36.10054279295824, -112.11265952053303, zoom); //grand canyon
 
-        await this.ourTS.generateTerrain(1.0);
-        this.ourTS.setupTerrainLOD(
-            [16, 4, 1, 0],
-            [this.maxPrecision * 2, this.maxPrecision * 4, this.maxPrecision * 8, this.maxPrecision * 16],
-        );
-        console.log("all terrain ready!");
+        void this.ourTS.generateTerrain(1.0).then(() => {
+            this.ourTS.setupTerrainLOD(
+                [16, 4, 1, 0],
+                [this.maxPrecision * 2, this.maxPrecision * 4, this.maxPrecision * 8, this.maxPrecision * 16],
+            );
+        }).catch(() => console.warn("Terrain unavailable; check the Mapbox key and reload."));
 
         if (new URLSearchParams(location.search).has("inspector")) {
             void import("@babylonjs/inspector").then(({ ShowInspector }) => {

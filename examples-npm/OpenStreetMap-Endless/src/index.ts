@@ -86,7 +86,7 @@ class Game {
         }
 
         const text = await res.text();
-        return text;
+        return text.trim();
     }
 
     public setupHelpText() {
@@ -147,8 +147,9 @@ class Game {
         const mapboxKey = await this.getKey("mapbox-key.txt");
         if (mapboxKey) {
             this.ourTS.ourTerrainMB.accessToken = mapboxKey;
-            await this.ourTS.generateTerrain(1.0);
-            this.terrainEnabled = true;
+            void this.ourTS.generateTerrain(1.0).then(() => {
+                this.terrainEnabled = true;
+            }).catch(() => console.warn("Terrain unavailable; continuing with the flat map."));
         }
 
         // Show the debug scene explorer and object inspector
