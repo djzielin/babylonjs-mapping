@@ -785,6 +785,7 @@ export default class Google3DTiles {
         const settle = (node: FrontierTile) => {
             if (settled.has(node)) return;
             settled.add(node);
+            for (const root of nodeGroups.get(node) ?? []) changedGroups.add(root);
             if (renderable(node)) node.selections.forEach(onStable);
         };
         // Only content resident before selection can need a staged replacement.
@@ -793,30 +794,45 @@ export default class Google3DTiles {
         const replacementAncestors = new WeakMap<TileSelection, string | null>();
         const commits: Promise<void>[] = [];
         const committed = new Set<string>();
-        let checkedSettled = -1;
-        const flushReplacements = () => {
-            if (surroundings || !replacementRoots.size || checkedSettled === settled.size) return;
-            checkedSettled = settled.size;
-            const groups = new Map<string, FrontierTile[]>();
-            for (const node of frontier) for (const selection of node.selections) {
-                let ancestor = replacementAncestors.get(selection);
-                if (ancestor === undefined) {
-                    ancestor = [...(selection.ancestors ?? []), selection.url].find(url => replacementRoots.has(url)) ?? null;
-                    replacementAncestors.set(selection, ancestor);
+        const groups = new Map<string, Set<FrontierTile>>();
+        const nodeGroups = new WeakMap<FrontierTile, Set<string>>();
+        const changedGroups = new Set<string>();
+        const track = (node: FrontierTile, add: boolean) => {
+            if (surroundings || !replacementRoots.size) return;
+            let roots = nodeGroups.get(node);
+            if (!roots) {
+                roots = new Set();
+                for (const selection of node.selections) {
+                    let ancestor = replacementAncestors.get(selection);
+                    if (ancestor === undefined) {
+                        ancestor = [...(selection.ancestors ?? []), selection.url].find(url => replacementRoots.has(url)) ?? null;
+                        replacementAncestors.set(selection, ancestor);
+                    }
+                    if (ancestor) roots.add(ancestor);
                 }
-                if (!ancestor || committed.has(ancestor)) continue;
-                const members = groups.get(ancestor) ?? [];
-                if (!members.includes(node)) members.push(node);
-                groups.set(ancestor, members);
+                nodeGroups.set(node, roots);
             }
-            for (const [ancestor, members] of groups) {
-                if (!members.every(node => settled.has(node) && renderable(node))
+            for (const root of roots) {
+                const members = groups.get(root) ?? new Set<FrontierTile>();
+                if (add) members.add(node); else members.delete(node);
+                groups.set(root, members); changedGroups.add(root);
+            }
+        };
+        initial.forEach(node => track(node, true));
+        let descendants: ReturnType<Google3DTiles["indexLoadedDescendants"]> | undefined;
+        const flushReplacements = () => {
+            for (const ancestor of changedGroups) {
+                if (committed.has(ancestor)) continue;
+                const members = [...groups.get(ancestor)!];
+                if (!members.length || !members.every(node => settled.has(node) && renderable(node))
                     || members.some(node => node.selections.some(selection => selection.url === ancestor))) continue;
                 committed.add(ancestor);
                 const batch = new Map<string, TileSelection>();
                 for (const node of members) for (const selection of node.selections) batch.set(selection.url, selection);
-                commits.push(this.loadReplacementGroups(batch, this.getOrigin(), generation));
+                descendants ??= this.indexLoadedDescendants();
+                commits.push(this.loadReplacementGroups(batch, this.getOrigin(), generation, descendants));
             }
+            changedGroups.clear();
         };
         const priorities = new WeakMap<FrontierTile, { distance: number; band: number; background: number; coverage: number }>();
         const priority = (node: FrontierTile) => {
@@ -865,13 +881,13 @@ export default class Google3DTiles {
                             && this.allowedGeometricError(child.boundingVolume, transform, surroundings) >= 0;
                     });
                     if (node.depth >= this.maxDepth || leaf || visibleEmptyChild) settle(node);
-                    else { frontier.delete(node); count -= node.selections.length; }
+                    else { frontier.delete(node); track(node, false); count -= node.selections.length; }
                     continue;
                 }
                 if (count + extra > budget) { settle(node); continue; }
-                if (node.refine !== "ADD") frontier.delete(node);
+                if (node.refine !== "ADD") { frontier.delete(node); track(node, false); }
                 else settle(node);
-                next.forEach(child => { frontier.add(child); queue.push(child); });
+                next.forEach(child => { frontier.add(child); track(child, true); queue.push(child); });
                 count += extra;
         }
         if (generation !== this.generation) return;
@@ -997,12 +1013,23 @@ export default class Google3DTiles {
         this.coverageKey = ""; this.coverageVersion++;
     }
 
+    private indexLoadedDescendants(): Map<string, [string, TileSelection][]> {
+        const index = new Map<string, [string, TileSelection][]>();
+        for (const [url, selection] of this.loadedSelections) if (this.loadedTiles.has(url)) {
+            for (const ancestor of selection.ancestors ?? []) {
+                const members = index.get(ancestor) ?? [];
+                members.push([url, selection]); index.set(ancestor, members);
+            }
+        }
+        return index;
+    }
+
     /** Commit disjoint replacement subtrees only after every new model is ready. */
-    private async loadReplacementGroups(desired: Map<string, TileSelection>, origin: Google3DTilesOrigin, generation: number): Promise<void> {
+    private async loadReplacementGroups(desired: Map<string, TileSelection>, origin: Google3DTilesOrigin, generation: number,
+        descendants = this.indexLoadedDescendants()): Promise<void> {
         const groups = new Map<string, { next: TileSelection[]; previous: Set<string> }>();
         for (const selection of Array.from(desired.values())) {
-            const finerVisible = Array.from(this.loadedSelections).filter(([url, old]) => this.loadedTiles.has(url)
-                && old.ancestors?.includes(selection.url));
+            const finerVisible = (descendants.get(selection.url) ?? []).filter(([url]) => this.loadedTiles.has(url));
             const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
             if (finerVisible.length && selection.geometricError !== undefined
                 && selection.geometricError > this.allowedGeometricError(selection.boundingVolume, transform)) {
@@ -1017,9 +1044,7 @@ export default class Google3DTiles {
             if (!group) { group = { next: [], previous: new Set() }; groups.set(key, group); }
             group.next.push(selection);
             if (ancestor) group.previous.add(ancestor);
-            for (const [url, old] of this.loadedSelections) {
-                if (this.loadedTiles.has(url) && old.ancestors?.includes(selection.url)) group.previous.add(url);
-            }
+            for (const [url] of finerVisible) group.previous.add(url);
         }
         await Promise.all(Array.from(groups.values()).map(async group => {
             const models = await Promise.all(group.next.map(selection => this.loadTile(selection, origin, generation, false).catch(() => undefined)));

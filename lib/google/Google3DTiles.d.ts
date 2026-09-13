@@ -212,6 +212,7 @@ export default class Google3DTiles {
     private selectFrontier;
     private collectTileContent;
     private retireTile;
+    private indexLoadedDescendants;
     /** Commit disjoint replacement subtrees only after every new model is ready. */
     private loadReplacementGroups;
     private loadTile;

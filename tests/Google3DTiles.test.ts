@@ -808,3 +808,31 @@ it("reprioritizes queued network work from the current eye without restarting ac
   await Promise.all(active);
   provider.dispose(); scene.dispose(); engine.dispose();
 });
+
+it("commits independent replacement groups while a different subtree is still loading", async () => {
+  const {engine, scene, tileSet} = createTileSet();
+  let finish!: () => void, started!: () => void;
+  const waiting = new Promise<void>(resolve => { started = resolve; });
+  const slow = new Promise<void>(resolve => { finish = resolve; });
+  const provider = new Google3DTiles(tileSet, {apiKey: "test", maximumScreenSpaceError: 1, maxDepth: 1, maxTiles: 256,
+    tilesetLoader: async () => ({root: {children: Array.from({length: 64}, (_, i) => ({
+      content: {uri: `parent-${i}.glb`}, children: [{content: {uri: `child-${i}-a.glb`}}, {content: {uri: `child-${i}-b.glb`}}],
+    }))}}),
+    modelTileLoader: async url => {
+      if (url.includes("child-63-b.glb")) { started(); await slow; }
+      return {asset: new AssetContainer(scene), attributions: []};
+    },
+  });
+  const parents = await provider.load();
+  expect(parents).toHaveLength(64);
+  provider.maxDepth = 4;
+  const loading = provider.load();
+  await waiting;
+  await vi.waitFor(() => expect(parents.find(tile => tile.url.includes("parent-0.glb"))!.root.isEnabled()).toBe(false));
+  expect(parents.find(tile => tile.url.includes("parent-63.glb"))!.root.isEnabled()).toBe(true);
+  finish(); await loading;
+  expect(provider.loadedModelTiles).toHaveLength(128);
+  expect(parents.every(tile => !tile.root.isEnabled())).toBe(true);
+  expect(provider.stats.modelRequests).toBe(192);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
