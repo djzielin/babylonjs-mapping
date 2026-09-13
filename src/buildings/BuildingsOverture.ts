@@ -1,3 +1,4 @@
+import { BuildingWorkBudget } from "./BuildingWorkBudget.js";
 import { BuildingWorkerPool } from "./BuildingWorkerPool.js";
 import type { BuildingGeometryResult } from "./GlobeBuildingWorker.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
@@ -196,7 +197,8 @@ export default class BuildingsOverture extends Buildings {
         const worker = BuildingWorkerPool.forScene(globe.scene);
         const regular: feature[] = [];
         const elevations = new Map<string, number>();
-        let yielded = performance.now();
+        const work = BuildingWorkBudget.forScene(globe.scene);
+        const priority = () => Vector3.DistanceSquared(request.tile.mesh.getAbsolutePosition(), globe.scene.activeCamera?.globalPosition ?? batch.origin);
         for (const feature of features) {
             if (request.cancelled || !request.tile.tileCoords.equals(request.tileCoords)) return;
             if (this.buildingFeatureFilter && !this.buildingFeatureFilter(feature, request.tile, request.epsgType)) continue;
@@ -214,10 +216,8 @@ export default class BuildingsOverture extends Buildings {
                     } else coordinates.push(...point);
                 }
             }
-            if (performance.now() - yielded > 4) {
-                await new Promise<void>(resolve => setTimeout(resolve, 0));
-                yielded = performance.now();
-            }
+            const pause = work.checkpoint(priority);
+            if (pause) await pause;
         }
         if (request.cancelled || request.tile.mesh.isDisposed() || !request.tile.tileCoords.equals(request.tileCoords)) return;
         let result: BuildingGeometryResult | undefined;
@@ -226,16 +226,19 @@ export default class BuildingsOverture extends Buildings {
             try {
                 result = await worker.run({ features: regular, elevations, radius: globe.radius, metresToWorld: globe.metresToWorld,
                     origin: batch.origin.asArray(), defaultHeight: this.defaultBuildingHeight, exaggeration: this.exaggeration }, valid,
-                    () => Vector3.DistanceSquared(request.tile.mesh.getAbsolutePosition(), globe.scene.activeCamera?.globalPosition ?? batch.origin));
+                    priority);
             } catch {
                 // CSP and unsupported worker environments retain the same geometry path.
                 for (const feature of regular) {
                     if (!valid()) return;
                     batch.append(feature, this.defaultBuildingHeight, this.exaggeration);
-                    if (performance.now() - yielded > 4) { await new Promise<void>(resolve => setTimeout(resolve, 0)); yielded = performance.now(); }
+                    const pause = work.checkpoint(priority);
+                    if (pause) await pause;
                 }
             }
         }
+        const pause = work.checkpoint(priority);
+        if (pause) await pause;
         if (!valid()) return;
         const vertices = result ? Object.assign(new VertexData(), { positions: result.positions, normals: result.normals, indices: result.indices }) : batch.vertexData();
         const mesh = vertices.positions!.length ? new Mesh("Overture building batch", globe.scene) : undefined;
