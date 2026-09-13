@@ -142,8 +142,12 @@ export class DrawSnapshotCache {
                 const margin = Math.max(bounds.radiusWorld * 0.02, Vector3.Distance(camera.globalPosition, bounds.centerWorld) * 0.02);
                 let expanded = true;
                 for (const plane of scene.frustumPlanes) if (plane.dotCoordinate(bounds.centerWorld) < -bounds.radiusWorld - margin) { expanded = false; break; }
-                cull = { view: this.viewRevision, world, position, expanded, visible: mesh.isInFrustum(scene.frustumPlanes) };
-                this.culling.set(mesh, cull);
+                if (!cull) {
+                    cull = { view: this.viewRevision, world, position, expanded, visible: false };
+                    this.culling.set(mesh, cull);
+                }
+                cull.view = this.viewRevision; cull.world = world; cull.position = position;
+                cull.expanded = expanded; cull.visible = mesh.isInFrustum(scene.frustumPlanes);
             }
             const recorded = this.recorded.get(mesh);
             if (!cull.expanded && !recorded) continue;
