@@ -1,3 +1,6 @@
+import { copyTextureArrayLayers } from "./GPUTextureCopies";
+import { TextureUsage } from "@babylonjs/core/Engines/WebGPU/webgpuConstants";
+import type { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer";
@@ -17,7 +20,15 @@ class TileTextureArray extends MaterialPluginBase {
     getAttributes(attributes: string[]): void { attributes.push("tileLayer"); }
     getSamplers(samplers: string[]): void { samplers.push("tileTextures"); }
     bindForSubMesh(buffer: UniformBuffer): void { buffer.setTexture("tileTextures", this.texture); }
-    getCustomCode(type: string): { [key: string]: string } {
+    isCompatible(): boolean { return true; }
+    getCustomCode(type: string, shaderLanguage = 0): { [key: string]: string } {
+        if (shaderLanguage === 1) return type === "vertex" ? {
+            CUSTOM_VERTEX_DEFINITIONS: "attribute tileLayer: f32; varying vTileLayer: f32;",
+            CUSTOM_VERTEX_MAIN_END: "vertexOutputs.vTileLayer = vertexInputs.tileLayer;",
+        } : {
+            CUSTOM_FRAGMENT_DEFINITIONS: "var tileTextures: texture_2d_array<f32>; var tileTexturesSampler: sampler; varying vTileLayer: f32;",
+            "!TEXRD\\(diffuseSampler,diffuseSamplerSampler,fragmentInputs\\.vDiffuseUV\\+uvOffset\\)": "textureSample(tileTextures, tileTexturesSampler, fragmentInputs.vDiffuseUV + uvOffset, i32(fragmentInputs.vTileLayer));",
+        };
         return type === "vertex" ? {
             CUSTOM_VERTEX_DEFINITIONS: "attribute float tileLayer; varying float vTileLayer;",
             CUSTOM_VERTEX_MAIN_END: "vTileLayer = tileLayer;",
@@ -65,7 +76,7 @@ export class TerrainBatcher {
     private nextBuild = 0;
     private pixels = new WeakMap<Texture, Promise<ArrayBufferView | null>>();
     constructor(private scene: Scene, private groups: () => Mesh[][], private register: (mesh: Mesh, source: Mesh) => void) {
-        if ((scene.getEngine() as Engine).webGLVersion < 2) return;
+        if (!scene.getEngine().isWebGPU && (scene.getEngine() as Engine).webGLVersion < 2) return;
         scene.onBeforeRenderObservable.add(() => this.update());
         const engine = scene.getEngine();
         const lost = engine.onContextLostObservable.add(() => {
@@ -134,19 +145,42 @@ export class TerrainBatcher {
     }
     private async build(sources: Source[]): Promise<void> {
         const size = sources[0].texture.getSize();
-        const data = new Uint8Array(size.width * size.height * 4 * sources.length);
-        for (let i = 0; i < sources.length; i++) {
-            const texture = sources[i].texture;
-            let read = this.pixels.get(texture);
-            if (!read) { read = Promise.resolve(texture.readPixels()); this.pixels.set(texture, read); }
-            const pixels = await read;
-            this.pixels.delete(texture);
-            if (!pixels || pixels.byteLength !== size.width * size.height * 4) { this.lastError = "Unsupported texture readback"; return; }
-            if (!this.enabled || !sources.every(source => this.valid(source))) { this.lastError = "Tiles changed during readback"; return; }
-            data.set(new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength), i * size.width * size.height * 4);
+        let texture: RawTexture2DArray;
+        const engine = this.scene.getEngine();
+        if (engine.isWebGPU) {
+            const gpu = engine as WebGPUEngine;
+            const originals = sources.map(source => source.texture.getInternalTexture()?._hardwareTexture?.underlyingResource as GPUTexture | undefined);
+            if (originals.some(original => !original || original.format !== "rgba8unorm"
+                || !(original.usage & TextureUsage.CopySrc))) return;
+            const mipLevels = originals[0]!.mipLevelCount;
+            if (originals.some(original => original!.mipLevelCount !== mipLevels)) return;
+            texture = new RawTexture2DArray(null, size.width, size.height, sources.length,
+                5, this.scene, true, false, sources[0].texture.samplingMode, 0, 0, mipLevels);
+            const target = texture.getInternalTexture()!._hardwareTexture!.underlyingResource as GPUTexture;
+            // Keep Babylon's pending source uploads ahead of our copies. Copy the
+            // existing mip chain: the raw-array generator only fills layer zero.
+            gpu.flushFramebuffer();
+            try {
+                copyTextureArrayLayers(gpu._device, originals as GPUTexture[], target);
+            } catch (error) {
+                texture.dispose();
+                throw error;
+            }
+        } else {
+            const data = new Uint8Array(size.width * size.height * 4 * sources.length);
+            for (let i = 0; i < sources.length; i++) {
+                const texture = sources[i].texture;
+                let read = this.pixels.get(texture);
+                if (!read) { read = Promise.resolve(texture.readPixels()); this.pixels.set(texture, read); }
+                const pixels = await read;
+                this.pixels.delete(texture);
+                if (!pixels || pixels.byteLength !== size.width * size.height * 4) { this.lastError = "Unsupported texture readback"; return; }
+                if (!this.enabled || !sources.every(source => this.valid(source))) { this.lastError = "Tiles changed during readback"; return; }
+                data.set(new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength), i * size.width * size.height * 4);
+            }
+            texture = RawTexture2DArray.CreateRGBATexture(data, size.width, size.height, sources.length, this.scene, true, false, sources[0].texture.samplingMode);
         }
         const { vertices, layers, origin } = terrainBatchGeometry(sources.map(source => source.mesh));
-        const texture = RawTexture2DArray.CreateRGBATexture(data, size.width, size.height, sources.length, this.scene, true, false, sources[0].texture.samplingMode);
         // Derived pixels can be regenerated from the original raster textures.
         // Avoid retaining a second city-sized CPU copy for context restoration;
         // context loss releases these batches and the originals rebuild normally.
