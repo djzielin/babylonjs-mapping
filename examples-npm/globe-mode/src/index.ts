@@ -1,3 +1,6 @@
+import { Texture } from "@babylonjs/core/Materials/Textures/texture";
+import { PassPostProcess } from "@babylonjs/core/PostProcesses/passPostProcess";
+import type { WebGPURenderTargetWrapper } from "@babylonjs/core/Engines/WebGPU/webgpuRenderTargetWrapper";
 import { DracoCompression } from "@babylonjs/core/Meshes/Compression/dracoCompression";
 import { lookFromEye, moveEye } from "./FirstPersonNavigation";
 import { TerrainTransition } from "./TerrainTransition";
@@ -8,11 +11,14 @@ import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstr
 import { RenderingManager } from "@babylonjs/core/Rendering/renderingManager";
 import { TerrainBatcher } from "./TerrainBatcher";
 import { installResidentMeshCandidates } from "./ResidentMeshCandidates";
+import { DrawSnapshotCache } from "./DrawSnapshotCache";
 import { MotionFrameProfile } from "./MotionFrameProfile";
 import { globeLODPlan, MIN_GLOBE_BUILDING_ZOOM } from "./GlobeLODPlan";
 import { setupAddressSearch } from "./AddressSearch";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import { Engine } from "@babylonjs/core/Engines/engine";
+import type { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine";
+type GlobeEngine = Engine | WebGPUEngine;
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { Color4 } from "@babylonjs/core/Maths/math";
@@ -100,7 +106,7 @@ const LOCATIONS: LocationPreset[] = [
 
 class GlobeDemo {
     private readonly canvas: HTMLCanvasElement;
-    private readonly engine: Engine;
+    private readonly engine: GlobeEngine;
     private readonly scene: Scene;
     private navigator: GlobeNavigator;
     private detailGlobe: GlobeSet;
@@ -142,13 +148,18 @@ class GlobeDemo {
     private terrainTransition = new TerrainTransition();
     private renderTimes: number[] = [];
     private gpuTimes: number[] = [];
-    private framePacing = new MotionFrameProfile();
+    private drawSnapshot?: DrawSnapshotCache;
+    private depthPass?: PassPostProcess;
+    private depthCamera?: Scene["activeCamera"];
+    private reversedDepth = false;
+    private framePacing = new MotionFrameProfile(600);
+    private benchmark?: { started: number; previous: number; heading: number; tilt: number; shift: Vector3; moving: boolean; profile: MotionFrameProfile };
 
-    public constructor() {
+    public constructor(engine?: GlobeEngine) {
         this.canvas = document.getElementById(
             "renderCanvas",
         ) as unknown as HTMLCanvasElement;
-        this.engine = new Engine(this.canvas, true, {
+        this.engine = engine ?? new Engine(this.canvas, true, {
             powerPreference: "high-performance",
             useLargeWorldRendering: true,
             useHighPrecisionMatrix: true,
@@ -159,6 +170,8 @@ class GlobeDemo {
         RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, 8);
         this.scene = new Scene(this.engine);
         installResidentMeshCandidates(this.scene);
+        if (this.engine.isWebGPU && new URLSearchParams(location.search).has("snapshot"))
+            this.drawSnapshot = new DrawSnapshotCache(this.scene, this.engine as WebGPUEngine);
         this.scene.skipPointerMovePicking = true;
         Buildings.setSceneCreationTimeBudget(this.scene, 1);
         this.engineProfile = new EngineInstrumentation(this.engine);
@@ -167,14 +180,40 @@ class GlobeDemo {
         this.sceneProfile.captureActiveMeshesEvaluationTime = true;
         this.sceneProfile.captureRenderTargetsRenderTime = true;
         this.sceneProfile.captureRenderTime = true;
-        this.layers = new MapLayerRenderer(this.scene, 7, { logarithmicDepth: true });
+        this.reversedDepth = this.engine.isWebGPU && new URLSearchParams(location.search).get("depth") === "reverse"
+            && (this.engine as WebGPUEngine)._device.features.has("depth32float-stencil8");
+        if (this.reversedDepth) this.engine.useReverseDepthBuffer = true;
+        this.layers = new MapLayerRenderer(this.scene, 7, { logarithmicDepth: !this.reversedDepth });
     }
 
     public start(): void {
         (document.getElementById("mapboxToken") as HTMLInputElement).value = DEMO_MAPBOX_TOKEN;
         this.createScene();
+        if (this.reversedDepth) {
+            // Float reverse depth preserves near-surface precision without
+            // writing fragment depth, so hidden geometry can fail depth early.
+            this.depthPass = new PassPostProcess("precise depth", 1, this.scene.activeCamera!, Texture.NEAREST_SAMPLINGMODE, this.engine);
+            this.depthCamera = this.scene.activeCamera;
+            this.depthPass.samples = 4;
+            this.depthPass.onSizeChangedObservable.add(pass => pass.inputTexture.createDepthStencilTexture(0, false, true, 4, 18));
+        }
         this.scene.onDisposeObservable.add(() => this.terrainTransition.dispose());
-        document.addEventListener("visibilitychange", () => this.framePacing.reset());
+        document.addEventListener("visibilitychange", () => {
+            this.framePacing.reset();
+            if (document.hidden && this.benchmark) this.finishBenchmark("Interrupted: browser was hidden.");
+        });
+        document.getElementById("benchmark")!.addEventListener("click", () => {
+            if (this.benchmark) { this.finishBenchmark("Stopped before completion."); return; }
+            const moving = (document.getElementById("benchmarkMode") as HTMLSelectElement).value === "move";
+            if (moving && !this.inspecting) this.orientView(60, 0);
+            const now = performance.now();
+            this.benchmark = { started: now, previous: 0,
+                heading: Number((document.getElementById("heading") as HTMLInputElement).value),
+                tilt: Number((document.getElementById("tilt") as HTMLInputElement).value),
+                shift: this.inspectionBasis().north.scale(this.inspecting ? Math.min(200 * this.detailGlobe.metresToWorld, this.movementSpeed()) : 0),
+                moving, profile: new MotionFrameProfile(30000) };
+            document.getElementById("benchmark")!.textContent = "Stop measurement";
+        });
         this.terrainBatcher = new TerrainBatcher(this.scene,
             () => [this.baseGlobe, this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)].map(globe => globe.ourTiles.map(tile => tile.mesh)),
             (mesh, source) => this.registerTerrain(mesh, 7 - source.renderingGroupId));
@@ -201,6 +240,11 @@ class GlobeDemo {
             document.getElementById("controlsToggle")!.setAttribute("aria-expanded", String(expanded));
             document.getElementById("controlsToggle")!.textContent = expanded ? "Hide controls" : "Layers & controls";
         });
+        window.addEventListener("pagehide", event => {
+            if (event.persisted) return;
+            clearTimeout(this.googleTimer); clearTimeout(this.googlePrefetchTimer);
+            this.googleTiles?.dispose(); this.scene.dispose(); this.engine.dispose();
+        }, { once: true });
         void this.readGoogleKey();
         document.getElementById("googleTiles")!.addEventListener("change", () => {
             if (!this.googleKey && (document.getElementById("googleTiles") as HTMLInputElement).checked) void this.readGoogleKey();
@@ -208,7 +252,13 @@ class GlobeDemo {
         });
         document.getElementById("googleQuality")!.addEventListener("change", () => this.scheduleGoogleTiles(true));
         this.engine.runRenderLoop(() => {
+            this.updateBenchmark();
             this.updateMovement();
+            if (this.depthPass && this.depthCamera !== this.scene.activeCamera) {
+                this.depthCamera?.detachPostProcess(this.depthPass);
+                this.scene.activeCamera?.attachPostProcess(this.depthPass);
+                this.depthCamera = this.scene.activeCamera;
+            }
             this.terrainTransition.update(performance.now());
             const googleRevision = this.googleTiles?.coverageRevision ?? -1;
             if (this.registeredGoogleTiles !== this.googleTiles || this.registeredGoogleRevision !== googleRevision) {
@@ -220,7 +270,12 @@ class GlobeDemo {
                         this.googleMeshes.add(mesh);
                         this.layers.add(mesh, 7);
                         mesh.freezeWorldMatrix();
-                        mesh.material?.freeze();
+                        // Newly loaded static materials have no stale bindings to
+                        // invalidate. freeze() otherwise scans the entire city.
+                        if (mesh.material) {
+                            mesh.material.checkReadyOnlyOnce = true;
+                            this.drawSnapshot?.retainStaticMaterial(mesh.material);
+                        }
                         mesh.isPickable = false;
                     }
                 }
@@ -228,9 +283,12 @@ class GlobeDemo {
             const renderStart = performance.now();
             this.scene.render();
             this.framePacing.sample(performance.now(), this.scene.activeCamera!.getViewMatrix().m, !document.hidden);
+            this.benchmark?.profile.sample(performance.now(), this.scene.activeCamera!.getViewMatrix().m, !document.hidden);
             this.renderTimes.push(performance.now() - renderStart);
             if (this.renderTimes.length > 180) this.renderTimes.shift();
-            const gpuTime = this.engineProfile.gpuFrameTimeCounter.current / 1e6;
+            const gpuEngine = this.engine as GlobeEngine & { gpuTimeInFrameForMainPass?: { counter: { current: number } } };
+            const depthGpuTime = (this.depthPass?.inputTexture as WebGPURenderTargetWrapper | undefined)?.gpuTimeInFrame?.counter.current ?? 0;
+            const gpuTime = ((gpuEngine.gpuTimeInFrameForMainPass?.counter.current ?? this.engineProfile.gpuFrameTimeCounter.current) + depthGpuTime) / 1e6;
             if (gpuTime > 0) this.gpuTimes.push(gpuTime);
             if (this.gpuTimes.length > 180) this.gpuTimes.shift();
             this.updateOrientation();
@@ -254,8 +312,9 @@ class GlobeDemo {
                 const gpuMs = gpuTimes[Math.floor(gpuTimes.length * 0.5)] ?? 0;
                 const motion = this.framePacing.summary(true);
                 document.getElementById("renderProfile")!.textContent =
-                    `CPU render p50 ${times[Math.floor(times.length * 0.5)]?.toFixed(2)} ms · p95 ${times[Math.floor(times.length * 0.95)]?.toFixed(2)} ms · GPU p50 ${gpuMs.toFixed(2)} ms · moving ${motion.fps.toFixed(0)} FPS / p95 ${motion.p95.toFixed(2)} ms (${motion.samples} frames) · mesh evaluation ${this.sceneProfile.activeMeshesEvaluationTimeCounter.average.toFixed(2)} ms · draw ${this.sceneProfile.renderTimeCounter.average.toFixed(2)} ms · render targets ${this.sceneProfile.renderTargetsRenderTimeCounter.average.toFixed(2)} ms · ${this.sceneProfile.drawCallsCounter.current} draws · ${this.terrainBatcher.stats}`;
-                document.getElementById("gpuInfo")!.textContent = this.engine.getGlInfo().renderer;
+                    `CPU render p50 ${times[Math.floor(times.length * 0.5)]?.toFixed(2)} ms · p95 ${times[Math.floor(times.length * 0.95)]?.toFixed(2)} ms · GPU p50 ${gpuMs.toFixed(2)} ms · moving ${motion.fps.toFixed(0)} FPS / 1% ${motion.low1.toFixed(0)} / 0.1% ${motion.low01.toFixed(0)} / p95 ${motion.p95.toFixed(2)} ms (${motion.samples} frames) · mesh evaluation ${this.sceneProfile.activeMeshesEvaluationTimeCounter.average.toFixed(2)} ms · draw ${this.sceneProfile.renderTimeCounter.average.toFixed(2)} ms · render targets ${this.sceneProfile.renderTargetsRenderTimeCounter.average.toFixed(2)} ms · ${this.sceneProfile.drawCallsCounter.current} draws · ${this.terrainBatcher.stats}${this.drawSnapshot ? ` · ${this.drawSnapshot.stats}` : ""}`;
+                const gpuInfo = this.engine.getInfo();
+                document.getElementById("gpuInfo")!.textContent = `${this.engine.isWebGPU ? "WebGPU" : "WebGL"}${this.reversedDepth ? " · reverse float depth" : ""} · ${gpuInfo.vendor} · ${gpuInfo.renderer} · ${gpuInfo.version}`;
                 const googleSources = this.googleTiles?.getAttributions() ?? [];
                 document.getElementById("googleSources")!.textContent = googleSources.join("; ");
                 document.getElementById("googleCredits")!.hidden = !(this.googleTiles?.loadedModelTiles.length);
@@ -275,7 +334,7 @@ class GlobeDemo {
                 const memory = (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
                 const heap = memory ? ` · heap ${Math.round(memory.usedJSHeapSize / 1048576)}/${Math.round(memory.jsHeapSizeLimit / 1048576)} MB` : "";
                 document.getElementById("performance")!.textContent =
-                    `${this.engine.getFps().toFixed(0)} FPS${heap} · ${this.scene.getActiveMeshes().length} active meshes · ${this.scene.getTotalVertices().toLocaleString()} vertices · ${stat.active} detail jobs · ${featureJobs} queued features · ${stat.completed} completed · ${stat.failed} errors${this.googleTiles ? ` · Google: ${this.googleTiles.stats.modelRequests} fetched / ${this.googleTiles.stats.reusedModels} reused · last update ${this.canvas.dataset.googleLoadMs ?? "—"} ms` : ""}`;
+                    `${this.engine.getFps().toFixed(0)} FPS${heap} · ${this.scene.getActiveMeshes().length} active meshes · ${this.scene.getTotalVertices().toLocaleString()} vertices · ${stat.active} detail jobs · ${featureJobs} queued features · ${stat.completed} completed · ${stat.failed} errors${this.googleTiles ? ` · Google: ${this.googleTiles.stats.hierarchyRequests} hierarchy / ${this.googleTiles.stats.modelRequests} fetched / ${this.googleTiles.stats.reusedModels} reused · last update ${this.canvas.dataset.googleLoadMs ?? "—"} ms` : ""}`;
             }
         });
         const requestedPreset = new URLSearchParams(window.location.search).get("preset");
@@ -306,7 +365,11 @@ class GlobeDemo {
         baseGlobe.setOptimizationOptions({ freezeTileWorldMatrices: true, disableTilePicking: true, disableTileCollisions: true });
         baseGlobe.createGeometry(new Vector2(4, 4), 20, 16);
         baseGlobe.updateRaster(40.98, 0, 2);
-        for (const mesh of this.scene.meshes) this.registerTerrain(mesh, 0);
+        for (const mesh of this.scene.meshes) {
+            this.registerTerrain(mesh, 0);
+            mesh.freezeWorldMatrix();
+            mesh.material?.freeze();
+        }
 
         // The detail layer follows the camera. Its small radial offset avoids
         // z-fighting while the zoom-2 base remains visible during tile loads.
@@ -621,7 +684,7 @@ class GlobeDemo {
         if (this.landmarks && this.landmarks.tileSet !== landmarkGlobe) {
             this.landmarks.dispose(); this.landmarks = undefined; this.landmarkKey = "";
         }
-        const key = landmarkGlobe.ourTiles.map(t => t.tileCoords.toString()).join("|");
+        const key = `${landmarkGlobe.zoom}/${landmarkGlobe.ourTileMath.lon_to_tile(landmarkGlobe.centerCoords.x, landmarkGlobe.zoom)}/${landmarkGlobe.ourTileMath.lat_to_tile(landmarkGlobe.centerCoords.y, landmarkGlobe.zoom)}/${landmarkGlobe.ourTiles.length}`;
         if (key === this.landmarkKey) return;
         if (performance.now() < this.landmarkRetryAt) return;
         this.landmarkKey = key;
@@ -1113,6 +1176,44 @@ class GlobeDemo {
         return Math.max(10 * this.detailGlobe.metresToWorld, height * 0.8);
     }
 
+    private finishBenchmark(message?: string): void {
+        const result = this.benchmark?.profile.summary();
+        this.benchmark = undefined;
+        const textures = new Set<GPUTexture>();
+        if (this.engine.isWebGPU) for (const texture of this.engine.getLoadedTexturesCache()) {
+            const resource = texture._hardwareTexture?.underlyingResource as GPUTexture | undefined;
+            if (resource) textures.add(resource);
+        }
+        let textureBytes = 0;
+        for (const texture of textures) {
+            const bytes = texture.format.includes("32float") && texture.format.includes("stencil") ? 8
+                : texture.format.startsWith("rgba16") ? 8 : 4;
+            for (let mip = 0; mip < texture.mipLevelCount; mip++)
+                textureBytes += (texture.format.startsWith("bc7")
+                    ? Math.ceil(Math.max(1, texture.width >> mip) / 4) * Math.ceil(Math.max(1, texture.height >> mip) / 4) * 16
+                    : Math.max(1, texture.width >> mip) * Math.max(1, texture.height >> mip) * bytes)
+                    * texture.depthOrArrayLayers * texture.sampleCount;
+        }
+        const memory = textures.size ? ` · ${textures.size} texture allocations / ${(textureBytes / 1048576).toFixed(0)} MiB estimated` : "";
+        document.getElementById("benchmark")!.textContent = "Measure frame pacing";
+        document.getElementById("benchmarkResult")!.textContent = message ?? (result
+            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · ${result.low1 >= 150 && result.low01 >= 120 ? "Pass" : "Below target"}${memory}` : "");
+    }
+
+    private updateBenchmark(): void {
+        const run = this.benchmark;
+        if (!run) return;
+        const seconds = (performance.now() - run.started) / 1000;
+        if (seconds >= 60) { this.finishBenchmark(); return; }
+        if (run.moving && this.inspecting) {
+            const position = Math.sin(seconds * Math.PI / 15);
+            this.translateInspection(run.shift.scale(position - run.previous));
+            run.previous = position;
+            this.orientView(run.tilt, (run.heading + seconds * 6) % 360);
+        }
+        document.getElementById("benchmarkResult")!.textContent = `Measuring ${run.moving ? "movement and streaming" : "current view"} · ${Math.floor(seconds)} / 60 s`;
+    }
+
     private updateMovement(): void {
         const camera = this.inspecting;
         if (!camera) return;
@@ -1240,4 +1341,25 @@ class GlobeDemo {
     }
 }
 
-new GlobeDemo().start();
+async function startDemo(): Promise<void> {
+    let engine: GlobeEngine | undefined;
+    if (new URLSearchParams(location.search).get("renderer") === "webgpu") {
+        const { StreamingWebGPUEngine: WebGPUEngine } = await import("./StreamingWebGPUEngine");
+        await import("@babylonjs/core/Engines/WebGPU/Extensions/index");
+        if (!await WebGPUEngine.IsSupportedAsync) throw new Error("WebGPU is unavailable in this browser");
+        const gpu = new WebGPUEngine(document.getElementById("renderCanvas") as unknown as HTMLCanvasElement, {
+            powerPreference: "high-performance", antialias: true, stencil: true,
+            adaptToDeviceRatio: true, useHighPrecisionMatrix: true, useLargeWorldRendering: true,
+            deviceDescriptor: { requiredFeatures: ["timestamp-query", "depth32float-stencil8"] },
+        });
+        await gpu.initAsync();
+        gpu.compatibilityMode = false;
+        gpu.enableGPUTimingMeasurements = true;
+        engine = gpu;
+    }
+    new GlobeDemo(engine).start();
+}
+void startDemo().catch(error => {
+    document.getElementById("loadingStatus")!.textContent = String(error);
+    console.error(error);
+});

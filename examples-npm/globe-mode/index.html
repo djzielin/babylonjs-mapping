@@ -132,6 +132,8 @@
                         <div id="viewReadout"></div>
                         <p id="dataStatus" role="status">Loading data…</p>
                         <label><input type="checkbox" id="batchTerrain" checked> Optimize terrain drawing</label><div id="performance"></div><div id="renderProfile"></div><div id="gpuInfo"></div>
+                        <label class="field">Frame pacing test<select id="benchmarkMode"><option value="move">Move and turn · 60 seconds</option><option value="still">Hold current view · 60 seconds</option></select></label>
+                        <button id="benchmark" type="button">Measure frame pacing</button><div id="benchmarkResult" role="status"></div>
                     </div>
                 </div>
             </details>
