@@ -25,3 +25,29 @@ it("shares a frame slice across producers and reprioritizes waiting work", async
     expect(budget.checkpoint(() => 0)).toBeUndefined();
     clock.mockRestore();
 });
+
+it("keeps stable priorities until the eye moves, then prioritizes the new nearest job", async () => {
+    let now = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const eye = { x: 0, y: 0, z: 0 };
+    const scene = { activeCamera: { globalPosition: eye }, onAfterRenderObservable: new Observable(), onDisposeObservable: new Observable() } as unknown as Scene;
+    const budget = new SceneWorkBudget(scene, 1);
+    const order: number[] = [];
+    const priorities = [0, 10, 20].map(x => vi.fn(() => Math.abs(x - eye.x)));
+    const pending = priorities.map((priority, index) => budget.checkpoint(priority)!.then(() => { order.push(index); now += 2; }));
+    scene.onAfterRenderObservable.notifyObservers(scene);
+    await pending[0];
+    const calls = priorities[2].mock.calls.length;
+    scene.onAfterRenderObservable.notifyObservers(scene);
+    await pending[1];
+    expect(priorities[2].mock.calls.length).toBe(calls);
+    const fourth = budget.checkpoint(() => Math.abs(100 - eye.x))!.then(() => { order.push(3); now += 2; });
+    eye.x = 100;
+    scene.onAfterRenderObservable.notifyObservers(scene);
+    await fourth;
+    expect(order).toEqual([0, 1, 3]);
+    scene.onAfterRenderObservable.notifyObservers(scene);
+    await pending[2];
+    scene.onDisposeObservable.notifyObservers(scene);
+    clock.mockRestore();
+});
