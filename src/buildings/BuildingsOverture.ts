@@ -1,4 +1,4 @@
-import { BuildingWorkBudget } from "./BuildingWorkBudget.js";
+import { SceneWorkBudget } from "../shared/SceneWorkBudget.js";
 import { BuildingWorkerPool } from "./BuildingWorkerPool.js";
 import type { BuildingGeometryResult } from "./GlobeBuildingWorker.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
@@ -197,7 +197,7 @@ export default class BuildingsOverture extends Buildings {
         const worker = BuildingWorkerPool.forScene(globe.scene);
         const regular: feature[] = [];
         const elevations = new Map<string, number>();
-        const work = BuildingWorkBudget.forScene(globe.scene);
+        const work = SceneWorkBudget.forScene(globe.scene);
         const priority = () => Vector3.DistanceSquared(request.tile.mesh.getAbsolutePosition(), globe.scene.activeCamera?.globalPosition ?? batch.origin);
         for (const feature of features) {
             if (request.cancelled || !request.tile.tileCoords.equals(request.tileCoords)) return;

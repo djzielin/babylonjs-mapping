@@ -2,12 +2,12 @@ import type { Scene } from "@babylonjs/core/scene.js";
 
 type Waiting = { priority: () => number; resolve: () => void };
 
-/** Share one preparation slice across concurrent building tiles in a scene. */
-export class BuildingWorkBudget {
-    private static scenes = new WeakMap<Scene, BuildingWorkBudget>();
-    public static forScene(scene: Scene): BuildingWorkBudget {
+/** Share one preparation slice across concurrent tile jobs in a scene. */
+export class SceneWorkBudget {
+    private static scenes = new WeakMap<Scene, SceneWorkBudget>();
+    public static forScene(scene: Scene): SceneWorkBudget {
         let budget = this.scenes.get(scene);
-        if (!budget) { budget = new BuildingWorkBudget(scene); this.scenes.set(scene, budget); }
+        if (!budget) { budget = new SceneWorkBudget(scene); this.scenes.set(scene, budget); }
         return budget;
     }
     private deadline = 0;

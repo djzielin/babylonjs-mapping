@@ -1,9 +1,9 @@
 import type { Scene } from "@babylonjs/core/scene.js";
-/** Share one preparation slice across concurrent building tiles in a scene. */
-export declare class BuildingWorkBudget {
+/** Share one preparation slice across concurrent tile jobs in a scene. */
+export declare class SceneWorkBudget {
     private milliseconds;
     private static scenes;
-    static forScene(scene: Scene): BuildingWorkBudget;
+    static forScene(scene: Scene): SceneWorkBudget;
     private deadline;
     private waiting;
     private disposed;

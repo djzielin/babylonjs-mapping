@@ -1,3 +1,4 @@
+import { SceneWorkBudget } from "../shared/SceneWorkBudget.js";
 import { PriorityQueue } from "../shared/PriorityQueue.js";
 import type GlobeSet from "../core/GlobeSet.js";
 import { AssetContainer } from "@babylonjs/core/assetContainer.js";
@@ -746,15 +747,14 @@ export default class Google3DTiles {
         const required = (volume: Google3DBoundingVolume | undefined, transform: Matrix) =>
             !!requiredBounds && boundingVolumeIntersects(volume, requiredBounds, transform);
         let hierarchyFailed = false;
-        let lastYield = performance.now();
+        const workBudget = SceneWorkBudget.forScene(this.tileSet.scene);
         const firstContent = async (tile: Google3DTile, responseUrl: string, depth: number,
             parentTransform: Matrix, parentRefine: string, ancestors: string[] = []): Promise<FrontierTile[]> => {
-            if (performance.now() - lastYield > 6) {
-                lastYield = performance.now();
-                await new Promise<void>(resolve => setTimeout(resolve, 0));
-            }
             if (generation !== this.generation || depth > this.maxDepth) return [];
             const transform = getTileTransform(tile)?.multiply(parentTransform) ?? parentTransform;
+            const pause = workBudget.checkpoint(() => this.tilePriority(tile.boundingVolume, transform));
+            if (pause) await pause;
+            if (generation !== this.generation) return [];
             if (!boundingVolumeIntersects(tile.boundingVolume, bounds, transform)) return [];
             let allowed = this.allowedGeometricError(tile.boundingVolume, transform, surroundings);
             const inRegion = required(tile.boundingVolume, transform);
