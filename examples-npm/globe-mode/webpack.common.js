@@ -1,3 +1,4 @@
+const CopyPublicAssets = require('../../examples-shared/copy-public-assets.cjs');
 const path = require('path');
 const fs = require('fs');
 const { DefinePlugin, Compilation, sources } = require('webpack');
@@ -42,6 +43,7 @@ module.exports = {
         ]
     },
     plugins: [
+        new CopyPublicAssets(),
         new CleanWebpackPlugin(),
         { apply(compiler) {
             compiler.hooks.thisCompilation.tap('LocalGoogleKey', compilation => {

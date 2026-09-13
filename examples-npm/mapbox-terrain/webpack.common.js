@@ -1,3 +1,4 @@
+const CopyPublicAssets = require('../../examples-shared/copy-public-assets.cjs');
 const path = require('path');
 const fs = require('fs');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
@@ -42,6 +43,7 @@ module.exports = {
         ]
     },
     plugins: [
+        new CopyPublicAssets(),
         new CleanWebpackPlugin(),
         new HtmlWebpackPlugin({
             inject: true,
