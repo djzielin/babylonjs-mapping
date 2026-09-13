@@ -117,15 +117,22 @@ export class TerrainBatcher {
         batch.mesh.dispose(); batch.material.dispose(); batch.texture.dispose();
     }
     private update(): void {
+        if (!this.scene.frustumPlanes) return;
         this.batches = this.batches.filter(batch => {
-            if (this.enabled && batch.sources.every(source => this.valid(source))) return true;
+            if (this.enabled && batch.mesh.isInFrustum(this.scene.frustumPlanes)
+                && batch.sources.every(source => this.valid(source))) return true;
             this.release(batch); return false;
         });
         if (!this.enabled || this.busy || performance.now() < this.nextBuild) return;
         this.nextBuild = performance.now() + 500;
         // Small spatial groups retain useful frustum culling and bound each upload.
         const patches: Mesh[][] = [];
-        for (const group of this.groups()) for (let i = 0; i < group.length; i += 16) patches.push(group.slice(i, i + 16));
+        for (const group of this.groups()) {
+            // Original tiles remain resident. Only duplicate textures for draws
+            // that can currently benefit from batching.
+            const visible = group.filter(mesh => mesh.isInFrustum(this.scene.frustumPlanes));
+            for (let i = 0; i < visible.length; i += 16) patches.push(visible.slice(i, i + 16));
+        }
         for (const group of patches) {
             const candidates = group.filter(mesh => !this.owned.has(mesh) && mesh.isEnabled() && mesh.isVisible && mesh.visibility === 1
                 && (mesh.material as StandardMaterial)?.diffuseTexture?.isReady());

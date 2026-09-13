@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { NullEngine, Scene, MeshBuilder, VertexBuffer, Vector3, StandardMaterial, RawTexture } from "@babylonjs/core";
+import { NullEngine, Scene, MeshBuilder, VertexBuffer, Vector3, StandardMaterial, RawTexture, FreeCamera } from "@babylonjs/core";
 import { terrainBatchGeometry, TerrainBatcher } from "../examples-npm/globe-mode/src/TerrainBatcher";
 
 describe("lossless terrain batching", () => {
@@ -58,6 +58,33 @@ describe("lossless terrain batching", () => {
         expect(derived.isDisposed()).toBe(true);
         expect(batcher.owned.size).toBe(0);
         expect(batcher.batches).toHaveLength(0);
+        scene.dispose(); engine.dispose();
+    });
+    it("releases offscreen batch copies while retaining ready original tiles", () => {
+        const engine = new NullEngine();
+        Object.defineProperty(engine, "webGLVersion", { value: 2 });
+        const scene = new Scene(engine);
+        const camera = new FreeCamera("eye", Vector3.Zero(), scene);
+        const source = MeshBuilder.CreateBox("source", {}, scene);
+        source.position.z = 10; source.freezeWorldMatrix();
+        const sourceMaterial = new StandardMaterial("source", scene);
+        const originalTexture = RawTexture.CreateRGBATexture(new Uint8Array(16), 2, 2, scene);
+        sourceMaterial.diffuseTexture = originalTexture; source.material = sourceMaterial;
+        const batcher = new TerrainBatcher(scene, () => [], () => {}) as any;
+        expect(() => batcher.update()).not.toThrow();
+        const derived = source.clone("derived")!;
+        const material = new StandardMaterial("derived", scene);
+        const texture = RawTexture.CreateRGBATexture(new Uint8Array(16), 2, 2, scene);
+        batcher.batches.push({ mesh: derived, material, texture, sources: [batcher.snapshot(source)] });
+        batcher.owned.add(source); source.visibility = 0;
+        scene.updateTransformMatrix(); batcher.update();
+        expect(derived.isDisposed()).toBe(false);
+        camera.setTarget(new Vector3(0, 0, -10)); scene.updateTransformMatrix(); batcher.update();
+        expect(derived.isDisposed()).toBe(true);
+        expect(source.visibility).toBe(1);
+        expect(source.isDisposed()).toBe(false);
+        expect(sourceMaterial.diffuseTexture).toBe(originalTexture);
+        expect(originalTexture.getInternalTexture()).not.toBeNull();
         scene.dispose(); engine.dispose();
     });
     it("invalidates batches when geometry, imagery, visibility or position changes", () => {
