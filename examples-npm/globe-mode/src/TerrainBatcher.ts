@@ -39,26 +39,31 @@ class TileTextureArray extends MaterialPluginBase {
     }
 }
 
-export function terrainBatchGeometry(meshes: Mesh[]): { vertices: VertexData; layers: number[]; origin: Vector3 } {
+export function terrainBatchGeometry(meshes: Mesh[]): { vertices: VertexData; layers: Float32Array; origin: Vector3 } {
     const origin = meshes[0].getAbsolutePosition().clone();
-    const positions: number[] = [], normals: number[] = [], uvs: number[] = [], colors: number[] = [], indices: number[] = [], layers: number[] = [];
+    const vertexCount = meshes.reduce((sum, mesh) => sum + mesh.getTotalVertices(), 0);
+    const indexCount = meshes.reduce((sum, mesh) => sum + mesh.getTotalIndices(), 0);
+    const positions = new Float32Array(vertexCount * 3), normals = new Float32Array(vertexCount * 3);
+    const uvs = new Float32Array(vertexCount * 2), colors = new Float32Array(vertexCount * 4);
+    const indices = new Uint32Array(indexCount), layers = new Float32Array(vertexCount);
+    colors.fill(1);
+    const translation = Matrix.Translation(-origin.x, -origin.y, -origin.z);
+    let offset = 0, indexOffset = 0;
     for (let layer = 0; layer < meshes.length; layer++) {
         const source = meshes[layer];
         const vertices = VertexData.ExtractFromMesh(source, true, true);
-        const matrix = source.getWorldMatrix().multiply(Matrix.Translation(-origin.x, -origin.y, -origin.z));
-        vertices.transform(matrix);
-        const offset = positions.length / 3;
-        for (const value of Array.from(vertices.positions!)) positions.push(value);
-        for (const value of Array.from(vertices.normals!)) normals.push(value);
-        for (const value of Array.from(vertices.uvs!)) uvs.push(value);
-        for (const value of Array.from(vertices.indices!)) indices.push(value + offset);
-        for (let i = 0; i < vertices.positions!.length / 3; i++) {
-            layers.push(layer);
-            colors.push(...(vertices.colors ? [vertices.colors[i * 4], vertices.colors[i * 4 + 1], vertices.colors[i * 4 + 2], vertices.colors[i * 4 + 3]] : [1, 1, 1, 1]));
-        }
+        vertices.transform(source.getWorldMatrix().multiply(translation));
+        positions.set(vertices.positions!, offset * 3);
+        normals.set(vertices.normals!, offset * 3);
+        uvs.set(vertices.uvs!, offset * 2);
+        if (vertices.colors) colors.set(vertices.colors, offset * 4);
+        for (let i = 0; i < vertices.indices!.length; i++) indices[indexOffset++] = vertices.indices![i] + offset;
+        const end = offset + vertices.positions!.length / 3;
+        layers.fill(layer, offset, end);
+        offset = end;
     }
     const vertices = new VertexData();
-    vertices.positions = new Float32Array(positions); vertices.normals = new Float32Array(normals); vertices.uvs = new Float32Array(uvs); vertices.colors = new Float32Array(colors); vertices.indices = new Uint32Array(indices);
+    Object.assign(vertices, { positions, normals, uvs, colors, indices });
     return { vertices, layers, origin };
 }
 
@@ -201,7 +206,7 @@ export class TerrainBatcher {
         new TileTextureArray(material, texture);
         const mesh = new Mesh("batched terrain", this.scene);
         vertices.applyToMesh(mesh);
-        mesh.setVerticesData("tileLayer", new Float32Array(layers), false, 1);
+        mesh.setVerticesData("tileLayer", layers, false, 1);
         mesh.setEnabled(false);
         mesh.position.copyFrom(origin);
         mesh.material = material;
@@ -220,7 +225,7 @@ export class TerrainBatcher {
             mesh.dispose(); material.dispose(); texture.dispose();
             return;
         }
-        material.freeze();
+        material.checkReadyOnlyOnce = true;
         mesh.setEnabled(true);
         for (const source of sources) { source.mesh.visibility = 0; this.owned.add(source.mesh); }
         this.batches.push({ mesh, material, texture, sources });
