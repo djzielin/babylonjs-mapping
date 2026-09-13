@@ -1,3 +1,4 @@
+import { MAPBOX_LOGO } from "./MapboxLogo.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/index.js";
 import { Button, Control, StackPanel, TextBlock } from "@babylonjs/gui/2D/controls/index.js";
@@ -127,7 +128,7 @@ export default class Attribution {
     }
 
     private addMapboxLogo(): void {
-        const logo = Button.CreateImageOnlyButton("button_logo", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Mapbox_logo_2019.svg/320px-Mapbox_logo_2019.svg.png");
+        const logo = Button.CreateImageOnlyButton("button_logo", MAPBOX_LOGO);
         logo.width = "99px";
         logo.height = "30px";
         logo.paddingBottom = logo.paddingTop = logo.paddingLeft = logo.paddingRight = "5px";
