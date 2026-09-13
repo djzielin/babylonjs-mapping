@@ -168,9 +168,11 @@ export default class Google3DTiles {
     get coverageRevision(): number;
     private coverageIndex;
     private broadCoverage;
+    private coverageTests;
     private loadedSelections;
     /** Whether loaded model bounds cover this geographic position. */
     coversLocation(latitude: number, longitude: number): boolean;
+    private coverageTest;
     /** The last root tileset response, if load() has been called. */
     get tileset(): Google3DTileset | undefined;
     /** The session token discovered in the tileset's child URIs. */
