@@ -11,7 +11,7 @@ export class GlobeBuildingBatch {
     public readonly indices: number[] = [];
     public featureCount = 0;
     public readonly ranges: { latitude: number; longitude: number; start: number; end: number }[] = [];
-    constructor(private globe: GlobeSet, public readonly origin: Vector3) {}
+    constructor(private globe: Pick<GlobeSet, "metresToWorld" | "sampleElevation" | "getSurfaceNormal" | "getSurfacePosition">, public readonly origin: Vector3) {}
     private vertex(point: Vector3, normal: Vector3): number {
         const index = this.positions.length / 3;
         this.positions.push(point.x - this.origin.x, point.y - this.origin.y, point.z - this.origin.z);

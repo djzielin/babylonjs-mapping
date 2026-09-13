@@ -16,7 +16,7 @@ export declare class GlobeBuildingBatch {
         start: number;
         end: number;
     }[];
-    constructor(globe: GlobeSet, origin: Vector3);
+    constructor(globe: Pick<GlobeSet, "metresToWorld" | "sampleElevation" | "getSurfaceNormal" | "getSurfacePosition">, origin: Vector3);
     private vertex;
     private triangle;
     append(feature: feature, defaultHeight: number, exaggeration: number): void;
