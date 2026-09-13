@@ -198,7 +198,7 @@ export default class BuildingsOverture extends Buildings {
         const regular: feature[] = [];
         const elevations = new Map<string, number>();
         const work = SceneWorkBudget.forScene(globe.scene);
-        const priority = () => Vector3.DistanceSquared(request.tile.mesh.getAbsolutePosition(), globe.scene.activeCamera?.globalPosition ?? batch.origin);
+        const priority = () => Vector3.Distance(request.tile.mesh.getAbsolutePosition(), globe.scene.activeCamera?.globalPosition ?? batch.origin) / globe.metresToWorld;
         for (const feature of features) {
             if (request.cancelled || !request.tile.tileCoords.equals(request.tileCoords)) return;
             if (this.buildingFeatureFilter && !this.buildingFeatureFilter(feature, request.tile, request.epsgType)) continue;

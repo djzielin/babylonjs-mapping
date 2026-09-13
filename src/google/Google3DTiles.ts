@@ -752,10 +752,10 @@ export default class Google3DTiles {
             parentTransform: Matrix, parentRefine: string, ancestors: string[] = []): Promise<FrontierTile[]> => {
             if (generation !== this.generation || depth > this.maxDepth) return [];
             const transform = getTileTransform(tile)?.multiply(parentTransform) ?? parentTransform;
+            if (!boundingVolumeIntersects(tile.boundingVolume, bounds, transform)) return [];
             const pause = workBudget.checkpoint(() => this.tilePriority(tile.boundingVolume, transform));
             if (pause) await pause;
             if (generation !== this.generation) return [];
-            if (!boundingVolumeIntersects(tile.boundingVolume, bounds, transform)) return [];
             let allowed = this.allowedGeometricError(tile.boundingVolume, transform, surroundings);
             const inRegion = required(tile.boundingVolume, transform);
             if (allowed < 0 && !inRegion) return [];
