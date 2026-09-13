@@ -205,7 +205,7 @@ export default class Google3DTiles {
     private selectionEye?: Vector3;
     private frontierCache?: { key: string; selections: TileSelection[] };
     private networkActive = 0;
-    private networkWaiters: Array<{ priority: number; resume: () => void }> = [];
+    private networkWaiters: Array<{ priority: number | (() => number); resume: () => void }> = [];
 
     private networkDrainQueued = false;
     private drainNetwork(): void {
@@ -213,14 +213,18 @@ export default class Google3DTiles {
         this.networkDrainQueued = true;
         queueMicrotask(() => {
             this.networkDrainQueued = false;
-            this.networkWaiters.sort((a, b) => a.priority - b.priority);
+            // Evaluate once per drain, using the current eye. Comparing callbacks
+            // inside sort would repeatedly recompute geographic bounds.
+            this.networkWaiters = this.networkWaiters.map(waiter => ({ waiter,
+                distance: typeof waiter.priority === "function" ? waiter.priority() : waiter.priority,
+            })).sort((a, b) => a.distance - b.distance).map(entry => entry.waiter);
             while (this.networkActive < 24 && this.networkWaiters.length) {
                 this.networkActive++;
                 this.networkWaiters.shift()!.resume();
             }
         });
     }
-    private async networkSlot<T>(work: () => Promise<T>, priority = 0): Promise<T> {
+    private async networkSlot<T>(work: () => Promise<T>, priority: number | (() => number) = 0): Promise<T> {
         await new Promise<void>(resolve => {
             this.networkWaiters.push({ priority, resume: resolve });
             this.drainNetwork();
@@ -577,7 +581,7 @@ export default class Google3DTiles {
         return url.toString();
     }
 
-    private async loadExternalTileset(uri: string, baseUrl: string, priority = 0, generation = this.generation): Promise<LoadedTileset> {
+    private async loadExternalTileset(uri: string, baseUrl: string, priority: number | (() => number) = 0, generation = this.generation): Promise<LoadedTileset> {
         const url = this.authenticateURL(uri, baseUrl);
         const cached = this.externalTilesets.get(url);
         if (cached) {
@@ -760,7 +764,7 @@ export default class Google3DTiles {
                 node.depth + 1, node.transform, node.refine, node.ancestors.concat(node.selections.map(selection => selection.url))));
             for (const content of getTileContents(node.tile).filter(isTilesetContent)) {
                 branches.push(this.loadExternalTileset(getContentURI(content), node.responseUrl,
-                    this.tilePriority(node.tile.boundingVolume, node.transform), generation).then(external => firstContent(external.tileset.root,
+                    () => this.tilePriority(node.tile.boundingVolume, node.transform), generation).then(external => firstContent(external.tileset.root,
                         external.url, node.depth + 1, node.transform, node.refine, node.ancestors.concat(node.selections.map(selection => selection.url)))));
             }
             return (await Promise.all(branches)).reduce((all, branch) => all.concat(branch), [] as FrontierTile[]);
@@ -1068,7 +1072,7 @@ export default class Google3DTiles {
             if (generation !== this.generation) return undefined;
             this.stats.modelRequests++;
             return this.modelTileLoader(selection.url, this.tileSet.scene);
-        }, this.tilePriority(selection.boundingVolume, selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity())).then((model) => {
+        }, () => this.tilePriority(selection.boundingVolume, selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity())).then((model) => {
             if (!model) {
                 return undefined;
             }

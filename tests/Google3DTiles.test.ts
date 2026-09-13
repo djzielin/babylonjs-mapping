@@ -787,3 +787,24 @@ it("bounds offscreen history without evicting the current view", () => {
   expect((provider as any).retainedTiles.size).toBe(1);
   provider.dispose();scene.dispose();engine.dispose();
 });
+
+it("reprioritizes queued network work from the current eye without restarting active requests", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  const releases: (() => void)[] = [];
+  const active = Array.from({ length: 24 }, () => provider.networkSlot(() => new Promise<void>(resolve => releases.push(resolve))));
+  await Promise.resolve(); await Promise.resolve();
+  expect(releases).toHaveLength(24);
+  const order: string[] = [];
+  let eye = 0;
+  const formerNear = provider.networkSlot(async () => { order.push("former near"); }, () => Math.abs(eye));
+  const newlyNear = provider.networkSlot(async () => { order.push("newly near"); }, () => Math.abs(100 - eye));
+  eye = 100;
+  releases[0]();
+  await Promise.all([formerNear, newlyNear]);
+  expect(order).toEqual(["newly near", "former near"]);
+  expect(releases).toHaveLength(24);
+  releases.slice(1).forEach(release => release());
+  await Promise.all(active);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
