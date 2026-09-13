@@ -72,7 +72,7 @@ const HOME_VIEW: LocationPreset = {
 };
 const LOCATIONS: LocationPreset[] = [
     HOME_VIEW,
-    { name: "Duke University · Duke Chapel", latitude: 36.00145, longitude: -78.94032, zoom: 18, heading: 256, tilt: 70, eyeHeight: -20, distance: 350, google: true, basemap: "satellite" },
+    { name: "Duke University · Duke Chapel", latitude: 36.00145, longitude: -78.94032, zoom: 18, heading: 256, tilt: 65, eyeHeight: 150, distance: 650, google: true, basemap: "satellite" },
     {
         name: "Manhattan · buildings",
         google: false,
