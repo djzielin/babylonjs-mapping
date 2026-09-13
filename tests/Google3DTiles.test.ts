@@ -836,3 +836,22 @@ it("commits independent replacement groups while a different subtree is still lo
   expect(provider.stats.modelRequests).toBe(192);
   provider.dispose(); scene.dispose(); engine.dispose();
 });
+
+it("does not let regional coverage jump ahead of refinement next to the camera", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const camera = new ArcRotateCamera("eye", 0, 1, 1, globe.getSurfacePosition(0, 0), scene);
+  camera.setPosition(globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld)); camera.getViewMatrix(true);
+  const sphere = (lon: number) => { const a = lon * Math.PI / 180; return { sphere: [6378137 * Math.cos(a), 6378137 * Math.sin(a), 0, 10] }; };
+  const hierarchy: string[] = [];
+  const provider = new Google3DTiles(globe, { apiKey: "test", maximumScreenSpaceError: 1, maxTiles: 64, coverageRadius: 10000,
+    maximumDisplayGeometricError: 33, coverageRegion: { south: -0.1, north: 0.1, west: -0.1, east: 0.1 },
+    tilesetLoader: async url => {
+      if (url.includes("branch-")) { hierarchy.push(url); return { root: { geometricError: 0, content: { uri: url.replace(".json", ".glb") } } }; }
+      return { root: { children: Array.from({ length: 17 }, (_, i) => ({ boundingVolume: sphere(i === 0 ? 0 : 0.01 + i * 0.001),
+        geometricError: i === 0 ? 16 : 128, content: { uri: `coarse-${i}.glb` }, children: [{ content: { uri: `branch-${i}.json` } }] })) } };
+    }, modelTileLoader: createModelLoader([]) });
+  try { await provider.load(); expect(hierarchy[0]).toContain("branch-0.json"); }
+  finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
