@@ -276,6 +276,16 @@ Use `setPerformanceMonitoringEnabled(true)`, `getPerformanceStats()`, and
 `resetPerformanceStats()` to measure queue depth, geometry reduction, LOD
 selection, and sampled frame times.
 
+Set `Buildings.setSceneCreationTimeBudget(scene, 1)` to share a 1 ms
+geometry-creation budget across building providers. Individual features remain
+atomic. `GlobeDataController` orders terrain and feature work from the camera
+position; set `prioritizeVisible: true` for visible work first.
+
+Keep existing tiles until replacements are ready, and bound concurrency and
+resident data before increasing detail. Measure full frame intervals while
+moving and streaming. A full-load measurement must include imagery, terrain,
+buildings, landmarks, and background prefetch—not just the Google tile timer.
+
 ## Local caching
 
 Providers that support `RetrievalLocation.Local` read from `map_cache/` by
