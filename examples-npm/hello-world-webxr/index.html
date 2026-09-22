@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hello World · WebXR campus map</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; font: 16px/1.5 system-ui, sans-serif; background: #15232b; color: white; }
+    #renderCanvas { width: 100%; height: 100%; touch-action: none; outline: none; }
+    #help { position: absolute; top: 1rem; left: 1rem; max-width: min(30rem, calc(100% - 4rem)); padding: 1rem; border-radius: .7rem; background: #15232be8; }
+    h1 { font-size: 1.2rem; margin: 0 0 .5rem; }
+    p { margin: .4rem 0; }
+    button { font: inherit; padding: .5rem 1rem; cursor: pointer; }
+    a { color: #a4e7ff; }
+  </style>
+</head>
+<body>
+  <canvas id="renderCanvas" aria-label="Interactive miniature map of Duke University" tabindex="0"></canvas>
+  <section id="help">
+    <h1>Hello World · WebXR</h1>
+    <p>A miniature Duke campus at your feet. Drag to look; arrow keys to move.</p>
+    <p>In VR: push a thumbstick forward to aim a teleport, release to travel. Move it sideways to snap turn. Use your headset menu to exit.</p>
+    <p id="xr-status" role="status">Checking immersive VR support…</p>
+    <button id="enter-vr" disabled>Enter VR</button>
+    <p id="building-status" role="status">Loading buildings…</p>
+    <small>Map: <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a> · Buildings: <a href="https://docs.overturemaps.org/attribution/">Overture Maps</a></small>
+  </section>
+</body>
+</html>
