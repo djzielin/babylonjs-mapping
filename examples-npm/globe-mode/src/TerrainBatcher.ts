@@ -13,6 +13,9 @@ import { Vector3, Matrix } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 import { Engine } from "@babylonjs/core/Engines/engine";
 
+/** Match Babylon's current StandardMaterial diffuse lookup before GLSL preprocessing. */
+export const WEBGL_TILE_DIFFUSE_SAMPLE = "!TEXRD\\(diffuseSampler,vDiffuseUV\\+uvOffset\\)";
+
 class TileTextureArray extends MaterialPluginBase {
     constructor(material: StandardMaterial, private texture: RawTexture2DArray) {
         super(material, "TileTextureArray", 200, {}, true, true);
@@ -34,7 +37,7 @@ class TileTextureArray extends MaterialPluginBase {
             CUSTOM_VERTEX_MAIN_END: "vTileLayer = tileLayer;",
         } : {
             CUSTOM_FRAGMENT_DEFINITIONS: "uniform highp sampler2DArray tileTextures; varying float vTileLayer;",
-            "!texture2D\\(diffuseSampler,vDiffuseUV\\+uvOffset\\)": "texture(tileTextures, vec3(vDiffuseUV + uvOffset, vTileLayer));",
+            [WEBGL_TILE_DIFFUSE_SAMPLE]: "texture(tileTextures, vec3(vDiffuseUV + uvOffset, vTileLayer));",
         };
     }
 }
