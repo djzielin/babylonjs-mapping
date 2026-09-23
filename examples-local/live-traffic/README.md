@@ -1,4 +1,4 @@
-# New York in Motion
+# New York traffic
 
 This focused Babylon.js Mapping demo displays three transport feeds around New York City:
 

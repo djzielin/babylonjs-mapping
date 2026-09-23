@@ -97,30 +97,26 @@ let mode: 'sample'|'live' = 'sample';
 async function updateLive(): Promise<void> {
   if (mode !== 'live') return;
   const status = document.getElementById('status')!;
-  status.textContent = 'Loading source data…';
+  status.textContent = 'Loading live data…';
   try {
     const response = await fetch('/api/traffic');
     if (!response.ok) throw new Error(`Demo server returned ${response.status}`);
     const data = await response.json() as Snapshot;
     if (mode !== 'live') return;
     draw(data);
-    document.getElementById('road-source')!.textContent = 'NYC DOT · measured link speeds';
-    document.getElementById('air-source')!.textContent = 'OpenSky · ADS-B positions';
-    document.getElementById('ship-source')!.textContent = data.sources?.ships === 'AISStream' ? 'AISStream · AIS positions' : 'Set AISSTREAM_API_KEY on the server';
     const failures = Object.values(data.errors ?? {});
-    status.textContent = `${data.updatedAt ? `Fetched ${new Date(data.updatedAt).toLocaleTimeString()}. ` : ''}${failures.length ? failures.join(' · ') : 'Live feed active.'}`;
+    status.textContent = failures.length ? failures.join(' · ') : data.sources?.ships === 'AISStream key required' ? 'Live · AIS key needed for ships' : 'Live data';
   } catch (error) { status.textContent = `Live feed unavailable: ${String(error)}`; }
 }
 document.getElementById('sample')!.addEventListener('click',()=>{
   mode='sample'; draw(sample);
   document.getElementById('sample')!.classList.add('active'); document.getElementById('live')!.classList.remove('active');
-  document.getElementById('road-source')!.textContent='NYC DOT sample · speeds, not car locations';
-  document.getElementById('air-source')!.textContent='OpenSky sample · ADS-B positions';
-  document.getElementById('ship-source')!.textContent='AISStream sample · AIS positions';
-  document.getElementById('status')!.textContent='Sample positions are illustrative. Select Live sources to load provider data.';
+  document.getElementById('sample')!.setAttribute('aria-pressed','true'); document.getElementById('live')!.setAttribute('aria-pressed','false');
+  document.getElementById('status')!.textContent='Sample data';
 });
 document.getElementById('live')!.addEventListener('click',()=>{
   mode='live'; document.getElementById('live')!.classList.add('active'); document.getElementById('sample')!.classList.remove('active');
+  document.getElementById('live')!.setAttribute('aria-pressed','true'); document.getElementById('sample')!.setAttribute('aria-pressed','false');
   void updateLive();
 });
 setInterval(()=>void updateLive(),60_000);
