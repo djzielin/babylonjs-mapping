@@ -1068,14 +1068,14 @@ class GlobeDemo {
                 maxTiles: 2048,
                 maximumDisplayGeometricError: 33,
                 cullToCamera: true,
-                coverageRadius: 3000,
+                coverageRadius: 15 * 1609.344,
                 heightOffset: -meanSeaLevel(currentView.latitude, currentView.longitude),
             });
             provider.maxDepth = quality === "auto" || quality === "32" ? 64 : Number(quality);
             // Select the area around the viewer first. A city-wide required
             // region sent thousands of hierarchy requests before nearby models
             // could appear, even when most of Manhattan was off screen.
-            provider.coverageRadius = 3000;
+            provider.coverageRadius = 15 * 1609.344;
             provider.coverageRegion = undefined;
             const requestedError = new URLSearchParams(location.search).get("sse");
             const screenError = requestedError === null ? NaN : Number(requestedError);
