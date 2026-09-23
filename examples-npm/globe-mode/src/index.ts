@@ -1001,6 +1001,9 @@ class GlobeDemo {
                 cullToCamera: true,
                 coverageRadius: 3000,
                 heightOffset: -meanSeaLevel(currentView.latitude, currentView.longitude),
+                prepareModelAsset: asset => {
+                    for (const mesh of asset.meshes) this.layers.add(mesh, 7, true);
+                },
             });
             provider.maxDepth = quality === "auto" || quality === "32" ? 64 : Number(quality);
             // Select the area around the viewer first. A city-wide required

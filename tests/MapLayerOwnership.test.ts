@@ -76,6 +76,23 @@ describe("shared map layer ownership", () => {
         expect(terrain.material.stencil.funcRef).toBe(3);
         renderer.dispose(); scene.dispose(); engine.dispose();
     });
+    it("configures detached model materials without invalidating the live scene", () => {
+        const engine = new NullEngine(); const scene = new Scene(engine);
+        engine.getCaps().fragmentDepthSupported = true;
+        const renderer = new MapLayerRenderer(scene, 7, { logarithmicDepth: true });
+        const mesh = MeshBuilder.CreateBox("detached tile", {}, scene);
+        const material = mesh.material = new StandardMaterial("new GLB material", scene);
+        material.freeze();
+        scene.removeMesh(mesh);
+        const dirty = vi.spyOn(material, "markDirty");
+        renderer.add(mesh, 7, true);
+        expect(dirty).not.toHaveBeenCalled();
+        expect(scene.blockMaterialDirtyMechanism).toBe(false);
+        expect(material.useLogarithmicDepth).toBe(true);
+        expect(material.stencil.funcRef).toBe(8);
+        scene.addMesh(mesh);
+        renderer.dispose(); scene.dispose(); engine.dispose();
+    });
     it("retains ordinary depth when fragment depth is unavailable", () => {
         const engine = new NullEngine(); const scene = new Scene(engine);
         engine.getCaps().fragmentDepthSupported = false;

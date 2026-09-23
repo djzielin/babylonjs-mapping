@@ -96,6 +96,8 @@ export interface Google3DTilesOptions {
     tilesetLoader?: GoogleTilesetLoader;
     /** Injectable GLB loader for tests or a custom Babylon loader. */
     modelTileLoader?: GoogleModelTileLoader;
+    /** Configure detached GLB meshes before they enter the live scene. */
+    prepareModelAsset?: (asset: AssetContainer) => void;
 }
 export interface LoadedGoogle3DTile {
     /** Authenticated content URL. */
@@ -142,6 +144,7 @@ export default class Google3DTiles {
     origin?: Google3DTilesOrigin;
     private readonly tilesetLoader;
     private readonly modelTileLoader;
+    private readonly prepareModelAsset?;
     private rootTileset;
     private rootRequestKey;
     private session;
