@@ -3,11 +3,15 @@ import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
+import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
+import { Material } from '@babylonjs/core/Materials/material';
 import { Color3, Color4, Vector2, Vector3 } from '@babylonjs/core/Maths/math';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import { TileSet, RasterOSM, EPSG_Type } from '../../../lib/index.js';
 import type { AircraftPosition, RoadSpeed, VesselPosition } from '../../../lib/index.js';
+import { drawTrafficIcon, trailingPoint } from '../../../examples-shared/TrafficIcon';
 
 type Snapshot = { roads: RoadSpeed[]; aircraft: AircraftPosition[]; ships: VesselPosition[]; errors?: Record<string,string>; sources?: Record<string,string>; updatedAt?: number };
 const sample: Snapshot = {
@@ -59,30 +63,60 @@ function material(name: string, color: Color3): StandardMaterial {
 }
 const roadColors = [new Color3(.91,.47,.40),new Color3(.91,.73,.40),new Color3(.45,.84,.64),new Color3(.47,.53,.58)];
 const roadMaterials = roadColors.map((color,index)=>material(`Road speed ${index}`,color));
-const planeMaterial = material('aircraft',new Color3(.55,.83,1));
-const shipMaterial = material('ships',new Color3(.72,.61,1));
+const planeTrail = material('Aircraft trails',new Color3(.39,.79,1)); planeTrail.alpha=.55;
+const shipWake = material('Vessel wakes',new Color3(.7,.54,1)); shipWake.alpha=.55;
+function iconMaterial(kind: 'aircraft'|'ship'): StandardMaterial {
+  const texture = new DynamicTexture(`${kind} icon`,{width:128,height:128},scene,false);
+  drawTrafficIcon(texture.getContext() as unknown as CanvasRenderingContext2D,kind);
+  texture.hasAlpha = true;
+  texture.update();
+  const result = material(`${kind} badge`,Color3.White());
+  result.diffuseTexture = texture;
+  result.useAlphaFromDiffuseTexture = true;
+  result.transparencyMode = Material.MATERIAL_ALPHABLEND;
+  result.backFaceCulling = false;
+  return result;
+}
+const planeMaterial = iconMaterial('aircraft');
+const shipMaterial = iconMaterial('ship');
 function draw(snapshot: Snapshot): void {
   for (const mesh of overlay) mesh.dispose();
   overlay.length = 0;
+  const roadBands: Mesh[][] = [[],[],[],[]];
   for (const road of snapshot.roads) {
-    const points = road.path.map(p=>point(p.latitude,p.longitude,.6));
+    const points = road.path.map(p=>point(p.latitude,p.longitude,.8));
     if (points.length < 2) continue;
     const band = road.speedMph === null ? 3 : road.speedMph < 20 ? 0 : road.speedMph < 40 ? 1 : 2;
-    const mesh = MeshBuilder.CreateTube(`Road: ${road.name}`,{path:points,radius:.26,tessellation:4},scene);
-    mesh.material = roadMaterials[band];
-    overlay.push(mesh);
+    const core = MeshBuilder.CreateTube(`Road: ${road.name}`,{path:points,radius:.29,tessellation:4},scene);
+    core.material = roadMaterials[band];
+    roadBands[band].push(core);
+  }
+  for (let band=0;band<4;band++) if (roadBands[band].length) {
+    const mesh=Mesh.MergeMeshes(roadBands[band],true,true);
+    if (mesh) { mesh.material=roadMaterials[band]; overlay.push(mesh); }
   }
   for (const aircraft of snapshot.aircraft) {
-    const mesh = MeshBuilder.CreateSphere(`Aircraft: ${aircraft.callsign}`,{diameter:4},scene);
-    mesh.position = point(aircraft.latitude,aircraft.longitude,5);
-    mesh.rotation.y = (aircraft.heading ?? 0)*Math.PI/180;
+    const height=4+Math.min(3,Math.max(0,(aircraft.altitudeMeters ?? 500)/1500));
+    if (aircraft.heading !== null) {
+      const behind=trailingPoint(aircraft.latitude,aircraft.longitude,aircraft.heading,.025);
+      const trail=MeshBuilder.CreateTube(`Aircraft trail: ${aircraft.callsign}`,{path:[point(behind.latitude,behind.longitude,height),point(aircraft.latitude,aircraft.longitude,height)],radius:.11,tessellation:4},scene);
+      trail.material=planeTrail; overlay.push(trail);
+    }
+    const mesh = MeshBuilder.CreatePlane(`Aircraft: ${aircraft.callsign}`,{size:5.2},scene);
+    mesh.position = point(aircraft.latitude,aircraft.longitude,height);
+    mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
     mesh.material = planeMaterial;
     overlay.push(mesh);
   }
   for (const ship of snapshot.ships) {
-    const mesh = MeshBuilder.CreateBox(`Ship: ${ship.name}`,{width:3.5,height:1.3,depth:5},scene);
-    mesh.position = point(ship.latitude,ship.longitude,2.5);
-    mesh.rotation.y = (ship.heading ?? 0)*Math.PI/180;
+    if (ship.heading !== null) for (const offset of [-18,18]) {
+      const behind=trailingPoint(ship.latitude,ship.longitude,ship.heading+offset,.016);
+      const wake=MeshBuilder.CreateTube(`Ship wake: ${ship.name}`,{path:[point(behind.latitude,behind.longitude,1.2),point(ship.latitude,ship.longitude,1.2)],radius:.1,tessellation:4},scene);
+      wake.material=shipWake; overlay.push(wake);
+    }
+    const mesh = MeshBuilder.CreatePlane(`Ship: ${ship.name}`,{size:4.8},scene);
+    mesh.position = point(ship.latitude,ship.longitude,2.2);
+    mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
     mesh.material = shipMaterial;
     overlay.push(mesh);
   }
