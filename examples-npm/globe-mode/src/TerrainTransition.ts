@@ -20,11 +20,13 @@ export class TerrainTransition {
         if (globe.zoom === nextZoom && (!nextCorner || !currentCorner
             || (currentCorner.x === nextCorner.x && currentCorner.y === nextCorner.y))) return;
         const retained: Retained[] = this.previous.get(globe) ?? [];
+        const retainedCoordinates = new Set(retained.map(old => old.coordinate.toString()));
         for (const tile of globe.ourTiles) {
             if (globe.zoom === nextZoom && nextCorner
                 && tile.tileCoords.x >= nextCorner.x && tile.tileCoords.x < nextCorner.x + globe.numTiles.x
                 && tile.tileCoords.y <= nextCorner.y && tile.tileCoords.y > nextCorner.y - globe.numTiles.y) continue;
-            if (retained.some(old => old.coordinate.equals(tile.tileCoords))) continue;
+            const coordinateKey = tile.tileCoords.toString();
+            if (retainedCoordinates.has(coordinateKey)) continue;
             const source = tile.mesh;
             const original = source.material as StandardMaterial;
             if (!tile.terrainLoaded || !original?.diffuseTexture?.isReady()) continue;
@@ -41,6 +43,7 @@ export class TerrainTransition {
             mesh.freezeWorldMatrix(source.computeWorldMatrix(true).clone());
             material.freeze();
             retained.push({ mesh, material, coordinate: tile.tileCoords.clone() });
+            retainedCoordinates.add(coordinateKey);
         }
         while (retained.length > globe.ourTiles.length * 2) this.release(retained.shift()!);
         if (retained.length) this.previous.set(globe, retained);
@@ -49,14 +52,20 @@ export class TerrainTransition {
         if (now < this.nextCheck) return;
         this.nextCheck = now + 250;
         for (const [globe, retained] of this.previous) {
+            let west = Infinity, east = -Infinity, north = Infinity, south = -Infinity;
+            for (const tile of globe.ourTiles) {
+                west = Math.min(west, tile.tileCoords.x);
+                east = Math.max(east, tile.tileCoords.x);
+                north = Math.min(north, tile.tileCoords.y);
+                south = Math.max(south, tile.tileCoords.y);
+            }
             const ready = retained.filter(old => {
                 const factor = 2 ** (globe.zoom - old.coordinate.z);
                 const x0 = Math.floor(old.coordinate.x * factor);
                 const y0 = Math.floor(old.coordinate.y * factor);
                 const x1 = Math.ceil((old.coordinate.x + 1) * factor) - 1;
                 const y1 = Math.ceil((old.coordinate.y + 1) * factor) - 1;
-                const overlapsWindow = globe.ourTiles.some(tile => tile.tileCoords.x >= x0 && tile.tileCoords.x <= x1
-                    && tile.tileCoords.y >= y0 && tile.tileCoords.y <= y1);
+                const overlapsWindow = x0 <= east && x1 >= west && y0 <= south && y1 >= north;
                 if (!overlapsWindow) {
                     if (!globe.scene.frustumPlanes || old.mesh.isInFrustum(globe.scene.frustumPlanes)) return true;
                     this.release(old); return false;

@@ -19,6 +19,7 @@ export class BuildingTransition {
         if (globe.zoom === nextZoom && (!nextCorner || !currentCorner
             || (currentCorner.x === nextCorner.x && currentCorner.y === nextCorner.y))) return;
         const retained = this.previous.get(globe) ?? [];
+        const retainedSources = new Set(retained.map(old => old.source));
         for (const tile of globe.ourTiles) {
             if (globe.zoom === nextZoom && nextCorner
                 && tile.tileCoords.x >= nextCorner.x && tile.tileCoords.x < nextCorner.x + globe.numTiles.x
@@ -28,12 +29,13 @@ export class BuildingTransition {
                 !!mesh && !mesh.isDisposed() && mesh.isEnabled() && mesh.isVisible
                 && (!globe.scene.frustumPlanes || mesh.isInFrustum(globe.scene.frustumPlanes)));
             for (const source of sources) {
-                if (retained.some(old => old.source === source)) continue;
+                if (retainedSources.has(source)) continue;
                 const mesh = source.clone("previous building detail", null, true)!;
                 mesh.setEnabled(true);
                 mesh.isPickable = false;
                 mesh.freezeWorldMatrix(source.computeWorldMatrix(true).clone());
                 retained.push({ mesh, coordinate: tile.tileCoords.clone(), source });
+                retainedSources.add(source);
             }
         }
         while (retained.length > globe.ourTiles.length * 2) retained.shift()!.mesh.dispose();
