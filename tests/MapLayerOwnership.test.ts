@@ -36,6 +36,17 @@ describe("shared map layer ownership", () => {
         expect(bounds.reduce((sum, spy) => sum + spy.mock.calls.length, 0)).toBeLessThan(10);
         scene.dispose(); engine.dispose();
     });
+    it("checks landmark triangles without expanding their vertices into retained picking points", () => {
+        const engine = new NullEngine(); const scene = new Scene(engine);
+        const model = MeshBuilder.CreateBox("landmark", { width: 10, height: 30, depth: 2 }, scene);
+        model.rotation.y = Math.PI / 4;
+        const generate = vi.spyOn(model.geometry!, "_generatePointsArray");
+        const index = new BuildingReplacementIndex(); index.setModels([model]);
+        expect(index.keepPoint(new Vector3(0, 0, 0))).toBe(false);
+        expect(index.keepPoint(new Vector3(3.5, 0, 3.5))).toBe(true);
+        expect(generate).not.toHaveBeenCalled();
+        scene.dispose(); engine.dispose();
+    });
     it("preserves depth between tiers and reserves covered pixels for the finer tier", () => {
         const engine = new NullEngine(); const scene = new Scene(engine);
         const renderer = new MapLayerRenderer(scene);
