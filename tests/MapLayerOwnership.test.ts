@@ -1,6 +1,6 @@
 import Tile from "../src/core/Tile";
 import { describe, expect, it, vi } from "vitest";
-import { MeshBuilder, NullEngine, Scene, StandardMaterial, PBRMaterial, MultiMaterial, VertexBuffer, Vector3, Ray } from "@babylonjs/core";
+import { MeshBuilder, NullEngine, Scene, StandardMaterial, PBRMaterial, MultiMaterial, VertexBuffer, Vector3, Ray, FreeCamera } from "@babylonjs/core";
 import { Constants } from "@babylonjs/core/Engines/constants";
 import { mergeMeshesAtOrigin } from "../src/shared/MergeMeshesAtOrigin";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
@@ -99,6 +99,41 @@ describe("shared map layer ownership", () => {
         }
         expect(walls.stencil.funcRef).toBe(7);
         expect(terrain.material.stencil.funcRef).toBe(3);
+        renderer.dispose(); scene.dispose(); engine.dispose();
+    });
+    it("configures a new frozen tile without scanning existing city meshes", async () => {
+        const engine = new NullEngine(); const scene = new Scene(engine);
+        new FreeCamera("eye", Vector3.Zero(), scene);
+        engine.getCaps().fragmentDepthSupported = true;
+        const renderer = new MapLayerRenderer(scene, 7, { logarithmicDepth: true });
+        const mesh = MeshBuilder.CreateBox("new tile", {}, scene);
+        mesh.position.z = 10;
+        const material = new StandardMaterial("tile", scene);
+        material.freeze(); mesh.material = material;
+        expect(mesh.subMeshes[0].effect).toBeNull();
+        const scan = vi.spyOn(scene.meshes, Symbol.iterator);
+        renderer.add(mesh, 7);
+        expect(scan).not.toHaveBeenCalled();
+        scan.mockRestore();
+        await scene.whenReadyAsync(); scene.render();
+        expect(material.useLogarithmicDepth).toBe(true);
+        expect(mesh.subMeshes[0].effect?.defines).toContain("LOGARITHMICDEPTH");
+        renderer.dispose(); scene.dispose(); engine.dispose();
+    });
+    it("recompiles a frozen tile that was rendered before layer registration", async () => {
+        const engine = new NullEngine(); const scene = new Scene(engine);
+        new FreeCamera("eye", Vector3.Zero(), scene);
+        engine.getCaps().fragmentDepthSupported = true;
+        const mesh = MeshBuilder.CreateBox("existing tile", {}, scene);
+        mesh.position.z = 10;
+        const material = new StandardMaterial("tile", scene);
+        mesh.material = material; material.freeze();
+        await scene.whenReadyAsync(); scene.render();
+        expect(mesh.subMeshes[0].effect?.defines).not.toContain("LOGARITHMICDEPTH");
+        const renderer = new MapLayerRenderer(scene, 7, { logarithmicDepth: true });
+        renderer.add(mesh, 7);
+        await scene.whenReadyAsync(); scene.render();
+        expect(mesh.subMeshes[0].effect?.defines).toContain("LOGARITHMICDEPTH");
         renderer.dispose(); scene.dispose(); engine.dispose();
     });
     it("retains ordinary depth when fragment depth is unavailable", () => {
