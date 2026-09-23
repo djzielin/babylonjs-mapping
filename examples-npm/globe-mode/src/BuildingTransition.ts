@@ -34,6 +34,12 @@ export class BuildingTransition {
         if (now < this.nextCheck) return;
         this.nextCheck = now + 200;
         for (const [globe, retained] of this.previous) {
+            const tiles = globe.ourTiles;
+            const west = Math.min(...tiles.map(tile => tile.tileCoords.x));
+            const east = Math.max(...tiles.map(tile => tile.tileCoords.x));
+            const north = Math.min(...tiles.map(tile => tile.tileCoords.y));
+            const south = Math.max(...tiles.map(tile => tile.tileCoords.y));
+            const at = (x: number, y: number) => globe.ourTilesMap.get(new Vector3(x, y, globe.zoom).toString());
             const current = retained.filter(old => {
                 const sameTile = globe.ourTilesMap.get(old.coordinate.toString());
                 if (sameTile && (sameTile.buildingBatches.some(mesh => mesh === old.source)
@@ -41,15 +47,22 @@ export class BuildingTransition {
                     old.mesh.dispose();
                     return false;
                 }
-                const overlap = globe.ourTiles.filter(tile => {
-                    const zoom = Math.max(tile.tileCoords.z, old.coordinate.z);
-                    const oldScale = 2 ** (zoom - old.coordinate.z);
-                    const tileScale = 2 ** (zoom - tile.tileCoords.z);
-                    return old.coordinate.x * oldScale < (tile.tileCoords.x + 1) * tileScale
-                        && (old.coordinate.x + 1) * oldScale > tile.tileCoords.x * tileScale
-                        && old.coordinate.y * oldScale < (tile.tileCoords.y + 1) * tileScale
-                        && (old.coordinate.y + 1) * oldScale > tile.tileCoords.y * tileScale;
-                });
+                const overlap = [] as typeof tiles;
+                if (old.coordinate.z >= globe.zoom) {
+                    const factor = 2 ** (old.coordinate.z - globe.zoom);
+                    const tile = at(Math.floor(old.coordinate.x / factor), Math.floor(old.coordinate.y / factor));
+                    if (tile) overlap.push(tile);
+                } else {
+                    const factor = 2 ** (globe.zoom - old.coordinate.z);
+                    const x0 = Math.max(west, old.coordinate.x * factor);
+                    const x1 = Math.min(east, (old.coordinate.x + 1) * factor - 1);
+                    const y0 = Math.max(north, old.coordinate.y * factor);
+                    const y1 = Math.min(south, (old.coordinate.y + 1) * factor - 1);
+                    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+                        const tile = at(x, y);
+                        if (tile) overlap.push(tile);
+                    }
+                }
                 if (!overlap.length || overlap.every(tile => tile.buildingsResolvedKey === tile.tileCoords.toString())) {
                     old.mesh.dispose();
                     return false;
