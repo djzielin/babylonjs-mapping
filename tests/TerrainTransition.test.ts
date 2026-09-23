@@ -33,6 +33,9 @@ it('retains terrain during a same-zoom tile-window move',()=>{
  const transition=new TerrainTransition();transition.capture(globe,14,40.7484,longitude);
  globe.updateRaster(40.7484,longitude,14);
  transition.update(1);
- expect(scene.meshes.some(mesh=>mesh.name==='previous terrain'&&!mesh.isDisposed())).toBe(true);
+ const retained=scene.meshes.find(mesh=>mesh.name==='previous terrain')!;
+ expect(retained.isDisposed()).toBe(false);
+ vi.spyOn(scene,'frustumPlanes','get').mockReturnValue([]);vi.spyOn(retained,'isInFrustum').mockReturnValue(false);
+ transition.update(300);expect(retained.isDisposed()).toBe(true);
  transition.dispose();scene.dispose();engine.dispose();
 });

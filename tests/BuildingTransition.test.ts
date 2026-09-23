@@ -49,6 +49,10 @@ describe("building detail transitions", () => {
         transition.update(1);
         const retained = scene.getMeshByName("previous building detail");
         expect(retained?.isDisposed()).toBe(false);
+        vi.spyOn(scene, "frustumPlanes", "get").mockReturnValue([]);
+        vi.spyOn(retained!, "isInFrustum").mockReturnValue(false);
+        transition.update(300);
+        expect(retained?.isDisposed()).toBe(true);
         transition.dispose(); scene.dispose(); engine.dispose();
     });
 });
