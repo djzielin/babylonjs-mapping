@@ -8,7 +8,7 @@ This focused Babylon.js Mapping demo displays three transport feeds around New Y
 | Aircraft | [OpenSky state vectors](https://openskynetwork.github.io/opensky-api/rest.html) | Recently reported aircraft positions, altitude, and heading. |
 | Ships | [AISStream](https://aisstream.io/documentation) | Recent AIS vessel position reports. |
 
-The **Sample scene** is available without credentials and is illustrative. Select **Live sources** to request current provider data. Provider coverage and refresh frequency vary. The backend keeps credentials out of the browser. It refreshes road and aircraft data at most once per minute and expires ship reports after ten minutes.
+The **Sample scene** is available without credentials and is illustrative. Select **Live sources** to request current provider data. Provider coverage and refresh frequency vary. The backend keeps credentials out of the browser. It refreshes road and aircraft data at most once every five minutes with anonymous OpenSky access, or once per minute with OpenSky credentials, and expires ship reports after ten minutes. The longer anonymous interval stays within OpenSky's published daily credit allowance for one running server.
 
 ## Run
 

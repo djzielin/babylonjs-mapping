@@ -11,16 +11,18 @@ const ships = new Map();
 const cache = { at: 0, roads: [], aircraft: [], errors: {} };
 const port = Number(process.env.PORT || 4173);
 const boundedFetch = (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(20_000) });
+const refreshInterval = process.env.OPENSKY_CLIENT_ID && process.env.OPENSKY_CLIENT_SECRET ? 60_000 : 5 * 60_000;
 let pending;
 let token;
 let tokenExpires = 0;
+let aisRetryMs = 5_000;
 
 async function openSkyToken() {
   const id = process.env.OPENSKY_CLIENT_ID;
   const secret = process.env.OPENSKY_CLIENT_SECRET;
   if (!id || !secret) return undefined;
   if (token && Date.now() < tokenExpires) return token;
-  const response = await fetch('https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token', {
+  const response = await boundedFetch('https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'client_credentials', client_id: id, client_secret: secret }),
@@ -33,7 +35,7 @@ async function openSkyToken() {
 }
 
 async function refresh() {
-  if (Date.now() - cache.at < 60_000) return;
+  if (Date.now() - cache.at < refreshInterval) return;
   if (pending) return pending;
   pending = (async () => {
     const [roads, aircraft] = await Promise.allSettled([
@@ -54,7 +56,10 @@ function connectAIS() {
   const key = process.env.AISSTREAM_API_KEY;
   if (!key) return;
   const socket = new WebSocket('wss://stream.aisstream.io/v0/stream', { perMessageDeflate: true });
-  socket.on('open', () => socket.send(JSON.stringify(aisStreamSubscription(key, bounds))));
+  socket.on('open', () => {
+    aisRetryMs = 5_000;
+    socket.send(JSON.stringify(aisStreamSubscription(key, bounds)));
+  });
   socket.on('message', data => {
     try {
       const vessel = parseAISStreamPosition(JSON.parse(data.toString()));
@@ -62,7 +67,10 @@ function connectAIS() {
     } catch (error) { console.warn('Invalid AIS message:', error); }
   });
   socket.on('error', error => console.warn('AISStream:', error.message));
-  socket.on('close', () => setTimeout(connectAIS, 5_000));
+  socket.on('close', () => {
+    setTimeout(connectAIS, aisRetryMs);
+    aisRetryMs = Math.min(60_000, aisRetryMs * 2);
+  });
 }
 connectAIS();
 
