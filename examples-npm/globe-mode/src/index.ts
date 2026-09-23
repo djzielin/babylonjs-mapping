@@ -480,6 +480,7 @@ class GlobeDemo {
             maxZoom: 18,
             tilesAcrossViewport: 4,
             tileUpdateDelayMs: 0,
+            tileHysteresis: 1,
         });
         this.navigator.setView(HOME_VIEW.latitude, HOME_VIEW.longitude, {
             zoom: HOME_VIEW.zoom,
@@ -947,11 +948,15 @@ class GlobeDemo {
             });
         });
 
-        this.navigator.onViewChangedObservable.add((view) => {
+        this.navigator.onBeforeRasterUpdateObservable.add(view => {
             this.terrainTransition.capture(this.detailGlobe, view.zoom, view.latitude, view.longitude);
             this.buildingTransition.capture(this.detailGlobe, view.zoom, view.latitude, view.longitude);
+        });
+        this.navigator.onViewChangedObservable.add((view) => {
             const precision = view.zoom < 5 ? 16 : 64;
             if (this.detailGlobe.meshPrecision !== precision) {
+                this.terrainTransition.capture(this.detailGlobe, view.zoom, view.latitude, view.longitude);
+                this.buildingTransition.capture(this.detailGlobe, view.zoom, view.latitude, view.longitude);
                 this.detailGlobe.createGeometry(
                     new Vector2(5, 5),
                     20,
@@ -1154,8 +1159,14 @@ class GlobeDemo {
             }
             layer.globe.ourAttribution.advancedTexture.rootContainer.isVisible = false;
             const math = layer.globe.ourTileMath;
-            const key = `${plan.zoom}/${math.lon_to_tile(view.longitude, plan.zoom)}/${math.lat_to_tile(Math.max(-85, Math.min(85, view.latitude)), plan.zoom)}`;
-            if (layer.key === key) return;
+            const tileX = math.lon_to_tile(view.longitude, plan.zoom);
+            const tileY = math.lat_to_tile(Math.max(-85, Math.min(85, view.latitude)), plan.zoom);
+            const previous = layer.key.split("/").map(Number);
+            const deltaX = Math.abs(tileX - previous[1]);
+            const wrap = 2 ** plan.zoom;
+            if (previous[0] === plan.zoom && Math.min(deltaX, wrap - deltaX) <= 1
+                && Math.abs(tileY - previous[2]) <= 1) return;
+            const key = `${plan.zoom}/${tileX}/${tileY}`;
             this.terrainTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude);
             this.buildingTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude);
             layer.key = key;
@@ -1170,7 +1181,8 @@ class GlobeDemo {
         else if (style === "satellite" && token) {
             const raster = new RasterMB(globe);
             raster.accessToken = token;
-            raster.doResBoost = true;
+            raster.doResBoost = globe === this.detailGlobe
+                || globe === this.distanceLayers[this.distanceLayers.length - 1]?.globe;
             globe.setRasterProvider(raster);
         } else globe.setRasterProvider(new RasterOSM(globe));
     }

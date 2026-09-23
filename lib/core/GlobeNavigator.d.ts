@@ -11,6 +11,7 @@ export interface GlobeNavigatorOptions {
     tilesAcrossViewport?: number;
     /** Minimum time between raster-grid changes while the camera is moving. */
     tileUpdateDelayMs?: number;
+    tileHysteresis?: number;
     /** Set false to use navigation without automatic raster updates. */
     autoUpdateRaster?: boolean;
 }
@@ -40,14 +41,16 @@ export default class GlobeNavigator {
     readonly globe: GlobeSet;
     readonly camera: ArcRotateCamera;
     readonly onViewChangedObservable: Observable<GlobeView>;
+    readonly onBeforeRasterUpdateObservable: Observable<GlobeView>;
     private readonly minZoom;
     private readonly maxZoom;
     private readonly tilesAcrossViewport;
     private readonly tileUpdateDelayMs;
+    private readonly tileHysteresis;
     private readonly autoUpdateRaster;
     private readonly renderObserver;
     private flight?;
-    private lastRasterKey?;
+    private lastRasterTile?;
     private lastRasterUpdate;
     private lastViewSignature?;
     private lastSurfaceHeight;
