@@ -538,10 +538,15 @@ class GlobeDemo {
                 this.roads ??= new BuildingsVectorTile(this.detailGlobe);
                 this.roads.accessToken = token;
                 this.roads.doMerge = true;
+                this.roads.maxLinesPerFeature = 8;
                 this.roads.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 this.roads.buildingMaterial.diffuseColor.set(0.92, 0.57, 0.18);
                 this.roads.buildingMeshTransform = (mesh) => {
                     this.layers.add(mesh, 7);
+                };
+                this.roads.buildingMeshFilter = mesh => {
+                    const point = this.detailGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
+                    return !this.googleTiles?.coversLocation(point.latitude, point.longitude);
                 };
             }
             this.data.options.features =
@@ -773,6 +778,13 @@ class GlobeDemo {
     private refreshBuildingReplacements(): void {
         const models = this.landmarks?.loadedModelTiles.flatMap(tile => tile.asset.meshes) ?? [];
         this.replacements.setModels(models.filter((mesh): mesh is import("@babylonjs/core/Meshes/mesh").Mesh => mesh.isEnabled() && mesh.getTotalVertices() > 0) as import("@babylonjs/core/Meshes/mesh").Mesh[]);
+        // Photorealistic imagery already contains streets. Keep road geometry
+        // outside its coverage without repainting red lines over the models.
+        if (this.roads) for (const tile of this.detailGlobe.ourTiles)
+            for (const mesh of tile.getAllBuildingMeshes()) {
+                const point = this.detailGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
+                mesh.setEnabled(!this.googleTiles?.coversLocation(point.latitude, point.longitude));
+            }
         for (const entry of [{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]) {
             if (!entry.buildings || entry.globe.zoom < MIN_GLOBE_BUILDING_ZOOM || entry.globe.zoom > 14) continue;
             entry.buildings.updateBatchVisibility();
@@ -964,14 +976,19 @@ class GlobeDemo {
                 maxTiles: 2048,
                 maximumDisplayGeometricError: 33,
                 cullToCamera: true,
-                coverageRadius: 50000,
+                coverageRadius: 3000,
                 heightOffset: -meanSeaLevel(currentView.latitude, currentView.longitude),
             });
             provider.maxDepth = quality === "auto" || quality === "32" ? 64 : Number(quality);
-            provider.coverageRadius = 50000;
-            provider.coverageRegion = currentView.latitude > 40.4 && currentView.latitude < 41 && currentView.longitude > -74.3 && currentView.longitude < -73.6
-                ? { south: 40.68, north: 40.89, west: -74.03, east: -73.90 } : undefined;
-            provider.maximumScreenSpaceError = quality === "20" ? 2 : quality === "auto" ? 1 : 0.75;
+            // Select the area around the viewer first. A city-wide required
+            // region sent thousands of hierarchy requests before nearby models
+            // could appear, even when most of Manhattan was off screen.
+            provider.coverageRadius = 3000;
+            provider.coverageRegion = undefined;
+            const requestedError = new URLSearchParams(location.search).get("sse");
+            const screenError = requestedError === null ? NaN : Number(requestedError);
+            provider.maximumScreenSpaceError = Number.isFinite(screenError) && screenError >= 0.5
+                ? screenError : quality === "20" ? 2 : quality === "auto" ? 1 : 0.75;
             this.googleLoading = true;
             this.googleStatus("Google 3D · streaming nearby detail…");
             const started = performance.now();
