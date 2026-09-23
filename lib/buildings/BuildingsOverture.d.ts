@@ -1,3 +1,4 @@
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type Tile from "../core/Tile.js";
 import type TileSet from "../core/TileSet.js";
 import { RetrievalLocation } from "../shared/Retrieval.js";
@@ -32,6 +33,7 @@ export default class BuildingsOverture extends Buildings {
     private loadTile;
     private buildBatch;
     updateBatchVisibility(): void;
+    onBuildingCreated(mesh: Mesh): void;
     private updateMeshVisibility;
     private appendLayerFeatures;
     private layerFeatures;

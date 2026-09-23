@@ -369,6 +369,7 @@ export class GeoJSON {
         }
 
         tile.buildings.push(building);
+        buildings.onBuildingCreated?.(finalMesh);
 
     }
 

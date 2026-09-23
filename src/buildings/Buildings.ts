@@ -153,6 +153,7 @@ export default abstract class Buildings {
     public buildingMeshTransform?: (mesh: Mesh) => void;
     /** Reject a generated footprint before it is registered or merged. */
     public buildingMeshFilter?: (mesh: Mesh) => boolean;
+    public onBuildingCreated(_mesh: Mesh): void {}
     /** Reject unwanted source features before allocating or triangulating meshes. */
     public buildingFeatureFilter?: (feature: GeoJSON.feature, tile: Tile, projection: EPSG_Type | undefined) => boolean;
     public retrievalType: RetrievalType = RetrievalType.IndividualTiles;

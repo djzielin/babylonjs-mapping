@@ -269,6 +269,12 @@ export default class BuildingsOverture extends Buildings {
         }
     }
 
+    public override onBuildingCreated(mesh: Mesh): void {
+        if (!this.batchGeometry || !this.batchVisibilityFilter || !this.tileSet.isGlobe) return;
+        const point = (this.tileSet as GlobeSet).getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
+        mesh.setEnabled(this.batchVisibilityFilter(point.latitude, point.longitude));
+    }
+
     private updateMeshVisibility(mesh: Mesh): void {
         const data = this.batches.get(mesh);
         if (!data || mesh.isDisposed()) return;
