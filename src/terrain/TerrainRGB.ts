@@ -1,4 +1,6 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
+import { decodeTerrainRGB } from "./TerrainRGBDecode.js";
+import { TerrainRGBDecodePool } from "./TerrainRGBDecodePool.js";
 
 export interface ElevationGrid {
     data: ArrayLike<number>;
@@ -43,18 +45,7 @@ export default class TerrainRGB {
         pixels: ArrayLike<number>,
         encoding: "terrarium" | "mapbox",
     ): Float32Array {
-        if (pixels.length % 4) throw new RangeError("Expected RGBA pixels");
-        const heights = new Float32Array(pixels.length / 4);
-        for (let i = 0; i < heights.length; i++) {
-            const r = pixels[i * 4],
-                g = pixels[i * 4 + 1],
-                b = pixels[i * 4 + 2];
-            heights[i] =
-                encoding === "terrarium"
-                    ? r * 256 + g + b / 256 - 32768
-                    : -10000 + (r * 65536 + g * 256 + b) * 0.1;
-        }
-        return heights;
+        return decodeTerrainRGB(pixels, encoding);
     }
     /** Resample a child of an overzoomed source without losing its geographic bounds. */
     public static crop(
@@ -129,7 +120,10 @@ export default class TerrainRGB {
     private async fetchGrid(url: string): Promise<ElevationGrid> {
         const response = await fetch(url);
         if (!response.ok) throw new Error(`Elevation HTTP ${response.status}`);
-        const bitmap = await createImageBitmap(await response.blob(), {
+        const blob = await response.blob();
+        const workers = TerrainRGBDecodePool.get();
+        if (workers) try { return await workers.decode(blob, this.encoding); } catch { /* Unsupported workers use the same main-thread decoder. */ }
+        const bitmap = await createImageBitmap(blob, {
             colorSpaceConversion: "none", premultiplyAlpha: "none",
         });
         try {
