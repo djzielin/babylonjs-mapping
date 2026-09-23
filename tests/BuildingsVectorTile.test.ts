@@ -51,6 +51,24 @@ afterEach(() => {
 });
 
 describe("BuildingsVectorTile", () => {
+  it("groups road lines into bounded jobs without dropping source geometry", () => {
+    const { engine, scene, tileSet } = createTileSet();
+    const buildings = new TestBuildingsVectorTile(tileSet);
+    buildings.maxLinesPerFeature = 8;
+    const vector = { layers: { road: {
+      length: 17,
+      feature: (index: number) => ({ toGeoJSON: () => ({
+        id: index, properties: { class: "street" },
+        geometry: { type: "LineString", coordinates: [[index, 0], [index, 1]] },
+      }) }),
+    } } };
+    const collection = (buildings as any).toFeatureCollection(vector, 0, 0, 2);
+    expect(collection.features).toHaveLength(3);
+    expect(collection.features.map((item: any) => item.geometry.coordinates.length)).toEqual([8, 8, 1]);
+    expect(collection.features.flatMap((item: any) => item.geometry.coordinates)
+      .map((line: number[][]) => line[0][0])).toEqual(Array.from({ length: 17 }, (_, i) => i));
+    scene.dispose(); engine.dispose();
+  });
   it("resolves Mapbox tile URLs and encodes the access token", () => {
     const { engine, scene, tileSet } = createTileSet();
     const buildings = new TestBuildingsVectorTile(tileSet);

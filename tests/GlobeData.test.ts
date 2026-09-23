@@ -140,6 +140,15 @@ describe("globe data fidelity", () => {
             dispose();
         },
     );
+    it("samples resident terrain while geometry precision changes", () => {
+        const { globe, dispose } = setup();
+        const tile = globe.ourTiles[0];
+        globe.setElevationData(tile, [120, 120, 120, 120], 2, 2);
+        const center = globe.getSurfaceCoordinates(globe.getTileSurfacePosition(tile.tileCoords));
+        globe.meshPrecision = 64;
+        expect(globe.sampleElevation(center.latitude, center.longitude)).toBeCloseTo(120 * globe.metresToWorld, 10);
+        dispose();
+    });
     it("preserves building height, pitched roofs and geographic placement above terrain", () => {
         const { globe, scene, dispose } = setup();
         const tile = globe.ourTiles[0];

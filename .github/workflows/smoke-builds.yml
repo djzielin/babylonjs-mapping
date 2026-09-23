@@ -43,19 +43,13 @@ jobs:
       - name: Install example dependencies
         working-directory: ${{ matrix.example }}
         run: |
-          BABYLON_VERSION="$(node -p "require('../../node_modules/@babylonjs/core/package.json').version")"
-          npm install --no-save --no-package-lock --no-audit --no-fund \
+          BABYLON_VERSION=$(node -p "require('../../package-lock.json').packages['node_modules/@babylonjs/core'].version")
+          npm install --no-save --package-lock=false \
             "@babylonjs/core@$BABYLON_VERSION" \
             "@babylonjs/gui@$BABYLON_VERSION" \
+            "@babylonjs/loaders@$BABYLON_VERSION" \
             "@babylonjs/inspector@$BABYLON_VERSION" \
             "@babylonjs/materials@$BABYLON_VERSION"
-
-      - name: Share the root Babylon.js types
-        working-directory: ${{ matrix.example }}
-        run: |
-          mkdir -p node_modules/@babylonjs
-          rm -rf node_modules/@babylonjs/core
-          ln -s "$GITHUB_WORKSPACE/node_modules/@babylonjs/core" node_modules/@babylonjs/core
 
       - name: Build example
         working-directory: ${{ matrix.example }}

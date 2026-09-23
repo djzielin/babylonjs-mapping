@@ -133,7 +133,7 @@ class GlobeDemo {
     private landmarks?: BuildingsMB;
     private landmarkKey = "";
     private landmarkRetryAt = 0;
-    private distanceLayers: { globe: GlobeSet; data: GlobeDataController; buildings?: BuildingsOverture; key: string; lodKey?: string }[] = [];
+    private distanceLayers: { globe: GlobeSet; data: GlobeDataController; buildings?: BuildingsOverture; key: string; lodKey?: string; visible?: boolean }[] = [];
     private overtureURL?: string;
     private googleTiles?: Google3DTiles;
     private googleKey = "";
@@ -146,6 +146,7 @@ class GlobeDemo {
     private registeredGoogleRevision = -1;
     private photorealisticActive = false;
     private googleLoading = false;
+    private lastGoogleSelectionAt = 0;
     private googlePrefetchTimer: ReturnType<typeof setTimeout> | undefined;
     private movementKeys = new Set<string>();
     private engineProfile: EngineInstrumentation;
@@ -362,7 +363,7 @@ class GlobeDemo {
                 const memory = (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
                 const heap = memory ? ` · heap ${Math.round(memory.usedJSHeapSize / 1048576)}/${Math.round(memory.jsHeapSizeLimit / 1048576)} MB` : "";
                 document.getElementById("performance")!.textContent =
-                    `${this.engine.getFps().toFixed(0)} FPS${heap} · ${this.scene.getActiveMeshes().length} active meshes · ${this.scene.getTotalVertices().toLocaleString()} vertices · ${stat.active} detail jobs · ${featureJobs} queued features · ${stat.completed} completed · ${stat.failed} errors${this.googleTiles ? ` · Google: ${this.googleTiles.stats.hierarchyRequests} hierarchy / ${this.googleTiles.stats.modelRequests} fetched / ${this.googleTiles.stats.reusedModels} reused · last update ${this.canvas.dataset.googleLoadMs ?? "—"} ms` : ""}`;
+                    `${this.engine.getFps().toFixed(0)} FPS${heap} · ${this.scene.getActiveMeshes().length} active meshes · ${stat.active} detail jobs · ${featureJobs} queued features · ${stat.completed} completed · ${stat.failed} errors${this.googleTiles ? ` · Google: ${this.googleTiles.stats.hierarchyRequests} hierarchy / ${this.googleTiles.stats.modelRequests} fetched / ${this.googleTiles.stats.reusedModels} reused · last update ${this.canvas.dataset.googleLoadMs ?? "—"} ms` : ""}`;
             }
         });
         const requestedPreset = new URLSearchParams(window.location.search).get("preset");
@@ -370,7 +371,10 @@ class GlobeDemo {
             const index = LOCATIONS.findIndex(location => location.name.toLowerCase().startsWith(requestedPreset.toLowerCase()));
             if (index >= 0) {
                 const preset = document.getElementById("locationPreset") as HTMLSelectElement;
-                preset.value = String(index); preset.dispatchEvent(new Event("change"));
+                preset.value = String(index);
+                // The home view is already active. Replaying its flight while
+                // the first terrain frame initializes can produce a bad radius.
+                if (index !== 0) preset.dispatchEvent(new Event("change"));
             }
         }
         window.addEventListener("resize", () => {
@@ -550,10 +554,15 @@ class GlobeDemo {
                 this.roads ??= new BuildingsVectorTile(this.detailGlobe);
                 this.roads.accessToken = token;
                 this.roads.doMerge = true;
+                this.roads.maxLinesPerFeature = 8;
                 this.roads.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 this.roads.buildingMaterial.diffuseColor.set(0.92, 0.57, 0.18);
                 this.roads.buildingMeshTransform = (mesh) => {
                     this.layers.add(mesh, 7);
+                };
+                this.roads.buildingMeshFilter = mesh => {
+                    const point = this.detailGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
+                    return !this.googleTiles?.coversLocation(point.latitude, point.longitude);
                 };
             }
             this.data.options.features =
@@ -785,6 +794,13 @@ class GlobeDemo {
     private refreshBuildingReplacements(): void {
         const models = this.landmarks?.loadedModelTiles.flatMap(tile => tile.asset.meshes) ?? [];
         this.replacements.setModels(models.filter((mesh): mesh is import("@babylonjs/core/Meshes/mesh").Mesh => mesh.isEnabled() && mesh.getTotalVertices() > 0) as import("@babylonjs/core/Meshes/mesh").Mesh[]);
+        // Photorealistic imagery already contains streets. Keep road geometry
+        // outside its coverage without repainting red lines over the models.
+        if (this.roads) for (const tile of this.detailGlobe.ourTiles)
+            for (const mesh of tile.getAllBuildingMeshes()) {
+                const point = this.detailGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
+                mesh.setEnabled(!this.googleTiles?.coversLocation(point.latitude, point.longitude));
+            }
         for (const entry of [{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]) {
             if (!entry.buildings || entry.globe.zoom < MIN_GLOBE_BUILDING_ZOOM || entry.globe.zoom > 14) continue;
             entry.buildings.updateBatchVisibility();
@@ -901,6 +917,9 @@ class GlobeDemo {
                 );
                 for (const tile of this.detailGlobe.ourTiles)
                     this.registerTerrain(tile.mesh, 6);
+                // createGeometry clears raster setup. Restore coordinates in
+                // this callback before Google selection reads the tile window.
+                this.detailGlobe.updateRaster(view.latitude, view.longitude, view.zoom);
                 this.data.invalidate();
             }
             this.updateDistanceLayers(view);
@@ -948,6 +967,16 @@ class GlobeDemo {
             ? `${math.lon_to_tile(view.longitude, view.zoom)}/${math.lat_to_tile(view.latitude, view.zoom)}/${view.zoom}/${quality}/${bearing}/${distanceStep}/${positionKey}` : "";
         if (!force && key === this.googleViewKey) return;
         this.googleViewKey = key;
+        // Let nearby models finish their current request before retargeting a
+        // moving camera. The pending refresh reads the latest position.
+        const selectionAge = performance.now() - this.lastGoogleSelectionAt;
+        if (!force && key && this.googleLoading && selectionAge < 500) {
+            if (!this.googleTimer) this.googleTimer = setTimeout(() => {
+                this.googleTimer = undefined;
+                this.scheduleGoogleTiles(true);
+            }, 500 - selectionAge);
+            return;
+        }
         // Movement may change the selection key every frame. Keep the first
         // imminent refresh and let it use the newest camera instead of
         // repeatedly cancelling it and starving the tile hierarchy.
@@ -976,14 +1005,20 @@ class GlobeDemo {
                 maxTiles: 2048,
                 maximumDisplayGeometricError: 33,
                 cullToCamera: true,
-                coverageRadius: 50000,
+                coverageRadius: 3000,
                 heightOffset: -meanSeaLevel(currentView.latitude, currentView.longitude),
             });
             provider.maxDepth = quality === "auto" || quality === "32" ? 64 : Number(quality);
-            provider.coverageRadius = 50000;
-            provider.coverageRegion = currentView.latitude > 40.4 && currentView.latitude < 41 && currentView.longitude > -74.3 && currentView.longitude < -73.6
-                ? { south: 40.68, north: 40.89, west: -74.03, east: -73.90 } : undefined;
-            provider.maximumScreenSpaceError = quality === "20" ? 2 : quality === "auto" ? 1 : 0.75;
+            // Select the area around the viewer first. A city-wide required
+            // region sent thousands of hierarchy requests before nearby models
+            // could appear, even when most of Manhattan was off screen.
+            provider.coverageRadius = 3000;
+            provider.coverageRegion = undefined;
+            const requestedError = new URLSearchParams(location.search).get("sse");
+            const screenError = requestedError === null ? NaN : Number(requestedError);
+            provider.maximumScreenSpaceError = Number.isFinite(screenError) && screenError >= 0.5
+                ? screenError : quality === "20" ? 2 : quality === "auto" ? 1 : 0.75;
+            this.lastGoogleSelectionAt = performance.now();
             this.googleLoading = true;
             this.googleStatus("Google 3D · streaming nearby detail…");
             const started = performance.now();
@@ -1041,9 +1076,14 @@ class GlobeDemo {
                 layer.globe.createGeometry(new Vector2(size, size), 20, plan.precision);
                 for (const tile of layer.globe.ourTiles) this.registerTerrain(tile.mesh, plan.group);
                 layer.key = "";
+                layer.visible = undefined;
                 layer.data.invalidate();
             }
-            for (const tile of layer.globe.ourTiles) tile.mesh.isVisible = view.zoom >= 8;
+            const visible = view.zoom >= 8;
+            if (layer.visible !== visible) {
+                for (const tile of layer.globe.ourTiles) tile.mesh.isVisible = visible;
+                layer.visible = visible;
+            }
             layer.globe.ourAttribution.advancedTexture.rootContainer.isVisible = false;
             const math = layer.globe.ourTileMath;
             const key = `${plan.zoom}/${math.lon_to_tile(view.longitude, plan.zoom)}/${math.lat_to_tile(Math.max(-85, Math.min(85, view.latitude)), plan.zoom)}`;
