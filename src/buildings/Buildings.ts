@@ -779,6 +779,9 @@ export default abstract class Buildings {
                         merged.setParent(request.tile.mesh);
                         merged.name = "all_buildings_merged";
                         this.applyBuildingMeshOptions(merged);
+                        // MergeMeshes may create a new material even when the
+                        // source material was already frozen.
+                        if (this.optimizationOptions.freezeMaterials) merged.material?.freeze();
 
                         request.tile.mergedBuildingMesh = merged;
                     } else {

@@ -76,7 +76,13 @@ export class DrawSnapshotCache {
     private state(mesh: Mesh, previous?: DrawState): DrawState | undefined {
         const material = mesh.material;
         if (!mesh.isWorldMatrixFrozen || !material?.isFrozen || mesh.skeleton || mesh.morphTargetManager
-            || mesh.hasInstances || mesh.hasThinInstances || mesh.isAnInstance || mesh.billboardMode) return undefined;
+            || mesh.hasInstances || mesh.hasThinInstances || mesh.isAnInstance || mesh.billboardMode) {
+            const reason = !mesh.isWorldMatrixFrozen ? "world matrix" : !material?.isFrozen ? `material ${material?.getClassName() ?? "none"}`
+                : mesh.skeleton ? "skeleton" : mesh.morphTargetManager ? "morph target"
+                    : mesh.hasInstances || mesh.hasThinInstances || mesh.isAnInstance ? "instances" : "billboard";
+            this.blocked = `${mesh.name}: ${reason}`;
+            return undefined;
+        }
         const selected = mesh.getLOD(this.scene.activeCamera!) as Mesh | null;
         const geometry = selected?.geometry ?? mesh.geometry;
         const buffers = geometry?.getVertexBuffers() ?? {};
@@ -97,9 +103,15 @@ export class DrawSnapshotCache {
             if (same && textures) for (let i = 0; i < textures.length; i++) if (textures[i].getInternalTexture() !== previous.textures[i]) { same = false; break; }
             if (same) return previous;
         }
-        if (!mesh.isReady(true) || (selected && !selected.isReady(true))) return undefined;
+        if (!mesh.isReady(true) || (selected && !selected.isReady(true))) {
+            this.blocked = `${mesh.name}: preparing shaders`;
+            return undefined;
+        }
         const activeTextures = textures ?? material.getActiveTextures();
-        if (activeTextures.some(texture => !texture.isReady())) return undefined;
+        if (activeTextures.some(texture => !texture.isReady())) {
+            this.blocked = `${mesh.name}: loading textures`;
+            return undefined;
+        }
         return { selected, material, geometry, worldVersion, visibility: mesh.visibility,
             group: mesh.renderingGroupId, mask: mesh.layerMask, index, buffers: { ...buffers }, effects: (selected ?? mesh).subMeshes.map(sub => sub.effect), textures: activeTextures.map(texture => texture.getInternalTexture()) };
     }
@@ -152,7 +164,7 @@ export class DrawSnapshotCache {
             const recorded = this.recorded.get(mesh);
             if (!cull.expanded && !recorded) continue;
             const state = this.state(mesh, recorded);
-            if (state === undefined) { this.blocked = mesh.name; this.invalidate(); return; }
+            if (state === undefined) { this.blocked ||= mesh.name; this.invalidate(); return; }
             if (recorded !== undefined && recorded !== state) reuse = false;
             if (recorded === undefined && cull.visible) reuse = false;
             if (cull.expanded) { expanded.push(mesh); states.push(state); }
