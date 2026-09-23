@@ -1,6 +1,6 @@
 import Tile from "../src/core/Tile";
 import { describe, expect, it, vi } from "vitest";
-import { MeshBuilder, NullEngine, Scene, StandardMaterial, PBRMaterial, MultiMaterial, VertexBuffer, Vector3 } from "@babylonjs/core";
+import { MeshBuilder, NullEngine, Scene, StandardMaterial, PBRMaterial, MultiMaterial, VertexBuffer, Vector3, Ray } from "@babylonjs/core";
 import { Constants } from "@babylonjs/core/Engines/constants";
 import { mergeMeshesAtOrigin } from "../src/shared/MergeMeshesAtOrigin";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
@@ -45,6 +45,20 @@ describe("shared map layer ownership", () => {
         expect(index.keepPoint(new Vector3(0, 0, 0))).toBe(false);
         expect(index.keepPoint(new Vector3(3.5, 0, 3.5))).toBe(true);
         expect(generate).not.toHaveBeenCalled();
+        scene.dispose(); engine.dispose();
+    });
+    it("matches Babylon triangle picks for rotated and scaled landmark geometry", () => {
+        const engine = new NullEngine(); const scene = new Scene(engine);
+        const model = MeshBuilder.CreateBox("landmark", { width: 4, height: 10, depth: 2 }, scene);
+        model.position.set(3, 1, -2);
+        model.rotation.set(0.3, 0.7, -0.15);
+        model.scaling.set(1.4, 0.8, 2.1);
+        const index = new BuildingReplacementIndex(); index.setModels([model]);
+        for (let x = -2; x <= 8; x++) for (let z = -8; z <= 4; z++) {
+            const center = new Vector3(x + 0.23, 0, z + 0.37);
+            const ray = new Ray(center.add(new Vector3(0, 100, 0)), Vector3.Down(), 200);
+            expect(index.keepPoint(center, Vector3.Up(), 100)).toBe(!ray.intersectsMesh(model, true).hit);
+        }
         scene.dispose(); engine.dispose();
     });
     it("preserves depth between tiers and reserves covered pixels for the finer tier", () => {
