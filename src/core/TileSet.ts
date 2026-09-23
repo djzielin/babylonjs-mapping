@@ -296,13 +296,17 @@ export default class TileSet {
         active.length = waiting.length = 0;
         const count = Math.min(this.tileRequests.length, this.rasterConcurrency + activeCount);
         if (count === 0) { this.processNextTileRequest(); return; }
+        let inProgress = activeCount;
         for (let i=0; i<count; i++) {
             const request=this.tileRequests[0];
-            this.processNextTileRequest();
+            const wasActive = request.inProgress;
+            this.processNextTileRequest(inProgress);
+            if (!wasActive && request.inProgress) inProgress++;
+            else if (wasActive && this.tileRequests[0] !== request) inProgress--;
             if (this.tileRequests[0]===request) this.tileRequests.push(this.tileRequests.shift()!);
         }
     }
-    private processNextTileRequest() {
+    private processNextTileRequest(activeCount?: number) {
     if (this.isGeometrySetup == false) {
         return;
     }
@@ -321,7 +325,7 @@ export default class TileSet {
 
     if (request.requestType == TileRequestType.LoadTile) {
         if (request.inProgress == false) {
-            if (this.tileRequests.filter(r => r.inProgress).length >= this.rasterConcurrency) return;
+            if ((activeCount ?? this.tileRequests.filter(r => r.inProgress).length) >= this.rasterConcurrency) return;
             debugLog(() => [this.prettyName() + "trying to load tile raster: " + request.tileCoords]);
             request.texture = new Texture(request.url, this.scene);
             request.inProgress = true;

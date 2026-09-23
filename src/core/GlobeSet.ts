@@ -383,7 +383,17 @@ export default class GlobeSet extends TileSet {
         const p = this.meshPrecision, n = p + 1, world = 2 ** this.zoom * p;
         const groups = new Map<string, { tile: Tile; index: number; height: number }[]>();
         const dirty = new Set<Tile>([changed]);
-        for (const tile of this.ourTiles) {
+        // A new DEM only changes seams touching this tile. Look up the eight
+        // neighbours instead of scanning the entire overlapping LOD window.
+        const neighbours = new Set<Tile>([changed]);
+        const coordinate = changed.tileCoords;
+        const tileCount = 2 ** this.zoom;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++)
+            for (const wrap of [-tileCount, 0, tileCount]) {
+                const tile = this.ourTilesMap.get(new Vector3(coordinate.x + dx + wrap, coordinate.y + dy, coordinate.z).toString());
+                if (tile) neighbours.add(tile);
+            }
+        for (const tile of neighbours) {
             const original = this.originalElevations.get(tile);
             if (!tile.terrainLoaded || !original || original.key !== tile.tileCoords.toString() || original.heights.length !== n * n) continue;
             for (let y = 0; y <= p; y++) for (let x = 0; x <= p; x++) {
