@@ -1001,17 +1001,22 @@ class GlobeDemo {
         if (view.zoom < 8 && !this.distanceLayers.length) return;
         const plans = globeLODPlan(view.zoom);
         if (!this.distanceLayers.length) {
-            for (const plan of plans) {
+            // Construct near tiers first so their scene observers request
+            // imagery and elevation before the much larger horizon windows.
+            for (const plan of [...plans].reverse()) {
                 const globe = new GlobeSet(this.scene, this.engine, {
                     radius: GLOBE_RADIUS, backingSurface: false, attribution: false, geometryBudgetMs: 0.5,
                 });
                 globe.setOptimizationOptions({ freezeTileWorldMatrices: true, disableTilePicking: true, disableTileCollisions: true });
-                globe.rasterConcurrency = 2;
+                globe.rasterConcurrency = plan.group >= 4 ? 4 : 2;
                 globe.setRasterProvider(new RasterOSM(globe));
                 globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);
                 for (const tile of globe.ourTiles) this.registerTerrain(tile.mesh, plan.group);
-                const data = new GlobeDataController(globe, { elevation: this.elevation.load, concurrency: plan.group >= 3 ? 8 : 4, minTerrainZoom: 5, prioritizeVisible: true, minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14 });
-                this.distanceLayers.push({ globe, data, key: "" });
+                const data = new GlobeDataController(globe, { elevation: this.elevation.load,
+                    concurrency: plan.group === 5 ? 6 : plan.group >= 3 ? 4 : 1,
+                    minTerrainZoom: 5, prioritizeVisible: true,
+                    minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14 });
+                this.distanceLayers.unshift({ globe, data, key: "" });
             }
             this.configureDistanceLayers();
             this.syncDistanceStyles();
