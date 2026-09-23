@@ -33,6 +33,7 @@ export default class GlobeDataController {
     private observer;
     private disposed;
     private refillTimer?;
+    private nextPriorityCheck;
     private settled;
     private tiles;
     private positionObserver;
