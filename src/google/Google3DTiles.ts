@@ -217,7 +217,7 @@ export default class Google3DTiles {
         this.networkDrainQueued = true;
         queueMicrotask(() => {
             this.networkDrainQueued = false;
-            if (this.networkActive >= 24) return;
+            if (this.networkActive >= 48) return;
             // Cache geographic comparisons until a new camera generation. A
             // saturated queue needs no sorting while downloads are in flight.
             for (const waiter of this.networkWaiters) {
@@ -226,7 +226,7 @@ export default class Google3DTiles {
                 waiter.evaluatedAt = this.requestPriorityRevision;
             }
             this.networkWaiters.sort((a, b) => a.distance! - b.distance!);
-            while (this.networkActive < 24 && this.networkWaiters.length) {
+            while (this.networkActive < 48 && this.networkWaiters.length) {
                 this.networkActive++;
                 this.networkWaiters.shift()!.resume();
             }
