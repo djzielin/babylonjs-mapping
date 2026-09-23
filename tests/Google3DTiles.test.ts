@@ -814,7 +814,11 @@ it("prepares offscreen content without replacing visible models", async () => {
     ]}}),modelTileLoader:createModelLoader(requests)});
   const before=await provider.load();expect(before).toHaveLength(1);
   const bounds = vi.spyOn(provider as any, "getTileSetBounds");
+  // A loose tile volume can intersect the camera frustum even when none of
+  // its model is visible. Prefetch must still prepare the unseen content.
+  const geometricError = vi.spyOn(provider as any, "allowedGeometricError").mockReturnValue(1);
   await provider.prefetchSurroundings();
+  geometricError.mockRestore();
   expect(bounds).toHaveBeenCalledWith(3000);
   expect(provider.loadedModelTiles).toEqual(before);
   expect(requests).toHaveLength(2);

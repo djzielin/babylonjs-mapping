@@ -548,8 +548,6 @@ export default class Google3DTiles {
         const requests: Promise<unknown>[] = [];
         await this.selectFrontier(selections, generation, selection => {
             if (generation !== this.generation || this.loadedTiles.has(selection.url) || this.retainedTiles.has(selection.url)) return;
-            const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
-            if (this.allowedGeometricError(selection.boundingVolume, transform) >= 0) return;
             candidates.set(selection.url, selection);
         }, true);
         if (generation !== this.generation) return;
