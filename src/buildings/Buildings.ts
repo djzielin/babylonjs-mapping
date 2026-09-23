@@ -769,6 +769,7 @@ export default abstract class Buildings {
 
                 const allMeshes: Mesh[] = request.tile.getAllBuildingMeshes();
                 if (allMeshes.length > 1) {
+                    const sourceMaterial = allMeshes[0].material ?? this.buildingMaterial;
                     const merged = this.tileSet.isGlobe
                         ? mergeMeshesAtOrigin(allMeshes, request.tile.mesh.getAbsolutePosition())
                         : Mesh.MergeMeshes(allMeshes, true, true);
@@ -776,6 +777,10 @@ export default abstract class Buildings {
 
                     if (merged) {
                         merged.renderingGroupId = allMeshes[0].renderingGroupId;
+                        // MergeMeshes drops the shared material on some Babylon
+                        // versions. Preserve the source appearance and let frozen
+                        // merged tiles participate in WebGPU draw snapshots.
+                        merged.material = sourceMaterial;
                         merged.setParent(request.tile.mesh);
                         merged.name = "all_buildings_merged";
                         this.applyBuildingMeshOptions(merged);
