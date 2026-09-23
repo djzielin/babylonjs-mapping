@@ -16,6 +16,7 @@ import { DrawSnapshotCache } from "./DrawSnapshotCache";
 import { MotionFrameProfile } from "./MotionFrameProfile";
 import { globeLODPlan, MIN_GLOBE_BUILDING_ZOOM } from "./GlobeLODPlan";
 import { setupAddressSearch } from "./AddressSearch";
+import { TrafficOverlay } from "./TrafficOverlay";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import type { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine";
@@ -75,6 +76,7 @@ const HOME_VIEW: LocationPreset = {
 };
 const LOCATIONS: LocationPreset[] = [
     HOME_VIEW,
+    { name: "New York Harbor · traffic feeds", latitude: 40.70, longitude: -74.01, zoom: 10, basemap: "osm" },
     { name: "Duke University · Duke Chapel", latitude: 36.00145, longitude: -78.94032, zoom: 18, heading: 256, tilt: 65, eyeHeight: 150, distance: 650, google: true, basemap: "satellite" },
     {
         name: "Manhattan · buildings",
@@ -139,6 +141,7 @@ class GlobeDemo {
     private googleTimer?: ReturnType<typeof setTimeout>;
     private googleGeneration = 0;
     private googleMeshes = new WeakSet<object>();
+    private trafficOverlay?: TrafficOverlay;
     private registeredGoogleTiles?: Google3DTiles;
     private registeredGoogleRevision = -1;
     private photorealisticActive = false;
@@ -250,6 +253,14 @@ class GlobeDemo {
             (document.getElementById("roads") as HTMLInputElement).checked = true;
             document.getElementById("roads")!.dispatchEvent(new Event("change"));
         }
+        this.trafficOverlay = new TrafficOverlay(this.scene, this.detailGlobe,
+            document.getElementById("trafficStatus")!,
+            () => (document.getElementById("trafficApi") as HTMLInputElement).value.trim());
+        document.getElementById("trafficFeeds")!.addEventListener("change", event =>
+            this.trafficOverlay?.setEnabled((event.target as HTMLInputElement).checked));
+        document.getElementById("trafficApi")!.addEventListener("change", () => {
+            if ((document.getElementById("trafficFeeds") as HTMLInputElement).checked) void this.trafficOverlay?.refresh();
+        });
         document.getElementById("controlsToggle")!.addEventListener("click", () => {
             const expanded = document.getElementById("controlPanel")!.classList.toggle("expanded");
             document.getElementById("controlsToggle")!.setAttribute("aria-expanded", String(expanded));
@@ -258,6 +269,7 @@ class GlobeDemo {
         window.addEventListener("pagehide", event => {
             if (event.persisted) return;
             clearTimeout(this.googleTimer); clearTimeout(this.googlePrefetchTimer);
+            this.trafficOverlay?.dispose();
             this.googleTiles?.dispose(); this.scene.dispose(); this.engine.dispose();
         }, { once: true });
         void this.readGoogleKey();

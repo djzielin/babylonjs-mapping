@@ -21,6 +21,8 @@ npm start
 
 ## Explore
 
+The **New York Harbor · traffic feeds** destination pairs with **NYC traffic, aircraft & ships** under More options. Start the [focused traffic demo server](../../examples-local/live-traffic/README.md) on port 4173 and enable the checkbox. Globe mode reads its `/api/traffic` endpoint every minute, placing road speed links on the surface, aircraft above it, and ships near sea level. The API URL field can point to another server. The server supplies NYC DOT and OpenSky data without a key; AISStream vessels require `AISSTREAM_API_KEY`. The overlay stays off until enabled.
+
 Use **Map / Satellite** at the top of the panel to switch imagery across the entire globe, including all distance tiers. Satellite uses the Mapbox public token in More options; choosing it without a token opens and focuses that field. Terrain and buildings stay enabled while imagery changes.
 
 Type an address or place in the search box (at least three characters), then click a suggestion or use arrow keys and Enter. Escape closes suggestions. Selecting a result stops the tour and returns to globe navigation before flying there. Search uses [Photon’s public autocomplete service](https://github.com/komoot/photon), based on OpenStreetMap, with a 450 ms debounce, cancellation, timeout and a bounded session cache. Typed queries are sent to Photon; coverage and availability depend on the provider. For substantial traffic, host a Photon instance and change the endpoint in `src/AddressSearch.ts`.

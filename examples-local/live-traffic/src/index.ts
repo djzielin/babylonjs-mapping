@@ -62,11 +62,16 @@ const shipMaterial = material('ships',new Color3(.72,.61,1));
 function draw(snapshot: Snapshot): void {
   for (const mesh of overlay) mesh.dispose();
   overlay.length = 0;
+  const roadLines: Vector3[][][] = [[],[],[],[]];
   for (const road of snapshot.roads) {
     const points = road.path.map(p=>point(p.latitude,p.longitude,.6));
     if (points.length < 2) continue;
-    const mesh = MeshBuilder.CreateLines(`Road: ${road.name}`,{points},scene);
-    mesh.color = road.speedMph === null ? roadColors[3] : road.speedMph < 20 ? roadColors[0] : road.speedMph < 40 ? roadColors[1] : roadColors[2];
+    const band = road.speedMph === null ? 3 : road.speedMph < 20 ? 0 : road.speedMph < 40 ? 1 : 2;
+    roadLines[band].push(points);
+  }
+  for (let band=0;band<4;band++) if (roadLines[band].length) {
+    const mesh = MeshBuilder.CreateLineSystem(`Road speeds ${band}`,{lines:roadLines[band]},scene);
+    mesh.color = roadColors[band];
     overlay.push(mesh);
   }
   for (const aircraft of snapshot.aircraft) {

@@ -5,7 +5,7 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "noEmit": true,
+    "paths": { "@babylonjs/core/*": ["../../node_modules/@babylonjs/core/*"] },
     "lib": ["ES2022", "DOM"]
   },
   "include": ["src/index.ts"]

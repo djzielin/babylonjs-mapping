@@ -10,6 +10,7 @@ const bounds = [40.52, -74.25, 40.94, -73.68];
 const ships = new Map();
 const cache = { at: 0, roads: [], aircraft: [], errors: {} };
 const port = Number(process.env.PORT || 4173);
+const boundedFetch = (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(20_000) });
 let pending;
 let token;
 let tokenExpires = 0;
@@ -36,8 +37,8 @@ async function refresh() {
   if (pending) return pending;
   pending = (async () => {
     const [roads, aircraft] = await Promise.allSettled([
-      fetchNYCRoadSpeeds(),
-      openSkyToken().then(auth => fetchOpenSkyAircraft(bounds, fetch, auth)),
+      fetchNYCRoadSpeeds(boundedFetch),
+      openSkyToken().then(auth => fetchOpenSkyAircraft(bounds, boundedFetch, auth)),
     ]);
     cache.errors = {};
     if (roads.status === 'fulfilled') cache.roads = roads.value;
@@ -71,13 +72,13 @@ const server = createServer(async (request, response) => {
     await refresh();
     const now = Date.now();
     for (const [id, ship] of ships) if (now - ship.observedAt > 10 * 60_000) ships.delete(id);
-    response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
     response.end(JSON.stringify({ roads: cache.roads, aircraft: cache.aircraft, ships: [...ships.values()], errors: cache.errors,
       sources: { roads: 'NYC DOT', aircraft: 'OpenSky', ships: process.env.AISSTREAM_API_KEY ? 'AISStream' : 'AISStream key required' },
       updatedAt: cache.at }));
     return;
   }
-  const file = pathname === '/' ? 'index.html' : pathname === '/app.js' ? 'dist/app.js' : null;
+  const file = pathname === '/' ? 'index.html' : /^\/[\w.-]+\.app\.js$/.test(pathname) || pathname === '/app.js' ? `dist${pathname}` : null;
   if (!file) { response.writeHead(404); response.end(); return; }
   try {
     const contents = await readFile(join(root, file));

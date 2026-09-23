@@ -4,7 +4,7 @@ module.exports = {
   output: { filename: 'app.js', path: path.resolve(__dirname, 'dist'), clean: true },
   resolve: {
     extensions: ['.ts', '.js'],
-    alias: { '@babylonjs/core': path.dirname(require.resolve('@babylonjs/core/package.json')) },
+    alias: { '@babylonjs/core': path.resolve(__dirname, '../../node_modules/@babylonjs/core') },
   },
   module: { rules: [
     { test: /\.tsx?$/, loader: 'ts-loader', exclude: /node_modules/ },
