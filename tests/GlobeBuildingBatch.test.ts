@@ -81,6 +81,8 @@ it("atomically replaces a building batch and keeps the old one if work is cancel
     provider.updateBatchVisibility();
     expect(mesh.isEnabled(false)).toBe(false);
     provider.batchVisibilityFilter=()=>true;
+    provider.updateBatchVisibility(true);
+    expect(mesh.isEnabled(false)).toBe(false);
     provider.updateBatchVisibility();
     expect(mesh.isEnabled(false)).toBe(true);
     expect(mesh.getVertexBuffer("position")).toBe(vertices);
@@ -105,6 +107,8 @@ it("hides a specialized Overture building as soon as covered Google detail exist
     expect(tile.buildings).toHaveLength(1);
     expect(tile.buildings[0].mesh.isEnabled(false)).toBe(false);
     provider.batchVisibilityFilter=()=>true;
+    provider.updateBatchVisibility(true);
+    expect(tile.buildings[0].mesh.isEnabled(false)).toBe(false);
     provider.updateBatchVisibility();
     expect(tile.buildings[0].mesh.isEnabled(false)).toBe(true);
     scene.dispose();engine.dispose();

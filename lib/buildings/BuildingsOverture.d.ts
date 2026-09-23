@@ -32,7 +32,7 @@ export default class BuildingsOverture extends Buildings {
     protected handleLoadTileRequest(request: BuildingRequest, requestIndex?: number): void;
     private loadTile;
     private buildBatch;
-    updateBatchVisibility(): void;
+    updateBatchVisibility(coverageOnlyGrows?: boolean): void;
     onBuildingCreated(mesh: Mesh): void;
     private updateMeshVisibility;
     private appendLayerFeatures;

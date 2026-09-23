@@ -143,6 +143,9 @@ class GlobeDemo {
     private googleMeshes = new WeakSet<object>();
     private registeredGoogleTiles?: Google3DTiles;
     private registeredGoogleRevision = -1;
+    private replacementCoverageProvider?: Google3DTiles;
+    private replacementCoverageURLs = new Set<string>();
+    private replacementCoverageHidden = false;
     private photorealisticActive = false;
     private googleFarHidden = false;
     private googleLoading = false;
@@ -803,6 +806,13 @@ class GlobeDemo {
     }
 
     private refreshBuildingReplacements(): void {
+        const coverageURLs = new Set(this.googleTiles?.loadedModelTiles.map(tile => tile.url) ?? []);
+        const coverageOnlyGrows = !!this.googleTiles && this.googleTiles === this.replacementCoverageProvider
+            && !this.googleFarHidden && !this.replacementCoverageHidden
+            && Array.from(this.replacementCoverageURLs).every(url => coverageURLs.has(url));
+        this.replacementCoverageProvider = this.googleTiles;
+        this.replacementCoverageURLs = coverageURLs;
+        this.replacementCoverageHidden = this.googleFarHidden;
         const models = this.landmarks?.loadedModelTiles.flatMap(tile => tile.asset.meshes) ?? [];
         this.replacements.setModels(models.filter((mesh): mesh is import("@babylonjs/core/Meshes/mesh").Mesh => mesh.isEnabled() && mesh.getTotalVertices() > 0) as import("@babylonjs/core/Meshes/mesh").Mesh[]);
         // Photorealistic imagery already contains streets. Keep road geometry
@@ -813,7 +823,7 @@ class GlobeDemo {
             }
         for (const entry of [{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]) {
             if (!entry.buildings || entry.globe.zoom < MIN_GLOBE_BUILDING_ZOOM || entry.globe.zoom > 14) continue;
-            entry.buildings.updateBatchVisibility();
+            entry.buildings.updateBatchVisibility(coverageOnlyGrows);
             for (const tile of entry.globe.ourTiles) {
                 const math = entry.globe.ourTileMath;
                 const points = [0, 0.5, 1].flatMap(x => [0, 0.5, 1].map(y => ({
