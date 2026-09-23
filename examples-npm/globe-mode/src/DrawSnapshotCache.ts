@@ -30,7 +30,7 @@ export class DrawSnapshotCache {
     private view = new Float64Array(16);
     private viewRevision = 0;
     private camera?: Scene["activeCamera"];
-    private culling = new WeakMap<Mesh, { view: number; world: number; position: unknown; expanded: boolean; visible: boolean }>();
+    private culling = new WeakMap<Mesh, { view: number; world: number; position: unknown; expanded: boolean }>();
     public get stats(): string { return `${this.recorded.size} cached / ${this.enabledMeshes.size} enabled / ${this.scene.meshes.length} resident meshes · ${this.captures} captures / ${this.replays} replays${this.blocked ? ` / ${this.blocked}` : ""} · cache ${this.cpuMs.toFixed(2)} ms`; }
     constructor(private scene: Scene, private engine: WebGPUEngine) {
         engine.snapshotRenderingMode = 1;
@@ -157,6 +157,7 @@ export class DrawSnapshotCache {
             }
             const world = mesh.getWorldMatrix().updateFlag;
             const position = mesh.getVertexBuffer("position");
+            const recorded = this.recorded.get(mesh);
             let cull = this.culling.get(mesh);
             if (!cull || cull.view !== this.viewRevision || cull.world !== world || cull.position !== position || !mesh.isWorldMatrixFrozen) {
                 const bounds = mesh.getBoundingInfo().boundingSphere;
@@ -164,18 +165,17 @@ export class DrawSnapshotCache {
                 let expanded = true;
                 for (const plane of scene.frustumPlanes) if (plane.dotCoordinate(bounds.centerWorld) < -bounds.radiusWorld - margin) { expanded = false; break; }
                 if (!cull) {
-                    cull = { view: this.viewRevision, world, position, expanded, visible: false };
+                    cull = { view: this.viewRevision, world, position, expanded };
                     this.culling.set(mesh, cull);
                 }
                 cull.view = this.viewRevision; cull.world = world; cull.position = position;
-                cull.expanded = expanded; cull.visible = expanded && mesh.isInFrustum(scene.frustumPlanes);
+                cull.expanded = expanded;
             }
-            const recorded = this.recorded.get(mesh);
             if (!cull.expanded && !recorded) continue;
             const state = this.state(mesh, recorded);
             if (state === undefined) { this.blocked ||= mesh.name; this.invalidate(); return; }
             if (recorded !== undefined && recorded !== state) reuse = false;
-            if (recorded === undefined && cull.visible) reuse = false;
+            if (recorded === undefined && cull.expanded && reuse && mesh.isInFrustum(scene.frustumPlanes)) reuse = false;
             if (cull.expanded) { expanded.push(mesh); states.push(state); }
         }
         for (const mesh of this.recorded.keys()) if (mesh.isDisposed()) reuse = false;
