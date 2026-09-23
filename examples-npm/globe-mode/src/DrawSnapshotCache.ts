@@ -86,12 +86,17 @@ export class DrawSnapshotCache {
             this.blocked = `${mesh.name}: ${reason}`;
             return undefined;
         }
-        const selected = mesh.getLOD(this.scene.activeCamera!) as Mesh | null;
+        const selected = mesh.hasLODLevels ? mesh.getLOD(this.scene.activeCamera!) as Mesh | null : mesh;
         const geometry = selected?.geometry ?? mesh.geometry;
-        const buffers = geometry?.getVertexBuffers() ?? {};
-        const index = geometry?.getIndexBuffer();
         const worldVersion = mesh.getWorldMatrix().updateFlag;
         const immutable = this.immutableMaterials.has(material);
+        if (immutable && previous && previous.selected === selected && previous.material === material
+            && previous.geometry === geometry && previous.worldVersion === worldVersion
+            && previous.visibility === mesh.visibility && previous.group === mesh.renderingGroupId
+            && previous.mask === mesh.layerMask && !mesh.hasLODLevels && material.isFrozen
+            && (selected ?? mesh).subMeshes.length === previous.effects.length) return previous;
+        const buffers = geometry?.getVertexBuffers() ?? {};
+        const index = geometry?.getIndexBuffer();
         const textures = immutable && previous ? undefined : material.getActiveTextures();
         if (previous && previous.selected === selected && previous.material === material && previous.geometry === geometry
             && previous.worldVersion === worldVersion && previous.visibility === mesh.visibility
