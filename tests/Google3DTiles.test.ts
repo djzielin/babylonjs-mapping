@@ -65,6 +65,42 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("restricts coverage updates to geographic tiles intersecting changed models", () => {
+  const {engine,scene,tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet);
+  const radians=Math.PI/180;
+  (provider as any).loadedSelections.set("near",{
+    url:"near",depth:1,boundingVolume:{region:[-74.01*radians,40.74*radians,-73.98*radians,40.76*radians,0,1000]},
+  });
+  expect(provider.coverageChangesIntersect([],40.7,-74.1,40.8,-73.9)).toBe(false);
+  expect(provider.coverageChangesIntersect(["near"],40.74,-73.99,40.75,-73.98)).toBe(true);
+  expect(provider.coverageChangesIntersect(["near"],40.6,-74.1,40.7,-74.0)).toBe(false);
+  const longitude=-73.9857*radians,latitude=40.7484*radians;
+  const eccentricitySquared=0.00669437999014;
+  const radius=6378137/Math.sqrt(1-eccentricitySquared*Math.sin(latitude)**2);
+  (provider as any).loadedSelections.set("sphere",{
+    url:"sphere",depth:1,boundingVolume:{sphere:[radius*Math.cos(latitude)*Math.cos(longitude),
+      radius*Math.cos(latitude)*Math.sin(longitude),radius*(1-eccentricitySquared)*Math.sin(latitude),500]},
+  });
+  expect(provider.coverageChangesIntersect(["sphere"],40.74,-74.0,40.76,-73.97)).toBe(true);
+  expect(provider.coverageChangesIntersect(["sphere"],40.6,-74.1,40.7,-74.0)).toBe(false);
+  (provider as any).loadedSelections.set("box",{
+    url:"box",depth:1,boundingVolume:{box:[radius*Math.cos(latitude)*Math.cos(longitude),
+      radius*Math.cos(latitude)*Math.sin(longitude),radius*(1-eccentricitySquared)*Math.sin(latitude),
+      100,0,0,0,100,0,0,0,100]},
+  });
+  expect(provider.coverageChangesIntersect(["box"],40.74,-74.0,40.76,-73.97)).toBe(true);
+  expect(provider.coverageChangesIntersect(["box"],40.6,-74.1,40.7,-74.0)).toBe(false);
+  (provider as any).loadedSelections.set("dateline",{
+    url:"dateline",depth:1,boundingVolume:{region:[179*radians,-radians,-179*radians,radians,0,1000]},
+  });
+  expect(provider.coverageChangesIntersect(["dateline"],-0.5,-179.8,0.5,-179.2)).toBe(true);
+  expect(provider.coverageChangesIntersect(["dateline"],-0.5,-1,0.5,1)).toBe(false);
+  // Unknown metadata must retain a full visibility pass rather than hide a tile.
+  expect(provider.coverageChangesIntersect(["unknown"],40.6,-74.1,40.7,-74.0)).toBe(true);
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
 describe("parseGoogleGLBMetadata", () => {
   it("extracts sorted-source inputs and CESIUM_RTC metadata from a GLB JSON chunk", () => {
     const metadata = parseGoogleGLBMetadata(createGLB({

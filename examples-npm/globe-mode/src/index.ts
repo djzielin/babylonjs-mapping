@@ -807,9 +807,14 @@ class GlobeDemo {
 
     private refreshBuildingReplacements(): void {
         const coverageURLs = new Set(this.googleTiles?.loadedModelTiles.map(tile => tile.url) ?? []);
-        const coverageOnlyGrows = !!this.googleTiles && this.googleTiles === this.replacementCoverageProvider
-            && !this.googleFarHidden && !this.replacementCoverageHidden
+        const sameActiveGoogle = !!this.googleTiles && this.googleTiles === this.replacementCoverageProvider
+            && !this.googleFarHidden && !this.replacementCoverageHidden;
+        const coverageOnlyGrows = sameActiveGoogle
             && Array.from(this.replacementCoverageURLs).every(url => coverageURLs.has(url));
+        const changedCoverageURLs = sameActiveGoogle ? [
+            ...Array.from(coverageURLs).filter(url => !this.replacementCoverageURLs.has(url)),
+            ...Array.from(this.replacementCoverageURLs).filter(url => !coverageURLs.has(url)),
+        ] : undefined;
         this.replacementCoverageProvider = this.googleTiles;
         this.replacementCoverageURLs = coverageURLs;
         this.replacementCoverageHidden = this.googleFarHidden;
@@ -825,7 +830,15 @@ class GlobeDemo {
             }
         for (const entry of [{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]) {
             if (!entry.buildings || entry.globe.zoom < MIN_GLOBE_BUILDING_ZOOM || entry.globe.zoom > 14) continue;
-            entry.buildings.updateBatchVisibility(coverageOnlyGrows);
+            entry.buildings.updateBatchVisibility(coverageOnlyGrows, changedCoverageURLs ? tile => {
+                const math = entry.globe.ourTileMath;
+                const z = tile.tileCoords.z;
+                // Features at a vector tile edge can extend into its neighbors.
+                // Include one tile of padding before skipping its visibility pass.
+                return this.googleTiles!.coverageChangesIntersect(changedCoverageURLs,
+                    math.tile_to_lat(tile.tileCoords.y + 2, z), math.tile_to_lon(tile.tileCoords.x - 1, z),
+                    math.tile_to_lat(tile.tileCoords.y - 1, z), math.tile_to_lon(tile.tileCoords.x + 2, z));
+            } : undefined);
             for (const tile of entry.globe.ourTiles) {
                 const math = entry.globe.ourTileMath;
                 const points = [0, 0.5, 1].flatMap(x => [0, 0.5, 1].map(y => ({

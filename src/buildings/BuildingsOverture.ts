@@ -259,8 +259,9 @@ export default class BuildingsOverture extends Buildings {
         if (specialized.length) this.ProcessGeoJSON({ ...request, mergeAfterLoad: false }, { type: "FeatureCollection", features: specialized });
     }
 
-    public updateBatchVisibility(coverageOnlyGrows = false): void {
+    public updateBatchVisibility(coverageOnlyGrows = false, shouldUpdateTile?: (tile: Tile) => boolean): void {
         for (const tile of this.tileSet.ourTiles) {
+            if (shouldUpdateTile && !shouldUpdateTile(tile)) continue;
             for (const mesh of tile.buildingBatches) this.updateMeshVisibility(mesh, coverageOnlyGrows);
             if (this.batchGeometry && this.tileSet.isGlobe) for (const building of tile.buildings) {
                 if (coverageOnlyGrows && !building.mesh.isEnabled(false)) continue;

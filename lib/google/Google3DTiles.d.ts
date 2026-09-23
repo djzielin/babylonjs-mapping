@@ -166,6 +166,11 @@ export default class Google3DTiles {
     private coverageKey;
     private coverageVersion;
     get coverageRevision(): number;
+    private changedCoverageURLs?;
+    private changedCoverageRevision;
+    private changedCoverageBounds;
+    /** Conservatively test whether changed model bounds can affect a geographic tile. */
+    coverageChangesIntersect(urls: readonly string[], south: number, west: number, north: number, east: number): boolean;
     private coverageIndex;
     private broadCoverage;
     private coverageTests;

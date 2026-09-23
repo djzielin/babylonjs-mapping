@@ -268,6 +268,30 @@ export default class Google3DTiles {
     private coverageKey = "";
     private coverageVersion = 0;
     public get coverageRevision(): number { return this.coverageVersion; }
+    private changedCoverageURLs?: readonly string[];
+    private changedCoverageRevision = -1;
+    private changedCoverageBounds: Array<GeographicBounds | undefined> = [];
+    /** Conservatively test whether changed model bounds can affect a geographic tile. */
+    public coverageChangesIntersect(
+        urls: readonly string[], south: number, west: number, north: number, east: number,
+    ): boolean {
+        if (!urls.length) return false;
+        if (urls !== this.changedCoverageURLs || this.changedCoverageRevision !== this.coverageVersion) {
+            this.changedCoverageURLs = urls;
+            this.changedCoverageRevision = this.coverageVersion;
+            this.changedCoverageBounds = urls.map(url => {
+                const selection = this.loadedSelections.get(url) ?? this.desiredTiles.get(url);
+                return selection ? geographicEnvelope(selection) : undefined;
+            });
+        }
+        const longitudes = longitudeIntervals(west, east);
+        for (const bounds of this.changedCoverageBounds) {
+            if (!bounds || bounds.north >= south && bounds.south <= north
+                && bounds.longitudes.some(([left, right]) => longitudes.some(([queryLeft, queryRight]) =>
+                    right >= queryLeft && left <= queryRight))) return true;
+        }
+        return false;
+    }
     private coverageIndex = new Map<string, TileSelection[]>();
     private broadCoverage: TileSelection[] = [];
     private coverageTests = new WeakMap<TileSelection, (latitude: number, longitude: number) => boolean>();
@@ -1561,6 +1585,50 @@ function boundingVolumeIntersects(
 function normalizeLongitude(longitude: number): number {
     const normalized = ((longitude + 180) % 360 + 360) % 360 - 180;
     return normalized === -180 ? -180 : normalized;
+}
+
+function longitudeIntervals(west: number, east: number): Array<[number, number]> {
+    if (!Number.isFinite(west) || !Number.isFinite(east) || Math.abs(east - west) >= 360) return [[-180, 180]];
+    const left = normalizeLongitude(west), right = normalizeLongitude(east);
+    return left <= right ? [[left, right]] : [[left, 180], [-180, right]];
+}
+
+/** A loose envelope is enough to avoid work for distant coverage changes. */
+function geographicEnvelope(selection: TileSelection): GeographicBounds | undefined {
+    const volume = selection.boundingVolume;
+    if (!volume) return undefined;
+    if (volume.region?.length === 6 && volume.region.every(Number.isFinite)) {
+        const [west, south, east, north] = volume.region;
+        return { south: south / RADIANS_PER_DEGREE, north: north / RADIANS_PER_DEGREE,
+            longitudes: longitudeIntervals(west / RADIANS_PER_DEGREE, east / RADIANS_PER_DEGREE) };
+    }
+    const box = volume.box, sphere = volume.sphere;
+    const values = box ?? sphere;
+    if (!values || values.length !== (box ? 12 : 4) || !values.every(Number.isFinite)) return undefined;
+    const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+    const center = Vector3.TransformCoordinates(Vector3.FromArray(values), transform);
+    let radius: number;
+    if (box) radius = [3, 6, 9].reduce((sum, offset) =>
+        sum + Vector3.TransformNormal(Vector3.FromArray(box, offset), transform).length(), 0);
+    else {
+        const m = transform.m;
+        const norm1 = Math.max(...[0, 4, 8].map(i => Math.abs(m[i]) + Math.abs(m[i + 1]) + Math.abs(m[i + 2])));
+        const normInf = Math.max(...[0, 1, 2].map(i => Math.abs(m[i]) + Math.abs(m[i + 4]) + Math.abs(m[i + 8])));
+        radius = Math.abs(sphere![3]) * Math.sqrt(norm1 * normInf);
+    }
+    const distance = center.length();
+    if (!Number.isFinite(distance) || !Number.isFinite(radius) || radius >= distance) return undefined;
+    const latitude = Math.atan2(center.z, Math.hypot(center.x, center.y)
+        * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED));
+    const angle = Math.asin(radius / distance) * 1.01;
+    const south = Math.max(-Math.PI / 2, latitude - angle);
+    const north = Math.min(Math.PI / 2, latitude + angle);
+    const longitude = Math.atan2(center.y, center.x);
+    const longitudeRadius = south <= -Math.PI / 2 || north >= Math.PI / 2
+        ? Math.PI : Math.asin(Math.min(1, Math.sin(angle) / Math.cos(latitude)));
+    return { south: south / RADIANS_PER_DEGREE, north: north / RADIANS_PER_DEGREE,
+        longitudes: longitudeIntervals((longitude - longitudeRadius) / RADIANS_PER_DEGREE,
+            (longitude + longitudeRadius) / RADIANS_PER_DEGREE) };
 }
 
 function validateOrigin(origin: Google3DTilesOrigin): Google3DTilesOrigin {

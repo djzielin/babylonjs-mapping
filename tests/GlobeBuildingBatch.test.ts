@@ -83,6 +83,8 @@ it("atomically replaces a building batch and keeps the old one if work is cancel
     provider.batchVisibilityFilter=()=>true;
     provider.updateBatchVisibility(true);
     expect(mesh.isEnabled(false)).toBe(false);
+    provider.updateBatchVisibility(false, () => false);
+    expect(mesh.isEnabled(false)).toBe(false);
     provider.updateBatchVisibility();
     expect(mesh.isEnabled(false)).toBe(true);
     expect(mesh.getVertexBuffer("position")).toBe(vertices);
