@@ -69,6 +69,9 @@ const grid = (height: number): ElevationGrid => ({
 describe("globe data fidelity", () => {
     it("places a marker sphere at a requested latitude and longitude", () => {
         const { globe, scene, dispose } = setup(1, 40.7484, -73.9857, 17);
+        expect(globe.getSurfacePosition(0, 0).subtract(new Vector3(0, 0, globe.radius)).length()).toBeLessThan(1e-10);
+        expect(globe.getSurfacePosition(0, 90).subtract(new Vector3(-globe.radius, 0, 0)).length()).toBeLessThan(1e-10);
+        expect(globe.getSurfacePosition(90, 0).subtract(new Vector3(0, globe.radius, 0)).length()).toBeLessThan(1e-10);
         const marker = MeshBuilder.CreateSphere("Empire State marker", { diameter: 0.001 }, scene);
         marker.position.copyFrom(globe.getSurfacePosition(40.7484, -73.9857, 100 * globe.metresToWorld));
         const result = globe.getSurfaceCoordinates(Vector3.TransformCoordinates(Vector3.Zero(), marker.computeWorldMatrix(true)));
