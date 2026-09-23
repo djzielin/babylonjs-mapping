@@ -65,7 +65,8 @@ interface LocationPreset {
 
 const GLOBE_RADIUS = 60;
 const DETAIL_RADIUS = 60;
-const MIN_GOOGLE_DETAIL_ZOOM = 14;
+const GOOGLE_DETAIL_SHOW_ZOOM = 15;
+const GOOGLE_DETAIL_HIDE_ZOOM = 14;
 const HOME_VIEW: LocationPreset = {
     name: "New York · Empire State Building",
     latitude: 40.7484,
@@ -970,7 +971,11 @@ class GlobeDemo {
         const distanceStep = Math.round(Math.log(Math.max(view.altitude, 1e-9)) / Math.log(1.05));
         const positionStep = Math.max(2, Math.min(150, view.altitude / this.detailGlobe.metresToWorld * 0.08));
         const positionKey = `${Math.round(view.latitude * 111320 / positionStep)}/${Math.round(view.longitude * 111320 * Math.cos(view.latitude * Math.PI / 180) / positionStep)}`;
-        const key = enabled && view.zoom >= MIN_GOOGLE_DETAIL_ZOOM
+        // One zoom level of hysteresis keeps a far camera turn from repeatedly
+        // swapping satellite and photogrammetry at the same LOD boundary.
+        const showDetail = view.zoom >= GOOGLE_DETAIL_SHOW_ZOOM
+            || (view.zoom >= GOOGLE_DETAIL_HIDE_ZOOM && !!this.googleTiles && !this.googleFarHidden);
+        const key = enabled && showDetail
             ? `${math.lon_to_tile(view.longitude, view.zoom)}/${math.lat_to_tile(view.latitude, view.zoom)}/${view.zoom}/${quality}/${bearing}/${distanceStep}/${positionKey}` : "";
         if (!force && key === this.googleViewKey) return;
         this.googleViewKey = key;
@@ -995,7 +1000,7 @@ class GlobeDemo {
         const generation = ++this.googleGeneration;
         if (!key) {
             this.googleLoading = false;
-            const retained = enabled && view.zoom < MIN_GOOGLE_DETAIL_ZOOM && !!this.googleTiles;
+            const retained = enabled && !showDetail && !!this.googleTiles;
             if (retained && this.googleTiles) {
                 this.googleTiles.cancelPendingLoad();
                 for (const tile of this.googleTiles.loadedModelTiles) tile.root.setEnabled(false);
