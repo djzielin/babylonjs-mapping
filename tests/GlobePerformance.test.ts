@@ -1,5 +1,5 @@
 import { describe, it, vi, expect } from "vitest";
-import { NullEngine, Scene, Vector2 } from "@babylonjs/core";
+import { NullEngine, Scene, Vector2, VertexBuffer } from "@babylonjs/core";
 import GlobeSet from "../src/core/GlobeSet";
 vi.mock("../src/core/Attribution", () => ({
     default: class {
@@ -9,6 +9,24 @@ vi.mock("../src/core/Attribution", () => ({
 }));
 
 describe("globe CPU work", () => {
+    it("keeps tile topology resident across elevation updates", () => {
+        const engine = new NullEngine(), scene = new Scene(engine);
+        const globe = new GlobeSet(scene, engine, { backingSurface: false });
+        globe.createGeometry(new Vector2(1, 1), 20, 4);
+        globe.updateRaster(35, -79, 15);
+        const tile = globe.ourTiles[0];
+        const indices = Array.from(tile.mesh.getIndices()!);
+        const uvs = Array.from(tile.mesh.getVerticesData(VertexBuffer.UVKind)!);
+        const setIndices = vi.spyOn(tile.mesh, "setIndices");
+        const setVertices = vi.spyOn(tile.mesh, "setVerticesData");
+        globe.setElevationData(tile, [100, -100, 50, 200], 2, 2);
+        expect(setIndices).not.toHaveBeenCalled();
+        expect(setVertices.mock.calls.map(call => call[0])).not.toContain(VertexBuffer.UVKind);
+        expect(Array.from(tile.mesh.getIndices()!)).toEqual(indices);
+        expect(Array.from(tile.mesh.getVerticesData(VertexBuffer.UVKind)!)).toEqual(uvs);
+        scene.dispose(); engine.dispose();
+    });
+
     it("measures a dense window and verifies unchanged views leave GPU buffers untouched", () => {
         const engine = new NullEngine(),
             scene = new Scene(engine);
