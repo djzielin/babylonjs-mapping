@@ -385,7 +385,9 @@ class GlobeDemo {
         const baseGlobe = this.baseGlobe = new GlobeSet(this.scene, this.engine, {
             radius: GLOBE_RADIUS,
         });
-        baseGlobe.setRasterProvider(new RasterOSM(baseGlobe));
+        // Keep the global fallback in the selected imagery style so newly
+        // exposed edges have a recognizable surface while detail streams.
+        this.applyMapStyle(baseGlobe);
         baseGlobe.setOptimizationOptions({ freezeTileWorldMatrices: true, disableTilePicking: true, disableTileCollisions: true });
         baseGlobe.createGeometry(new Vector2(4, 4), 20, 16);
         baseGlobe.updateRaster(40.98, 0, 2);
