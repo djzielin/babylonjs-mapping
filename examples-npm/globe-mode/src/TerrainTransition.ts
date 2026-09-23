@@ -1,8 +1,8 @@
 import { Constants } from "@babylonjs/core/Engines/constants";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { EPSG_Type, type GlobeSet } from "babylonjs-mapping";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import type { GlobeSet } from "babylonjs-mapping";
 
 type Retained = { mesh: Mesh; material: StandardMaterial; coordinate: Vector3 };
 
@@ -12,8 +12,10 @@ export class TerrainTransition {
     private nextCheck = 0;
     public capture(globe: GlobeSet, nextZoom: number, latitude?: number, longitude?: number): void {
         if (globe.zoom < 8) return;
-        const nextCorner = latitude === undefined || longitude === undefined ? undefined
-            : globe.ourTileMath.computeCornerTile(new Vector2(longitude, latitude), EPSG_Type.EPSG_4326, nextZoom);
+        const nextCorner = latitude === undefined || longitude === undefined ? undefined : {
+            x: globe.ourTileMath.lon_to_tile(longitude, nextZoom) - Math.floor(globe.numTiles.x / 2),
+            y: globe.ourTileMath.lat_to_tile(latitude, nextZoom) + Math.floor(globe.numTiles.y / 2),
+        };
         const currentCorner = globe.ourTiles[0]?.tileCoords;
         if (globe.zoom === nextZoom && (!nextCorner || !currentCorner
             || (currentCorner.x === nextCorner.x && currentCorner.y === nextCorner.y))) return;
