@@ -358,7 +358,10 @@ class GlobeDemo {
             const index = LOCATIONS.findIndex(location => location.name.toLowerCase().startsWith(requestedPreset.toLowerCase()));
             if (index >= 0) {
                 const preset = document.getElementById("locationPreset") as HTMLSelectElement;
-                preset.value = String(index); preset.dispatchEvent(new Event("change"));
+                preset.value = String(index);
+                // The home view is already active. Replaying its flight while
+                // the first terrain frame initializes can produce a bad radius.
+                if (index !== 0) preset.dispatchEvent(new Event("change"));
             }
         }
         window.addEventListener("resize", () => {
