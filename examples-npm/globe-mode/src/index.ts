@@ -150,6 +150,7 @@ class GlobeDemo {
     private googleFarHidden = false;
     private googleLoading = false;
     private lastGoogleSelectionAt = 0;
+    private lastGoogleCheck = 0;
     private googlePrefetchTimer: ReturnType<typeof setTimeout> | undefined;
     private movementKeys = new Set<string>();
     private engineProfile: EngineInstrumentation;
@@ -317,8 +318,11 @@ class GlobeDemo {
             this.updateOrientation();
             this.updateLandmarks();
             this.updateLandscapeLOD();
-            if (performance.now() - this.lastStats > 500) {
+            if (performance.now() - this.lastGoogleCheck > 100) {
+                this.lastGoogleCheck = performance.now();
                 this.scheduleGoogleTiles();
+            }
+            if (performance.now() - this.lastStats > 500) {
                 const coverageRevision = this.googleTiles?.coverageRevision ?? -1;
                 if (coverageRevision !== this.lastCoverageRevision && performance.now() - this.lastCoverageRefresh > 250) {
                     this.lastCoverageRevision = coverageRevision;
@@ -1009,14 +1013,15 @@ class GlobeDemo {
             ? `${math.lon_to_tile(view.longitude, view.zoom)}/${math.lat_to_tile(view.latitude, view.zoom)}/${view.zoom}/${quality}/${bearing}/${distanceStep}/${positionKey}` : "";
         if (!force && key === this.googleViewKey) return;
         this.googleViewKey = key;
+        if (key) this.googleTiles?.reprioritizeRequests();
         // Let nearby models finish their current request before retargeting a
         // moving camera. The pending refresh reads the latest position.
         const selectionAge = performance.now() - this.lastGoogleSelectionAt;
-        if (!force && key && this.googleLoading && selectionAge < 500) {
+        if (!force && key && this.googleLoading && selectionAge < 200) {
             if (!this.googleTimer) this.googleTimer = setTimeout(() => {
                 this.googleTimer = undefined;
                 this.scheduleGoogleTiles(true);
-            }, 500 - selectionAge);
+            }, 200 - selectionAge);
             return;
         }
         // Movement may change the selection key every frame. Keep the first

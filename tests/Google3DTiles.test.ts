@@ -800,7 +800,9 @@ it("prepares offscreen content without replacing visible models", async () => {
       {boundingVolume:sphere(-0.01),geometricError:0,content:{uri:"behind.glb"}},
     ]}}),modelTileLoader:createModelLoader(requests)});
   const before=await provider.load();expect(before).toHaveLength(1);
+  const bounds = vi.spyOn(provider as any, "getTileSetBounds");
   await provider.prefetchSurroundings();
+  expect(bounds).toHaveBeenCalledWith(3000);
   expect(provider.loadedModelTiles).toEqual(before);
   expect(requests).toHaveLength(2);
   camera.setTarget(globe.getSurfacePosition(0,-0.01));camera.setPosition(eye);camera.getViewMatrix(true);
@@ -865,6 +867,30 @@ it("reprioritizes queued network work from the current eye without restarting ac
   await Promise.all([formerNear, newlyNear]);
   expect(order).toEqual(["newly near", "former near"]);
   expect(releases).toHaveLength(24);
+  releases.slice(1).forEach(release => release());
+  await Promise.all(active);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
+it("reprioritizes queued tile requests when the camera moves during a load", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  let eye = 0;
+  vi.spyOn(provider, "cameraEye").mockImplementation(() => new Vector3(eye, 0, 0));
+  provider.reprioritizeRequests();
+  const releases: (() => void)[] = [];
+  const active = Array.from({ length: 24 }, () => provider.networkSlot(() => new Promise<void>(resolve => releases.push(resolve))));
+  await Promise.resolve(); await Promise.resolve();
+  const order: string[] = [];
+  const formerNear = provider.networkSlot(async () => { order.push("former near"); },
+    () => provider.requestPriority({ sphere: [0, 0, 0, 0] }, Matrix.Identity()));
+  const newlyNear = provider.networkSlot(async () => { order.push("newly near"); },
+    () => provider.requestPriority({ sphere: [100, 0, 0, 0] }, Matrix.Identity()));
+  eye = 100;
+  provider.reprioritizeRequests();
+  releases[0]();
+  await Promise.all([formerNear, newlyNear]);
+  expect(order).toEqual(["newly near", "former near"]);
   releases.slice(1).forEach(release => release());
   await Promise.all(active);
   provider.dispose(); scene.dispose(); engine.dispose();

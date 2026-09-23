@@ -154,6 +154,8 @@ export default class Google3DTiles {
     private googleAttributionAdded;
     private pendingModels;
     private selectionEye?;
+    private requestEye?;
+    private requestPriorityRevision;
     private frontierCache?;
     private networkActive;
     private networkWaiters;
@@ -193,6 +195,8 @@ export default class Google3DTiles {
     getTileURL(uri: string, baseUrl?: string): string;
     /** Cancel queued work while retaining the visible scene and hierarchy cache. */
     cancelPendingLoad(): void;
+    /** Reorder queued downloads immediately when the camera moves, without cancelling active requests. */
+    reprioritizeRequests(): void;
     /** Loads content that overlaps the current TileSet. */
     load(): Promise<readonly LoadedGoogle3DTile[]>;
     private trimVisibleHistory;
@@ -212,6 +216,7 @@ export default class Google3DTiles {
     private loadExternalTileset;
     private cameraEye;
     private tilePriority;
+    private requestPriority;
     private allowedGeometricError;
     /** A complete renderable frontier: refine the largest projected error first.
      * A budget limit leaves a parent in place instead of dropping its siblings.
