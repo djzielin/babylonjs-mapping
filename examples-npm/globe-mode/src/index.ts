@@ -253,7 +253,7 @@ class GlobeDemo {
             (document.getElementById("roads") as HTMLInputElement).checked = true;
             document.getElementById("roads")!.dispatchEvent(new Event("change"));
         }
-        this.trafficOverlay = new TrafficOverlay(this.scene, this.detailGlobe,
+        this.trafficOverlay = new TrafficOverlay(this.scene, this.detailGlobe, this.layers,
             document.getElementById("trafficStatus")!,
             () => (document.getElementById("trafficApi") as HTMLInputElement).value.trim());
         document.getElementById("trafficFeeds")!.addEventListener("change", event =>

@@ -8,11 +8,13 @@ describe("traffic source adapters", () => {
             { link_id: "1", speed: "10", link_points: "40.7,-73.9 40.8,-73.8" },
             { link_id: "2", speed: "0", status: "-101", link_points: "40.6,-74.1 40.7,-74.0" },
             { link_id: "3", speed: "18", link_points: "invalid" },
+            { link_id: "4", speed: "22", status: "0", link_points: "40.7,-73.9 40.8,-73.8 40.9,-7" },
         ]);
-        expect(roads).toHaveLength(2);
+        expect(roads).toHaveLength(3);
         expect(roads[0].speedMph).toBe(34.52);
         expect(roads[0].path[0]).toEqual({ latitude: 40.7, longitude: -73.9 });
         expect(roads[1].speedMph).toBeNull();
+        expect(roads[2].path).toHaveLength(2);
     });
 
     it("requests the recent NYC readings using the documented columns", async () => {
