@@ -905,8 +905,8 @@ class GlobeDemo {
         });
 
         this.navigator.onViewChangedObservable.add((view) => {
-            this.terrainTransition.capture(this.detailGlobe, view.zoom);
-            this.buildingTransition.capture(this.detailGlobe, view.zoom);
+            this.terrainTransition.capture(this.detailGlobe, view.zoom, view.latitude, view.longitude);
+            this.buildingTransition.capture(this.detailGlobe, view.zoom, view.latitude, view.longitude);
             const precision = view.zoom < 5 ? 16 : 64;
             if (this.detailGlobe.meshPrecision !== precision) {
                 this.detailGlobe.createGeometry(

@@ -1,6 +1,6 @@
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import type { GlobeSet } from "babylonjs-mapping";
+import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { EPSG_Type, type GlobeSet } from "babylonjs-mapping";
 
 type Retained = { mesh: Mesh; coordinate: Vector3; source: object };
 
@@ -9,10 +9,18 @@ export class BuildingTransition {
     private previous = new Map<GlobeSet, Retained[]>();
     private nextCheck = 0;
 
-    public capture(globe: GlobeSet, nextZoom: number): void {
-        if (globe.zoom < 10 || globe.zoom === nextZoom) return;
+    public capture(globe: GlobeSet, nextZoom: number, latitude?: number, longitude?: number): void {
+        if (globe.zoom < 10) return;
+        const nextCorner = latitude === undefined || longitude === undefined ? undefined
+            : globe.ourTileMath.computeCornerTile(new Vector2(longitude, latitude), EPSG_Type.EPSG_4326, nextZoom);
+        const currentCorner = globe.ourTiles[0]?.tileCoords;
+        if (globe.zoom === nextZoom && (!nextCorner || !currentCorner
+            || (currentCorner.x === nextCorner.x && currentCorner.y === nextCorner.y))) return;
         const retained = this.previous.get(globe) ?? [];
         for (const tile of globe.ourTiles) {
+            if (globe.zoom === nextZoom && nextCorner
+                && tile.tileCoords.x >= nextCorner.x && tile.tileCoords.x < nextCorner.x + globe.numTiles.x
+                && tile.tileCoords.y <= nextCorner.y && tile.tileCoords.y > nextCorner.y - globe.numTiles.y) continue;
             if (!tile.buildingBatches.length && !tile.mergedBuildingMesh) continue;
             const sources = [...tile.buildingBatches, tile.mergedBuildingMesh].filter((mesh): mesh is Mesh =>
                 !!mesh && !mesh.isDisposed() && mesh.isEnabled() && mesh.isVisible
@@ -26,6 +34,7 @@ export class BuildingTransition {
                 retained.push({ mesh, coordinate: tile.tileCoords.clone(), source });
             }
         }
+        while (retained.length > globe.ourTiles.length * 2) retained.shift()!.mesh.dispose();
         if (retained.length) this.previous.set(globe, retained);
         this.nextCheck = 0;
     }
@@ -63,6 +72,7 @@ export class BuildingTransition {
                         if (tile) overlap.push(tile);
                     }
                 }
+                if (!overlap.length && (!globe.scene.frustumPlanes || old.mesh.isInFrustum(globe.scene.frustumPlanes))) return true;
                 if (!overlap.length || overlap.every(tile => tile.buildingsResolvedKey === tile.tileCoords.toString())) {
                     old.mesh.dispose();
                     return false;

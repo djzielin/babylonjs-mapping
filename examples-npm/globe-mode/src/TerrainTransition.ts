@@ -1,8 +1,8 @@
 import { Constants } from "@babylonjs/core/Engines/constants";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import type { GlobeSet } from "babylonjs-mapping";
+import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { EPSG_Type, type GlobeSet } from "babylonjs-mapping";
 
 type Retained = { mesh: Mesh; material: StandardMaterial; coordinate: Vector3 };
 
@@ -10,10 +10,18 @@ type Retained = { mesh: Mesh; material: StandardMaterial; coordinate: Vector3 };
 export class TerrainTransition {
     private previous = new Map<GlobeSet, Retained[]>();
     private nextCheck = 0;
-    public capture(globe: GlobeSet, nextZoom: number): void {
-        if (globe.zoom < 8 || globe.zoom === nextZoom) return;
+    public capture(globe: GlobeSet, nextZoom: number, latitude?: number, longitude?: number): void {
+        if (globe.zoom < 8) return;
+        const nextCorner = latitude === undefined || longitude === undefined ? undefined
+            : globe.ourTileMath.computeCornerTile(new Vector2(longitude, latitude), EPSG_Type.EPSG_4326, nextZoom);
+        const currentCorner = globe.ourTiles[0]?.tileCoords;
+        if (globe.zoom === nextZoom && (!nextCorner || !currentCorner
+            || (currentCorner.x === nextCorner.x && currentCorner.y === nextCorner.y))) return;
         const retained: Retained[] = this.previous.get(globe) ?? [];
         for (const tile of globe.ourTiles) {
+            if (globe.zoom === nextZoom && nextCorner
+                && tile.tileCoords.x >= nextCorner.x && tile.tileCoords.x < nextCorner.x + globe.numTiles.x
+                && tile.tileCoords.y <= nextCorner.y && tile.tileCoords.y > nextCorner.y - globe.numTiles.y) continue;
             if (retained.some(old => old.coordinate.equals(tile.tileCoords))) continue;
             const source = tile.mesh;
             const original = source.material as StandardMaterial;
@@ -47,7 +55,10 @@ export class TerrainTransition {
                 const y1 = Math.ceil((old.coordinate.y + 1) * factor) - 1;
                 const overlapsWindow = globe.ourTiles.some(tile => tile.tileCoords.x >= x0 && tile.tileCoords.x <= x1
                     && tile.tileCoords.y >= y0 && tile.tileCoords.y <= y1);
-                if (!overlapsWindow) { this.release(old); return false; }
+                if (!overlapsWindow) {
+                    if (!globe.scene.frustumPlanes || old.mesh.isInFrustum(globe.scene.frustumPlanes)) return true;
+                    this.release(old); return false;
+                }
                 let covered = true;
                 // A large zoom jump cannot have a fully loaded replacement in this window.
                 if ((x1 - x0 + 1) * (y1 - y0 + 1) > globe.ourTiles.length) return true;

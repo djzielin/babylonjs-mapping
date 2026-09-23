@@ -30,4 +30,25 @@ describe("building detail transitions", () => {
         expect(retained?.isDisposed()).toBe(true);
         transition.dispose(); scene.dispose(); engine.dispose();
     });
+
+    it("keeps outgoing buildings visible when the camera crosses a tile at the same zoom", () => {
+        const engine = new NullEngine();
+        const scene = new Scene(engine);
+        const globe = new GlobeSet(scene, engine, { backingSurface: false });
+        globe.createGeometry(new Vector2(3, 3), 20, 8);
+        globe.updateRaster(40.7484, -73.9857, 14);
+        const outgoing = globe.ourTiles[0];
+        outgoing.mesh.setEnabled(true);
+        const source = MeshBuilder.CreateBox("outgoing buildings", {}, scene);
+        source.setParent(outgoing.mesh);
+        outgoing.buildingBatches.push(source);
+        const longitude = globe.ourTileMath.tile_to_lon(globe.ourTiles[0].tileCoords.x + 2.5, 14);
+        const transition = new BuildingTransition();
+        transition.capture(globe, 14, 40.7484, longitude);
+        globe.updateRaster(40.7484, longitude, 14);
+        transition.update(1);
+        const retained = scene.getMeshByName("previous building detail");
+        expect(retained?.isDisposed()).toBe(false);
+        transition.dispose(); scene.dispose(); engine.dispose();
+    });
 });
