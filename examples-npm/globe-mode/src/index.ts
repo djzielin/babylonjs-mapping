@@ -819,7 +819,9 @@ class GlobeDemo {
         // outside its coverage without repainting red lines over the models.
         if (this.roads) for (const tile of this.detailGlobe.ourTiles)
             for (const mesh of tile.getAllBuildingMeshes()) {
-                mesh.setEnabled(!this.roadOverlapsGoogle(mesh));
+                if (coverageOnlyGrows && !mesh.isEnabled(false)) continue;
+                const visible = !this.roadOverlapsGoogle(mesh);
+                if (mesh.isEnabled(false) !== visible) mesh.setEnabled(visible);
             }
         for (const entry of [{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]) {
             if (!entry.buildings || entry.globe.zoom < MIN_GLOBE_BUILDING_ZOOM || entry.globe.zoom > 14) continue;
