@@ -339,15 +339,17 @@ export default class GlobeSet extends TileSet {
             exaggeration < 0
         )
             throw new RangeError("Invalid elevation grid");
-        const dem = Array.from(data);
-        if (
-            dem.some(
-                (v) =>
-                    !Number.isFinite(v) ||
-                    this.radius + v * this.metresToWorld * exaggeration <= 0,
-            )
-        )
-            throw new RangeError("Invalid elevation sample");
+        // TerrainRGB already supplies Float32 samples. Retain that precision
+        // without expanding every source sample into a boxed JS array. Other
+        // callers keep their original double precision.
+        const dem = data instanceof Float32Array ? new Float32Array(data) : new Float64Array(data);
+        let minimum = Infinity, maximum = -Infinity;
+        for (const value of dem) {
+            if (!Number.isFinite(value) || this.radius + value * this.metresToWorld * exaggeration <= 0)
+                throw new RangeError("Invalid elevation sample");
+            minimum = Math.min(minimum, value);
+            maximum = Math.max(maximum, value);
+        }
         tile.dem = dem;
         tile.demDimensions = new Vector2(width, height);
         const heights: number[] = [];
@@ -370,8 +372,8 @@ export default class GlobeSet extends TileSet {
                     (a * (1 - ty) + b * ty) * this.metresToWorld * exaggeration,
                 );
             }
-        tile.minHeight = dem.reduce((a, b) => Math.min(a, b), Infinity);
-        tile.maxHeight = dem.reduce((a, b) => Math.max(a, b), -Infinity);
+        tile.minHeight = minimum;
+        tile.maxHeight = maximum;
         this.originalElevations.set(tile, { key: tile.tileCoords.toString(), heights: heights.slice() });
         tile.elevationHeights = heights;
         tile.terrainLoaded = true;

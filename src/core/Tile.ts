@@ -28,7 +28,7 @@ export default class Tile {
     //////////////////////////////////
     // TERRAIN 
     //////////////////////////////////
-    public dem: number[];
+    public dem: number[] | Float32Array | Float64Array;
     public demDimensions: Vector2;
     public minHeight: number;
     public maxHeight: number;

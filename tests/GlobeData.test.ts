@@ -152,6 +152,22 @@ describe("globe data fidelity", () => {
         expect(globe.sampleElevation(center.latitude, center.longitude)).toBeCloseTo(120 * globe.metresToWorld, 10);
         dispose();
     });
+    it("stores an independent compact copy of Float32 elevation grids", () => {
+        const { globe, dispose } = setup();
+        const tile = globe.ourTiles[0];
+        const source = new Float32Array([1.25, -2.5, 3.75, 4.5]);
+        globe.setElevationData(tile, source, 2, 2);
+        expect(tile.dem).toBeInstanceOf(Float32Array);
+        expect(Array.from(tile.dem)).toEqual([1.25, -2.5, 3.75, 4.5]);
+        source[0] = 100;
+        expect(tile.dem[0]).toBe(1.25);
+        expect(tile.minHeight).toBe(-2.5);
+        expect(tile.maxHeight).toBe(4.5);
+        globe.setElevationData(tile, [Math.PI, 0, 0, 0], 2, 2);
+        expect(tile.dem).toBeInstanceOf(Float64Array);
+        expect(tile.dem[0]).toBe(Math.PI);
+        dispose();
+    });
     it("preserves building height, pitched roofs and geographic placement above terrain", () => {
         const { globe, scene, dispose } = setup();
         const tile = globe.ourTiles[0];
