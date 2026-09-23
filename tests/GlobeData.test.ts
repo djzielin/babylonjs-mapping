@@ -166,6 +166,11 @@ describe("globe data fidelity", () => {
         globe.setElevationData(tile, [Math.PI, 0, 0, 0], 2, 2);
         expect(tile.dem).toBeInstanceOf(Float64Array);
         expect(tile.dem[0]).toBe(Math.PI);
+        const bounds = tile.mesh.getBoundingInfo().boundingBox;
+        for (const point of worldVertices(tile.mesh)) for (const axis of ["x", "y", "z"] as const) {
+            expect(point[axis]).toBeGreaterThanOrEqual(bounds.minimumWorld[axis] - 1e-6);
+            expect(point[axis]).toBeLessThanOrEqual(bounds.maximumWorld[axis] + 1e-6);
+        }
         dispose();
     });
     it("preserves building height, pitched roofs and geographic placement above terrain", () => {
@@ -212,6 +217,11 @@ describe("globe data fidelity", () => {
         expect(Math.max(...heights)).toBeCloseTo(1100, 2);
         const normals = tile.buildings[0].mesh.getVerticesData(VertexBuffer.NormalKind)!;
         const world = worldVertices(tile.buildings[0].mesh);
+        const bounds = tile.buildings[0].mesh.getBoundingInfo().boundingBox;
+        for (const point of world) for (const axis of ["x", "y", "z"] as const) {
+            expect(point[axis]).toBeGreaterThanOrEqual(bounds.minimumWorld[axis] - 1e-6);
+            expect(point[axis]).toBeLessThanOrEqual(bounds.maximumWorld[axis] + 1e-6);
+        }
         const roofNormals = heights.map((h,i)=>h>1099 ? Vector3.Dot(new Vector3(normals[i*3],normals[i*3+1],normals[i*3+2]),world[i].normalizeToNew()) : -1);
         expect(Math.max(...roofNormals)).toBeGreaterThan(0.1);
         const vertices = tile.buildings[0].mesh.getVerticesData(

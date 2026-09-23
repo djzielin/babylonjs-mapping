@@ -487,7 +487,8 @@ export default class GlobeSet extends TileSet {
         const normals: number[] = [];
         VertexData.ComputeNormals(positions, mesh.getIndices()!, normals);
         mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
-        mesh.refreshBoundingInfo();
+        if (!mesh.getBoundingInfo().isLocked)
+            mesh._refreshBoundingInfo(positions, mesh.geometry?.boundingBias ?? null);
     }
 
     /** Warp already-extruded feature vertices and their LOD meshes once, at load time. */
@@ -530,7 +531,8 @@ export default class GlobeSet extends TileSet {
         VertexData.ComputeNormals(projected, mesh.getIndices()!, normals);
         mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
         mesh.computeWorldMatrix(true);
-        mesh.refreshBoundingInfo();
+        if (!mesh.getBoundingInfo().isLocked)
+            mesh._refreshBoundingInfo(projected, mesh.geometry?.boundingBias ?? null);
         // A radial detailed mesh must not switch to a planar billboard.
         for (const lod of [...mesh.getLODLevels()]) {
             mesh.removeLODLevel(lod.mesh);
