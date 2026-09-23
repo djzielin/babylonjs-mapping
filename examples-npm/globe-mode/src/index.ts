@@ -542,8 +542,10 @@ class GlobeDemo {
             if (enabled) {
                 this.roads ??= new BuildingsVectorTile(this.detailGlobe);
                 this.roads.accessToken = token;
-                this.roads.doMerge = true;
-                this.roads.maxLinesPerFeature = 8;
+                // One grouped road mesh per bounded job keeps its own material;
+                // the generic tile merge also includes Overture building meshes.
+                this.roads.doMerge = false;
+                this.roads.maxLinesPerFeature = 128;
                 this.roads.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 this.roads.buildingMaterial.diffuseColor.set(0.92, 0.57, 0.18);
                 this.roads.buildingMeshTransform = (mesh) => {
