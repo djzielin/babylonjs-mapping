@@ -73,3 +73,25 @@ it("records a visible mesh that uses the scene default material", async () => {
     expect(cache.stats).not.toContain("material none");
     scene.dispose(); engine.dispose();
 });
+
+it("keeps the enabled mesh index current when a parent is hidden", async () => {
+    const engine = new NullEngine(); const scene = new Scene(engine);
+    new FreeCamera("eye", Vector3.Zero(), scene);
+    const gpu = { snapshotRendering: false, snapshotRenderingMode: 0,
+        onResizeObservable: new Observable(), onContextLostObservable: new Observable() } as unknown as WebGPUEngine;
+    const cache = new DrawSnapshotCache(scene, gpu);
+    const parent = MeshBuilder.CreateBox("parent", {}, scene);
+    const child = MeshBuilder.CreateBox("child", {}, scene);
+    parent.position.z = 10;
+    child.setParent(parent);
+    parent.freezeWorldMatrix(); child.freezeWorldMatrix();
+    const material = new StandardMaterial("static", scene); material.freeze();
+    parent.material = child.material = material;
+    await scene.whenReadyAsync(); scene.render(); scene.render();
+    expect(cache.stats).toContain("2 enabled");
+    expect(gpu.snapshotRendering).toBe(true);
+    parent.setEnabled(false); scene.render();
+    expect(cache.stats).toContain("0 enabled");
+    expect(gpu.snapshotRendering).toBe(false);
+    scene.dispose(); engine.dispose();
+});

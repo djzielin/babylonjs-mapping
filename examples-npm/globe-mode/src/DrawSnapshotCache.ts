@@ -119,7 +119,8 @@ export class DrawSnapshotCache {
             group: mesh.renderingGroupId, mask: mesh.layerMask, index, buffers: { ...buffers }, effects: (selected ?? mesh).subMeshes.map(sub => sub.effect), textures: activeTextures.map(texture => texture.getInternalTexture()) };
     }
     private enabled(mesh: AbstractMesh): boolean {
-        return mesh.isEnabled() && mesh.isVisible && mesh.visibility > 0
+        // enabledMeshes follows effective state, including parent changes.
+        return mesh.isVisible && mesh.visibility > 0
             && !!(mesh.layerMask & this.scene.activeCamera!.layerMask);
     }
     private prepare(): void {
