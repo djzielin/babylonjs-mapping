@@ -3,6 +3,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Vector2 } from "@babylonjs/core/Maths/math.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
+import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import Earcut from 'earcut';
@@ -115,49 +116,51 @@ export class GeoJSON {
     constructor(private tileSet: TileSet, private scene: Scene) {
     }
 
-    private computeOffset(v1: Vector3, v2: Vector3, lineWidth: number): Vector2 {
-        const dx = v2.x - v1.x;
-        const dz = v2.z - v1.z;
-        const length = Math.hypot(dx, dz);
-
-        if (length <= Number.EPSILON) {
-            return Vector2.Zero();
+    /** Build bounded road quads so a winding road cannot triangulate across a block. */
+    private createLineSegmentsMesh(lines: coordinateArrayOfArrays, width: number, height: number, material: StandardMaterial): Mesh | undefined {
+        const positions: number[] = [], normals: number[] = [], indices: number[] = [];
+        const addQuad = (a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3) => {
+            const base = positions.length / 3;
+            for (const point of [a, b, c, d]) {
+                positions.push(point.x, point.y, point.z);
+                normals.push(normal.x, normal.y, normal.z);
+            }
+            // Babylon's default left-handed scene treats this winding as front-facing.
+            indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+        };
+        const top = Math.max(0, height), halfWidth = width / 2;
+        for (const line of lines) for (let i = 0; i + 1 < line.length; i++) {
+            const start = line[i], end = line[i + 1];
+            const dx = end.x - start.x, dz = end.z - start.z;
+            const length = Math.hypot(dx, dz);
+            if (length <= Number.EPSILON) continue;
+            const ox = -dz / length * halfWidth, oz = dx / length * halfWidth;
+            const leftStart = new Vector3(start.x + ox, top, start.z + oz);
+            const leftEnd = new Vector3(end.x + ox, top, end.z + oz);
+            const rightStart = new Vector3(start.x - ox, top, start.z - oz);
+            const rightEnd = new Vector3(end.x - ox, top, end.z - oz);
+            addQuad(leftStart, leftEnd, rightStart, rightEnd, Vector3.Up());
+            if (top > 0) {
+                const leftStartBase = new Vector3(leftStart.x, 0, leftStart.z);
+                const leftEndBase = new Vector3(leftEnd.x, 0, leftEnd.z);
+                const rightStartBase = new Vector3(rightStart.x, 0, rightStart.z);
+                const rightEndBase = new Vector3(rightEnd.x, 0, rightEnd.z);
+                addQuad(leftStartBase, leftEndBase, leftStart, leftEnd, new Vector3(ox / halfWidth, 0, oz / halfWidth));
+                addQuad(rightEndBase, rightStartBase, rightEnd, rightStart, new Vector3(-ox / halfWidth, 0, -oz / halfWidth));
+                addQuad(rightStartBase, leftStartBase, rightStart, leftStart, new Vector3(-dx / length, 0, -dz / length));
+                addQuad(leftEndBase, rightEndBase, leftEnd, rightEnd, new Vector3(dx / length, 0, dz / length));
+            }
         }
-
-        const halfLineWidth = lineWidth * 0.5;
-        return new Vector2((-dz / length) * halfLineWidth, (dx / length) * halfLineWidth);
-    }
-
-    /**
-     * Converts a source-coordinate line into a polygon in game coordinates.
-     * Doing the offset after projection makes lineWidth mean the same thing for
-     * EPSG:4326 and EPSG:3857 inputs.
-     */
-    private convertLineToGamePolygon(cs: coordinateSet, epsg: EPSG_Type, lineWidth: number): coordinateArrayOfArrays {
-        if (cs.length < 2) {
-            return [];
-        }
-
-        const points = cs.map((coordinate) => {
-            const source = new Vector2(coordinate[0], coordinate[1]);
-            return this.tileSet.getGeometryMath().EPSG_to_Game(source, epsg);
-        });
-        const outline: coordinateArray = [];
-
-        for (let p = 0; p < points.length - 1; p++) {
-            const offset = this.computeOffset(points[p], points[p + 1], lineWidth);
-            outline.push(new Vector3(points[p].x + offset.x, 0, points[p].z + offset.y));
-            outline.push(new Vector3(points[p + 1].x + offset.x, 0, points[p + 1].z + offset.y));
-        }
-
-        for (let p = points.length - 1; p > 0; p--) {
-            const offset = this.computeOffset(points[p], points[p - 1], lineWidth);
-            outline.push(new Vector3(points[p].x + offset.x, 0, points[p].z + offset.y));
-            outline.push(new Vector3(points[p - 1].x + offset.x, 0, points[p - 1].z + offset.y));
-        }
-
-        outline.push(outline[0].clone());
-        return [outline];
+        if (!indices.length) return undefined;
+        const mesh = new Mesh("line segments", this.scene);
+        const data = new VertexData();
+        data.positions = positions;
+        data.normals = normals;
+        data.indices = indices;
+        data.applyToMesh(mesh);
+        mesh.material = material;
+        mesh.isPickable = false;
+        return mesh;
     }
 
     public generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, flipWinding: boolean, buildings: Buildings) {
@@ -246,22 +249,9 @@ export class GeoJSON {
                 }
 
                 const ps: polygonSet = f.geometry.type === "LineString" ? [f.geometry.coordinates as coordinateSet] : f.geometry.coordinates as polygonSet;
-                //console.log("lineset set of length: " + ps.length);              
-
-                for (let i = 0; i < ps.length; i++) {
-                    //console.log("  we are looking at lineset: " + i);
-                    const cs: coordinateSet = ps[i];
-
-                    const newPS = this.convertLineToGamePolygon(cs, epsg, lineWidth);
-                    const lineArray: coordinateArray = this.convertLinetoArray(cs, epsg);
-                    if (newPS.length === 0) {
-                        continue;
-                    }
-                    arrayOfLines.push(lineArray);
-
-                    const singleMesh = this.processSinglePolygonInGameCoordinates(newPS, buildingMaterial, exaggeration, height, flipWinding);
-                    allMeshes.push(singleMesh);
-                }
+                for (const cs of ps) if (cs.length >= 2) arrayOfLines.push(this.convertLinetoArray(cs, epsg));
+                const lineMesh = this.createLineSegmentsMesh(arrayOfLines, lineWidth, height * exaggeration * this.tileSet.tileScale, buildingMaterial);
+                if (lineMesh) allMeshes.push(lineMesh);
             }
 
             if (allMeshes.length == 0) {
