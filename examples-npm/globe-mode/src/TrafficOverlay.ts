@@ -1,4 +1,5 @@
 import { Color3, Vector3 } from "@babylonjs/core/Maths/math";
+import { Constants } from "@babylonjs/core/Engines/constants";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
@@ -48,6 +49,11 @@ export class TrafficOverlay {
         const mesh = MeshBuilder.CreateLines(name, { points: outline.map(([x,y]) => new Vector3(x * size / 2, y * size / 2, 0)) }, this.scene);
         mesh.color = kind === "aircraft" ? new Color3(.3,.78,1) : new Color3(.69,.45,1);
         mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        mesh.renderingGroupId = 7;
+        if (mesh.material) {
+            mesh.material.depthFunction = Constants.ALWAYS;
+            mesh.material.disableDepthWrite = true;
+        }
         return mesh;
     }
 
