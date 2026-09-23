@@ -1094,8 +1094,8 @@ class GlobeDemo {
             const math = layer.globe.ourTileMath;
             const key = `${plan.zoom}/${math.lon_to_tile(view.longitude, plan.zoom)}/${math.lat_to_tile(Math.max(-85, Math.min(85, view.latitude)), plan.zoom)}`;
             if (layer.key === key) return;
-            this.terrainTransition.capture(layer.globe, plan.zoom);
-            this.buildingTransition.capture(layer.globe, plan.zoom);
+            this.terrainTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude);
+            this.buildingTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude);
             layer.key = key;
             layer.globe.updateRaster(view.latitude, view.longitude, plan.zoom);
         });
