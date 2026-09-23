@@ -346,12 +346,13 @@ class GlobeDemo {
                 const totalTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.length, 0);
                 const buildingTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.filter(tile => tile.buildings.length > 0 || tile.buildingBatches.length > 0).length, 0);
                 document.getElementById("loadingStatus")!.textContent = `Terrain ${terrainTiles}/${totalTiles} tiles · Buildings ${buildingTiles} tiles${stat.failed ? ` · ${stat.failed} data errors` : ""}`;
-                const featureJobs = [this.buildings, this.roads, ...this.distanceLayers.map(layer => layer.buildings)]
+                const roadJobs = this.roads?.pendingRequestCount ?? 0;
+                const buildingJobs = [this.buildings, ...this.distanceLayers.map(layer => layer.buildings)]
                     .reduce((count, provider) => count + (provider?.pendingRequestCount ?? 0), 0);
                 const memory = (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
                 const heap = memory ? ` · heap ${Math.round(memory.usedJSHeapSize / 1048576)}/${Math.round(memory.jsHeapSizeLimit / 1048576)} MB` : "";
                 document.getElementById("performance")!.textContent =
-                    `${this.engine.getFps().toFixed(0)} FPS${heap} · ${this.scene.getActiveMeshes().length} active meshes · ${stat.active} detail jobs · ${featureJobs} queued features · ${stat.completed} completed · ${stat.failed} errors${this.googleTiles ? ` · Google: ${this.googleTiles.stats.hierarchyRequests} hierarchy / ${this.googleTiles.stats.modelRequests} fetched / ${this.googleTiles.stats.reusedModels} reused · last update ${this.canvas.dataset.googleLoadMs ?? "—"} ms` : ""}`;
+                    `${this.engine.getFps().toFixed(0)} FPS${heap} · ${this.scene.getActiveMeshes().length} active meshes · ${stat.active} detail jobs · ${buildingJobs} building / ${roadJobs} road jobs · ${stat.completed} completed · ${stat.failed} errors${this.googleTiles ? ` · Google: ${this.googleTiles.stats.hierarchyRequests} hierarchy / ${this.googleTiles.stats.modelRequests} fetched / ${this.googleTiles.stats.reusedModels} reused · last update ${this.canvas.dataset.googleLoadMs ?? "—"} ms` : ""}`;
             }
         });
         const requestedPreset = new URLSearchParams(window.location.search).get("preset");
@@ -973,6 +974,7 @@ class GlobeDemo {
         clearTimeout(this.googlePrefetchTimer);
         const generation = ++this.googleGeneration;
         if (!key) {
+            this.googleLoading = false;
             this.googleTiles?.dispose(); this.googleTiles = undefined;
             document.getElementById("googleCredits")!.hidden = true;
             this.canvas.dataset.googleTiles = "0";
@@ -980,7 +982,11 @@ class GlobeDemo {
             this.googleStatus(enabled ? "Google 3D · zoom in to street scale" : "Google 3D off");
             return;
         }
-        if (!this.googleKey) { this.googleStatus("Google 3D unavailable · local key missing; toggle to retry"); return; }
+        if (!this.googleKey) {
+            this.googleLoading = false;
+            this.googleStatus("Google 3D unavailable · local key missing; toggle to retry");
+            return;
+        }
         this.googleTimer = setTimeout(async () => {
             this.googleTimer = undefined;
             if (generation !== this.googleGeneration) return;
