@@ -58,3 +58,18 @@ it("invalidates draw snapshots for turns, replacement meshes and hidden content"
     expect(back.alwaysSelectAsActiveMesh).toBe(false);
     scene.dispose(); engine.dispose();
 });
+
+it("records a visible mesh that uses the scene default material", async () => {
+    const engine = new NullEngine(); const scene = new Scene(engine);
+    new FreeCamera("eye", Vector3.Zero(), scene);
+    const gpu = { snapshotRendering: false, snapshotRenderingMode: 0,
+        onResizeObservable: new Observable(), onContextLostObservable: new Observable() } as unknown as WebGPUEngine;
+    const cache = new DrawSnapshotCache(scene, gpu);
+    const mesh = MeshBuilder.CreateBox("default material", {}, scene);
+    mesh.position.z = 10; mesh.freezeWorldMatrix();
+    await scene.whenReadyAsync(); scene.render(); scene.render();
+    expect(gpu.snapshotRendering).toBe(true);
+    expect(cache.stats).toContain("1 captures / 1 replays");
+    expect(cache.stats).not.toContain("material none");
+    scene.dispose(); engine.dispose();
+});

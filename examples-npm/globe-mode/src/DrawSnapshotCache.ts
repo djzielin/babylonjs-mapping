@@ -74,7 +74,10 @@ export class DrawSnapshotCache {
         this.recorded.clear();
     }
     private state(mesh: Mesh, previous?: DrawState): DrawState | undefined {
-        const material = mesh.material;
+        // Babylon renders meshes without an explicit material with the scene
+        // default. Treat that actual draw material as a stable cache resource.
+        const material = mesh.material ?? this.scene.defaultMaterial;
+        if (!mesh.material && !material.isFrozen) material.freeze();
         if (!mesh.isWorldMatrixFrozen || !material?.isFrozen || mesh.skeleton || mesh.morphTargetManager
             || mesh.hasInstances || mesh.hasThinInstances || mesh.isAnInstance || mesh.billboardMode) {
             const reason = !mesh.isWorldMatrixFrozen ? "world matrix" : !material?.isFrozen ? `material ${material?.getClassName() ?? "none"}`
