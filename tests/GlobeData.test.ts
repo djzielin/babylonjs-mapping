@@ -387,13 +387,16 @@ describe("bounded detail streaming", () => {
         expect(loader).toHaveBeenCalledTimes(2);
         globe.updateRaster(-33, 151, 15);
         data.update();
-        expect(pending.every((p) => p.signal.aborted)).toBe(true);
-        pending.forEach((p) => p.resolve(grid(999)));
+        expect(pending.slice(0, 2).every((p) => p.signal.aborted)).toBe(true);
+        expect(loader).toHaveBeenCalledTimes(4);
+        expect(data.stats.active).toBe(2);
+        pending.slice(0, 2).forEach((p) => p.resolve(grid(999)));
         await Promise.resolve();
         await Promise.resolve();
         expect(globe.ourTiles.every((t) => !t.terrainLoaded)).toBe(true);
         data.update();
         expect(loader).toHaveBeenCalledTimes(4);
+        expect(data.stats.active).toBe(2);
         pending.slice(2).forEach((p) => p.resolve(grid(-100)));
         await Promise.resolve();
         await Promise.resolve();
@@ -401,6 +404,30 @@ describe("bounded detail streaming", () => {
         expect(data.stats.active).toBe(0);
         data.dispose();
         dispose();
+    });
+    it("starts the replacement view while aborted requests remain unresolved", async () => {
+        const { globe, dispose } = setup();
+        const pending: Array<{ resolve: (value: ElevationGrid) => void; signal: AbortSignal }> = [];
+        const loader = vi.fn((_c: Vector3, signal: AbortSignal) =>
+            new Promise<ElevationGrid>(resolve => pending.push({ resolve, signal })));
+        const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
+        try {
+            data.update();
+            expect(loader).toHaveBeenCalledTimes(1);
+            data.invalidate();
+            data.update();
+            expect(pending[0].signal.aborted).toBe(true);
+            expect(loader).toHaveBeenCalledTimes(2);
+            expect(data.stats.active).toBe(1);
+            pending[0].resolve(grid(999));
+            await Promise.resolve(); await Promise.resolve();
+            expect(data.stats.active).toBe(1);
+            expect(globe.ourTiles[0].terrainLoaded).toBe(false);
+            pending[1].resolve(grid(25));
+            await Promise.resolve(); await Promise.resolve();
+            expect(data.stats.active).toBe(0);
+            expect(globe.ourTiles[0].terrainLoaded).toBe(true);
+        } finally { data.dispose(); dispose(); }
     });
     it("refills completed downloads without waiting for another rendered frame", async () => {
         vi.useFakeTimers();
@@ -440,6 +467,34 @@ describe("bounded detail streaming", () => {
         const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
         try { data.update(); expect(loader.mock.calls[0]?.[0]).toEqual(nearest.tileCoords); }
         finally { data.dispose(); dispose(); }
+    });
+    it("promotes newly nearby terrain ahead of an unresolved distant request", async () => {
+        const { globe, scene, dispose } = setup(5);
+        const first = globe.ourTiles[0], nearby = globe.ourTiles.at(-1)!;
+        const camera = new ArcRotateCamera("moving eye", 0, 1, 1, globe.getSurfacePosition(35, -79), scene);
+        camera.setPosition(first.mesh.getBoundingInfo().boundingSphere.centerWorld.scale(1.00001));
+        camera.getViewMatrix(true);
+        const pending: Array<{ resolve: (value: ElevationGrid) => void; signal: AbortSignal }> = [];
+        const loader = vi.fn((_coords: Vector3, signal: AbortSignal) =>
+            new Promise<ElevationGrid>(resolve => pending.push({ resolve, signal })));
+        const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
+        try {
+            data.update();
+            expect(loader.mock.calls[0][0]).toEqual(first.tileCoords);
+            camera.setPosition(nearby.mesh.getBoundingInfo().boundingSphere.centerWorld.scale(1.00001));
+            camera.getViewMatrix(true);
+            data.update();
+            expect(pending[0].signal.aborted).toBe(true);
+            expect(loader.mock.calls[1][0]).toEqual(nearby.tileCoords);
+            expect(data.stats.active).toBe(1);
+            pending[0].resolve(grid(999));
+            await Promise.resolve(); await Promise.resolve();
+            expect(data.stats.active).toBe(1);
+            pending[1].resolve(grid(25));
+            await Promise.resolve(); await Promise.resolve();
+            expect(nearby.terrainLoaded).toBe(true);
+            expect(data.stats.active).toBe(0);
+        } finally { data.dispose(); dispose(); }
     });
     it("reports errors once and explicitly retries on invalidation", async () => {
         const { globe, dispose } = setup();
