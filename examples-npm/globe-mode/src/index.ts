@@ -65,6 +65,7 @@ interface LocationPreset {
 
 const GLOBE_RADIUS = 60;
 const DETAIL_RADIUS = 60;
+const MIN_GOOGLE_DETAIL_ZOOM = 14;
 const HOME_VIEW: LocationPreset = {
     name: "New York · Empire State Building",
     latitude: 40.7484,
@@ -142,6 +143,7 @@ class GlobeDemo {
     private registeredGoogleTiles?: Google3DTiles;
     private registeredGoogleRevision = -1;
     private photorealisticActive = false;
+    private googleFarHidden = false;
     private googleLoading = false;
     private lastGoogleSelectionAt = 0;
     private googlePrefetchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -320,7 +322,7 @@ class GlobeDemo {
                     this.refreshBuildingReplacements();
                     for (const tile of this.landmarks?.loadedModelTiles ?? []) for (const mesh of tile.asset.meshes) {
                         const point = this.detailGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
-                        mesh.setEnabled(!this.googleTiles?.coversLocation(point.latitude, point.longitude));
+                        mesh.setEnabled(!this.googleCoversLocation(point.latitude, point.longitude));
                     }
                 }
                 this.lastStats = performance.now();
@@ -334,7 +336,7 @@ class GlobeDemo {
                 document.getElementById("gpuInfo")!.textContent = `${this.engine.isWebGPU ? "WebGPU" : "WebGL"}${this.reversedDepth ? " · reverse float depth" : ""} · ${gpuInfo.vendor} · ${gpuInfo.renderer} · ${gpuInfo.version}`;
                 const googleSources = this.googleTiles?.getAttributions() ?? [];
                 document.getElementById("googleSources")!.textContent = googleSources.join("; ");
-                document.getElementById("googleCredits")!.hidden = !(this.googleTiles?.loadedModelTiles.length);
+                document.getElementById("googleCredits")!.hidden = this.googleFarHidden || !(this.googleTiles?.loadedModelTiles.length);
 
                 const stat = this.distanceLayers.reduce<{ active: number; completed: number; failed: number }>((total, layer) => ({
                     active: total.active + layer.data.stats.active,
@@ -421,7 +423,7 @@ class GlobeDemo {
                 this.buildings = new BuildingsOverture(this.detailGlobe, url);
                 this.buildings.doMerge = true;
                 this.buildings.batchGeometry = true;
-                this.buildings.batchVisibilityFilter = (lat, lon) => !this.googleTiles?.coversLocation(lat, lon);
+                this.buildings.batchVisibilityFilter = (lat, lon) => !this.googleCoversLocation(lat, lon);
                 this.buildings.loadConcurrency = 6;
                 this.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 this.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, this.detailGlobe, Number(feature.properties?.height) || 4);
@@ -724,7 +726,7 @@ class GlobeDemo {
                 for (const mesh of tile.asset.meshes) {
                     mesh.computeWorldMatrix(true);
                     const location = landmarkGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
-                    mesh.setEnabled(!this.googleTiles?.coversLocation(location.latitude, location.longitude));
+                    mesh.setEnabled(!this.googleCoversLocation(location.latitude, location.longitude));
                     this.layers.add(mesh, 7);
                     mesh.freezeWorldMatrix();
                     mesh.material?.freeze();
@@ -782,7 +784,7 @@ class GlobeDemo {
     }
 
     private roadOverlapsGoogle(mesh: import("@babylonjs/core/Meshes/mesh").Mesh): boolean {
-        if (!this.googleTiles) return false;
+        if (!this.googleTiles || this.googleFarHidden) return false;
         const bounds = mesh.getBoundingInfo().boundingBox;
         // A road tile can cross several Google model bounds. Testing only its
         // center leaves long lines painted over already loaded city imagery.
@@ -791,6 +793,10 @@ class GlobeDemo {
             if (this.googleTiles.coversLocation(point.latitude, point.longitude)) return true;
         }
         return false;
+    }
+
+    private googleCoversLocation(latitude: number, longitude: number): boolean {
+        return !this.googleFarHidden && !!this.googleTiles?.coversLocation(latitude, longitude);
     }
 
     private refreshBuildingReplacements(): void {
@@ -811,7 +817,7 @@ class GlobeDemo {
                     longitude: math.tile_to_lon(tile.tileCoords.x + x, tile.tileCoords.z),
                     latitude: math.tile_to_lat(tile.tileCoords.y + y, tile.tileCoords.z),
                 })));
-                const coverage = points.map(point => this.googleTiles?.coversLocation(point.latitude, point.longitude) ? "1" : "0").join("");
+                const coverage = points.map(point => this.googleCoversLocation(point.latitude, point.longitude) ? "1" : "0").join("");
                 const localModels = models.filter(mesh => {
                     const point = entry.globe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
                     return math.lon_to_tile(point.longitude, tile.tileCoords.z) === tile.tileCoords.x
@@ -964,7 +970,7 @@ class GlobeDemo {
         const distanceStep = Math.round(Math.log(Math.max(view.altitude, 1e-9)) / Math.log(1.05));
         const positionStep = Math.max(2, Math.min(150, view.altitude / this.detailGlobe.metresToWorld * 0.08));
         const positionKey = `${Math.round(view.latitude * 111320 / positionStep)}/${Math.round(view.longitude * 111320 * Math.cos(view.latitude * Math.PI / 180) / positionStep)}`;
-        const key = enabled && view.zoom >= 12
+        const key = enabled && view.zoom >= MIN_GOOGLE_DETAIL_ZOOM
             ? `${math.lon_to_tile(view.longitude, view.zoom)}/${math.lat_to_tile(view.latitude, view.zoom)}/${view.zoom}/${quality}/${bearing}/${distanceStep}/${positionKey}` : "";
         if (!force && key === this.googleViewKey) return;
         this.googleViewKey = key;
@@ -983,16 +989,32 @@ class GlobeDemo {
         // repeatedly cancelling it and starving the tile hierarchy.
         if (!force && key && this.googleTimer) return;
         clearTimeout(this.googleTimer);
+        this.googleTimer = undefined;
         clearTimeout(this.googlePrefetchTimer);
+        this.googlePrefetchTimer = undefined;
         const generation = ++this.googleGeneration;
         if (!key) {
             this.googleLoading = false;
-            this.googleTiles?.dispose(); this.googleTiles = undefined;
+            const retained = enabled && view.zoom < MIN_GOOGLE_DETAIL_ZOOM && !!this.googleTiles;
+            if (retained && this.googleTiles) {
+                this.googleTiles.cancelPendingLoad();
+                for (const tile of this.googleTiles.loadedModelTiles) tile.root.setEnabled(false);
+                this.googleFarHidden = true;
+            } else {
+                this.googleTiles?.dispose(); this.googleTiles = undefined;
+                this.googleFarHidden = false;
+            }
             document.getElementById("googleCredits")!.hidden = true;
             this.canvas.dataset.googleTiles = "0";
             this.setPhotorealisticActive(false);
-            this.googleStatus(enabled ? "Google 3D · zoom in to street scale" : "Google 3D off");
+            this.googleStatus(enabled ? retained ? "Google 3D · retained for closer views"
+                : "Google 3D · zoom in to street scale" : "Google 3D off");
             return;
+        }
+        if (this.googleFarHidden) {
+            this.googleFarHidden = false;
+            for (const tile of this.googleTiles?.loadedModelTiles ?? []) tile.root.setEnabled(true);
+            this.refreshBuildingReplacements();
         }
         if (!this.googleKey) {
             this.googleLoading = false;
@@ -1129,7 +1151,7 @@ class GlobeDemo {
                 layer.buildings = new BuildingsOverture(layer.globe, this.overtureURL);
                 layer.buildings.doMerge = true;
                 layer.buildings.batchGeometry = true;
-                layer.buildings.batchVisibilityFilter = (lat, lon) => !this.googleTiles?.coversLocation(lat, lon);
+                layer.buildings.batchVisibilityFilter = (lat, lon) => !this.googleCoversLocation(lat, lon);
                 layer.buildings.loadConcurrency = 6;
                 layer.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, layer.globe, Number(feature.properties?.height) || 4);
