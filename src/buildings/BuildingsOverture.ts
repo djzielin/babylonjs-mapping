@@ -255,6 +255,7 @@ export default class BuildingsOverture extends Buildings {
         // Swap only when the complete new tile is usable.
         request.tile.deleteBuildings();
         if (mesh) { request.tile.buildingBatches.push(mesh); this.updateMeshVisibility(mesh); }
+        request.tile.buildingsResolvedKey = request.tile.tileCoords.toString();
         if (specialized.length) this.ProcessGeoJSON({ ...request, mergeAfterLoad: false }, { type: "FeatureCollection", features: specialized });
     }
 

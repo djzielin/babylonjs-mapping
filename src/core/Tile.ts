@@ -22,6 +22,8 @@ export default class Tile {
     public buildings: TileBuilding[]=[];
     public buildingBatches: Mesh[] = [];
     public mergedBuildingMesh: Mesh | undefined=undefined;
+    /** Coordinate whose Overture batch has completed, including an empty tile. */
+    public buildingsResolvedKey?: string;
 
     //////////////////////////////////
     // TERRAIN 
@@ -57,6 +59,7 @@ export default class Tile {
     }
 
     public deleteBuildings(){
+        this.buildingsResolvedKey = undefined;
         this.buildingBatches.forEach(mesh => mesh.dispose());
         this.buildingBatches = [];
         for(let m of this.buildings){

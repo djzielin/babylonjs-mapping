@@ -4,6 +4,7 @@ import type { WebGPURenderTargetWrapper } from "@babylonjs/core/Engines/WebGPU/w
 import { DracoCompression } from "@babylonjs/core/Meshes/Compression/dracoCompression";
 import { lookFromEye, moveEye } from "./FirstPersonNavigation";
 import { TerrainTransition } from "./TerrainTransition";
+import { BuildingTransition } from "./BuildingTransition";
 import "@babylonjs/core/Engines/AbstractEngine/abstractEngine.timeQuery";
 import "@babylonjs/core/Engines/Extensions/engine.query";
 import { EngineInstrumentation } from "@babylonjs/core/Instrumentation/engineInstrumentation";
@@ -65,10 +66,12 @@ interface LocationPreset {
 const GLOBE_RADIUS = 60;
 const DETAIL_RADIUS = 60;
 const HOME_VIEW: LocationPreset = {
-    name: "Charlotte, NC",
-    latitude: 35.2271,
-    longitude: -80.8431,
-    zoom: 3,
+    name: "New York · Empire State Building",
+    latitude: 40.7484,
+    longitude: -73.9857,
+    zoom: 17,
+    google: true,
+    basemap: "satellite",
 };
 const LOCATIONS: LocationPreset[] = [
     HOME_VIEW,
@@ -99,7 +102,7 @@ const LOCATIONS: LocationPreset[] = [
     { name: "Grand Canyon", latitude: 36.1069, longitude: -112.1129, zoom: 13 },
     { name: "Mount Everest", latitude: 27.9881, longitude: 86.925, zoom: 13 },
     { name: "Paris · Eiffel Tower", latitude: 48.8584, longitude: 2.2945, zoom: 18, heading: 310, tilt: 65, eyeHeight: 160, distance: 750, google: true, basemap: "satellite" },
-    { name: "New York · Empire State Building", latitude: 40.7484, longitude: -73.9857, zoom: 17, heading: 330, tilt: 65, eyeHeight: 160, distance: 1000, google: true, basemap: "satellite" },
+    { name: "Tokyo · Skytree", latitude: 35.7101, longitude: 139.8107, zoom: 17, heading: 235, tilt: 65, eyeHeight: 180, distance: 1000, google: true, basemap: "satellite" },
     { name: "Sydney", latitude: -33.8688, longitude: 151.2093, zoom: 13 },
     { name: "Tokyo · toward Mount Fuji", google: false, basemap: "satellite", latitude: 35.6812, longitude: 139.7671, zoom: 16, heading: 249.5, tilt: 87, eyeHeight: 600 },
 ];
@@ -146,6 +149,7 @@ class GlobeDemo {
     private sceneProfile: SceneInstrumentation;
     private terrainBatcher: TerrainBatcher;
     private terrainTransition = new TerrainTransition();
+    private buildingTransition = new BuildingTransition();
     private renderTimes: number[] = [];
     private gpuTimes: number[] = [];
     private drawSnapshot?: DrawSnapshotCache;
@@ -188,6 +192,8 @@ class GlobeDemo {
 
     public start(): void {
         (document.getElementById("mapboxToken") as HTMLInputElement).value = DEMO_MAPBOX_TOKEN;
+        if (DEMO_MAPBOX_TOKEN && HOME_VIEW.basemap)
+            (document.getElementById("basemap") as HTMLSelectElement).value = HOME_VIEW.basemap;
         this.createScene();
         if (this.reversedDepth) {
             // Float reverse depth preserves near-surface precision without
@@ -197,7 +203,10 @@ class GlobeDemo {
             this.depthPass.samples = 4;
             this.depthPass.onSizeChangedObservable.add(pass => pass.inputTexture.createDepthStencilTexture(0, false, true, 4, 18));
         }
-        this.scene.onDisposeObservable.add(() => this.terrainTransition.dispose());
+        this.scene.onDisposeObservable.add(() => {
+            this.terrainTransition.dispose();
+            this.buildingTransition.dispose();
+        });
         document.addEventListener("visibilitychange", () => {
             this.framePacing.reset();
             if (document.hidden && this.benchmark) this.finishBenchmark("Interrupted: browser was hidden.");
@@ -235,6 +244,12 @@ class GlobeDemo {
         }, () => (document.getElementById("mapboxToken") as HTMLInputElement).value);
         this.setupPointerNavigation();
         this.setupDataControls();
+        if (DEMO_MAPBOX_TOKEN && HOME_VIEW.basemap)
+            document.getElementById("basemap")!.dispatchEvent(new Event("change"));
+        if (DEMO_MAPBOX_TOKEN) {
+            (document.getElementById("roads") as HTMLInputElement).checked = true;
+            document.getElementById("roads")!.dispatchEvent(new Event("change"));
+        }
         document.getElementById("controlsToggle")!.addEventListener("click", () => {
             const expanded = document.getElementById("controlPanel")!.classList.toggle("expanded");
             document.getElementById("controlsToggle")!.setAttribute("aria-expanded", String(expanded));
@@ -260,6 +275,7 @@ class GlobeDemo {
                 this.depthCamera = this.scene.activeCamera;
             }
             this.terrainTransition.update(performance.now());
+            this.buildingTransition.update(performance.now());
             const googleRevision = this.googleTiles?.coverageRevision ?? -1;
             if (this.registeredGoogleTiles !== this.googleTiles || this.registeredGoogleRevision !== googleRevision) {
                 this.registeredGoogleTiles = this.googleTiles;
@@ -390,6 +406,7 @@ class GlobeDemo {
             concurrency: 4,
             minTerrainZoom: 5,
             minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14,
+            minFeatureZoom: 15, maxFeatureZoom: 18,
             exaggeration: 1,
         });
         this.data.onErrorObservable.add((error) => this.message(error.message));
@@ -418,7 +435,7 @@ class GlobeDemo {
                 )
                     this.data.options.buildings = this.buildings;
                 this.baseGlobe.ourAttribution.addAttribution("OVERTURE");
-                this.data.invalidate();
+                this.data.invalidate(true);
                 this.configureDistanceLayers();
                 this.message(
                     "Terrain and Overture buildings ready.",
@@ -445,7 +462,7 @@ class GlobeDemo {
             minZoom: 3,
             maxZoom: 18,
             tilesAcrossViewport: 4,
-            tileUpdateDelayMs: 180,
+            tileUpdateDelayMs: 0,
         });
         this.navigator.setView(HOME_VIEW.latitude, HOME_VIEW.longitude, {
             zoom: HOME_VIEW.zoom,
@@ -529,7 +546,7 @@ class GlobeDemo {
             }
             this.data.options.features =
                 enabled && this.roads ? [this.roads] : [];
-            this.data.invalidate();
+            this.data.invalidate(true);
         });
         document.getElementById("landmarks")!.addEventListener("change", () => {
             if (
@@ -862,6 +879,7 @@ class GlobeDemo {
 
         this.navigator.onViewChangedObservable.add((view) => {
             this.terrainTransition.capture(this.detailGlobe, view.zoom);
+            this.buildingTransition.capture(this.detailGlobe, view.zoom);
             const precision = view.zoom < 5 ? 16 : 64;
             if (this.detailGlobe.meshPrecision !== precision) {
                 this.detailGlobe.createGeometry(
@@ -877,7 +895,9 @@ class GlobeDemo {
             this.updateReadout(readout, view);
             this.scheduleGoogleTiles();
         });
-        this.updateReadout(readout, this.navigator.getView());
+        const initialView = this.navigator.getView();
+        this.updateDistanceLayers(initialView);
+        this.updateReadout(readout, initialView);
     }
 
     private setPhotorealisticActive(active: boolean): void {
@@ -916,9 +936,12 @@ class GlobeDemo {
             ? `${math.lon_to_tile(view.longitude, view.zoom)}/${math.lat_to_tile(view.latitude, view.zoom)}/${view.zoom}/${quality}/${bearing}/${distanceStep}/${positionKey}` : "";
         if (!force && key === this.googleViewKey) return;
         this.googleViewKey = key;
+        // Movement may change the selection key every frame. Keep the first
+        // imminent refresh and let it use the newest camera instead of
+        // repeatedly cancelling it and starving the tile hierarchy.
+        if (!force && key && this.googleTimer) return;
         clearTimeout(this.googleTimer);
         clearTimeout(this.googlePrefetchTimer);
-        this.googleTiles?.cancelPendingLoad();
         const generation = ++this.googleGeneration;
         if (!key) {
             this.googleTiles?.dispose(); this.googleTiles = undefined;
@@ -930,22 +953,23 @@ class GlobeDemo {
         }
         if (!this.googleKey) { this.googleStatus("Google 3D unavailable · local key missing; toggle to retry"); return; }
         this.googleTimer = setTimeout(async () => {
+            this.googleTimer = undefined;
             if (generation !== this.googleGeneration) return;
-            if (this.googleLoading) this.googleTiles?.cancelPendingLoad();
             const { meanSeaLevel } = await import("egm96-universal");
             if (generation !== this.googleGeneration) return;
+            const currentView = this.navigator.getView();
             const provider = this.googleTiles ??= new Google3DTiles(this.detailGlobe, {
                 apiKey: this.googleKey,
-                origin: { latitude: view.latitude, longitude: view.longitude },
+                origin: { latitude: currentView.latitude, longitude: currentView.longitude },
                 maxTiles: 2048,
                 maximumDisplayGeometricError: 33,
                 cullToCamera: true,
                 coverageRadius: 50000,
-                heightOffset: -meanSeaLevel(view.latitude, view.longitude),
+                heightOffset: -meanSeaLevel(currentView.latitude, currentView.longitude),
             });
             provider.maxDepth = quality === "auto" || quality === "32" ? 64 : Number(quality);
             provider.coverageRadius = 50000;
-            provider.coverageRegion = view.latitude > 40.4 && view.latitude < 41 && view.longitude > -74.3 && view.longitude < -73.6
+            provider.coverageRegion = currentView.latitude > 40.4 && currentView.latitude < 41 && currentView.longitude > -74.3 && currentView.longitude < -73.6
                 ? { south: 40.68, north: 40.89, west: -74.03, east: -73.90 } : undefined;
             provider.maximumScreenSpaceError = quality === "20" ? 2 : quality === "auto" ? 1 : 0.75;
             this.googleLoading = true;
@@ -1008,6 +1032,7 @@ class GlobeDemo {
             const key = `${plan.zoom}/${math.lon_to_tile(view.longitude, plan.zoom)}/${math.lat_to_tile(Math.max(-85, Math.min(85, view.latitude)), plan.zoom)}`;
             if (layer.key === key) return;
             this.terrainTransition.capture(layer.globe, plan.zoom);
+            this.buildingTransition.capture(layer.globe, plan.zoom);
             layer.key = key;
             layer.globe.updateRaster(view.latitude, view.longitude, plan.zoom);
         });
@@ -1197,7 +1222,7 @@ class GlobeDemo {
         const memory = textures.size ? ` · ${textures.size} texture allocations / ${(textureBytes / 1048576).toFixed(0)} MiB estimated` : "";
         document.getElementById("benchmark")!.textContent = "Measure frame pacing";
         document.getElementById("benchmarkResult")!.textContent = message ?? (result
-            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · ${result.low1 >= 150 && result.low01 >= 120 ? "Pass" : "Below target"}${memory}` : "");
+            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · ${result.low01 >= 200 ? "Pass" : "Below 200 FPS target"}${memory}` : "");
     }
 
     private updateBenchmark(): void {
@@ -1335,6 +1360,8 @@ class GlobeDemo {
 
     private updateReadout(readout: HTMLDivElement, view: GlobeView): void {
         readout.textContent = `${view.latitude.toFixed(4)}°, ${view.longitude.toFixed(4)}° · z${view.zoom}`;
+        (document.getElementById("compareEarth") as HTMLAnchorElement).href =
+            `https://earth.google.com/web/search/${view.latitude.toFixed(6)},${view.longitude.toFixed(6)}/`;
         readout.dataset.zoom = String(view.zoom);
         readout.dataset.latitude = String(view.latitude);
         readout.dataset.longitude = String(view.longitude);

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
     ArcRotateCamera,
     NullEngine,
+    MeshBuilder,
     Scene,
     Vector2,
     Vector3,
@@ -66,6 +67,17 @@ const grid = (height: number): ElevationGrid => ({
 });
 
 describe("globe data fidelity", () => {
+    it("places a marker sphere at a requested latitude and longitude", () => {
+        const { globe, scene, dispose } = setup(1, 40.7484, -73.9857, 17);
+        const marker = MeshBuilder.CreateSphere("Empire State marker", { diameter: 0.001 }, scene);
+        marker.position.copyFrom(globe.getSurfacePosition(40.7484, -73.9857, 100 * globe.metresToWorld));
+        const result = globe.getSurfaceCoordinates(Vector3.TransformCoordinates(Vector3.Zero(), marker.computeWorldMatrix(true)));
+        expect(result.latitude).toBeCloseTo(40.7484, 7);
+        expect(result.longitude).toBeCloseTo(-73.9857, 7);
+        expect(result.elevation / globe.metresToWorld).toBeCloseTo(100, 5);
+        expect(marker.position.length()).toBeGreaterThan(globe.radius);
+        dispose();
+    });
     it.each([false, true])("joins mismatched tile edges and corners regardless of arrival order (%s)", reverse => {
         const { globe, dispose } = setup(2);
         const tiles = [...globe.ourTiles];
@@ -528,4 +540,19 @@ it("keeps higher-resolution imagery from duplicating the full-detail building ti
     globe.updateRaster(35,-79,14);data.update();await Promise.resolve();
     expect(buildings.SubmitLoadTileRequest).toHaveBeenCalledOnce();
     data.dispose();dispose();
+});
+
+it("loads road features at street zoom without duplicating the Overture building tier", async () => {
+    const { globe, dispose } = setup(1, 40.7484, -73.9857, 17);
+    const buildings = { SubmitLoadTileRequest: vi.fn(), cancelPendingRequests: vi.fn() } as any;
+    const roads = { SubmitLoadTileRequest: vi.fn(), cancelPendingRequests: vi.fn() } as any;
+    const data = new GlobeDataController(globe, {
+        buildings, features: [roads], minBuildingZoom: 10, maxBuildingZoom: 14,
+        minFeatureZoom: 10, maxFeatureZoom: 18,
+    });
+    data.update();
+    await Promise.resolve();
+    expect(buildings.SubmitLoadTileRequest).not.toHaveBeenCalled();
+    expect(roads.SubmitLoadTileRequest).toHaveBeenCalledOnce();
+    data.dispose(); dispose();
 });

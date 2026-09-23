@@ -12,6 +12,8 @@ export interface GlobeDataOptions {
     minTerrainZoom?: number;
     minBuildingZoom?: number;
     maxBuildingZoom?: number;
+    minFeatureZoom?: number;
+    maxFeatureZoom?: number;
     concurrency?: number;
     /** Prefer the active camera frustum when streaming large landscape windows. */
     prioritizeVisible?: boolean;
@@ -142,16 +144,16 @@ export default class GlobeDataController {
                 tile.tileCoords.toString() !== key
             )
                 return;
-            if (coords.z >= (this.options.minBuildingZoom ?? 14) && coords.z <= (this.options.maxBuildingZoom ?? Infinity)) {
-                for (const provider of [
-                    this.options.buildings,
-                    ...(this.options.features ?? []),
-                ])
-                    if (provider) {
-                        this.providers.add(provider);
-                        provider.SubmitLoadTileRequest(tile);
-                    }
-            }
+            const submit = (provider: Buildings | undefined) => {
+                if (!provider) return;
+                this.providers.add(provider);
+                provider.SubmitLoadTileRequest(tile);
+            };
+            if (coords.z >= (this.options.minBuildingZoom ?? 14) && coords.z <= (this.options.maxBuildingZoom ?? Infinity))
+                submit(this.options.buildings);
+            if (coords.z >= (this.options.minFeatureZoom ?? this.options.minBuildingZoom ?? 14)
+                && coords.z <= (this.options.maxFeatureZoom ?? this.options.maxBuildingZoom ?? Infinity))
+                for (const provider of this.options.features ?? []) submit(provider);
             this.ready.set(tile, key);
             this.stats.completed++;
         } catch (error) {

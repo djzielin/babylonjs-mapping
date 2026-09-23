@@ -9,6 +9,8 @@ export interface GlobeDataOptions {
     minTerrainZoom?: number;
     minBuildingZoom?: number;
     maxBuildingZoom?: number;
+    minFeatureZoom?: number;
+    maxFeatureZoom?: number;
     concurrency?: number;
     /** Prefer the active camera frustum when streaming large landscape windows. */
     prioritizeVisible?: boolean;
