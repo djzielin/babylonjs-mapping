@@ -6,6 +6,7 @@ import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { TileRasterMaterial } from './TileRasterMaterial.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
@@ -537,7 +538,7 @@ export default class TileSet {
         }
     }
     else {
-        material = new StandardMaterial("material" + tileX + "-" + tileY, this.scene);
+        material = new TileRasterMaterial("material" + tileX + "-" + tileY, this.scene);
         material!.specularColor = new Color3(0, 0, 0);
         material.alpha = 1.0;
 
