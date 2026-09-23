@@ -16,9 +16,12 @@ it("updates raster shader state without scanning unrelated scene meshes", async 
     tile.position.z = 10;
     const other = MeshBuilder.CreateBox("other", {}, scene);
     other.position.z = 10;
+    const lod = MeshBuilder.CreateBox("tile LOD", {}, scene);
+    lod.position.set(2, 0, 10);
     const material = new TileRasterMaterial("raster", scene);
     const ordinary = new StandardMaterial("ordinary", scene);
     tile.material = material;
+    lod.material = material;
     other.material = ordinary;
     await scene.whenReadyAsync();
     scene.render();
@@ -29,11 +32,13 @@ it("updates raster shader state without scanning unrelated scene meshes", async 
     material.diffuseTexture = texture;
     expect(iterator).not.toHaveBeenCalled();
     expect(tile.subMeshes[0].materialDefines?.isDirty).toBe(true);
+    expect(lod.subMeshes[0].materialDefines?.isDirty).toBe(true);
     expect(other.subMeshes[0].materialDefines?.isDirty).toBe(false);
     iterator.mockRestore();
     texture.getInternalTexture()!.isReady = true;
     await scene.whenReadyAsync();
     scene.render();
     expect(tile.subMeshes[0].materialDefines?.isDirty).toBe(false);
+    expect(lod.subMeshes[0].materialDefines?.isDirty).toBe(false);
     scene.dispose(); engine.dispose();
 });
