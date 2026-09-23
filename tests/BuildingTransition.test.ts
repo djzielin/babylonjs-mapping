@@ -27,6 +27,11 @@ describe("building detail transitions", () => {
         expect(retained?.isDisposed()).toBe(false);
         globe.ourTiles[0].buildingsResolvedKey = globe.ourTiles[0].tileCoords.toString();
         transition.update(300);
+        expect(retained?.isDisposed()).toBe(false);
+        const replacement = MeshBuilder.CreateBox("new buildings", {}, scene);
+        replacement.setParent(globe.ourTiles[0].mesh);
+        globe.ourTiles[0].buildingBatches.push(replacement);
+        transition.update(600);
         expect(retained?.isDisposed()).toBe(true);
         transition.dispose(); scene.dispose(); engine.dispose();
     });

@@ -75,7 +75,8 @@ export class BuildingTransition {
                     }
                 }
                 if (!overlap.length && (!globe.scene.frustumPlanes || old.mesh.isInFrustum(globe.scene.frustumPlanes))) return true;
-                if (!overlap.length || overlap.every(tile => tile.buildingsResolvedKey === tile.tileCoords.toString())) {
+                if (!overlap.length || overlap.every(tile => tile.buildingsResolvedKey === tile.tileCoords.toString()
+                    && (tile.buildingBatches.length > 0 || tile.buildings.length > 0 || !!tile.mergedBuildingMesh))) {
                     old.mesh.dispose();
                     return false;
                 }
