@@ -826,6 +826,33 @@ it("prepares offscreen content without replacing visible models", async () => {
   provider.dispose();scene.dispose();engine.dispose();
 });
 
+it("spreads nearby prefetch across turn directions when one sector has many tiles", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const eye = globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld);
+  const camera = new ArcRotateCamera("look", 0, 1, 1, globe.getSurfacePosition(0, 0.01), scene);
+  camera.setPosition(eye); camera.minZ = 1e-7; camera.getViewMatrix(true); camera.getProjectionMatrix(true);
+  const sphere = (lat: number, lon: number) => {
+    const a = lat * Math.PI / 180, b = lon * Math.PI / 180;
+    return { sphere: [6378137 * Math.cos(a) * Math.cos(b), 6378137 * Math.cos(a) * Math.sin(b), 6378137 * Math.sin(a), 30] };
+  };
+  const requests: string[] = [];
+  const provider = new Google3DTiles(globe, { apiKey: "test", maximumScreenSpaceError: 1,
+    cullToCamera: true, coverageRadius: 10000, maxTiles: 512,
+    tilesetLoader: async () => ({ root: { children: [
+      ...Array.from({ length: 260 }, (_, i) => ({ boundingVolume: sphere(i * 0.000001, -0.01),
+        geometricError: 0, content: { uri: `west-${i}.glb` } })),
+      { boundingVolume: sphere(0.02, -0.01), geometricError: 0, content: { uri: "north.glb" } },
+    ] } }), modelTileLoader: createModelLoader(requests) });
+  try {
+    await provider.load();
+    await provider.prefetchSurroundings();
+    expect(requests).toHaveLength(256);
+    expect(requests.some(url => url.includes("north.glb"))).toBe(true);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("shows a prefetched coarse tile during a turn until its finer replacement is ready", async () => {
   const engine = new NullEngine(), scene = new Scene(engine);
   const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });

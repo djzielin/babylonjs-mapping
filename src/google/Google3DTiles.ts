@@ -544,15 +544,49 @@ export default class Google3DTiles {
         const generation = this.generation;
         const origin = this.getOrigin();
         const selections = new Map<string, TileSelection>();
+        const candidates = new Map<string, TileSelection>();
         const requests: Promise<unknown>[] = [];
-        let models = 0;
         await this.selectFrontier(selections, generation, selection => {
-            if (generation !== this.generation || this.loadedTiles.has(selection.url) || this.retainedTiles.has(selection.url) || models >= 256) return;
+            if (generation !== this.generation || this.loadedTiles.has(selection.url) || this.retainedTiles.has(selection.url)) return;
             const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
             if (this.allowedGeometricError(selection.boundingVolume, transform) >= 0) return;
+            candidates.set(selection.url, selection);
+        }, true);
+        if (generation !== this.generation) return;
+        const eye = this.selectionEye ?? this.cameraEye();
+        const longitude = Math.atan2(eye.y, eye.x);
+        const latitude = Math.atan2(eye.z, Math.hypot(eye.x, eye.y));
+        const east = new Vector3(-Math.sin(longitude), Math.cos(longitude), 0);
+        const north = new Vector3(-Math.sin(latitude) * Math.cos(longitude),
+            -Math.sin(latitude) * Math.sin(longitude), Math.cos(latitude));
+        const sectors: TileSelection[][] = Array.from({ length: 16 }, () => []);
+        const priorities = new Map<TileSelection, number>();
+        for (const selection of candidates.values()) {
+            const volume = selection.boundingVolume;
+            const values = volume?.box ?? volume?.sphere;
+            const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+            let center: Vector3;
+            if (values) center = Vector3.TransformCoordinates(Vector3.FromArray(values), transform);
+            else if (volume?.region) {
+                const [west, south, right, top, low, high] = volume.region;
+                center = geographicToECEF({ latitude: (south + top) / 2 / RADIANS_PER_DEGREE,
+                    longitude: (west + right) / 2 / RADIANS_PER_DEGREE, height: (low + high) / 2 });
+            } else center = eye;
+            const offset = center.subtract(eye);
+            const angle = Math.atan2(Vector3.Dot(offset, east), Vector3.Dot(offset, north));
+            const sector = Math.floor(((angle + Math.PI) / (2 * Math.PI)) * sectors.length) % sectors.length;
+            sectors[sector].push(selection);
+            priorities.set(selection, this.tilePriority(volume, transform, eye));
+        }
+        for (const sector of sectors) sector.sort((a, b) =>
+            priorities.get(a)! - priorities.get(b)!);
+        let models = 0;
+        while (models < 256 && sectors.some(sector => sector.length)) for (const sector of sectors) {
+            const selection = sector.shift();
+            if (!selection || models >= 256) continue;
             models++;
             requests.push(this.loadTile(selection, origin, generation, false).catch(() => undefined));
-        }, true);
+        }
         await Promise.all(requests);
         this.trimRetainedTiles();
     }
