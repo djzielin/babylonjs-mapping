@@ -143,6 +143,7 @@ class GlobeDemo {
     private registeredGoogleRevision = -1;
     private photorealisticActive = false;
     private googleLoading = false;
+    private lastGoogleSelectionAt = 0;
     private googlePrefetchTimer: ReturnType<typeof setTimeout> | undefined;
     private movementKeys = new Set<string>();
     private engineProfile: EngineInstrumentation;
@@ -904,6 +905,9 @@ class GlobeDemo {
                 );
                 for (const tile of this.detailGlobe.ourTiles)
                     this.registerTerrain(tile.mesh, 6);
+                // createGeometry clears raster setup. Restore coordinates in
+                // this callback before Google selection reads the tile window.
+                this.detailGlobe.updateRaster(view.latitude, view.longitude, view.zoom);
                 this.data.invalidate();
             }
             this.updateDistanceLayers(view);
@@ -951,6 +955,16 @@ class GlobeDemo {
             ? `${math.lon_to_tile(view.longitude, view.zoom)}/${math.lat_to_tile(view.latitude, view.zoom)}/${view.zoom}/${quality}/${bearing}/${distanceStep}/${positionKey}` : "";
         if (!force && key === this.googleViewKey) return;
         this.googleViewKey = key;
+        // Let nearby models finish their current request before retargeting a
+        // moving camera. The pending refresh reads the latest position.
+        const selectionAge = performance.now() - this.lastGoogleSelectionAt;
+        if (!force && key && this.googleLoading && selectionAge < 500) {
+            if (!this.googleTimer) this.googleTimer = setTimeout(() => {
+                this.googleTimer = undefined;
+                this.scheduleGoogleTiles(true);
+            }, 500 - selectionAge);
+            return;
+        }
         // Movement may change the selection key every frame. Keep the first
         // imminent refresh and let it use the newest camera instead of
         // repeatedly cancelling it and starving the tile hierarchy.
@@ -992,6 +1006,7 @@ class GlobeDemo {
             const screenError = requestedError === null ? NaN : Number(requestedError);
             provider.maximumScreenSpaceError = Number.isFinite(screenError) && screenError >= 0.5
                 ? screenError : quality === "20" ? 2 : quality === "auto" ? 1 : 0.75;
+            this.lastGoogleSelectionAt = performance.now();
             this.googleLoading = true;
             this.googleStatus("Google 3D · streaming nearby detail…");
             const started = performance.now();
