@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ArcRotateCamera, AssetContainer, Matrix, NullEngine, Scene, TransformNode, Vector2, Vector3 } from "@babylonjs/core";
+import { ArcRotateCamera, AssetContainer, Matrix, NullEngine, RawTexture, Scene, TransformNode, Vector2, Vector3 } from "@babylonjs/core";
 
 import Google3DTiles, {
   GOOGLE_3D_TILES_ROOT_URL,
@@ -118,6 +118,31 @@ describe("parseGoogleGLBMetadata", () => {
 });
 
 describe("Google3DTiles", () => {
+  it("repairs WebGPU model mip levels after the upload frame", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    Object.defineProperty(engine, "isWebGPU", { value: true });
+    const generated: object[] = [];
+    (engine as any)._generateMipmaps = (internal: object) => generated.push(internal);
+    let internal: object | null = null;
+    const provider = new Google3DTiles(tileSet, {
+      apiKey: "test",
+      tilesetLoader: async () => ({ root: { content: { uri: "model.glb" } } }),
+      modelTileLoader: async (_url, scene) => {
+        const asset = new AssetContainer(scene);
+        asset.rootNodes.push(new TransformNode("google-model", scene));
+        const texture = new RawTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, 5, scene, true);
+        internal = texture.getInternalTexture();
+        asset.textures.push(texture);
+        return { asset, attributions: [] };
+      },
+    });
+    await provider.load();
+    expect(generated).toEqual([]);
+    engine.onEndFrameObservable.notifyObservers(engine);
+    expect(generated).toEqual([internal]);
+    provider.dispose(); scene.dispose(); engine.dispose();
+  });
+
   it("reuses model assets and hierarchy when zooming out and back", async () => {
     const { engine, scene, tileSet } = createTileSet();
     const requests: string[] = [];
