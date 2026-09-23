@@ -59,13 +59,8 @@ export declare class GeoJSON {
     private tileSet;
     private scene;
     constructor(tileSet: TileSet, scene: Scene);
-    private computeOffset;
-    /**
-     * Converts a source-coordinate line into a polygon in game coordinates.
-     * Doing the offset after projection makes lineWidth mean the same thing for
-     * EPSG:4326 and EPSG:3857 inputs.
-     */
-    private convertLineToGamePolygon;
+    /** Build bounded road quads so a winding road cannot triangulate across a block. */
+    private createLineSegmentsMesh;
     generateSingleBuilding(shapeType: string, f: feature, epsg: EPSG_Type, tile: Tile, flipWinding: boolean, buildings: Buildings): void;
     private addBuildingLOD;
     private validateBuildingLODOptions;
