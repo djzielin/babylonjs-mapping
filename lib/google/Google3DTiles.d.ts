@@ -199,6 +199,7 @@ export default class Google3DTiles {
     reprioritizeRequests(): void;
     /** Loads content that overlaps the current TileSet. */
     load(): Promise<readonly LoadedGoogle3DTile[]>;
+    private acceptableDisplayQuality;
     private trimVisibleHistory;
     private trimRetainedTiles;
     /** Prepare a bounded surrounding ring after visible loading has finished. */

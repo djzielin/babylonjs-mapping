@@ -423,7 +423,8 @@ export default class Google3DTiles {
         for (const [url, tile] of this.retainedTiles) {
             const selection = this.loadedSelections.get(url);
             if (!selection || residentAncestors.has(url)
-                || selection.ancestors?.some(ancestor => this.loadedTiles.has(ancestor))) continue;
+                || selection.ancestors?.some(ancestor => this.loadedTiles.has(ancestor))
+                || !this.acceptableDisplayQuality(selection)) continue;
             const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
             if (this.allowedGeometricError(selection.boundingVolume, transform) < 0) continue;
             this.retainedTiles.delete(url);
@@ -457,7 +458,8 @@ export default class Google3DTiles {
                 for (const ancestor of [...(selection.ancestors ?? [])].reverse()) {
                     if (residentAncestors.has(ancestor)) continue;
                     const coarse = this.retainedTiles.get(ancestor);
-                    if (!coarse) continue;
+                    const coarseSelection = this.loadedSelections.get(ancestor);
+                    if (!coarse || !coarseSelection || !this.acceptableDisplayQuality(coarseSelection)) continue;
                     this.retainedTiles.delete(ancestor);
                     this.loadedTiles.set(ancestor, coarse);
                     coarse.root.setEnabled(true);
@@ -514,6 +516,11 @@ export default class Google3DTiles {
         this.coverageKey = ""; this.coverageVersion++;
         this.updateAttribution();
         return this.loadedModelTiles;
+    }
+
+    private acceptableDisplayQuality(selection: TileSelection): boolean {
+        return this.maximumDisplayGeometricError === undefined || selection.geometricError === undefined
+            || selection.geometricError <= this.maximumDisplayGeometricError;
     }
 
     private trimVisibleHistory(desired: Map<string, TileSelection>): void {

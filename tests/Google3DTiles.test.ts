@@ -896,6 +896,45 @@ it("shows a prefetched coarse tile during a turn until its finer replacement is 
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
+it("does not promote a prefetched parent above the display quality limit", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const eye = globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld);
+  const camera = new ArcRotateCamera("look", 0, 1, 1, globe.getSurfacePosition(0, 0.01), scene);
+  camera.setPosition(eye); camera.minZ = 1e-7; camera.getViewMatrix(true); camera.getProjectionMatrix(true);
+  const sphere = (lon: number) => { const a = lon * Math.PI / 180; return { sphere: [6378137 * Math.cos(a), 6378137 * Math.sin(a), 0, 100] }; };
+  let releaseFine!: () => void, fineStarted!: () => void;
+  const fineReady = new Promise<void>(resolve => { releaseFine = resolve; });
+  const fineWaiting = new Promise<void>(resolve => { fineStarted = resolve; });
+  const provider = new Google3DTiles(globe, { apiKey: "test", maximumScreenSpaceError: 1,
+    cullToCamera: true, coverageRadius: 10000, maxDepth: 1,
+    tilesetLoader: async () => ({ root: { children: [
+      { boundingVolume: sphere(0.01), geometricError: 0, content: { uri: "front.glb" } },
+      { boundingVolume: sphere(-0.01), geometricError: 128, content: { uri: "behind-coarse.glb" },
+        children: [{ boundingVolume: sphere(-0.01), geometricError: 0, content: { uri: "behind-fine.glb" } }] },
+    ] } }),
+    modelTileLoader: async url => {
+      if (url.includes("behind-fine.glb")) { fineStarted(); await fineReady; }
+      return { asset: new AssetContainer(scene), attributions: [] };
+    },
+  });
+  try {
+    const before = await provider.load();
+    await provider.prefetchSurroundings();
+    expect((provider as any).retainedTiles.size).toBe(1);
+    provider.maximumDisplayGeometricError = 33;
+    provider.maxDepth = 2;
+    camera.setTarget(globe.getSurfacePosition(0, -0.01)); camera.setPosition(eye); camera.getViewMatrix(true);
+    const turning = provider.load();
+    await fineWaiting;
+    expect(provider.loadedModelTiles.some(tile => tile.url.includes("behind-coarse.glb"))).toBe(false);
+    expect(before[0].root.isEnabled()).toBe(true);
+    releaseFine(); await turning;
+    expect(provider.loadedModelTiles.some(tile => tile.url.includes("behind-fine.glb") && tile.root.isEnabled())).toBe(true);
+  } finally { releaseFine(); provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("keeps usable detail across an explicit region even behind the camera", async () => {
   const engine=new NullEngine(),scene=new Scene(engine);
   const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
