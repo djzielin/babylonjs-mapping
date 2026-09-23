@@ -550,8 +550,7 @@ class GlobeDemo {
                     this.layers.add(mesh, 7);
                 };
                 this.roads.buildingMeshFilter = mesh => {
-                    const point = this.detailGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
-                    return !this.googleTiles?.coversLocation(point.latitude, point.longitude);
+                    return !this.roadOverlapsGoogle(mesh);
                 };
             }
             this.data.options.features =
@@ -780,6 +779,18 @@ class GlobeDemo {
         region.lodKey = region.key;
     }
 
+    private roadOverlapsGoogle(mesh: import("@babylonjs/core/Meshes/mesh").Mesh): boolean {
+        if (!this.googleTiles) return false;
+        const bounds = mesh.getBoundingInfo().boundingBox;
+        // A road tile can cross several Google model bounds. Testing only its
+        // center leaves long lines painted over already loaded city imagery.
+        for (const vertex of [bounds.centerWorld, ...bounds.vectorsWorld]) {
+            const point = this.detailGlobe.getSurfaceCoordinates(vertex);
+            if (this.googleTiles.coversLocation(point.latitude, point.longitude)) return true;
+        }
+        return false;
+    }
+
     private refreshBuildingReplacements(): void {
         const models = this.landmarks?.loadedModelTiles.flatMap(tile => tile.asset.meshes) ?? [];
         this.replacements.setModels(models.filter((mesh): mesh is import("@babylonjs/core/Meshes/mesh").Mesh => mesh.isEnabled() && mesh.getTotalVertices() > 0) as import("@babylonjs/core/Meshes/mesh").Mesh[]);
@@ -787,8 +798,7 @@ class GlobeDemo {
         // outside its coverage without repainting red lines over the models.
         if (this.roads) for (const tile of this.detailGlobe.ourTiles)
             for (const mesh of tile.getAllBuildingMeshes()) {
-                const point = this.detailGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
-                mesh.setEnabled(!this.googleTiles?.coversLocation(point.latitude, point.longitude));
+                mesh.setEnabled(!this.roadOverlapsGoogle(mesh));
             }
         for (const entry of [{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]) {
             if (!entry.buildings || entry.globe.zoom < MIN_GLOBE_BUILDING_ZOOM || entry.globe.zoom > 14) continue;
@@ -1001,9 +1011,6 @@ class GlobeDemo {
                 cullToCamera: true,
                 coverageRadius: 3000,
                 heightOffset: -meanSeaLevel(currentView.latitude, currentView.longitude),
-                prepareModelAsset: asset => {
-                    for (const mesh of asset.meshes) this.layers.add(mesh, 7, true);
-                },
             });
             provider.maxDepth = quality === "auto" || quality === "32" ? 64 : Number(quality);
             // Select the area around the viewer first. A city-wide required

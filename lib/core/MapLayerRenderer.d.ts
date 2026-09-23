@@ -14,7 +14,7 @@ export default class MapLayerRenderer {
     private dirty;
     private detach;
     constructor(scene: Scene, maximumLevel?: number, options?: MapLayerRendererOptions);
-    add(mesh: AbstractMesh, level: number, unrendered?: boolean): void;
+    add(mesh: AbstractMesh, level: number): void;
     private configure;
     private configureMaterial;
     dispose(): void;

@@ -119,8 +119,6 @@ export interface Google3DTilesOptions {
     tilesetLoader?: GoogleTilesetLoader;
     /** Injectable GLB loader for tests or a custom Babylon loader. */
     modelTileLoader?: GoogleModelTileLoader;
-    /** Configure detached GLB meshes before they enter the live scene. */
-    prepareModelAsset?: (asset: AssetContainer) => void;
 }
 
 export interface LoadedGoogle3DTile {
@@ -195,7 +193,6 @@ export default class Google3DTiles {
 
     private readonly tilesetLoader: GoogleTilesetLoader;
     private readonly modelTileLoader: GoogleModelTileLoader;
-    private readonly prepareModelAsset?: (asset: AssetContainer) => void;
     private rootTileset: Google3DTileset | undefined;
     private rootRequestKey = "";
     private session: string | undefined;
@@ -261,7 +258,6 @@ export default class Google3DTiles {
         this.apiKey = options.apiKey ?? "";
         this.tilesetLoader = options.tilesetLoader ?? defaultTilesetLoader;
         this.modelTileLoader = options.modelTileLoader ?? defaultModelTileLoader;
-        this.prepareModelAsset = options.prepareModelAsset;
     }
 
     /** Content currently attached to the Babylon scene. */
@@ -1152,7 +1148,6 @@ export default class Google3DTiles {
                 texture.anisotropicFilteringLevel = this.tileSet.scene.getEngine().getCaps().maxAnisotropy;
                 if (texture instanceof Texture) texture.updateSamplingMode(Texture.TRILINEAR_SAMPLINGMODE);
             }
-            this.prepareModelAsset?.(model.asset);
             model.asset.addAllToScene();
             for (const node of model.asset.rootNodes) {
                 node.parent = root;

@@ -26,7 +26,7 @@ export default class MapLayerRenderer {
             this.dirty.clear();
         });
     }
-    public add(mesh: AbstractMesh, level: number, unrendered = false): void {
+    public add(mesh: AbstractMesh, level: number): void {
         if (!Number.isInteger(level) || level < 0 || level > this.maximumLevel) throw new RangeError("Invalid map layer level");
         if (!this.meshes.has(mesh)) {
             const material = mesh.onMaterialChangedObservable.add(() => this.dirty.add(mesh));
@@ -42,28 +42,20 @@ export default class MapLayerRenderer {
             });
         }
         this.meshes.set(mesh, level);
-        if (unrendered) {
-            // Detached model assets have no compiled shaders to invalidate.
-            // Babylon otherwise scans every mesh in the scene for each new
-            // material while setting logarithmic depth.
-            const blocked = this.scene.blockMaterialDirtyMechanism;
-            this.scene.blockMaterialDirtyMechanism = true;
-            try { this.configure(mesh, level, true); }
-            finally { this.scene.blockMaterialDirtyMechanism = blocked; }
-        } else this.configure(mesh, level);
+        this.configure(mesh, level);
     }
-    private configure(mesh: AbstractMesh, level: number, unrendered = false): void {
+    private configure(mesh: AbstractMesh, level: number): void {
         mesh.renderingGroupId = this.maximumLevel - level;
-        if (mesh.material) this.configureMaterial(mesh.material, level, unrendered);
+        if (mesh.material) this.configureMaterial(mesh.material, level);
     }
-    private configureMaterial(material: Material, level: number, unrendered = false): void {
+    private configureMaterial(material: Material, level: number): void {
         // glTF assets can use MultiMaterial: configure the actual submaterials
         // as well, otherwise they write a different depth encoding.
         const children = (material as Material & { subMaterials?: (Material | null)[] }).subMaterials;
-        if (children) for (const child of children) if (child) this.configureMaterial(child, level, unrendered);
+        if (children) for (const child of children) if (child) this.configureMaterial(child, level);
         if (this.options.logarithmicDepth && this.scene.getEngine().getCaps().fragmentDepthSupported && !material.useLogarithmicDepth) {
             material.useLogarithmicDepth = true;
-            if (material.isFrozen && !unrendered) material.markDirty(true);
+            if (material.isFrozen) material.markDirty(true);
         }
         material.stencil.enabled = true;
         material.stencil.func = Constants.GEQUAL;
