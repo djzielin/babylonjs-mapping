@@ -20,6 +20,7 @@ export interface TerrainRGBOptions {
 /** Numeric DEM streaming, including negative ocean depths. No GPU readback. */
 export default class TerrainRGB {
     private cache = new Map<string, ElevationGrid>();
+    private cropped = new Map<string, ElevationGrid>();
     private pending = new Map<string, Promise<ElevationGrid>>();
     private url: string;
     private encoding: "terrarium" | "mapbox";
@@ -85,6 +86,14 @@ export default class TerrainRGB {
         return { data, width: size, height: size };
     }
     public load: ElevationLoader = async (coords, signal) => {
+        signal.throwIfAborted();
+        const childKey = `${coords.z}/${coords.x}/${coords.y}`;
+        const reused = this.cropped.get(childKey);
+        if (reused) {
+            this.cropped.delete(childKey);
+            this.cropped.set(childKey, reused);
+            return reused;
+        }
         const z = Math.min(coords.z, this.maxZoom),
             factor = 2 ** (coords.z - z),
             n = 2 ** z;
@@ -115,7 +124,13 @@ export default class TerrainRGB {
         this.cache.set(url, grid);
         while (this.cache.size > this.cacheSize)
             this.cache.delete(this.cache.keys().next().value!);
-        return TerrainRGB.crop(grid, coords, z);
+        const cropped = TerrainRGB.crop(grid, coords, z);
+        if (this.cacheSize) {
+            this.cropped.set(childKey, cropped);
+            while (this.cropped.size > this.cacheSize * 8)
+                this.cropped.delete(this.cropped.keys().next().value!);
+        }
+        return cropped;
     };
     private async fetchGrid(url: string): Promise<ElevationGrid> {
         const response = await fetch(url);
@@ -136,5 +151,6 @@ export default class TerrainRGB {
     }
     public clearCache(): void {
         this.cache.clear();
+        this.cropped.clear();
     }
 }

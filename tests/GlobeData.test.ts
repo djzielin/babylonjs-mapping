@@ -520,6 +520,7 @@ it("parks a completed detail queue and wakes it when the globe moves", async () 
 
 it("coalesces overzoom DEM requests without one caller cancelling its neighbours", async () => {
     const terrain = new TerrainRGB({ maxZoom: 0 });
+    const crop = vi.spyOn(TerrainRGB, "crop");
     let resolve!: (grid: ElevationGrid) => void;
     const fetchGrid = vi.spyOn(terrain as any, "fetchGrid").mockImplementation(() => new Promise<ElevationGrid>(done => { resolve = done; }));
     const cancelled = new AbortController();
@@ -528,9 +529,13 @@ it("coalesces overzoom DEM requests without one caller cancelling its neighbours
     cancelled.abort();
     resolve({ data: [0, 1, 2, 3], width: 2, height: 2 });
     await expect(first).rejects.toThrow();
-    expect((await second).data[0]).toBe(1);
+    const child = await second;
+    expect(child.data[0]).toBe(1);
+    expect(await terrain.load(new Vector3(1, 0, 1), new AbortController().signal)).toBe(child);
     await terrain.load(new Vector3(0, 0, 1), new AbortController().signal);
     expect(fetchGrid).toHaveBeenCalledTimes(1);
+    expect(crop).toHaveBeenCalledTimes(2);
+    crop.mockRestore();
 });
 
 

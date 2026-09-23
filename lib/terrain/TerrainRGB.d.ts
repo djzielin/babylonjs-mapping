@@ -14,6 +14,7 @@ export interface TerrainRGBOptions {
 /** Numeric DEM streaming, including negative ocean depths. No GPU readback. */
 export default class TerrainRGB {
     private cache;
+    private cropped;
     private pending;
     private url;
     private encoding;
