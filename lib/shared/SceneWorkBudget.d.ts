@@ -12,7 +12,7 @@ export declare class SceneWorkBudget {
     private disposed;
     private fallback?;
     constructor(scene: Scene, milliseconds?: number);
-    checkpoint(priority: () => number): Promise<void> | undefined;
+    checkpoint(priority: () => number, urgency?: number): Promise<void> | undefined;
     private scheduleFallback;
     private nextSlice;
     private drain;

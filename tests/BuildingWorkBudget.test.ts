@@ -51,3 +51,21 @@ it("keeps stable priorities until the eye moves, then prioritizes the new neares
     scene.onDisposeObservable.notifyObservers(scene);
     clock.mockRestore();
 });
+
+it("runs urgent Google preparation ahead of nearer background building work", async () => {
+    let now = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const scene = { onAfterRenderObservable: new Observable(), onDisposeObservable: new Observable() } as unknown as Scene;
+    const budget = new SceneWorkBudget(scene, 1);
+    const order: string[] = [];
+    const building = budget.checkpoint(() => 1)!.then(() => { order.push("building"); now += 2; });
+    const google = budget.checkpoint(() => 1000, 0)!.then(() => { order.push("google"); now += 2; });
+    scene.onAfterRenderObservable.notifyObservers(scene);
+    await google;
+    expect(order).toEqual(["google"]);
+    scene.onAfterRenderObservable.notifyObservers(scene);
+    await building;
+    expect(order).toEqual(["google", "building"]);
+    scene.onDisposeObservable.notifyObservers(scene);
+    clock.mockRestore();
+});

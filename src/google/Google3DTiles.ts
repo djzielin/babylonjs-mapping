@@ -862,7 +862,7 @@ export default class Google3DTiles {
             if (generation !== this.generation || depth > this.maxDepth) return [];
             const transform = getTileTransform(tile)?.multiply(parentTransform) ?? parentTransform;
             if (!boundingVolumeIntersects(tile.boundingVolume, bounds, transform)) return [];
-            const pause = workBudget.checkpoint(() => this.tilePriority(tile.boundingVolume, transform));
+            const pause = workBudget.checkpoint(() => this.tilePriority(tile.boundingVolume, transform), 0);
             if (pause) await pause;
             if (generation !== this.generation) return [];
             let allowed = this.allowedGeometricError(tile.boundingVolume, transform, surroundings);
