@@ -233,9 +233,9 @@ export default abstract class Buildings {
 
     /** Applies the current material optimization setting. */
     public applyOptimizationOptions(): void {
-        if (this.optimizationOptions.freezeMaterials) {
+        if (this.optimizationOptions.freezeMaterials && !this.buildingMaterial.isFrozen) {
             this.buildingMaterial.freeze();
-        } else {
+        } else if (!this.optimizationOptions.freezeMaterials && this.buildingMaterial.isFrozen) {
             this.buildingMaterial.unfreeze();
         }
     }
@@ -786,7 +786,8 @@ export default abstract class Buildings {
                         this.applyBuildingMeshOptions(merged);
                         // MergeMeshes may create a new material even when the
                         // source material was already frozen.
-                        if (this.optimizationOptions.freezeMaterials) merged.material?.freeze();
+                        if (this.optimizationOptions.freezeMaterials && merged.material && !merged.material.isFrozen)
+                            merged.material.freeze();
 
                         request.tile.mergedBuildingMesh = merged;
                     } else {

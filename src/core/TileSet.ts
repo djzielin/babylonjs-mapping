@@ -187,9 +187,9 @@ export default class TileSet {
             }
 
             if (tile.material) {
-                if (this.optimizationOptions.freezeRasterMaterials) {
+                if (this.optimizationOptions.freezeRasterMaterials && !tile.material.isFrozen) {
                     tile.material.freeze();
-                } else {
+                } else if (!this.optimizationOptions.freezeRasterMaterials && tile.material.isFrozen) {
                     tile.material.unfreeze();
                 }
             }
@@ -340,7 +340,7 @@ export default class TileSet {
                     debugLog(() => [this.prettyName() + "tile raster is ready: " + request.tileCoords]);
 
                     const material = request.mesh.material as StandardMaterial;
-                    material.unfreeze();
+                    if (material.isFrozen) material.unfreeze();
 
                     material.diffuseTexture = request.texture;
                     material.diffuseTexture.anisotropicFilteringLevel = this.engine.getCaps().maxAnisotropy;
@@ -348,10 +348,8 @@ export default class TileSet {
                     material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
                     material.diffuseTexture.hasAlpha = this.hasAlpha;
 
-                    if (this.optimizationOptions.freezeRasterMaterials) {
+                    if (this.optimizationOptions.freezeRasterMaterials && !material.isFrozen) {
                         material.freeze();
-                    } else {
-                        material.unfreeze();
                     }
 
                     request.mesh.setEnabled(this.isTileGeometryReady(request.tile)); //show ready geometry
@@ -527,7 +525,7 @@ export default class TileSet {
 
     if (tile.material) {
         material = tile.material;
-        material.unfreeze();
+        if (material.isFrozen) material.unfreeze();
 
         const texture = material.diffuseTexture;
 
