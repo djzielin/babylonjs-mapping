@@ -30,7 +30,15 @@ export class TerrainTransition {
             const source = tile.mesh;
             const original = source.material as StandardMaterial;
             if (!tile.terrainLoaded || !original?.diffuseTexture?.isReady()) continue;
-            const material = original.clone("previous terrain");
+            // The clone has never been drawn, so its setters have no existing
+            // draw wrappers to invalidate. Babylon otherwise scans every mesh
+            // in the scene for each copied material property.
+            const scene = globe.scene as typeof globe.scene & { _forceBlockMaterialDirtyMechanism(value: boolean): void };
+            const wasBlocked = scene.blockMaterialDirtyMechanism;
+            scene._forceBlockMaterialDirtyMechanism(true);
+            let material: StandardMaterial;
+            try { material = original.clone("previous terrain"); }
+            finally { scene._forceBlockMaterialDirtyMechanism(wasBlocked); }
             // Current terrain draws first. Older data fills only uncovered pixels.
             material.stencil.func = Constants.GREATER;
             const mesh = source.clone("previous terrain", null, true)!;
@@ -41,7 +49,9 @@ export class TerrainTransition {
             mesh.setEnabled(true);
             mesh.isPickable = false;
             mesh.freezeWorldMatrix(source.computeWorldMatrix(true).clone());
-            material.freeze();
+            // freeze() does another whole-scene markDirty scan. A fresh clone
+            // has no cached ready state, so setting its frozen flag is enough.
+            material.checkReadyOnlyOnce = true;
             retained.push({ mesh, material, coordinate: tile.tileCoords.clone() });
             retainedCoordinates.add(coordinateKey);
         }

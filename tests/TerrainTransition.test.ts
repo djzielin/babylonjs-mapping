@@ -13,6 +13,9 @@ it('retains independent terrain geometry until matching replacement imagery and 
  const transition=new TerrainTransition();transition.capture(globe as any,16);
  const snapshot=scene.meshes.find(mesh=>mesh.name==='previous terrain')!;
  expect(snapshot).toBeDefined();expect(snapshot.geometry).not.toBe(tile.mesh.geometry);
+ expect(snapshot.material).not.toBe(material);
+ expect(snapshot.material?.isFrozen).toBe(true);
+ expect(scene.blockMaterialDirtyMechanism).toBe(false);
  const positions=Array.from(snapshot.getVerticesData(VertexBuffer.PositionKind)!);
  globe.updateRaster(0,0,16);tile.terrainLoaded=false;
  transition.update(1000);expect(snapshot.isDisposed()).toBe(false);

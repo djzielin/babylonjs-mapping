@@ -735,7 +735,10 @@ class GlobeDemo {
                     mesh.setEnabled(!this.googleCoversLocation(location.latitude, location.longitude));
                     this.layers.add(mesh, 7);
                     mesh.freezeWorldMatrix();
-                    mesh.material?.freeze();
+                    // These newly loaded landmark materials have no stale draw
+                    // bindings. freeze() scans every mesh in the city, once per
+                    // landmark, and can stall camera movement for hundreds of ms.
+                    if (mesh.material) mesh.material.checkReadyOnlyOnce = true;
                     mesh.isPickable = false;
                 }
             this.refreshBuildingReplacements();
