@@ -163,7 +163,7 @@ export class DrawSnapshotCache {
                     this.culling.set(mesh, cull);
                 }
                 cull.view = this.viewRevision; cull.world = world; cull.position = position;
-                cull.expanded = expanded; cull.visible = mesh.isInFrustum(scene.frustumPlanes);
+                cull.expanded = expanded; cull.visible = expanded && mesh.isInFrustum(scene.frustumPlanes);
             }
             const recorded = this.recorded.get(mesh);
             if (!cull.expanded && !recorded) continue;
