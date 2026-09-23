@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,">
+  <title>New York traffic · Babylon.js Mapping</title>
+  <style>
+    :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#e9f2f6;background:#08151d}
+    *{box-sizing:border-box} body{margin:0} #renderCanvas{width:100vw;height:100vh;display:block;touch-action:none}
+    .panel{position:absolute;top:16px;left:16px;width:230px;padding:14px;border:1px solid #ffffff30;border-radius:10px;background:#0a1a23ee}
+    h1{font-size:18px;line-height:1.2;margin:0 0 12px}
+    .controls{display:flex;gap:6px;margin-bottom:10px}.controls button{flex:1;border:1px solid #54717e;border-radius:6px;background:transparent;color:#dcebf0;padding:7px 0;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600}.controls button.active{background:#99e5d9;color:#102531;border-color:#99e5d9}
+    .feed{display:grid;grid-template-columns:8px 1fr auto;gap:9px;align-items:center;padding:7px 0;font-size:13px}.swatch{height:8px;width:8px;border-radius:50%}.road{background:#e9b967}.air{background:#8dd4ff}.ship{background:#b89bff}
+    .feed b{font-size:13px;font-variant-numeric:tabular-nums}#status{border-top:1px solid #ffffff25;color:#a6bac4;font-size:11px;line-height:1.35;margin-top:8px;padding-top:9px}
+    @media(max-width:600px){.panel{top:10px;left:10px}}
+  </style>
+</head>
+<body>
+<canvas id="renderCanvas" aria-label="Interactive map of New York traffic"></canvas>
+<section class="panel" aria-label="Traffic controls">
+  <h1>New York traffic</h1>
+  <div class="controls" role="group" aria-label="Data mode"><button id="sample" class="active" aria-pressed="true">Sample</button><button id="live" aria-pressed="false">Live</button></div>
+  <div class="feed" title="NYC DOT road link speeds"><span class="swatch road"></span><span>Roads</span><b id="road-count">0</b></div>
+  <div class="feed" title="OpenSky aircraft positions"><span class="swatch air"></span><span>Aircraft</span><b id="air-count">0</b></div>
+  <div class="feed" title="AISStream vessel positions"><span class="swatch ship"></span><span>Ships</span><b id="ship-count">0</b></div>
+  <div id="status" role="status">Sample data</div>
+</section>
+<script src="/app.js"></script>
+</body></html>

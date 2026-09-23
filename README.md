@@ -73,6 +73,9 @@ provider.
 | Google Photorealistic 3D Tiles | `Google3DTiles` | Google Maps Platform API key with Map Tiles API access |
 | Spherical raster maps | `GlobeSet` and `GlobeNavigator` | Any supported raster provider |
 | Mapbox terrain | `TerrainMB` through `TileSet` | Mapbox access token |
+| NYC road traffic speeds | `fetchNYCRoadSpeeds` | None; measured road links, not car positions |
+| OpenSky aircraft positions | `fetchOpenSkyAircraft` | Anonymous access or OAuth2 client credentials |
+| AISStream ship positions | `aisStreamSubscription` and `parseAISStreamPosition` | Server-side AISStream API key and WebSocket connection |
 
 External services retain their own usage terms, attribution requirements,
 rate limits, and CORS policies. Keep API tokens out of source control and
@@ -306,6 +309,7 @@ Runnable applications are under [`examples-npm`](examples-npm):
 - [Mapbox terrain](examples-npm/mapbox-terrain)
 - [GEBCO bathymetry](examples-npm/gebco-bathymetry)
 - [Globe navigation](examples-npm/globe-mode)
+- [New York traffic, aircraft, and ships](examples-local/live-traffic)
 
 Each example has its own README and npm scripts. A typical example can be run
 with:

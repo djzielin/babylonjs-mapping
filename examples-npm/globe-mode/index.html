@@ -126,6 +126,9 @@
                     </form>
                     <label class="field">Mapbox token<input id="mapboxToken" type="password" placeholder="pk.…" autocomplete="off"></label>
                     <label class="toggle"><input id="roads" type="checkbox">Roads (Mapbox)</label>
+                    <label class="toggle"><input id="trafficFeeds" type="checkbox">NYC traffic, aircraft &amp; ships</label>
+                    <label class="field">Traffic API URL<input id="trafficApi" type="url" value="http://127.0.0.1:4173/api/traffic" spellcheck="false"></label>
+                    <p id="trafficStatus" role="status">Traffic feeds off</p>
                     <label class="toggle"><input id="landmarks" type="checkbox" checked>Landmarks (Mapbox)</label>
                     <label class="field">Import GeoJSON<input id="geojson" type="file" accept=".json,.geojson"></label>
                     <button id="retry" type="button">Reload data</button>
