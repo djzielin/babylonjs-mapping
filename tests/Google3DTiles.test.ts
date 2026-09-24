@@ -956,6 +956,31 @@ it("keeps usable detail across an explicit region even behind the camera", async
   provider.dispose();scene.dispose();engine.dispose();
 });
 
+it("refines a tile that meets screen-space error but exceeds the display quality limit", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const eye = globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld);
+  const camera = new ArcRotateCamera("look", 0, 1, 1, globe.getSurfacePosition(0, 0.01), scene);
+  camera.setPosition(eye); camera.minZ = 1e-7; camera.getViewMatrix(true); camera.getProjectionMatrix(true);
+  const a = 0.01 * Math.PI / 180;
+  const volume = { sphere: [6378137 * Math.cos(a), 6378137 * Math.sin(a), 0, 100] };
+  const requests: string[] = [];
+  const provider = new Google3DTiles(globe, { apiKey: "test", maximumScreenSpaceError: 10000,
+    maximumDisplayGeometricError: 33, coverageRadius: 10000,
+    tilesetLoader: async () => ({ root: { children: [
+      { boundingVolume: volume, geometricError: 128, content: { uri: "coarse.glb" },
+        children: [{ boundingVolume: volume, geometricError: 16, content: { uri: "fine.glb" } }] },
+    ] } }), modelTileLoader: createModelLoader(requests),
+  });
+  try {
+    expect(128 / (provider as any).allowedGeometricError(volume, Matrix.Identity())).toBeLessThan(1);
+    const loaded = await provider.load();
+    expect(loaded.map(tile => tile.url)).toEqual([expect.stringContaining("fine.glb")]);
+    expect(requests.some(url => url.includes("coarse.glb"))).toBe(false);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("bounds offscreen history without evicting the current view", () => {
   const {engine,scene,tileSet}=createTileSet();
   const provider=new Google3DTiles(tileSet,{maxTiles:1});

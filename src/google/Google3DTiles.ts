@@ -984,7 +984,8 @@ export default class Google3DTiles {
             if (coverage !== preferCoverage) { preferCoverage = coverage; queue.rebuild(); }
             while (queue.length && pending.size < 16) {
                 const node = queue.shift()!;
-                if (node.priority <= 1) { settle(node); continue; }
+                // A tile that meets SSE may still be too coarse to display.
+                if (node.priority <= 1 && renderable(node)) { settle(node); continue; }
                 pending.set(node, children(node).then(next => ({ node, next }), () => ({ node, next: undefined })));
             }
             flushReplacements();
