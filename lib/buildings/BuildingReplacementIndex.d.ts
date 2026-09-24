@@ -7,4 +7,5 @@ export default class BuildingReplacementIndex {
     private build;
     keepFootprint(mesh: Mesh, up?: Vector3, rayLength?: number): boolean;
     keepPoint(center: Vector3, up?: Vector3, rayLength?: number): boolean;
+    private intersectsGeometry;
 }

@@ -19,6 +19,8 @@ class Google3DTilesDemo {
     private readonly camera: ArcRotateCamera;
     private readonly tileSet: TileSet;
     private googleTiles: Google3DTiles | undefined;
+    private loadedLocation = "";
+    private loadGeneration = 0;
     private apiKey = "";
 
     public constructor() {
@@ -35,8 +37,9 @@ class Google3DTilesDemo {
         this.camera.attachControl(this.canvas, true);
         this.camera.lowerRadiusLimit = 15;
         this.camera.upperRadiusLimit = 900;
-        this.camera.wheelPrecision = 22;
-        this.camera.panningSensibility = 0;
+        this.camera.wheelDeltaPercentage = 0.03;
+        this.camera.panningSensibility = 150;
+        this.camera.inertia = 0;
 
         const light = new HemisphericLight("ambient light", new Vector3(0.2, 1, -0.4), this.scene);
         light.intensity = 1.15;
@@ -56,6 +59,8 @@ class Google3DTilesDemo {
         });
 
         document.getElementById("resetView")!.addEventListener("click", () => this.resetView());
+        document.getElementById("zoomIn")!.addEventListener("click", () => { this.camera.radius *= 0.8; });
+        document.getElementById("zoomOut")!.addEventListener("click", () => { this.camera.radius *= 1.25; });
 
         this.engine.runRenderLoop(() => this.scene.render());
         window.addEventListener("resize", () => this.engine.resize());
@@ -84,6 +89,8 @@ class Google3DTilesDemo {
 
     private setLocation(): void {
         const [latitude, longitude] = this.locationInput.value.split(",").map(Number);
+        (document.getElementById("compareEarth") as HTMLAnchorElement).href =
+            `https://earth.google.com/web/search/${latitude},${longitude}/`;
         this.tileSet.updateRaster(latitude, longitude, Number(this.locationInput.selectedOptions[0].dataset.zoom ?? 17));
         this.resetView();
     }
@@ -104,9 +111,14 @@ class Google3DTilesDemo {
             return;
         }
 
-        for (const tile of this.tileSet.ourTiles) tile.mesh.isVisible = true;
-        this.tileSet.ourAttribution.advancedTexture.rootContainer.isVisible = true;
-        document.getElementById("attribution")!.hidden = true;
+        const location = this.locationInput.value;
+        const changedLocation = location !== this.loadedLocation;
+        const generation = ++this.loadGeneration;
+        if (changedLocation) {
+            for (const tile of this.tileSet.ourTiles) tile.mesh.isVisible = true;
+            this.tileSet.ourAttribution.advancedTexture.rootContainer.isVisible = true;
+            document.getElementById("attribution")!.hidden = true;
+        }
         this.loadButton.disabled = true;
         this.locationInput.disabled = true;
         this.qualityInput.disabled = true;
@@ -114,15 +126,29 @@ class Google3DTilesDemo {
         this.canvas.dataset.loadedTiles = "0";
 
         try {
-            this.googleTiles?.dispose();
-            this.setLocation();
-            this.googleTiles = new Google3DTiles(this.tileSet, {
-                apiKey: this.apiKey,
-                maxDepth: Number(this.qualityInput.value),
-                maxTiles: 512,
-            });
-
-            const loaded = await this.googleTiles.load();
+            if (changedLocation) {
+                this.googleTiles?.dispose();
+                this.setLocation();
+                this.loadedLocation = location;
+                this.googleTiles = new Google3DTiles(this.tileSet, {
+                    apiKey: this.apiKey,
+                    maxDepth: Math.min(18, Number(this.qualityInput.value)),
+                    maxTiles: 512,
+                });
+            }
+            const provider = this.googleTiles!;
+            const targetDepth = Number(this.qualityInput.value);
+            if (changedLocation && targetDepth > 18) {
+                const overview = await provider.load();
+                if (generation !== this.loadGeneration) return;
+                if (overview.length) {
+                    for (const tile of this.tileSet.ourTiles) tile.mesh.isVisible = false;
+                    this.setStatus("loading", `${overview.length} overview tiles visible · refining detail…`);
+                }
+            }
+            provider.maxDepth = targetDepth;
+            const loaded = await provider.load();
+            if (generation !== this.loadGeneration) return;
             this.canvas.dataset.loadedTiles = String(loaded.length);
 
             if (loaded.length === 0) {
@@ -133,7 +159,7 @@ class Google3DTilesDemo {
             // Google terrain uses ellipsoid heights, which can be below the
             // flat raster plane. Hide that plane so it cannot cut through models.
             for (const tile of this.tileSet.ourTiles) tile.mesh.isVisible = false;
-            const attributions = this.googleTiles.getAttributions();
+            const attributions = provider.getAttributions();
             const sourceCount = attributions.length;
             document.getElementById("dataCredits")!.textContent = attributions.join("; ");
             document.getElementById("attribution")!.hidden = false;
@@ -141,7 +167,7 @@ class Google3DTilesDemo {
             this.setStatus(
                 "ready",
                 `${loaded.length} model tiles loaded${sourceCount ? ` · ${sourceCount} credited data source${sourceCount === 1 ? "" : "s"}` : ""}.`
-                    + (loaded.length >= this.googleTiles.maxTiles ? " Tile limit reached; lower detail for wider coverage." : ""),
+                    + (loaded.length >= provider.maxTiles ? " Tile limit reached; lower detail for wider coverage." : ""),
             );
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);

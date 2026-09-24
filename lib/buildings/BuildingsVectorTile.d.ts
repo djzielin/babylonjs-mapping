@@ -20,6 +20,8 @@ export type VectorTileDecoder = (data: ArrayBuffer) => VectorTile;
  */
 export default class BuildingsVectorTile extends Buildings {
     accessToken: string;
+    /** Group adjacent line features into bounded extrusion jobs. One preserves feature metadata. */
+    maxLinesPerFeature: number;
     /** Native source zoom used for detail overzoom. Override for custom services. */
     maxSourceZoom: number;
     sourceLayers: string[];

@@ -339,15 +339,17 @@ export default class GlobeSet extends TileSet {
             exaggeration < 0
         )
             throw new RangeError("Invalid elevation grid");
-        const dem = Array.from(data);
-        if (
-            dem.some(
-                (v) =>
-                    !Number.isFinite(v) ||
-                    this.radius + v * this.metresToWorld * exaggeration <= 0,
-            )
-        )
-            throw new RangeError("Invalid elevation sample");
+        // TerrainRGB already supplies Float32 samples. Retain that precision
+        // without expanding every source sample into a boxed JS array. Other
+        // callers keep their original double precision.
+        const dem = data instanceof Float32Array ? new Float32Array(data) : new Float64Array(data);
+        let minimum = Infinity, maximum = -Infinity;
+        for (const value of dem) {
+            if (!Number.isFinite(value) || this.radius + value * this.metresToWorld * exaggeration <= 0)
+                throw new RangeError("Invalid elevation sample");
+            minimum = Math.min(minimum, value);
+            maximum = Math.max(maximum, value);
+        }
         tile.dem = dem;
         tile.demDimensions = new Vector2(width, height);
         const heights: number[] = [];
@@ -370,8 +372,8 @@ export default class GlobeSet extends TileSet {
                     (a * (1 - ty) + b * ty) * this.metresToWorld * exaggeration,
                 );
             }
-        tile.minHeight = dem.reduce((a, b) => Math.min(a, b), Infinity);
-        tile.maxHeight = dem.reduce((a, b) => Math.max(a, b), -Infinity);
+        tile.minHeight = minimum;
+        tile.maxHeight = maximum;
         this.originalElevations.set(tile, { key: tile.tileCoords.toString(), heights: heights.slice() });
         tile.elevationHeights = heights;
         tile.terrainLoaded = true;
@@ -383,7 +385,17 @@ export default class GlobeSet extends TileSet {
         const p = this.meshPrecision, n = p + 1, world = 2 ** this.zoom * p;
         const groups = new Map<string, { tile: Tile; index: number; height: number }[]>();
         const dirty = new Set<Tile>([changed]);
-        for (const tile of this.ourTiles) {
+        // A new DEM only changes seams touching this tile. Look up the eight
+        // neighbours instead of scanning the entire overlapping LOD window.
+        const neighbours = new Set<Tile>([changed]);
+        const coordinate = changed.tileCoords;
+        const tileCount = 2 ** this.zoom;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++)
+            for (const wrap of [-tileCount, 0, tileCount]) {
+                const tile = this.ourTilesMap.get(new Vector3(coordinate.x + dx + wrap, coordinate.y + dy, coordinate.z).toString());
+                if (tile) neighbours.add(tile);
+            }
+        for (const tile of neighbours) {
             const original = this.originalElevations.get(tile);
             if (!tile.terrainLoaded || !original || original.key !== tile.tileCoords.toString() || original.heights.length !== n * n) continue;
             for (let y = 0; y <= p; y++) for (let x = 0; x <= p; x++) {
@@ -447,7 +459,9 @@ export default class GlobeSet extends TileSet {
                     positions.push(point.x, point.y, point.z);
                 }
             }
-        if (mesh === tile.mesh) {
+        // The spherical tile geometry already has this topology. Elevation
+        // changes positions and normals, but never its triangles or UVs.
+        if (mesh === tile.mesh && (!mesh.getIndices() || mesh.getTotalVertices() !== (precision + 1) ** 2)) {
             const n = precision + 1;
             const indices: number[] = [],
                 uvs: number[] = [];
@@ -473,7 +487,8 @@ export default class GlobeSet extends TileSet {
         const normals: number[] = [];
         VertexData.ComputeNormals(positions, mesh.getIndices()!, normals);
         mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
-        mesh.refreshBoundingInfo();
+        if (!mesh.getBoundingInfo().isLocked)
+            mesh._refreshBoundingInfo(positions, mesh.geometry?.boundingBias ?? null);
     }
 
     /** Warp already-extruded feature vertices and their LOD meshes once, at load time. */
@@ -516,7 +531,8 @@ export default class GlobeSet extends TileSet {
         VertexData.ComputeNormals(projected, mesh.getIndices()!, normals);
         mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
         mesh.computeWorldMatrix(true);
-        mesh.refreshBoundingInfo();
+        if (!mesh.getBoundingInfo().isLocked)
+            mesh._refreshBoundingInfo(projected, mesh.geometry?.boundingBias ?? null);
         // A radial detailed mesh must not switch to a planar billboard.
         for (const lod of [...mesh.getLODLevels()]) {
             mesh.removeLODLevel(lod.mesh);
@@ -534,7 +550,12 @@ export default class GlobeSet extends TileSet {
             `${((Math.floor(x) % n) + n) % n}/${Math.floor(y)}`,
         );
         if (!tile?.elevationHeights) return 0;
-        const p = this.meshPrecision,
+        const h = tile.elevationHeights;
+        // Geometry precision can change while a resident tile still carries
+        // the previous grid. Sample that grid until its replacement arrives.
+        const p = Math.sqrt(h.length) - 1;
+        if (!Number.isInteger(p) || p < 1) return 0;
+        const
             sx = (x - Math.floor(x)) * p,
             sy = (y - Math.floor(y)) * p;
         const x0 = Math.floor(sx),
@@ -542,8 +563,7 @@ export default class GlobeSet extends TileSet {
             x1 = Math.min(x0 + 1, p),
             y1 = Math.min(y0 + 1, p),
             tx = sx - x0,
-            ty = sy - y0,
-            h = tile.elevationHeights;
+            ty = sy - y0;
         return (
             (h[y0 * (p + 1) + x0] * (1 - tx) + h[y0 * (p + 1) + x1] * tx) *
                 (1 - ty) +

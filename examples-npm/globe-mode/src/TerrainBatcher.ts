@@ -13,6 +13,9 @@ import { Vector3, Matrix } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 import { Engine } from "@babylonjs/core/Engines/engine";
 
+/** Match Babylon's current StandardMaterial diffuse lookup before GLSL preprocessing. */
+export const WEBGL_TILE_DIFFUSE_SAMPLE = "!TEXRD\\(diffuseSampler,vDiffuseUV\\+uvOffset\\)";
+
 class TileTextureArray extends MaterialPluginBase {
     constructor(material: StandardMaterial, private texture: RawTexture2DArray) {
         super(material, "TileTextureArray", 200, {}, true, true);
@@ -34,7 +37,7 @@ class TileTextureArray extends MaterialPluginBase {
             CUSTOM_VERTEX_MAIN_END: "vTileLayer = tileLayer;",
         } : {
             CUSTOM_FRAGMENT_DEFINITIONS: "uniform highp sampler2DArray tileTextures; varying float vTileLayer;",
-            "!texture2D\\(diffuseSampler,vDiffuseUV\\+uvOffset\\)": "texture(tileTextures, vec3(vDiffuseUV + uvOffset, vTileLayer));",
+            [WEBGL_TILE_DIFFUSE_SAMPLE]: "texture(tileTextures, vec3(vDiffuseUV + uvOffset, vTileLayer));",
         };
     }
 }
@@ -199,11 +202,20 @@ export class TerrainBatcher {
         texture.getInternalTexture()!._bufferView = null;
         texture.anisotropicFilteringLevel = sources[0].texture.anisotropicFilteringLevel;
         texture.wrapU = texture.wrapV = Texture.CLAMP_ADDRESSMODE;
-        const material = (sources[0].mesh.material as StandardMaterial).clone("batched terrain");
-        material.unfreeze();
-        if (material.diffuseTexture !== sources[0].texture) material.diffuseTexture?.dispose();
-        material.diffuseTexture = sources[0].texture;
-        new TileTextureArray(material, texture);
+        // The cloned batch material has no cached draw wrappers yet. Babylon's
+        // clone setters and unfreeze() otherwise scan every city mesh for each
+        // property while camera movement creates new batches.
+        const scene = this.scene as Scene & { _forceBlockMaterialDirtyMechanism(value: boolean): void };
+        const wasBlocked = scene.blockMaterialDirtyMechanism;
+        let material: StandardMaterial;
+        scene._forceBlockMaterialDirtyMechanism(true);
+        try {
+            material = (sources[0].mesh.material as StandardMaterial).clone("batched terrain");
+            material.checkReadyOnlyOnce = false;
+            if (material.diffuseTexture !== sources[0].texture) material.diffuseTexture?.dispose();
+            material.diffuseTexture = sources[0].texture;
+            new TileTextureArray(material, texture);
+        } finally { scene._forceBlockMaterialDirtyMechanism(wasBlocked); }
         const mesh = new Mesh("batched terrain", this.scene);
         vertices.applyToMesh(mesh);
         mesh.setVerticesData("tileLayer", layers, false, 1);

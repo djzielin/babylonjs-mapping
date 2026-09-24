@@ -9,6 +9,8 @@ export interface GlobeDataOptions {
     minTerrainZoom?: number;
     minBuildingZoom?: number;
     maxBuildingZoom?: number;
+    minFeatureZoom?: number;
+    maxFeatureZoom?: number;
     concurrency?: number;
     /** Prefer the active camera frustum when streaming large landscape windows. */
     prioritizeVisible?: boolean;
@@ -31,6 +33,7 @@ export default class GlobeDataController {
     private observer;
     private disposed;
     private refillTimer?;
+    private nextPriorityCheck;
     private settled;
     private tiles;
     private positionObserver;

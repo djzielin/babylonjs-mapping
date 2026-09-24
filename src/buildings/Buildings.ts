@@ -153,6 +153,7 @@ export default abstract class Buildings {
     public buildingMeshTransform?: (mesh: Mesh) => void;
     /** Reject a generated footprint before it is registered or merged. */
     public buildingMeshFilter?: (mesh: Mesh) => boolean;
+    public onBuildingCreated(_mesh: Mesh): void {}
     /** Reject unwanted source features before allocating or triangulating meshes. */
     public buildingFeatureFilter?: (feature: GeoJSON.feature, tile: Tile, projection: EPSG_Type | undefined) => boolean;
     public retrievalType: RetrievalType = RetrievalType.IndividualTiles;
@@ -233,9 +234,9 @@ export default abstract class Buildings {
 
     /** Applies the current material optimization setting. */
     public applyOptimizationOptions(): void {
-        if (this.optimizationOptions.freezeMaterials) {
+        if (this.optimizationOptions.freezeMaterials && !this.buildingMaterial.isFrozen) {
             this.buildingMaterial.freeze();
-        } else {
+        } else if (!this.optimizationOptions.freezeMaterials && this.buildingMaterial.isFrozen) {
             this.buildingMaterial.unfreeze();
         }
     }
@@ -769,6 +770,7 @@ export default abstract class Buildings {
 
                 const allMeshes: Mesh[] = request.tile.getAllBuildingMeshes();
                 if (allMeshes.length > 1) {
+                    const sourceMaterial = allMeshes[0].material ?? this.buildingMaterial;
                     const merged = this.tileSet.isGlobe
                         ? mergeMeshesAtOrigin(allMeshes, request.tile.mesh.getAbsolutePosition())
                         : Mesh.MergeMeshes(allMeshes, true, true);
@@ -776,9 +778,17 @@ export default abstract class Buildings {
 
                     if (merged) {
                         merged.renderingGroupId = allMeshes[0].renderingGroupId;
+                        // MergeMeshes drops the shared material on some Babylon
+                        // versions. Preserve the source appearance and let frozen
+                        // merged tiles participate in WebGPU draw snapshots.
+                        merged.material = sourceMaterial;
                         merged.setParent(request.tile.mesh);
                         merged.name = "all_buildings_merged";
                         this.applyBuildingMeshOptions(merged);
+                        // MergeMeshes may create a new material even when the
+                        // source material was already frozen.
+                        if (this.optimizationOptions.freezeMaterials && merged.material && !merged.material.isFrozen)
+                            merged.material.freeze();
 
                         request.tile.mergedBuildingMesh = merged;
                     } else {

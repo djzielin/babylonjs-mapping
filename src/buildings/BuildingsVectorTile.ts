@@ -62,6 +62,8 @@ function defaultVectorTileDecoder(data: ArrayBuffer): VectorTile {
  */
 export default class BuildingsVectorTile extends Buildings {
     public accessToken = "";
+    /** Group adjacent line features into bounded extrusion jobs. One preserves feature metadata. */
+    public maxLinesPerFeature = 1;
     /** Native source zoom used for detail overzoom. Override for custom services. */
     public maxSourceZoom = 16;
     public sourceLayers: string[];
@@ -208,6 +210,33 @@ export default class BuildingsVectorTile extends Buildings {
             }
         }
 
+        if (this.maxLinesPerFeature > 1) {
+            if (!Number.isInteger(this.maxLinesPerFeature)) throw new RangeError("maxLinesPerFeature must be an integer");
+            const grouped: feature[] = [];
+            let lines: unknown[] = [];
+            let first: feature | undefined;
+            let height: unknown;
+            const flush = () => {
+                if (!first) return;
+                grouped.push({ ...first, geometry: { type: "MultiLineString", coordinates: lines } });
+                lines = []; first = undefined;
+            };
+            for (const item of features) {
+                if (!item.geometry || item.geometry.type !== "MultiLineString") {
+                    flush(); grouped.push(item); continue;
+                }
+                const itemHeight = item.properties?.height;
+                if (first && (item.properties?.sourceLayer !== first.properties?.sourceLayer || itemHeight !== height)) flush();
+                height = itemHeight;
+                for (const line of item.geometry.coordinates as unknown[]) {
+                    first ??= item;
+                    lines.push(line);
+                    if (lines.length >= this.maxLinesPerFeature) flush();
+                }
+            }
+            flush();
+            return { type: "FeatureCollection", features: grouped };
+        }
         return {
             type: "FeatureCollection",
             features,

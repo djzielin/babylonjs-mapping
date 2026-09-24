@@ -42,7 +42,14 @@ jobs:
 
       - name: Install example dependencies
         working-directory: ${{ matrix.example }}
-        run: npm install
+        run: |
+          BABYLON_VERSION=$(node -p "require('../../package-lock.json').packages['node_modules/@babylonjs/core'].version")
+          npm install --no-save --package-lock=false \
+            "@babylonjs/core@$BABYLON_VERSION" \
+            "@babylonjs/gui@$BABYLON_VERSION" \
+            "@babylonjs/loaders@$BABYLON_VERSION" \
+            "@babylonjs/inspector@$BABYLON_VERSION" \
+            "@babylonjs/materials@$BABYLON_VERSION"
 
       - name: Build example
         working-directory: ${{ matrix.example }}

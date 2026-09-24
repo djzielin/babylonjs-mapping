@@ -255,20 +255,30 @@ export default class BuildingsOverture extends Buildings {
         // Swap only when the complete new tile is usable.
         request.tile.deleteBuildings();
         if (mesh) { request.tile.buildingBatches.push(mesh); this.updateMeshVisibility(mesh); }
+        request.tile.buildingsResolvedKey = request.tile.tileCoords.toString();
         if (specialized.length) this.ProcessGeoJSON({ ...request, mergeAfterLoad: false }, { type: "FeatureCollection", features: specialized });
     }
 
-    public updateBatchVisibility(): void {
+    public updateBatchVisibility(coverageOnlyGrows = false, shouldUpdateTile?: (tile: Tile) => boolean): void {
         for (const tile of this.tileSet.ourTiles) {
-            for (const mesh of tile.buildingBatches) this.updateMeshVisibility(mesh);
+            if (shouldUpdateTile && !shouldUpdateTile(tile)) continue;
+            for (const mesh of tile.buildingBatches) this.updateMeshVisibility(mesh, coverageOnlyGrows);
             if (this.batchGeometry && this.tileSet.isGlobe) for (const building of tile.buildings) {
+                if (coverageOnlyGrows && !building.mesh.isEnabled(false)) continue;
                 const point = (this.tileSet as GlobeSet).getSurfaceCoordinates(building.mesh.getBoundingInfo().boundingBox.centerWorld);
-                building.mesh.setEnabled(!this.batchVisibilityFilter || this.batchVisibilityFilter(point.latitude, point.longitude));
+                const visible = !this.batchVisibilityFilter || this.batchVisibilityFilter(point.latitude, point.longitude);
+                if (building.mesh.isEnabled(false) !== visible) building.mesh.setEnabled(visible);
             }
         }
     }
 
-    private updateMeshVisibility(mesh: Mesh): void {
+    public override onBuildingCreated(mesh: Mesh): void {
+        if (!this.batchGeometry || !this.batchVisibilityFilter || !this.tileSet.isGlobe) return;
+        const point = (this.tileSet as GlobeSet).getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
+        mesh.setEnabled(this.batchVisibilityFilter(point.latitude, point.longitude));
+    }
+
+    private updateMeshVisibility(mesh: Mesh, coverageOnlyGrows = false): void {
         const data = this.batches.get(mesh);
         if (!data || mesh.isDisposed()) return;
         const ranges = data.batch.ranges;
@@ -276,7 +286,8 @@ export default class BuildingsOverture extends Buildings {
         let count = 0, changed = data.mask.length !== mask.length;
         for (let i = 0; i < ranges.length; i++) {
             const range = ranges[i];
-            mask[i] = Number(!this.batchVisibilityFilter || this.batchVisibilityFilter(range.latitude, range.longitude));
+            mask[i] = coverageOnlyGrows && data.mask[i] === 0 && data.mask.length === ranges.length
+                ? 0 : Number(!this.batchVisibilityFilter || this.batchVisibilityFilter(range.latitude, range.longitude));
             if (mask[i]) count += range.end - range.start;
             if (mask[i] !== data.mask[i]) changed = true;
         }

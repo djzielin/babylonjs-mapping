@@ -14,7 +14,9 @@ export default class Tile {
     buildings: TileBuilding[];
     buildingBatches: Mesh[];
     mergedBuildingMesh: Mesh | undefined;
-    dem: number[];
+    /** Coordinate whose Overture batch has completed, including an empty tile. */
+    buildingsResolvedKey?: string;
+    dem: number[] | Float32Array | Float64Array;
     demDimensions: Vector2;
     minHeight: number;
     maxHeight: number;

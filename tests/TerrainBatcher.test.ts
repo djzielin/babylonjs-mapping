@@ -1,8 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { NullEngine, Scene, MeshBuilder, VertexBuffer, Vector3, StandardMaterial, RawTexture, FreeCamera } from "@babylonjs/core";
-import { terrainBatchGeometry, TerrainBatcher } from "../examples-npm/globe-mode/src/TerrainBatcher";
+import { defaultPixelShader } from "@babylonjs/core/Shaders/default.fragment";
+import { terrainBatchGeometry, TerrainBatcher, WEBGL_TILE_DIFFUSE_SAMPLE } from "../examples-npm/globe-mode/src/TerrainBatcher";
 
 describe("lossless terrain batching", () => {
+    it("replaces Babylon's current diffuse lookup with the correct texture-array layer", () => {
+        const sample = new RegExp(WEBGL_TILE_DIFFUSE_SAMPLE.slice(1), "g");
+        const shader = defaultPixelShader.shader;
+        expect([...shader.matchAll(sample)]).toHaveLength(1);
+        expect(shader.replace(sample, "texture(tileTextures, vec3(vDiffuseUV + uvOffset, vTileLayer))"))
+            .toContain("baseColor=texture(tileTextures, vec3(vDiffuseUV + uvOffset, vTileLayer))");
+    });
     it("retains world positions, normals, UVs, colors and triangles in a local origin", () => {
         const engine = new NullEngine({ renderWidth: 32, renderHeight: 32, textureSize: 32, deterministicLockstep: false, lockstepMaxSteps: 4, useHighPrecisionMatrix: true });
         const scene = new Scene(engine);

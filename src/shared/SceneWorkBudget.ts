@@ -1,6 +1,6 @@
 import type { Scene } from "@babylonjs/core/scene.js";
 
-type Waiting = { priority: () => number; score: number; order: number; resolve: () => void };
+type Waiting = { priority: () => number; score: number; urgency: number; order: number; resolve: () => void };
 
 /** Share one preparation slice across concurrent tile jobs in a scene. */
 export class SceneWorkBudget {
@@ -27,14 +27,17 @@ export class SceneWorkBudget {
             this.waiting.splice(0).forEach(task => task.resolve());
         });
     }
-    public checkpoint(priority: () => number): Promise<void> | undefined {
+    public checkpoint(priority: () => number, urgency = 1): Promise<void> | undefined {
         if (this.disposed || performance.now() < this.deadline) return undefined;
         return new Promise(resolve => {
-            const task = { priority, score: priority(), order: this.nextOrder++, resolve };
+            const task = { priority, score: priority(), urgency, order: this.nextOrder++, resolve };
             let low = 0, high = this.waiting.length;
             while (low < high) {
                 const mid = (low + high) >>> 1;
-                if (this.waiting[mid].score <= task.score) low = mid + 1; else high = mid;
+                if (this.waiting[mid].urgency < task.urgency
+                    || this.waiting[mid].urgency === task.urgency && this.waiting[mid].score <= task.score)
+                    low = mid + 1;
+                else high = mid;
             }
             this.waiting.splice(low, 0, task);
             this.scheduleFallback();
@@ -51,7 +54,7 @@ export class SceneWorkBudget {
         const eye = this.scene.activeCamera?.globalPosition;
         if (!eye || eye.x !== this.eye[0] || eye.y !== this.eye[1] || eye.z !== this.eye[2]) {
             for (const task of this.waiting) task.score = task.priority();
-            this.waiting.sort((a, b) => a.score - b.score || a.order - b.order);
+            this.waiting.sort((a, b) => a.urgency - b.urgency || a.score - b.score || a.order - b.order);
             if (eye) { this.eye[0] = eye.x; this.eye[1] = eye.y; this.eye[2] = eye.z; }
         }
         this.drain(true);

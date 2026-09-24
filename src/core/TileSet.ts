@@ -6,6 +6,7 @@ import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { TileRasterMaterial } from './TileRasterMaterial.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
@@ -187,9 +188,9 @@ export default class TileSet {
             }
 
             if (tile.material) {
-                if (this.optimizationOptions.freezeRasterMaterials) {
+                if (this.optimizationOptions.freezeRasterMaterials && !tile.material.isFrozen) {
                     tile.material.freeze();
-                } else {
+                } else if (!this.optimizationOptions.freezeRasterMaterials && tile.material.isFrozen) {
                     tile.material.unfreeze();
                 }
             }
@@ -296,13 +297,17 @@ export default class TileSet {
         active.length = waiting.length = 0;
         const count = Math.min(this.tileRequests.length, this.rasterConcurrency + activeCount);
         if (count === 0) { this.processNextTileRequest(); return; }
+        let inProgress = activeCount;
         for (let i=0; i<count; i++) {
             const request=this.tileRequests[0];
-            this.processNextTileRequest();
+            const wasActive = request.inProgress;
+            this.processNextTileRequest(inProgress);
+            if (!wasActive && request.inProgress) inProgress++;
+            else if (wasActive && this.tileRequests[0] !== request) inProgress--;
             if (this.tileRequests[0]===request) this.tileRequests.push(this.tileRequests.shift()!);
         }
     }
-    private processNextTileRequest() {
+    private processNextTileRequest(activeCount?: number) {
     if (this.isGeometrySetup == false) {
         return;
     }
@@ -321,7 +326,7 @@ export default class TileSet {
 
     if (request.requestType == TileRequestType.LoadTile) {
         if (request.inProgress == false) {
-            if (this.tileRequests.filter(r => r.inProgress).length >= this.rasterConcurrency) return;
+            if ((activeCount ?? this.tileRequests.filter(r => r.inProgress).length) >= this.rasterConcurrency) return;
             debugLog(() => [this.prettyName() + "trying to load tile raster: " + request.tileCoords]);
             request.texture = new Texture(request.url, this.scene);
             request.inProgress = true;
@@ -335,19 +340,20 @@ export default class TileSet {
                 if (request.texture.isReady()) {
                     debugLog(() => [this.prettyName() + "tile raster is ready: " + request.tileCoords]);
 
+                    // Configure the texture before a material references it.
+                    // Changing hasAlpha on a bound texture makes Babylon dirty
+                    // every submesh using that material during tile streaming.
+                    request.texture.anisotropicFilteringLevel = this.engine.getCaps().maxAnisotropy;
+                    request.texture.wrapU = Texture.CLAMP_ADDRESSMODE;
+                    request.texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+                    request.texture.hasAlpha = this.hasAlpha;
+
                     const material = request.mesh.material as StandardMaterial;
-                    material.unfreeze();
-
+                    if (material.isFrozen) material.unfreeze();
                     material.diffuseTexture = request.texture;
-                    material.diffuseTexture.anisotropicFilteringLevel = this.engine.getCaps().maxAnisotropy;
-                    material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
-                    material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
-                    material.diffuseTexture.hasAlpha = this.hasAlpha;
 
-                    if (this.optimizationOptions.freezeRasterMaterials) {
+                    if (this.optimizationOptions.freezeRasterMaterials && !material.isFrozen) {
                         material.freeze();
-                    } else {
-                        material.unfreeze();
                     }
 
                     request.mesh.setEnabled(this.isTileGeometryReady(request.tile)); //show ready geometry
@@ -523,7 +529,7 @@ export default class TileSet {
 
     if (tile.material) {
         material = tile.material;
-        material.unfreeze();
+        if (material.isFrozen) material.unfreeze();
 
         const texture = material.diffuseTexture;
 
@@ -532,7 +538,7 @@ export default class TileSet {
         }
     }
     else {
-        material = new StandardMaterial("material" + tileX + "-" + tileY, this.scene);
+        material = new TileRasterMaterial("material" + tileX + "-" + tileY, this.scene);
         material!.specularColor = new Color3(0, 0, 0);
         material.alpha = 1.0;
 

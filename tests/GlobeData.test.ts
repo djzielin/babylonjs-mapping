@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
     ArcRotateCamera,
     NullEngine,
+    MeshBuilder,
     Scene,
     Vector2,
     Vector3,
@@ -66,6 +67,20 @@ const grid = (height: number): ElevationGrid => ({
 });
 
 describe("globe data fidelity", () => {
+    it("places a marker sphere at a requested latitude and longitude", () => {
+        const { globe, scene, dispose } = setup(1, 40.7484, -73.9857, 17);
+        expect(globe.getSurfacePosition(0, 0).subtract(new Vector3(0, 0, globe.radius)).length()).toBeLessThan(1e-10);
+        expect(globe.getSurfacePosition(0, 90).subtract(new Vector3(-globe.radius, 0, 0)).length()).toBeLessThan(1e-10);
+        expect(globe.getSurfacePosition(90, 0).subtract(new Vector3(0, globe.radius, 0)).length()).toBeLessThan(1e-10);
+        const marker = MeshBuilder.CreateSphere("Empire State marker", { diameter: 0.001 }, scene);
+        marker.position.copyFrom(globe.getSurfacePosition(40.7484, -73.9857, 100 * globe.metresToWorld));
+        const result = globe.getSurfaceCoordinates(Vector3.TransformCoordinates(Vector3.Zero(), marker.computeWorldMatrix(true)));
+        expect(result.latitude).toBeCloseTo(40.7484, 7);
+        expect(result.longitude).toBeCloseTo(-73.9857, 7);
+        expect(result.elevation / globe.metresToWorld).toBeCloseTo(100, 5);
+        expect(marker.position.length()).toBeGreaterThan(globe.radius);
+        dispose();
+    });
     it.each([false, true])("joins mismatched tile edges and corners regardless of arrival order (%s)", reverse => {
         const { globe, dispose } = setup(2);
         const tiles = [...globe.ourTiles];
@@ -128,6 +143,36 @@ describe("globe data fidelity", () => {
             dispose();
         },
     );
+    it("samples resident terrain while geometry precision changes", () => {
+        const { globe, dispose } = setup();
+        const tile = globe.ourTiles[0];
+        globe.setElevationData(tile, [120, 120, 120, 120], 2, 2);
+        const center = globe.getSurfaceCoordinates(globe.getTileSurfacePosition(tile.tileCoords));
+        globe.meshPrecision = 64;
+        expect(globe.sampleElevation(center.latitude, center.longitude)).toBeCloseTo(120 * globe.metresToWorld, 10);
+        dispose();
+    });
+    it("stores an independent compact copy of Float32 elevation grids", () => {
+        const { globe, dispose } = setup();
+        const tile = globe.ourTiles[0];
+        const source = new Float32Array([1.25, -2.5, 3.75, 4.5]);
+        globe.setElevationData(tile, source, 2, 2);
+        expect(tile.dem).toBeInstanceOf(Float32Array);
+        expect(Array.from(tile.dem)).toEqual([1.25, -2.5, 3.75, 4.5]);
+        source[0] = 100;
+        expect(tile.dem[0]).toBe(1.25);
+        expect(tile.minHeight).toBe(-2.5);
+        expect(tile.maxHeight).toBe(4.5);
+        globe.setElevationData(tile, [Math.PI, 0, 0, 0], 2, 2);
+        expect(tile.dem).toBeInstanceOf(Float64Array);
+        expect(tile.dem[0]).toBe(Math.PI);
+        const bounds = tile.mesh.getBoundingInfo().boundingBox;
+        for (const point of worldVertices(tile.mesh)) for (const axis of ["x", "y", "z"] as const) {
+            expect(point[axis]).toBeGreaterThanOrEqual(bounds.minimumWorld[axis] - 1e-6);
+            expect(point[axis]).toBeLessThanOrEqual(bounds.maximumWorld[axis] + 1e-6);
+        }
+        dispose();
+    });
     it("preserves building height, pitched roofs and geographic placement above terrain", () => {
         const { globe, scene, dispose } = setup();
         const tile = globe.ourTiles[0];
@@ -172,6 +217,11 @@ describe("globe data fidelity", () => {
         expect(Math.max(...heights)).toBeCloseTo(1100, 2);
         const normals = tile.buildings[0].mesh.getVerticesData(VertexBuffer.NormalKind)!;
         const world = worldVertices(tile.buildings[0].mesh);
+        const bounds = tile.buildings[0].mesh.getBoundingInfo().boundingBox;
+        for (const point of world) for (const axis of ["x", "y", "z"] as const) {
+            expect(point[axis]).toBeGreaterThanOrEqual(bounds.minimumWorld[axis] - 1e-6);
+            expect(point[axis]).toBeLessThanOrEqual(bounds.maximumWorld[axis] + 1e-6);
+        }
         const roofNormals = heights.map((h,i)=>h>1099 ? Vector3.Dot(new Vector3(normals[i*3],normals[i*3+1],normals[i*3+2]),world[i].normalizeToNew()) : -1);
         expect(Math.max(...roofNormals)).toBeGreaterThan(0.1);
         const vertices = tile.buildings[0].mesh.getVerticesData(
@@ -363,13 +413,16 @@ describe("bounded detail streaming", () => {
         expect(loader).toHaveBeenCalledTimes(2);
         globe.updateRaster(-33, 151, 15);
         data.update();
-        expect(pending.every((p) => p.signal.aborted)).toBe(true);
-        pending.forEach((p) => p.resolve(grid(999)));
+        expect(pending.slice(0, 2).every((p) => p.signal.aborted)).toBe(true);
+        expect(loader).toHaveBeenCalledTimes(4);
+        expect(data.stats.active).toBe(2);
+        pending.slice(0, 2).forEach((p) => p.resolve(grid(999)));
         await Promise.resolve();
         await Promise.resolve();
         expect(globe.ourTiles.every((t) => !t.terrainLoaded)).toBe(true);
         data.update();
         expect(loader).toHaveBeenCalledTimes(4);
+        expect(data.stats.active).toBe(2);
         pending.slice(2).forEach((p) => p.resolve(grid(-100)));
         await Promise.resolve();
         await Promise.resolve();
@@ -377,6 +430,30 @@ describe("bounded detail streaming", () => {
         expect(data.stats.active).toBe(0);
         data.dispose();
         dispose();
+    });
+    it("starts the replacement view while aborted requests remain unresolved", async () => {
+        const { globe, dispose } = setup();
+        const pending: Array<{ resolve: (value: ElevationGrid) => void; signal: AbortSignal }> = [];
+        const loader = vi.fn((_c: Vector3, signal: AbortSignal) =>
+            new Promise<ElevationGrid>(resolve => pending.push({ resolve, signal })));
+        const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
+        try {
+            data.update();
+            expect(loader).toHaveBeenCalledTimes(1);
+            data.invalidate();
+            data.update();
+            expect(pending[0].signal.aborted).toBe(true);
+            expect(loader).toHaveBeenCalledTimes(2);
+            expect(data.stats.active).toBe(1);
+            pending[0].resolve(grid(999));
+            await Promise.resolve(); await Promise.resolve();
+            expect(data.stats.active).toBe(1);
+            expect(globe.ourTiles[0].terrainLoaded).toBe(false);
+            pending[1].resolve(grid(25));
+            await Promise.resolve(); await Promise.resolve();
+            expect(data.stats.active).toBe(0);
+            expect(globe.ourTiles[0].terrainLoaded).toBe(true);
+        } finally { data.dispose(); dispose(); }
     });
     it("refills completed downloads without waiting for another rendered frame", async () => {
         vi.useFakeTimers();
@@ -416,6 +493,34 @@ describe("bounded detail streaming", () => {
         const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
         try { data.update(); expect(loader.mock.calls[0]?.[0]).toEqual(nearest.tileCoords); }
         finally { data.dispose(); dispose(); }
+    });
+    it("promotes newly nearby terrain ahead of an unresolved distant request", async () => {
+        const { globe, scene, dispose } = setup(5);
+        const first = globe.ourTiles[0], nearby = globe.ourTiles.at(-1)!;
+        const camera = new ArcRotateCamera("moving eye", 0, 1, 1, globe.getSurfacePosition(35, -79), scene);
+        camera.setPosition(first.mesh.getBoundingInfo().boundingSphere.centerWorld.scale(1.00001));
+        camera.getViewMatrix(true);
+        const pending: Array<{ resolve: (value: ElevationGrid) => void; signal: AbortSignal }> = [];
+        const loader = vi.fn((_coords: Vector3, signal: AbortSignal) =>
+            new Promise<ElevationGrid>(resolve => pending.push({ resolve, signal })));
+        const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
+        try {
+            data.update();
+            expect(loader.mock.calls[0][0]).toEqual(first.tileCoords);
+            camera.setPosition(nearby.mesh.getBoundingInfo().boundingSphere.centerWorld.scale(1.00001));
+            camera.getViewMatrix(true);
+            data.update();
+            expect(pending[0].signal.aborted).toBe(true);
+            expect(loader.mock.calls[1][0]).toEqual(nearby.tileCoords);
+            expect(data.stats.active).toBe(1);
+            pending[0].resolve(grid(999));
+            await Promise.resolve(); await Promise.resolve();
+            expect(data.stats.active).toBe(1);
+            pending[1].resolve(grid(25));
+            await Promise.resolve(); await Promise.resolve();
+            expect(nearby.terrainLoaded).toBe(true);
+            expect(data.stats.active).toBe(0);
+        } finally { data.dispose(); dispose(); }
     });
     it("reports errors once and explicitly retries on invalidation", async () => {
         const { globe, dispose } = setup();
@@ -496,6 +601,7 @@ it("parks a completed detail queue and wakes it when the globe moves", async () 
 
 it("coalesces overzoom DEM requests without one caller cancelling its neighbours", async () => {
     const terrain = new TerrainRGB({ maxZoom: 0 });
+    const crop = vi.spyOn(TerrainRGB, "crop");
     let resolve!: (grid: ElevationGrid) => void;
     const fetchGrid = vi.spyOn(terrain as any, "fetchGrid").mockImplementation(() => new Promise<ElevationGrid>(done => { resolve = done; }));
     const cancelled = new AbortController();
@@ -504,9 +610,13 @@ it("coalesces overzoom DEM requests without one caller cancelling its neighbours
     cancelled.abort();
     resolve({ data: [0, 1, 2, 3], width: 2, height: 2 });
     await expect(first).rejects.toThrow();
-    expect((await second).data[0]).toBe(1);
+    const child = await second;
+    expect(child.data[0]).toBe(1);
+    expect(await terrain.load(new Vector3(1, 0, 1), new AbortController().signal)).toBe(child);
     await terrain.load(new Vector3(0, 0, 1), new AbortController().signal);
     expect(fetchGrid).toHaveBeenCalledTimes(1);
+    expect(crop).toHaveBeenCalledTimes(2);
+    crop.mockRestore();
 });
 
 
@@ -528,4 +638,19 @@ it("keeps higher-resolution imagery from duplicating the full-detail building ti
     globe.updateRaster(35,-79,14);data.update();await Promise.resolve();
     expect(buildings.SubmitLoadTileRequest).toHaveBeenCalledOnce();
     data.dispose();dispose();
+});
+
+it("loads road features at street zoom without duplicating the Overture building tier", async () => {
+    const { globe, dispose } = setup(1, 40.7484, -73.9857, 17);
+    const buildings = { SubmitLoadTileRequest: vi.fn(), cancelPendingRequests: vi.fn() } as any;
+    const roads = { SubmitLoadTileRequest: vi.fn(), cancelPendingRequests: vi.fn() } as any;
+    const data = new GlobeDataController(globe, {
+        buildings, features: [roads], minBuildingZoom: 10, maxBuildingZoom: 14,
+        minFeatureZoom: 10, maxFeatureZoom: 18,
+    });
+    data.update();
+    await Promise.resolve();
+    expect(buildings.SubmitLoadTileRequest).not.toHaveBeenCalled();
+    expect(roads.SubmitLoadTileRequest).toHaveBeenCalledOnce();
+    data.dispose(); dispose();
 });

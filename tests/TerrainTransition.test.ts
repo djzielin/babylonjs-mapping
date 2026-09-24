@@ -13,11 +13,32 @@ it('retains independent terrain geometry until matching replacement imagery and 
  const transition=new TerrainTransition();transition.capture(globe as any,16);
  const snapshot=scene.meshes.find(mesh=>mesh.name==='previous terrain')!;
  expect(snapshot).toBeDefined();expect(snapshot.geometry).not.toBe(tile.mesh.geometry);
+ expect(snapshot.material).not.toBe(material);
+ expect(snapshot.material?.isFrozen).toBe(true);
+ expect(scene.blockMaterialDirtyMechanism).toBe(false);
  const positions=Array.from(snapshot.getVerticesData(VertexBuffer.PositionKind)!);
  globe.updateRaster(0,0,16);tile.terrainLoaded=false;
  transition.update(1000);expect(snapshot.isDisposed()).toBe(false);
  expect(Array.from(snapshot.getVerticesData(VertexBuffer.PositionKind)!)).toEqual(positions);
  tile.terrainLoaded=true;tile.mesh.material=material;
  transition.update(1300);expect(snapshot.isDisposed()).toBe(true);
+ transition.dispose();scene.dispose();engine.dispose();
+});
+
+it('retains terrain during a same-zoom tile-window move',()=>{
+ const engine=new NullEngine(),scene=new Scene(engine);
+ const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
+ globe.createGeometry(new Vector2(3,3),20,2);globe.updateRaster(40.7484,-73.9857,14);
+ const tile=globe.ourTiles[0];tile.terrainLoaded=true;
+ const material=new StandardMaterial('terrain',scene),texture=new Texture(null,scene);
+ vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;tile.mesh.material=material;
+ const longitude=globe.ourTileMath.tile_to_lon(globe.ourTiles[0].tileCoords.x+2.5,14);
+ const transition=new TerrainTransition();transition.capture(globe,14,40.7484,longitude);
+ globe.updateRaster(40.7484,longitude,14);
+ transition.update(1);
+ const retained=scene.meshes.find(mesh=>mesh.name==='previous terrain')!;
+ expect(retained.isDisposed()).toBe(false);
+ vi.spyOn(scene,'frustumPlanes','get').mockReturnValue([]);vi.spyOn(retained,'isInFrustum').mockReturnValue(false);
+ transition.update(300);expect(retained.isDisposed()).toBe(true);
  transition.dispose();scene.dispose();engine.dispose();
 });

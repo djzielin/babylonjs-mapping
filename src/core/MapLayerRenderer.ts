@@ -46,16 +46,27 @@ export default class MapLayerRenderer {
     }
     private configure(mesh: AbstractMesh, level: number): void {
         mesh.renderingGroupId = this.maximumLevel - level;
-        if (mesh.material) this.configureMaterial(mesh.material, level);
+        if (mesh.material) this.configureMaterial(mesh.material, level, mesh);
     }
-    private configureMaterial(material: Material, level: number): void {
+    private configureMaterial(material: Material, level: number, owner?: AbstractMesh): void {
         // glTF assets can use MultiMaterial: configure the actual submaterials
         // as well, otherwise they write a different depth encoding.
         const children = (material as Material & { subMaterials?: (Material | null)[] }).subMaterials;
         if (children) for (const child of children) if (child) this.configureMaterial(child, level);
         if (this.options.logarithmicDepth && this.scene.getEngine().getCaps().fragmentDepthSupported && !material.useLogarithmicDepth) {
-            material.useLogarithmicDepth = true;
-            if (material.isFrozen) material.markDirty(true);
+            const bound = owner && material === owner.material && material.meshMap ? material.getBindedMeshes() : [];
+            const firstUse = bound.length === 1 && bound[0] === owner
+                && owner!.subMeshes.every(subMesh => !subMesh.effect);
+            if (firstUse) {
+                const state = material as unknown as { _blockDirtyMechanism: boolean };
+                const blocked = state._blockDirtyMechanism;
+                state._blockDirtyMechanism = true;
+                try { material.useLogarithmicDepth = true; }
+                finally { state._blockDirtyMechanism = blocked; }
+            } else {
+                material.useLogarithmicDepth = true;
+                if (material.isFrozen) material.markDirty(true);
+            }
         }
         material.stencil.enabled = true;
         material.stencil.func = Constants.GEQUAL;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ArcRotateCamera, AssetContainer, Matrix, NullEngine, Scene, TransformNode, Vector2, Vector3 } from "@babylonjs/core";
+import { ArcRotateCamera, AssetContainer, Matrix, NullEngine, RawTexture, Scene, TransformNode, Vector2, Vector3 } from "@babylonjs/core";
 
 import Google3DTiles, {
   GOOGLE_3D_TILES_ROOT_URL,
@@ -65,6 +65,42 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("restricts coverage updates to geographic tiles intersecting changed models", () => {
+  const {engine,scene,tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet);
+  const radians=Math.PI/180;
+  (provider as any).loadedSelections.set("near",{
+    url:"near",depth:1,boundingVolume:{region:[-74.01*radians,40.74*radians,-73.98*radians,40.76*radians,0,1000]},
+  });
+  expect(provider.coverageChangesIntersect([],40.7,-74.1,40.8,-73.9)).toBe(false);
+  expect(provider.coverageChangesIntersect(["near"],40.74,-73.99,40.75,-73.98)).toBe(true);
+  expect(provider.coverageChangesIntersect(["near"],40.6,-74.1,40.7,-74.0)).toBe(false);
+  const longitude=-73.9857*radians,latitude=40.7484*radians;
+  const eccentricitySquared=0.00669437999014;
+  const radius=6378137/Math.sqrt(1-eccentricitySquared*Math.sin(latitude)**2);
+  (provider as any).loadedSelections.set("sphere",{
+    url:"sphere",depth:1,boundingVolume:{sphere:[radius*Math.cos(latitude)*Math.cos(longitude),
+      radius*Math.cos(latitude)*Math.sin(longitude),radius*(1-eccentricitySquared)*Math.sin(latitude),500]},
+  });
+  expect(provider.coverageChangesIntersect(["sphere"],40.74,-74.0,40.76,-73.97)).toBe(true);
+  expect(provider.coverageChangesIntersect(["sphere"],40.6,-74.1,40.7,-74.0)).toBe(false);
+  (provider as any).loadedSelections.set("box",{
+    url:"box",depth:1,boundingVolume:{box:[radius*Math.cos(latitude)*Math.cos(longitude),
+      radius*Math.cos(latitude)*Math.sin(longitude),radius*(1-eccentricitySquared)*Math.sin(latitude),
+      100,0,0,0,100,0,0,0,100]},
+  });
+  expect(provider.coverageChangesIntersect(["box"],40.74,-74.0,40.76,-73.97)).toBe(true);
+  expect(provider.coverageChangesIntersect(["box"],40.6,-74.1,40.7,-74.0)).toBe(false);
+  (provider as any).loadedSelections.set("dateline",{
+    url:"dateline",depth:1,boundingVolume:{region:[179*radians,-radians,-179*radians,radians,0,1000]},
+  });
+  expect(provider.coverageChangesIntersect(["dateline"],-0.5,-179.8,0.5,-179.2)).toBe(true);
+  expect(provider.coverageChangesIntersect(["dateline"],-0.5,-1,0.5,1)).toBe(false);
+  // Unknown metadata must retain a full visibility pass rather than hide a tile.
+  expect(provider.coverageChangesIntersect(["unknown"],40.6,-74.1,40.7,-74.0)).toBe(true);
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
 describe("parseGoogleGLBMetadata", () => {
   it("extracts sorted-source inputs and CESIUM_RTC metadata from a GLB JSON chunk", () => {
     const metadata = parseGoogleGLBMetadata(createGLB({
@@ -82,6 +118,31 @@ describe("parseGoogleGLBMetadata", () => {
 });
 
 describe("Google3DTiles", () => {
+  it("repairs WebGPU model mip levels after the upload frame", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    Object.defineProperty(engine, "isWebGPU", { value: true });
+    const generated: object[] = [];
+    (engine as any)._generateMipmaps = (internal: object) => generated.push(internal);
+    let internal: object | null = null;
+    const provider = new Google3DTiles(tileSet, {
+      apiKey: "test",
+      tilesetLoader: async () => ({ root: { content: { uri: "model.glb" } } }),
+      modelTileLoader: async (_url, scene) => {
+        const asset = new AssetContainer(scene);
+        asset.rootNodes.push(new TransformNode("google-model", scene));
+        const texture = new RawTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, 5, scene, true);
+        internal = texture.getInternalTexture();
+        asset.textures.push(texture);
+        return { asset, attributions: [] };
+      },
+    });
+    await provider.load();
+    expect(generated).toEqual([]);
+    engine.onEndFrameObservable.notifyObservers(engine);
+    expect(generated).toEqual([internal]);
+    provider.dispose(); scene.dispose(); engine.dispose();
+  });
+
   it("reuses model assets and hierarchy when zooming out and back", async () => {
     const { engine, scene, tileSet } = createTileSet();
     const requests: string[] = [];
@@ -705,6 +766,19 @@ it("loads from the eye outward even when the orbit target is elsewhere", async (
   provider.dispose();scene.dispose();engine.dispose();
 });
 
+it("centers the coverage radius on the viewer when the orbit target is elsewhere", () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const camera = new ArcRotateCamera("eye", 0, 1, 1, globe.getSurfacePosition(0, 0), scene);
+  camera.setPosition(globe.getSurfacePosition(0, 0.2, 100 * globe.metresToWorld)); camera.getViewMatrix(true);
+  const provider = new Google3DTiles(globe, { coverageRadius: 10000 });
+  const bounds = (provider as any).getTileSetBounds();
+  expect(bounds.longitudes[0][0]).toBeGreaterThan(0.1);
+  expect(bounds.longitudes[0][1]).toBeLessThan(0.3);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
 it("commits nearby refinement without waiting for unrelated distant hierarchy", async () => {
   const {engine,scene,tileSet}=createTileSet();
   let release!:()=>void, reached!:()=>void;
@@ -739,7 +813,13 @@ it("prepares offscreen content without replacing visible models", async () => {
       {boundingVolume:sphere(-0.01),geometricError:0,content:{uri:"behind.glb"}},
     ]}}),modelTileLoader:createModelLoader(requests)});
   const before=await provider.load();expect(before).toHaveLength(1);
+  const bounds = vi.spyOn(provider as any, "getTileSetBounds");
+  // A loose tile volume can intersect the camera frustum even when none of
+  // its model is visible. Prefetch must still prepare the unseen content.
+  const geometricError = vi.spyOn(provider as any, "allowedGeometricError").mockReturnValue(1);
   await provider.prefetchSurroundings();
+  geometricError.mockRestore();
+  expect(bounds).toHaveBeenCalledWith(3000);
   expect(provider.loadedModelTiles).toEqual(before);
   expect(requests).toHaveLength(2);
   camera.setTarget(globe.getSurfacePosition(0,-0.01));camera.setPosition(eye);camera.getViewMatrix(true);
@@ -748,6 +828,111 @@ it("prepares offscreen content without replacing visible models", async () => {
   expect(before[0].root.isEnabled()).toBe(true);
   expect(provider.loadedModelTiles.some(t=>t.url.includes("behind.glb"))).toBe(true);
   provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("spreads nearby prefetch across turn directions when one sector has many tiles", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const eye = globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld);
+  const camera = new ArcRotateCamera("look", 0, 1, 1, globe.getSurfacePosition(0, 0.01), scene);
+  camera.setPosition(eye); camera.minZ = 1e-7; camera.getViewMatrix(true); camera.getProjectionMatrix(true);
+  const sphere = (lat: number, lon: number) => {
+    const a = lat * Math.PI / 180, b = lon * Math.PI / 180;
+    return { sphere: [6378137 * Math.cos(a) * Math.cos(b), 6378137 * Math.cos(a) * Math.sin(b), 6378137 * Math.sin(a), 30] };
+  };
+  const requests: string[] = [];
+  const provider = new Google3DTiles(globe, { apiKey: "test", maximumScreenSpaceError: 1,
+    cullToCamera: true, coverageRadius: 10000, maxTiles: 512,
+    tilesetLoader: async () => ({ root: { children: [
+      ...Array.from({ length: 260 }, (_, i) => ({ boundingVolume: sphere(i * 0.000001, -0.01),
+        geometricError: 0, content: { uri: `west-${i}.glb` } })),
+      { boundingVolume: sphere(0.02, -0.01), geometricError: 0, content: { uri: "north.glb" } },
+    ] } }), modelTileLoader: createModelLoader(requests) });
+  try {
+    await provider.load();
+    await provider.prefetchSurroundings();
+    expect(requests).toHaveLength(256);
+    expect(requests.some(url => url.includes("north.glb"))).toBe(true);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
+it("shows a prefetched coarse tile during a turn until its finer replacement is ready", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const eye = globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld);
+  const camera = new ArcRotateCamera("look", 0, 1, 1, globe.getSurfacePosition(0, 0.01), scene);
+  camera.setPosition(eye); camera.minZ = 1e-7; camera.getViewMatrix(true); camera.getProjectionMatrix(true);
+  const sphere = (lon: number) => { const a = lon * Math.PI / 180; return { sphere: [6378137 * Math.cos(a), 6378137 * Math.sin(a), 0, 100] }; };
+  let releaseFine!: () => void, fineStarted!: () => void;
+  const fineReady = new Promise<void>(resolve => { releaseFine = resolve; });
+  const fineWaiting = new Promise<void>(resolve => { fineStarted = resolve; });
+  const provider = new Google3DTiles(globe, { apiKey: "test", maximumScreenSpaceError: 1,
+    cullToCamera: true, coverageRadius: 10000, maxDepth: 1,
+    tilesetLoader: async () => ({ root: { children: [
+      { boundingVolume: sphere(0.01), geometricError: 0, content: { uri: "front.glb" } },
+      { boundingVolume: sphere(-0.01), geometricError: 128, content: { uri: "behind-coarse.glb" },
+        children: [{ boundingVolume: sphere(-0.01), geometricError: 0, content: { uri: "behind-fine.glb" } }] },
+    ] } }),
+    modelTileLoader: async url => {
+      if (url.includes("behind-fine.glb")) { fineStarted(); await fineReady; }
+      return { asset: new AssetContainer(scene), attributions: [] };
+    },
+  });
+  try {
+    await provider.load();
+    await provider.prefetchSurroundings();
+    expect((provider as any).retainedTiles.size).toBe(1);
+    provider.maxDepth = 2;
+    camera.setTarget(globe.getSurfacePosition(0, -0.01)); camera.setPosition(eye); camera.getViewMatrix(true);
+    const turning = provider.load();
+    expect(provider.loadedModelTiles.some(tile => tile.url.includes("behind-coarse.glb") && tile.root.isEnabled())).toBe(true);
+    await fineWaiting;
+    expect(provider.loadedModelTiles.some(tile => tile.url.includes("behind-coarse.glb") && tile.root.isEnabled())).toBe(true);
+    releaseFine(); await turning;
+    expect(provider.loadedModelTiles.some(tile => tile.url.includes("behind-fine.glb") && tile.root.isEnabled())).toBe(true);
+    expect(provider.loadedModelTiles.some(tile => tile.url.includes("behind-coarse.glb"))).toBe(false);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
+it("does not promote a prefetched parent above the display quality limit", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const eye = globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld);
+  const camera = new ArcRotateCamera("look", 0, 1, 1, globe.getSurfacePosition(0, 0.01), scene);
+  camera.setPosition(eye); camera.minZ = 1e-7; camera.getViewMatrix(true); camera.getProjectionMatrix(true);
+  const sphere = (lon: number) => { const a = lon * Math.PI / 180; return { sphere: [6378137 * Math.cos(a), 6378137 * Math.sin(a), 0, 100] }; };
+  let releaseFine!: () => void, fineStarted!: () => void;
+  const fineReady = new Promise<void>(resolve => { releaseFine = resolve; });
+  const fineWaiting = new Promise<void>(resolve => { fineStarted = resolve; });
+  const provider = new Google3DTiles(globe, { apiKey: "test", maximumScreenSpaceError: 1,
+    cullToCamera: true, coverageRadius: 10000, maxDepth: 1,
+    tilesetLoader: async () => ({ root: { children: [
+      { boundingVolume: sphere(0.01), geometricError: 0, content: { uri: "front.glb" } },
+      { boundingVolume: sphere(-0.01), geometricError: 128, content: { uri: "behind-coarse.glb" },
+        children: [{ boundingVolume: sphere(-0.01), geometricError: 0, content: { uri: "behind-fine.glb" } }] },
+    ] } }),
+    modelTileLoader: async url => {
+      if (url.includes("behind-fine.glb")) { fineStarted(); await fineReady; }
+      return { asset: new AssetContainer(scene), attributions: [] };
+    },
+  });
+  try {
+    const before = await provider.load();
+    await provider.prefetchSurroundings();
+    expect((provider as any).retainedTiles.size).toBe(1);
+    provider.maximumDisplayGeometricError = 33;
+    provider.maxDepth = 2;
+    camera.setTarget(globe.getSurfacePosition(0, -0.01)); camera.setPosition(eye); camera.getViewMatrix(true);
+    const turning = provider.load();
+    await fineWaiting;
+    expect(provider.loadedModelTiles.some(tile => tile.url.includes("behind-coarse.glb"))).toBe(false);
+    expect(before[0].root.isEnabled()).toBe(true);
+    releaseFine(); await turning;
+    expect(provider.loadedModelTiles.some(tile => tile.url.includes("behind-fine.glb") && tile.root.isEnabled())).toBe(true);
+  } finally { releaseFine(); provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
 it("keeps usable detail across an explicit region even behind the camera", async () => {
@@ -769,6 +954,31 @@ it("keeps usable detail across an explicit region even behind the camera", async
   expect(loaded.some(tile=>tile.url.includes("usable-behind"))).toBe(true);
   expect(loaded.some(tile=>tile.url.includes("ugly"))).toBe(false);
   provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("refines a tile that meets screen-space error but exceeds the display quality limit", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const eye = globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld);
+  const camera = new ArcRotateCamera("look", 0, 1, 1, globe.getSurfacePosition(0, 0.01), scene);
+  camera.setPosition(eye); camera.minZ = 1e-7; camera.getViewMatrix(true); camera.getProjectionMatrix(true);
+  const a = 0.01 * Math.PI / 180;
+  const volume = { sphere: [6378137 * Math.cos(a), 6378137 * Math.sin(a), 0, 100] };
+  const requests: string[] = [];
+  const provider = new Google3DTiles(globe, { apiKey: "test", maximumScreenSpaceError: 10000,
+    maximumDisplayGeometricError: 33, coverageRadius: 10000,
+    tilesetLoader: async () => ({ root: { children: [
+      { boundingVolume: volume, geometricError: 128, content: { uri: "coarse.glb" },
+        children: [{ boundingVolume: volume, geometricError: 16, content: { uri: "fine.glb" } }] },
+    ] } }), modelTileLoader: createModelLoader(requests),
+  });
+  try {
+    expect(128 / (provider as any).allowedGeometricError(volume, Matrix.Identity())).toBeLessThan(1);
+    const loaded = await provider.load();
+    expect(loaded.map(tile => tile.url)).toEqual([expect.stringContaining("fine.glb")]);
+    expect(requests.some(url => url.includes("coarse.glb"))).toBe(false);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
 it("bounds offscreen history without evicting the current view", () => {
@@ -804,6 +1014,30 @@ it("reprioritizes queued network work from the current eye without restarting ac
   await Promise.all([formerNear, newlyNear]);
   expect(order).toEqual(["newly near", "former near"]);
   expect(releases).toHaveLength(24);
+  releases.slice(1).forEach(release => release());
+  await Promise.all(active);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
+it("reprioritizes queued tile requests when the camera moves during a load", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  let eye = 0;
+  vi.spyOn(provider, "cameraEye").mockImplementation(() => new Vector3(eye, 0, 0));
+  provider.reprioritizeRequests();
+  const releases: (() => void)[] = [];
+  const active = Array.from({ length: 24 }, () => provider.networkSlot(() => new Promise<void>(resolve => releases.push(resolve))));
+  await Promise.resolve(); await Promise.resolve();
+  const order: string[] = [];
+  const formerNear = provider.networkSlot(async () => { order.push("former near"); },
+    () => provider.requestPriority({ sphere: [0, 0, 0, 0] }, Matrix.Identity()));
+  const newlyNear = provider.networkSlot(async () => { order.push("newly near"); },
+    () => provider.requestPriority({ sphere: [100, 0, 0, 0] }, Matrix.Identity()));
+  eye = 100;
+  provider.reprioritizeRequests();
+  releases[0]();
+  await Promise.all([formerNear, newlyNear]);
+  expect(order).toEqual(["newly near", "former near"]);
   releases.slice(1).forEach(release => release());
   await Promise.all(active);
   provider.dispose(); scene.dispose(); engine.dispose();

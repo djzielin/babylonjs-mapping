@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { NullEngine, Scene, Vector2, Vector3, Mesh, Ray, VertexData } from "@babylonjs/core";
 import GlobeSet from "../src/core/GlobeSet";
+import { EPSG_Type } from "../src/core/TileMath";
 import { GlobeBuildingBatch } from "../src/buildings/GlobeBuildingBatch";
 import type { feature } from "../src/buildings/GeoJSON";
 vi.mock("../src/core/Attribution",()=>({default:class {advancedTexture={};addAttribution(){}}}));
@@ -80,11 +81,37 @@ it("atomically replaces a building batch and keeps the old one if work is cancel
     provider.updateBatchVisibility();
     expect(mesh.isEnabled(false)).toBe(false);
     provider.batchVisibilityFilter=()=>true;
+    provider.updateBatchVisibility(true);
+    expect(mesh.isEnabled(false)).toBe(false);
+    provider.updateBatchVisibility(false, () => false);
+    expect(mesh.isEnabled(false)).toBe(false);
     provider.updateBatchVisibility();
     expect(mesh.isEnabled(false)).toBe(true);
     expect(mesh.getVertexBuffer("position")).toBe(vertices);
     expect(Array.from(mesh.getIndices()!)).toEqual(indices);
     expect(tile.buildingBatches[0]).toBe(mesh);
     tile.deleteBuildings();expect(tile.buildingBatches).toHaveLength(0);
+    scene.dispose();engine.dispose();
+});
+
+it("hides a specialized Overture building as soon as covered Google detail exists",async()=>{
+    const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
+    const engine=new NullEngine(),scene=new Scene(engine);
+    const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+    globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,14);
+    const tile=globe.ourTiles[0];
+    const provider=new BuildingsOverture(globe,"https://example.invalid/buildings.pmtiles");
+    provider.batchGeometry=true;provider.doMerge=true;
+    provider.batchVisibilityFilter=()=>false;
+    const feature={type:"Feature",properties:{height:25,roofShape:"gabled",roofHeight:5},geometry:{type:"Polygon",coordinates:[[[0,0],[0.001,0],[0.001,0.001],[0,0.001],[0,0]]]}} as feature;
+    await (provider as any).buildBatch({tile,tileCoords:tile.tileCoords.clone(),epsgType:EPSG_Type.EPSG_4326},[feature]);
+    for(let i=0;i<10 && !tile.buildings.length;i++) provider.processBuildingRequests();
+    expect(tile.buildings).toHaveLength(1);
+    expect(tile.buildings[0].mesh.isEnabled(false)).toBe(false);
+    provider.batchVisibilityFilter=()=>true;
+    provider.updateBatchVisibility(true);
+    expect(tile.buildings[0].mesh.isEnabled(false)).toBe(false);
+    provider.updateBatchVisibility();
+    expect(tile.buildings[0].mesh.isEnabled(false)).toBe(true);
     scene.dispose();engine.dispose();
 });
