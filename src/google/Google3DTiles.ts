@@ -713,8 +713,10 @@ export default class Google3DTiles {
             });
         }
 
+        // Keep queued hierarchy fetches across camera generations. Their
+        // priority follows the current eye, and a later selection reuses the
+        // same promise instead of requesting the same subtree again on turns.
         const request = this.networkSlot(() => {
-            if (generation !== this.generation) throw new DOMException("Superseded tile selection", "AbortError");
             this.stats.hierarchyRequests++; return this.tilesetLoader(url);
         }, priority).then((tileset) => {
             if (!tileset || !tileset.root) {

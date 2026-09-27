@@ -734,6 +734,22 @@ it("shares an in-flight model across camera reloads", async () => {
   provider.dispose();scene.dispose();engine.dispose();
 });
 
+it("reuses a queued hierarchy request after the camera selection changes", async () => {
+  const {engine, scene, tileSet} = createTileSet();
+  let finish!: () => void;
+  const waiting = new Promise<void>(resolve => { finish = resolve; });
+  let requests = 0;
+  const provider = new Google3DTiles(tileSet, {apiKey: "test",
+    tilesetLoader: async () => { requests++; await waiting; return {root: {}}; }});
+  const first = (provider as any).loadExternalTileset("child.json", "https://example.com/root.json");
+  provider.cancelPendingLoad();
+  const second = (provider as any).loadExternalTileset("child.json", "https://example.com/root.json");
+  finish();
+  expect(await second).toEqual(await first);
+  expect(requests).toBe(1);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
 it("preserves visible detail when a reduced budget cannot replace it adequately", async () => {
   const {engine, scene, tileSet}=createTileSet();
   const provider=new Google3DTiles(tileSet,{apiKey:"test",maximumScreenSpaceError:1,maxTiles:4,
