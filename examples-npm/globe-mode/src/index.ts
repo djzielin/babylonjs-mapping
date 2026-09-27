@@ -120,7 +120,6 @@ class GlobeDemo {
     private layers: MapLayerRenderer;
     private replacements = new BuildingReplacementIndex();
     private lastCoverageRevision = -1;
-    private lastCoverageRefresh = 0;
     private replacementSignatures = new WeakMap<object, string>();
     private data: GlobeDataController;
     private elevation = new TerrainRGB();
@@ -308,9 +307,8 @@ class GlobeDemo {
                 }
             }
             // Resolve Google/Overture overlap before drawing the newly enabled model.
-            if (googleRevision !== this.lastCoverageRevision && performance.now() - this.lastCoverageRefresh > 100) {
+            if (googleRevision !== this.lastCoverageRevision) {
                 this.lastCoverageRevision = googleRevision;
-                this.lastCoverageRefresh = performance.now();
                 this.refreshBuildingReplacements();
                 this.buildingTransition.update(performance.now(), (lat, lon) => this.googleCoversLocation(lat, lon), true);
                 for (const tile of this.landmarks?.loadedModelTiles ?? []) for (const mesh of tile.asset.meshes) {
