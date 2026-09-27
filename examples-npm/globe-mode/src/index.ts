@@ -165,7 +165,7 @@ class GlobeDemo {
     private depthCamera?: Scene["activeCamera"];
     private reversedDepth = false;
     private framePacing = new MotionFrameProfile(600);
-    private benchmark?: { started: number; previous: number; heading: number; tilt: number; shift: Vector3; moving: boolean; profile: MotionFrameProfile };
+    private benchmark?: { started: number; previous: number; heading: number; tilt: number; shift: Vector3; moving: boolean; fullSpeed: boolean; profile: MotionFrameProfile };
 
     public constructor(engine?: GlobeEngine) {
         this.canvas = document.getElementById(
@@ -221,14 +221,17 @@ class GlobeDemo {
         });
         document.getElementById("benchmark")!.addEventListener("click", () => {
             if (this.benchmark) { this.finishBenchmark("Stopped before completion."); return; }
-            const moving = (document.getElementById("benchmarkMode") as HTMLSelectElement).value === "move";
+            const mode = (document.getElementById("benchmarkMode") as HTMLSelectElement).value;
+            const moving = mode !== "still";
+            const fullSpeed = mode === "shift";
             if (moving && !this.inspecting) this.orientView(60, 0);
             const now = performance.now();
             this.benchmark = { started: now, previous: 0,
                 heading: Number((document.getElementById("heading") as HTMLInputElement).value),
                 tilt: Number((document.getElementById("tilt") as HTMLInputElement).value),
-                shift: this.inspectionBasis().north.scale(this.inspecting ? Math.min(200 * this.detailGlobe.metresToWorld, this.movementSpeed()) : 0),
-                moving, profile: new MotionFrameProfile(30000) };
+                shift: this.inspectionBasis().north.scale(this.inspecting
+                    ? fullSpeed ? this.movementSpeed() * 4 : Math.min(200 * this.detailGlobe.metresToWorld, this.movementSpeed()) : 0),
+                moving, fullSpeed, profile: new MotionFrameProfile(30000) };
             document.getElementById("benchmark")!.textContent = "Stop measurement";
         });
         this.terrainBatcher = new TerrainBatcher(this.scene,
@@ -283,7 +286,8 @@ class GlobeDemo {
                 this.depthCamera = this.scene.activeCamera;
             }
             this.terrainTransition.update(performance.now());
-            this.buildingTransition.update(performance.now());
+            this.buildingTransition.update(performance.now(), this.googleTiles && !this.googleFarHidden
+                ? (lat, lon) => this.googleCoversLocation(lat, lon) : undefined);
             const googleRevision = this.googleTiles?.coverageRevision ?? -1;
             if (this.registeredGoogleTiles !== this.googleTiles || this.registeredGoogleRevision !== googleRevision) {
                 this.registeredGoogleTiles = this.googleTiles;
@@ -433,7 +437,7 @@ class GlobeDemo {
                 this.buildings = new BuildingsOverture(this.detailGlobe, url);
                 this.buildings.doMerge = true;
                 this.buildings.batchGeometry = true;
-                this.buildings.batchVisibilityFilter = (lat, lon) => !this.googleCoversLocation(lat, lon);
+                this.buildings.batchVisibilityFilter = (lat, lon, bounds) => !this.googleCoversFootprint(lat, lon, bounds);
                 this.buildings.loadConcurrency = 6;
                 this.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 this.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, this.detailGlobe, Number(feature.properties?.height) || 4);
@@ -813,6 +817,18 @@ class GlobeDemo {
         return !this.googleFarHidden && !!this.googleTiles?.coversLocation(latitude, longitude);
     }
 
+    private googleCoversFootprint(latitude: number, longitude: number,
+        bounds?: { south: number; west: number; north: number; east: number }): boolean {
+        if (this.googleCoversLocation(latitude, longitude)) return true;
+        if (!bounds || !this.googleTiles || this.googleFarHidden) return false;
+        // A Google model can cover a roof or wall while missing its centroid.
+        // Suppress that Overture footprint once any sampled part has a loaded replacement.
+        for (const lat of [bounds.south, (bounds.south + bounds.north) / 2, bounds.north])
+            for (const lon of [bounds.west, (bounds.west + bounds.east) / 2, bounds.east])
+                if (this.googleTiles.coversLocation(lat, lon)) return true;
+        return false;
+    }
+
     private refreshBuildingReplacements(): void {
         const coverageURLs = new Set(this.googleTiles?.loadedModelTiles.map(tile => tile.url) ?? []);
         const sameActiveGoogle = !!this.googleTiles && this.googleTiles === this.replacementCoverageProvider
@@ -1099,23 +1115,20 @@ class GlobeDemo {
             const screenError = requestedError === null ? NaN : Number(requestedError);
             const targetScreenError = Number.isFinite(screenError) && screenError >= 0.5
                 ? screenError : quality === "20" ? 2 : quality === "auto" ? 1 : 0.75;
-            const coldStart = provider.loadedModelTiles.length === 0;
-            provider.maximumScreenSpaceError = coldStart ? Math.max(4, targetScreenError) : targetScreenError;
+            provider.maximumScreenSpaceError = targetScreenError;
             provider.maximumDisplayGeometricError = 33;
-            provider.maxTiles = coldStart ? 512 : 2048;
+            provider.maxTiles = 2048;
             this.lastGoogleSelectionAt = performance.now();
             this.googleLoading = true;
-            this.googleStatus("Google 3D · streaming nearby detail…");
+            this.googleStatus("Google 3D · streaming visible detail…");
             const started = performance.now();
             try {
-                const nearbyRadius = Math.min(provider.coverageRadius!, Math.max(this.inspecting ? 1500 : 600,
-                    currentView.altitude / this.detailGlobe.metresToWorld * (this.inspecting ? 2 : 0.75)));
-                this.canvas.dataset.googleNearbyRadius = String(Math.round(nearbyRadius));
-                const loaded = await provider.load(nearbyRadius);
+                this.canvas.dataset.googleSelectionRadius = String(Math.round(provider.coverageRadius!));
+                this.canvas.dataset.googleSelectionCenter = `${currentView.latitude.toFixed(5)},${currentView.longitude.toFixed(5)}`;
+                const loaded = await provider.load();
                 if (generation !== this.googleGeneration) return;
                 this.setPhotorealisticActive(loaded.length > 0);
                 this.canvas.dataset.googleTiles = String(loaded.length);
-                this.canvas.dataset.googleInitialTiles = String(loaded.length);
                 this.canvas.dataset.googleLoadMs = String(Math.round(performance.now() - started));
                 this.canvas.dataset.googleFirstLoadMs ??= this.canvas.dataset.googleLoadMs;
                 this.canvas.dataset.googleFirstLoadTiles ??= String(loaded.length);
@@ -1127,18 +1140,11 @@ class GlobeDemo {
                 this.googleStatus(loaded.length ? `Google 3D · ${loaded.length} tiles` : "Google 3D · no coverage here");
                 this.googlePrefetchTimer = setTimeout(() => {
                     if (generation !== this.googleGeneration) return;
-                    provider.maximumScreenSpaceError = targetScreenError;
-                    provider.maximumDisplayGeometricError = 33;
-                    provider.maxTiles = 2048;
-                    void provider.load().then(fullCoverage => {
-                        if (generation === this.googleGeneration) {
-                            this.canvas.dataset.googleTiles = String(fullCoverage.length);
-                            document.getElementById("googleSources")!.textContent = provider.getAttributions().join("; ");
-                            this.googleStatus(`Google 3D · ${fullCoverage.length} tiles`);
-                            void provider.prefetchSurroundings().catch(() => undefined);
-                        }
+                    void provider.prefetchSurroundings().then(() => {
+                        if (generation === this.googleGeneration)
+                            this.canvas.dataset.googlePrefetchMs = String(Math.round(performance.now() - started));
                     }).catch(() => undefined);
-                }, 1000);
+                }, 500);
             } catch (error) {
                 const reason = (error instanceof Error ? error.message : String(error)).replace(/https?:\/\/\S+/g, "[request]");
                 console.warn("Google 3D loading failed:", reason);
@@ -1235,7 +1241,7 @@ class GlobeDemo {
                 layer.buildings = new BuildingsOverture(layer.globe, this.overtureURL);
                 layer.buildings.doMerge = true;
                 layer.buildings.batchGeometry = true;
-                layer.buildings.batchVisibilityFilter = (lat, lon) => !this.googleCoversLocation(lat, lon);
+                layer.buildings.batchVisibilityFilter = (lat, lon, bounds) => !this.googleCoversFootprint(lat, lon, bounds);
                 layer.buildings.loadConcurrency = 6;
                 layer.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, layer.globe, Number(feature.properties?.height) || 4);
@@ -1400,7 +1406,7 @@ class GlobeDemo {
         const seconds = (performance.now() - run.started) / 1000;
         if (seconds >= 60) { this.finishBenchmark(); return; }
         if (run.moving && this.inspecting) {
-            const position = Math.sin(seconds * Math.PI / 15);
+            const position = run.fullSpeed ? seconds : Math.sin(seconds * Math.PI / 15);
             this.translateInspection(run.shift.scale(position - run.previous));
             run.previous = position;
             this.orientView(run.tilt, (run.heading + seconds * 6) % 360);

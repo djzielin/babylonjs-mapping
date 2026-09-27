@@ -49,6 +49,25 @@ it("builds thousands of footprints without allocating a mesh per building",()=>{
     scene.dispose();engine.dispose();
 });
 
+it("uses each footprint bounds when Google detail reaches only its edge",async()=>{
+    const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
+    const engine=new NullEngine(),scene=new Scene(engine);
+    const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+    globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,14);
+    const tile=globe.ourTiles[0];
+    const provider=new BuildingsOverture(globe,"https://example.invalid/buildings.pmtiles");
+    provider.batchGeometry=true;provider.doMerge=true;
+    provider.batchVisibilityFilter=(_lat,_lon,bounds)=>!!bounds && bounds.east<0.0008;
+    const feature={type:"Feature",properties:{height:12},geometry:{type:"Polygon",coordinates:[[[0,0],[0.001,0],[0.001,0.001],[0,0.001],[0,0]]]}} as feature;
+    await (provider as any).buildBatch({tile,tileCoords:tile.tileCoords.clone(),epsgType:EPSG_Type.EPSG_4326},[feature]);
+    expect(tile.buildingBatches).toHaveLength(1);
+    expect(tile.buildingBatches[0].isEnabled(false)).toBe(false);
+    provider.batchVisibilityFilter=(_lat,_lon,bounds)=>!!bounds && bounds.east<0.002;
+    provider.updateBatchVisibility();
+    expect(tile.buildingBatches[0].isEnabled(false)).toBe(true);
+    scene.dispose();engine.dispose();
+});
+
 it("atomically replaces a building batch and keeps the old one if work is cancelled",async()=>{
     const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
     const engine=new NullEngine(),scene=new Scene(engine);

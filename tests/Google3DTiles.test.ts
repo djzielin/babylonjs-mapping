@@ -1153,6 +1153,20 @@ it("promotes queued tiles in the new view after a camera turn at the same positi
   provider.dispose(); scene.dispose(); engine.dispose();
 });
 
+it("ranks visible missing coverage and projected detail in the shared request queue", () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet, { cullToCamera: true }) as any;
+  vi.spyOn(provider, "tilePriority").mockReturnValue(100);
+  vi.spyOn(provider, "allowedGeometricError").mockReturnValue(1);
+  const volume = { sphere: [1, 0, 0, 1] };
+  const missing = provider.requestPriority(volume, Matrix.Identity(), 2, false);
+  const covered = provider.requestPriority(volume, Matrix.Identity(), 2, true);
+  const urgent = provider.requestPriority(volume, Matrix.Identity(), 16, true);
+  expect(missing).toBeLessThan(covered);
+  expect(urgent).toBeLessThan(covered);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
 it("keeps loaded outer-radius coverage visible during a nearby foreground pass", async () => {
   const { engine, scene, tileSet } = createTileSet();
   tileSet.updateRaster(0, 0, 16);

@@ -19,7 +19,12 @@ export default class BuildingsOverture extends Buildings {
     /** Direct globe batches when doMerge is enabled and no per-mesh filter is installed. */
     batchGeometry: boolean;
     /** Hide covered footprints by updating indices while preserving prepared vertices. */
-    batchVisibilityFilter?: (latitude: number, longitude: number) => boolean;
+    batchVisibilityFilter?: (latitude: number, longitude: number, bounds?: {
+        south: number;
+        west: number;
+        north: number;
+        east: number;
+    }) => boolean;
     private batches;
     private archive;
     private static archives;
@@ -34,6 +39,7 @@ export default class BuildingsOverture extends Buildings {
     private buildBatch;
     updateBatchVisibility(coverageOnlyGrows?: boolean, shouldUpdateTile?: (tile: Tile) => boolean): void;
     onBuildingCreated(mesh: Mesh): void;
+    private buildingVisible;
     private updateMeshVisibility;
     private appendLayerFeatures;
     private layerFeatures;

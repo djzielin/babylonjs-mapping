@@ -43,7 +43,7 @@ export class BuildingTransition {
         this.nextCheck = 0;
     }
 
-    public update(now: number): void {
+    public update(now: number, googleCovers?: (latitude: number, longitude: number) => boolean): void {
         if (now < this.nextCheck) return;
         this.nextCheck = now + 200;
         for (const [globe, retained] of this.previous) {
@@ -54,6 +54,16 @@ export class BuildingTransition {
             const south = Math.max(...tiles.map(tile => tile.tileCoords.y));
             const at = (x: number, y: number) => globe.ourTilesMap.get(new Vector3(x, y, globe.zoom).toString());
             const current = retained.filter(old => {
+                if (googleCovers) {
+                    const box = old.mesh.getBoundingInfo().boundingBox;
+                    if ([box.centerWorld, ...box.vectorsWorld].some(vertex => {
+                        const point = globe.getSurfaceCoordinates(vertex);
+                        return googleCovers(point.latitude, point.longitude);
+                    })) {
+                        old.mesh.dispose();
+                        return false;
+                    }
+                }
                 const sameTile = globe.ourTilesMap.get(old.coordinate.toString());
                 if (sameTile && (sameTile.buildingBatches.some(mesh => mesh === old.source)
                     || sameTile.mergedBuildingMesh === old.source)) {

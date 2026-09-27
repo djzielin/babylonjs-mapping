@@ -61,7 +61,8 @@ export default class BuildingsOverture extends Buildings {
     /** Direct globe batches when doMerge is enabled and no per-mesh filter is installed. */
     public batchGeometry = false;
     /** Hide covered footprints by updating indices while preserving prepared vertices. */
-    public batchVisibilityFilter?: (latitude: number, longitude: number) => boolean;
+    public batchVisibilityFilter?: (latitude: number, longitude: number,
+        bounds?: { south: number; west: number; north: number; east: number }) => boolean;
     private batches = new WeakMap<Mesh, { batch: { ranges: GlobeBuildingBatch["ranges"]; indices: Uint32Array }; mask: Uint8Array }>();
     private archive: PMTiles;
     private static archives = new Map<string, PMTiles>();
@@ -265,8 +266,7 @@ export default class BuildingsOverture extends Buildings {
             for (const mesh of tile.buildingBatches) this.updateMeshVisibility(mesh, coverageOnlyGrows);
             if (this.batchGeometry && this.tileSet.isGlobe) for (const building of tile.buildings) {
                 if (coverageOnlyGrows && !building.mesh.isEnabled(false)) continue;
-                const point = (this.tileSet as GlobeSet).getSurfaceCoordinates(building.mesh.getBoundingInfo().boundingBox.centerWorld);
-                const visible = !this.batchVisibilityFilter || this.batchVisibilityFilter(point.latitude, point.longitude);
+                const visible = this.buildingVisible(building.mesh);
                 if (building.mesh.isEnabled(false) !== visible) building.mesh.setEnabled(visible);
             }
         }
@@ -274,8 +274,21 @@ export default class BuildingsOverture extends Buildings {
 
     public override onBuildingCreated(mesh: Mesh): void {
         if (!this.batchGeometry || !this.batchVisibilityFilter || !this.tileSet.isGlobe) return;
-        const point = (this.tileSet as GlobeSet).getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
-        mesh.setEnabled(this.batchVisibilityFilter(point.latitude, point.longitude));
+        mesh.setEnabled(this.buildingVisible(mesh));
+    }
+
+    private buildingVisible(mesh: Mesh): boolean {
+        if (!this.batchVisibilityFilter || !this.tileSet.isGlobe) return true;
+        const globe = this.tileSet as GlobeSet;
+        const box = mesh.getBoundingInfo().boundingBox;
+        const center = globe.getSurfaceCoordinates(box.centerWorld);
+        let south = center.latitude, north = center.latitude, west = center.longitude, east = center.longitude;
+        for (const vertex of box.vectorsWorld) {
+            const point = globe.getSurfaceCoordinates(vertex);
+            south = Math.min(south, point.latitude); north = Math.max(north, point.latitude);
+            west = Math.min(west, point.longitude); east = Math.max(east, point.longitude);
+        }
+        return this.batchVisibilityFilter(center.latitude, center.longitude, { south, west, north, east });
     }
 
     private updateMeshVisibility(mesh: Mesh, coverageOnlyGrows = false): void {
@@ -287,7 +300,7 @@ export default class BuildingsOverture extends Buildings {
         for (let i = 0; i < ranges.length; i++) {
             const range = ranges[i];
             mask[i] = coverageOnlyGrows && data.mask[i] === 0 && data.mask.length === ranges.length
-                ? 0 : Number(!this.batchVisibilityFilter || this.batchVisibilityFilter(range.latitude, range.longitude));
+                ? 0 : Number(!this.batchVisibilityFilter || this.batchVisibilityFilter(range.latitude, range.longitude, range));
             if (mask[i]) count += range.end - range.start;
             if (mask[i] !== data.mask[i]) changed = true;
         }

@@ -783,20 +783,25 @@ export default class Google3DTiles {
         return Math.max(0, Vector3.Distance(eye, center) - volume.sphere![3] * scale);
     }
 
-    private requestPriority(volume: Google3DBoundingVolume | undefined, transform: Matrix): number {
+    private requestPriority(volume: Google3DBoundingVolume | undefined, transform: Matrix,
+        geometricError?: number, covered = false): number {
         const distance = this.tilePriority(volume, transform, this.requestEye ?? this.selectionEye ?? this.cameraEye());
-        // A camera turn changes the important tiles without changing the eye.
-        // Re-evaluate visibility when queued requests are drained so the new
-        // view is fetched before nearby content behind the viewer.
-        return this.cullToCamera && this.allowedGeometricError(volume, transform) < 0
-            ? 1e9 + distance : distance;
+        const allowed = this.allowedGeometricError(volume, transform, false,
+            this.requestEye ?? this.selectionEye ?? this.cameraEye());
+        // Hierarchy and models share a queue. Re-evaluate this score when a
+        // slot opens so turns favor visible, missing, and under-detailed work.
+        if (this.cullToCamera && allowed < 0) return 1e9 + distance;
+        const band = Math.floor(Math.log2(1 + distance / 250));
+        const shortage = allowed > 0 && geometricError !== undefined && Number.isFinite(geometricError)
+            ? Math.min(32, Math.max(0, Math.log2(Math.max(1, geometricError / allowed)))) : 0;
+        return band * 1e7 + (covered ? 2e6 : 0) - shortage * 1e5 + distance;
     }
 
-    private allowedGeometricError(volume: Google3DBoundingVolume | undefined, transform: Matrix, surroundings = false): number {
+    private allowedGeometricError(volume: Google3DBoundingVolume | undefined, transform: Matrix,
+        surroundings = false, eye = this.selectionEye ?? this.cameraEye()): number {
         const camera = this.tileSet.scene.activeCamera;
         if (!this.maximumScreenSpaceError || !this.tileSet.isGlobe || !camera || !volume) return this.maximumGeometricError;
         const globe = this.tileSet as GlobeSet;
-        const eye = this.selectionEye ?? this.cameraEye();
         let center: Vector3;
         let radius = 0;
         if (volume.box) {
@@ -920,7 +925,8 @@ export default class Google3DTiles {
                 node.depth + 1, node.transform, node.refine, node.ancestors.concat(node.selections.map(selection => selection.url))));
             for (const content of getTileContents(node.tile).filter(isTilesetContent)) {
                 branches.push(this.loadExternalTileset(getContentURI(content), node.responseUrl,
-                    () => this.requestPriority(node.tile.boundingVolume, node.transform), generation).then(external => firstContent(external.tileset.root,
+                    () => this.requestPriority(node.tile.boundingVolume, node.transform, node.tile.geometricError,
+                        node.ancestors.some(url => this.loadedTiles.has(url))), generation).then(external => firstContent(external.tileset.root,
                         external.url, node.depth + 1, node.transform, node.refine, node.ancestors.concat(node.selections.map(selection => selection.url)))));
             }
             return (await Promise.all(branches)).reduce((all, branch) => all.concat(branch), [] as FrontierTile[]);
@@ -1271,7 +1277,9 @@ export default class Google3DTiles {
             if (generation !== this.generation) return undefined;
             this.stats.modelRequests++;
             return this.modelTileLoader(selection.url, this.tileSet.scene);
-        }, () => this.requestPriority(selection.boundingVolume, selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity())).then((model) => {
+        }, () => this.requestPriority(selection.boundingVolume,
+            selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity(), selection.geometricError,
+            selection.ancestors?.some(url => this.loadedTiles.has(url)) ?? false)).then((model) => {
             if (!model) {
                 return undefined;
             }

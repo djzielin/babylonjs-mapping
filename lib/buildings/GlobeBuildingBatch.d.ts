@@ -13,6 +13,10 @@ export declare class GlobeBuildingBatch {
     readonly ranges: {
         latitude: number;
         longitude: number;
+        south: number;
+        west: number;
+        north: number;
+        east: number;
         start: number;
         end: number;
     }[];
