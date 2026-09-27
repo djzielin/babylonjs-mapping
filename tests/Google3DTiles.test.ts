@@ -859,7 +859,7 @@ it("prepares offscreen content without replacing visible models", async () => {
   const geometricError = vi.spyOn(provider as any, "allowedGeometricError").mockReturnValue(1);
   await provider.prefetchSurroundings();
   geometricError.mockRestore();
-  expect(bounds).toHaveBeenCalledWith(3000);
+  expect(bounds).toHaveBeenCalledWith(10000);
   expect(provider.loadedModelTiles).toEqual(before);
   expect(requests).toHaveLength(2);
   camera.setTarget(globe.getSurfacePosition(0,-0.01));camera.setPosition(eye);camera.getViewMatrix(true);
@@ -868,6 +868,30 @@ it("prepares offscreen content without replacing visible models", async () => {
   expect(before[0].root.isEnabled()).toBe(true);
   expect(provider.loadedModelTiles.some(t=>t.url.includes("behind.glb"))).toBe(true);
   provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("retains coarse unseen models across the configured fifteen-mile radius", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, {radius: 60, attribution: false});
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const camera = new ArcRotateCamera("look", 0, 1, 1, globe.getSurfacePosition(0, 0.01), scene);
+  camera.setPosition(globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld));
+  camera.minZ = 1e-7; camera.getViewMatrix(true); camera.getProjectionMatrix(true);
+  const sphere = (lon: number) => { const angle = lon * Math.PI / 180;
+    return {sphere: [6378137 * Math.cos(angle), 6378137 * Math.sin(angle), 0, 100]}; };
+  const requests: string[] = [];
+  const provider = new Google3DTiles(globe, {apiKey: "test", maximumScreenSpaceError: 4,
+    maximumDisplayGeometricError: 33, cullToCamera: true, coverageRadius: 15 * 1609.344,
+    tilesetLoader: async () => ({root: {children: [
+      {boundingVolume: sphere(0.01), geometricError: 0, content: {uri: "near.glb"}},
+      {boundingVolume: sphere(0.21), geometricError: 128, content: {uri: "far.glb"}},
+    ]}}), modelTileLoader: createModelLoader(requests)});
+  try {
+    await provider.load(3000);
+    await provider.prefetchSurroundings();
+    expect(requests.some(url => url.includes("far.glb"))).toBe(true);
+    expect(Array.from((provider as any).retainedTiles.keys()).some((url: string) => url.includes("far.glb"))).toBe(true);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
 it("spreads nearby prefetch across turn directions when one sector has many tiles", async () => {
@@ -892,7 +916,8 @@ it("spreads nearby prefetch across turn directions when one sector has many tile
   try {
     await provider.load();
     await provider.prefetchSurroundings();
-    expect(requests).toHaveLength(256);
+    expect(requests.length).toBeGreaterThan(256);
+    expect(requests.length).toBeLessThanOrEqual(512);
     expect(requests.some(url => url.includes("north.glb"))).toBe(true);
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });

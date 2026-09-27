@@ -535,7 +535,7 @@ export default class Google3DTiles {
     }
 
     private trimRetainedTiles(): void {
-        while (this.retainedTiles.size > Math.max(128, Math.min(256, this.maxTiles))) {
+        while (this.retainedTiles.size > Math.max(128, Math.min(512, this.maxTiles))) {
             const url = Array.from(this.retainedTiles.keys()).find(url => !this.pendingModels.has(url) && !this.desiredTiles.has(url));
             if (!url) break;
             const tile = this.retainedTiles.get(url)!;
@@ -586,9 +586,9 @@ export default class Google3DTiles {
         for (const sector of sectors) sector.sort((a, b) =>
             priorities.get(a)! - priorities.get(b)!);
         let models = 0;
-        while (models < 256 && sectors.some(sector => sector.length)) for (const sector of sectors) {
+        while (models < 512 && sectors.some(sector => sector.length)) for (const sector of sectors) {
             const selection = sector.shift();
-            if (!selection || models >= 256) continue;
+            if (!selection || models >= 512) continue;
             models++;
             requests.push(this.loadTile(selection, origin, generation, false).catch(() => undefined));
         }
@@ -838,11 +838,7 @@ export default class Google3DTiles {
     private async selectFrontier(desired: Map<string, TileSelection>, generation: number, onStable: (selection: TileSelection) => void,
         surroundings = false, selectionRadius = this.coverageRadius): Promise<void> {
         const camera = this.tileSet.scene.activeCamera;
-        const cameraHeight = surroundings && camera && this.tileSet.isGlobe
-            ? (this.tileSet as GlobeSet).getSurfaceCoordinates(camera.globalPosition).elevation
-                / (this.tileSet as GlobeSet).metresToWorld : 0;
-        const coverageRadius = surroundings && this.coverageRadius
-            ? Math.min(this.coverageRadius, Math.max(3000, cameraHeight * 2)) : selectionRadius;
+        const coverageRadius = surroundings ? this.coverageRadius : selectionRadius;
         const bounds = this.getTileSetBounds(coverageRadius);
         const budget = surroundings ? Math.min(512, this.maxTiles) : this.maxTiles;
         const key = JSON.stringify([bounds, this.selectionEye?.asArray(),
@@ -908,7 +904,8 @@ export default class Google3DTiles {
         let preferCoverage = false;
         const settled = new Set<FrontierTile>();
         const renderable = (node: FrontierTile) => this.maximumDisplayGeometricError === undefined
-            || (node.tile.geometricError ?? 0) <= this.maximumDisplayGeometricError;
+            || (node.tile.geometricError ?? 0) <= this.maximumDisplayGeometricError
+            || surroundings && node.priority <= 1;
         const settle = (node: FrontierTile) => {
             if (settled.has(node)) return;
             settled.add(node);
