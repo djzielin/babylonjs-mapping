@@ -3,7 +3,9 @@ import { PriorityQueue } from "../shared/PriorityQueue.js";
 import type GlobeSet from "../core/GlobeSet.js";
 import { AssetContainer } from "@babylonjs/core/assetContainer.js";
 import { Frustum, Matrix, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
+import type { Plane } from "@babylonjs/core/Maths/math.js";
 import { LoadAssetContainerAsync } from "@babylonjs/core/Loading/sceneLoader.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
@@ -208,6 +210,7 @@ export default class Google3DTiles {
     private selectionEye?: Vector3;
     private requestEye?: Vector3;
     private requestPriorityRevision = 0;
+    private frustumCache?: { camera: Camera; updateFlag: number; planes: Plane[] };
     private frontierCache?: { key: string; selections: TileSelection[] };
     private networkActive = 0;
     private networkWaiters: Array<{ priority: number | (() => number); resume: () => void; distance?: number; evaluatedAt?: number }> = [];
@@ -497,7 +500,10 @@ export default class Google3DTiles {
         if (generation !== this.generation) return [];
         this.stats.reusedModels += Array.from(desiredTiles.keys()).filter(url => residentAtStart.has(url) && this.loadedTiles.has(url)).length;
         // Keep the previous view visible while its replacement is streaming.
-        const currentBounds = this.getTileSetBounds(selectionRadius);
+        // A short-radius foreground pass is only a scheduling hint. Content
+        // already inside the full coverage area must stay visible while that
+        // pass and the subsequent wider selection are in flight.
+        const currentBounds = this.getTileSetBounds();
         for (const url of Array.from(this.loadedTiles.keys())) {
             if (!desiredTiles.has(url)) {
                 const previous = this.loadedSelections.get(url);
@@ -778,7 +784,12 @@ export default class Google3DTiles {
     }
 
     private requestPriority(volume: Google3DBoundingVolume | undefined, transform: Matrix): number {
-        return this.tilePriority(volume, transform, this.requestEye ?? this.selectionEye ?? this.cameraEye());
+        const distance = this.tilePriority(volume, transform, this.requestEye ?? this.selectionEye ?? this.cameraEye());
+        // A camera turn changes the important tiles without changing the eye.
+        // Re-evaluate visibility when queued requests are drained so the new
+        // view is fetched before nearby content behind the viewer.
+        return this.cullToCamera && this.allowedGeometricError(volume, transform) < 0
+            ? 1e9 + distance : distance;
     }
 
     private allowedGeometricError(volume: Google3DBoundingVolume | undefined, transform: Matrix, surroundings = false): number {
@@ -820,7 +831,11 @@ export default class Google3DTiles {
         const world = globe.getSurfacePosition(latitude / RADIANS_PER_DEGREE, longitude / RADIANS_PER_DEGREE,
             (altitude + this.heightOffset) * globe.metresToWorld);
         // Keep broad coverage behind the camera, but spend detail on the visible view.
-        const planes = Frustum.GetPlanes(camera.getTransformationMatrix());
+        const cameraMatrix = camera.getTransformationMatrix();
+        if (this.frustumCache?.camera !== camera || this.frustumCache.updateFlag !== cameraMatrix.updateFlag)
+            this.frustumCache = { camera, updateFlag: cameraMatrix.updateFlag,
+                planes: Frustum.GetPlanes(cameraMatrix) };
+        const planes = this.frustumCache.planes;
         const visible = !planes.some(plane => plane.dotCoordinate(world) < -radius * globe.metresToWorld);
         if (this.cullToCamera && !visible && !surroundings) return -1;
         let distance = Math.max(1, Vector3.Distance(eye, center) - radius);

@@ -1027,14 +1027,14 @@ class GlobeDemo {
         if (!force && key === this.googleViewKey) return;
         this.googleViewKey = key;
         if (key) this.googleTiles?.reprioritizeRequests();
-        // Let nearby models finish their current request before retargeting a
-        // moving camera. The pending refresh reads the latest position.
+        // Give an active selection a short interval to settle while still
+        // retargeting quickly when the view changes during motion.
         const selectionAge = performance.now() - this.lastGoogleSelectionAt;
-        if (!force && key && this.googleLoading && selectionAge < 750) {
+        if (!force && key && this.googleLoading && selectionAge < 250) {
             if (!this.googleTimer) this.googleTimer = setTimeout(() => {
                 this.googleTimer = undefined;
                 this.scheduleGoogleTiles(true);
-            }, 750 - selectionAge);
+            }, 250 - selectionAge);
             return;
         }
         // Movement may change the selection key every frame. Keep the first

@@ -144,6 +144,7 @@ export default class Google3DTiles {
     private readonly modelTileLoader;
     private rootTileset;
     private rootRequestKey;
+    private rootRequest?;
     private session;
     private readonly externalTilesets;
     private readonly loadedTiles;
@@ -156,6 +157,7 @@ export default class Google3DTiles {
     private selectionEye?;
     private requestEye?;
     private requestPriorityRevision;
+    private frustumCache?;
     private frontierCache?;
     private networkActive;
     private networkWaiters;

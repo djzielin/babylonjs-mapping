@@ -1126,6 +1126,51 @@ it("reprioritizes queued tile requests when the camera moves during a load", asy
   provider.dispose(); scene.dispose(); engine.dispose();
 });
 
+it("promotes queued tiles in the new view after a camera turn at the same position", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet, { cullToCamera: true }) as any;
+  const releases: (() => void)[] = [];
+  const active = Array.from({ length: 48 }, () => provider.networkSlot(() =>
+    new Promise<void>(resolve => releases.push(resolve))));
+  await Promise.resolve(); await Promise.resolve();
+  expect(releases).toHaveLength(48);
+  const east = { sphere: [1, 0, 0, 1] }, west = { sphere: [-1, 0, 0, 1] };
+  vi.spyOn(provider, "tilePriority").mockReturnValue(10);
+  let facing = east;
+  vi.spyOn(provider, "allowedGeometricError").mockImplementation(volume => volume === facing ? 1 : -1);
+  const order: string[] = [];
+  const eastRequest = provider.networkSlot(async () => { order.push("east"); },
+    () => provider.requestPriority(east, Matrix.Identity()));
+  const westRequest = provider.networkSlot(async () => { order.push("west"); },
+    () => provider.requestPriority(west, Matrix.Identity()));
+  facing = west;
+  provider.reprioritizeRequests();
+  releases[0]();
+  await Promise.all([eastRequest, westRequest]);
+  expect(order).toEqual(["west", "east"]);
+  releases.slice(1).forEach(release => release());
+  await Promise.all(active);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
+it("keeps loaded outer-radius coverage visible during a nearby foreground pass", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  tileSet.updateRaster(0, 0, 16);
+  const radians = Math.PI / 180;
+  const provider = new Google3DTiles(tileSet, { apiKey: "test", coverageRadius: 20000,
+    maximumScreenSpaceError: 1,
+    tilesetLoader: async () => ({ root: { children: [
+      { boundingVolume: { region: [-0.001, -0.001, 0.001, 0.001] }, content: { uri: "near.glb" } },
+      { boundingVolume: { region: [0.1 * radians, -0.001, 0.101 * radians, 0.001] }, content: { uri: "outer.glb" } },
+    ] } }), modelTileLoader: createModelLoader([]),
+  });
+  expect(await provider.load()).toHaveLength(2);
+  const outer = provider.loadedModelTiles.find(tile => tile.url.includes("outer.glb"))!;
+  expect(await provider.load(1000)).toHaveLength(2);
+  expect(outer.root.isEnabled()).toBe(true);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
 it("commits independent replacement groups while a different subtree is still loading", async () => {
   const {engine, scene, tileSet} = createTileSet();
   let finish!: () => void, started!: () => void;
