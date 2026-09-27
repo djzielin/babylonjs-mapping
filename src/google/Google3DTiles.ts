@@ -195,6 +195,7 @@ export default class Google3DTiles {
     private readonly modelTileLoader: GoogleModelTileLoader;
     private rootTileset: Google3DTileset | undefined;
     private rootRequestKey = "";
+    private rootRequest?: { key: string; promise: Promise<Google3DTileset> };
     private session: string | undefined;
     private readonly externalTilesets = new Map<string, Promise<LoadedTileset>>();
     private readonly loadedTiles = new Map<string, LoadedGoogle3DTile>();
@@ -609,6 +610,7 @@ export default class Google3DTiles {
         this.disposeLoadedTiles();
         this.rootTileset = undefined;
         this.rootRequestKey = "";
+        this.rootRequest = undefined;
         this.session = undefined;
         this.externalTilesets.clear();
         this.originStateKey = "";
@@ -673,15 +675,26 @@ export default class Google3DTiles {
         if (this.rootTileset && this.rootRequestKey === requestKey) {
             return;
         }
-
-        this.stats.hierarchyRequests++;
-        const tileset = await this.tilesetLoader(rootUrl);
-        if (generation !== this.generation) return;
-        this.rootTileset = tileset;
-        if (!this.rootTileset || !this.rootTileset.root) {
+        let request = this.rootRequest;
+        if (!request || request.key !== requestKey) {
+            this.stats.hierarchyRequests++;
+            request = { key: requestKey, promise: this.tilesetLoader(rootUrl) };
+            this.rootRequest = request;
+        }
+        let tileset: Google3DTileset;
+        try { tileset = await request.promise; }
+        catch (error) {
+            if (this.rootRequest === request) this.rootRequest = undefined;
+            throw error;
+        }
+        if (generation !== this.generation || this.rootRequest !== request) return;
+        if (!tileset?.root) {
+            this.rootRequest = undefined;
             throw new Error("Google 3D Tiles root response did not contain a root tile.");
         }
+        this.rootTileset = tileset;
         this.rootRequestKey = requestKey;
+        this.rootRequest = undefined;
         this.session = undefined;
         this.externalTilesets.clear();
     }

@@ -479,12 +479,30 @@ describe("Google3DTiles edge cases", () => {
       modelTileLoader: createModelLoader([]),
     });
     const first = google.load();
+    google.apiKey = "new-key";
     const second = google.load();
     resolvers[1]({ root: { content: { uri: "new.glb" } } });
     expect(await second).toHaveLength(1);
     resolvers[0]({ root: { content: { uri: "old.glb" } } });
     expect(await first).toEqual([]);
     expect(google.loadedModelTiles[0].url).toContain("new.glb");
+    google.dispose(); scene.dispose(); engine.dispose();
+  });
+
+  it("shares an in-flight root request across camera refreshes", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    let finish!: (value: Google3DTileset) => void;
+    const tilesetLoader = vi.fn(() => new Promise<Google3DTileset>(resolve => { finish = resolve; }));
+    const google = new Google3DTiles(tileSet, { apiKey: "test-key", tilesetLoader,
+      modelTileLoader: createModelLoader([]),
+    });
+    const first = google.load();
+    const second = google.load();
+    expect(tilesetLoader).toHaveBeenCalledOnce();
+    finish({ root: { content: { uri: "current.glb" } } });
+    expect(await first).toEqual([]);
+    expect(await second).toHaveLength(1);
+    expect(google.stats.hierarchyRequests).toBe(1);
     google.dispose(); scene.dispose(); engine.dispose();
   });
 
