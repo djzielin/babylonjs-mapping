@@ -836,6 +836,8 @@ class GlobeDemo {
                 const visible = !this.roadOverlapsGoogle(mesh);
                 if (mesh.isEnabled(false) !== visible) mesh.setEnabled(visible);
             }
+        // Convert landmark positions once per globe. Comparing every model to
+        // every raster tile made a Google coverage update quadratic in practice.
         for (const entry of [{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]) {
             if (!entry.buildings || entry.globe.zoom < MIN_GLOBE_BUILDING_ZOOM || entry.globe.zoom > 14) continue;
             entry.buildings.updateBatchVisibility(coverageOnlyGrows, changedCoverageURLs ? tile => {
@@ -847,18 +849,24 @@ class GlobeDemo {
                     math.tile_to_lat(tile.tileCoords.y + 2, z), math.tile_to_lon(tile.tileCoords.x - 1, z),
                     math.tile_to_lat(tile.tileCoords.y - 1, z), math.tile_to_lon(tile.tileCoords.x + 2, z));
             } : undefined);
+            const positions = models.map(mesh => {
+                const point = entry.globe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
+                return { mesh, latitude: point.latitude, longitude: point.longitude };
+            });
+            const math = entry.globe.ourTileMath;
+            const modelsByTile = new Map<string, string[]>();
+            for (const { mesh, latitude, longitude } of positions) {
+                const key = `${math.lon_to_tile(longitude, entry.globe.zoom)}/${math.lat_to_tile(latitude, entry.globe.zoom)}`;
+                const signatures = modelsByTile.get(key) ?? [];
+                signatures.push(`${mesh.uniqueId}:${mesh.isEnabled()}`);
+                modelsByTile.set(key, signatures);
+            }
             for (const tile of entry.globe.ourTiles) {
-                const math = entry.globe.ourTileMath;
-                const points = [0, 0.5, 1].flatMap(x => [0, 0.5, 1].map(y => ({
-                    longitude: math.tile_to_lon(tile.tileCoords.x + x, tile.tileCoords.z),
-                    latitude: math.tile_to_lat(tile.tileCoords.y + y, tile.tileCoords.z),
-                })));
-                const coverage = points.map(point => this.googleCoversLocation(point.latitude, point.longitude) ? "1" : "0").join("");
-                const localModels = models.filter(mesh => {
-                    const point = entry.globe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
-                    return math.lon_to_tile(point.longitude, tile.tileCoords.z) === tile.tileCoords.x
-                        && math.lat_to_tile(point.latitude, tile.tileCoords.z) === tile.tileCoords.y;
-                }).map(mesh => `${mesh.uniqueId}:${mesh.isEnabled()}`).join(",");
+                const coverage = entry.buildings.batchGeometry ? "batched" :
+                    [0, 0.5, 1].flatMap(x => [0, 0.5, 1].map(y => this.googleCoversLocation(
+                        math.tile_to_lat(tile.tileCoords.y + y, tile.tileCoords.z),
+                        math.tile_to_lon(tile.tileCoords.x + x, tile.tileCoords.z)) ? "1" : "0")).join("");
+                const localModels = modelsByTile.get(`${tile.tileCoords.x}/${tile.tileCoords.y}`)?.join(",") ?? "";
                 const signature = `${tile.tileCoords}/${entry.buildings.batchGeometry ? "batched" : coverage}/${localModels}`;
                 if (this.replacementSignatures.get(tile) === signature) continue;
                 this.replacementSignatures.set(tile, signature);
