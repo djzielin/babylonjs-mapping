@@ -149,7 +149,6 @@ class GlobeDemo {
     private photorealisticActive = false;
     private googleFarHidden = false;
     private googleLoading = false;
-    private lastGoogleSelectionAt = 0;
     private lastGoogleCheck = 0;
     private googlePrefetchTimer: ReturnType<typeof setTimeout> | undefined;
     private movementKeys = new Set<string>();
@@ -885,8 +884,14 @@ class GlobeDemo {
                         math.tile_to_lon(tile.tileCoords.x + x, tile.tileCoords.z)) ? "1" : "0")).join("");
                 const localModels = modelsByTile.get(`${tile.tileCoords.x}/${tile.tileCoords.y}`)?.join(",") ?? "";
                 const signature = `${tile.tileCoords}/${entry.buildings.batchGeometry ? "batched" : coverage}/${localModels}`;
-                if (this.replacementSignatures.get(tile) === signature) continue;
+                const previous = this.replacementSignatures.get(tile);
+                if (previous === signature) continue;
                 this.replacementSignatures.set(tile, signature);
+                // The batched provider applies Google coverage by changing its
+                // index mask. Its initial load is already owned by the globe
+                // data controller; cancelling and resubmitting every tile here
+                // can duplicate hundreds of Overture jobs during startup.
+                if (entry.buildings.batchGeometry && previous === undefined) continue;
                 entry.buildings.cancelPendingRequests(tile);
                 if (!entry.buildings.batchGeometry) tile.deleteBuildings();
                 if ((document.getElementById("buildings") as HTMLInputElement).checked) entry.buildings.SubmitLoadTileRequest(tile);
@@ -1044,19 +1049,10 @@ class GlobeDemo {
         if (!force && key === this.googleViewKey) return;
         this.googleViewKey = key;
         if (key) this.googleTiles?.reprioritizeRequests();
-        // Give an active selection a short interval to settle while still
-        // retargeting quickly when the view changes during motion.
-        const selectionAge = performance.now() - this.lastGoogleSelectionAt;
-        if (!force && key && this.googleLoading && selectionAge < 250) {
-            if (!this.googleTimer) this.googleTimer = setTimeout(() => {
-                this.googleTimer = undefined;
-                this.scheduleGoogleTiles(true);
-            }, 250 - selectionAge);
-            return;
-        }
-        // Movement may change the selection key every frame. Keep the first
-        // imminent refresh and let it use the newest camera instead of
-        // repeatedly cancelling it and starving the tile hierarchy.
+        // Movement can change the key every frame. Let the current selection
+        // finish; its shared request queue still reprioritizes for the live
+        // camera. Start one new pass at the latest eye immediately afterward.
+        if (!force && key && this.googleLoading) return;
         if (!force && key && this.googleTimer) return;
         clearTimeout(this.googleTimer);
         this.googleTimer = undefined;
@@ -1119,7 +1115,6 @@ class GlobeDemo {
             provider.maximumScreenSpaceError = targetScreenError;
             provider.maximumDisplayGeometricError = 33;
             provider.maxTiles = 2048;
-            this.lastGoogleSelectionAt = performance.now();
             this.googleLoading = true;
             this.googleStatus("Google 3D · streaming visible detail…");
             const started = performance.now();
@@ -1151,7 +1146,10 @@ class GlobeDemo {
                 console.warn("Google 3D loading failed:", reason);
                 if (generation === this.googleGeneration) this.googleStatus(`Google 3D unavailable · ${reason}`);
             } finally {
-                if (generation === this.googleGeneration) this.googleLoading = false;
+                if (generation === this.googleGeneration) {
+                    this.googleLoading = false;
+                    if (this.googleViewKey !== key) this.scheduleGoogleTiles(true);
+                }
             }
         }, 35);
     }
