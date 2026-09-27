@@ -60,4 +60,27 @@ describe("building detail transitions", () => {
         expect(retained?.isDisposed()).toBe(true);
         transition.dispose(); scene.dispose(); engine.dispose();
     });
+
+    it("drops retained Overture detail immediately when Google covers it", () => {
+        const engine = new NullEngine();
+        const scene = new Scene(engine);
+        const globe = new GlobeSet(scene, engine, { backingSurface: false });
+        globe.createGeometry(new Vector2(1, 1), 20, 8);
+        globe.updateRaster(40.7484, -73.9857, 14);
+        const tile = globe.ourTiles[0];
+        tile.mesh.setEnabled(true);
+        const source = MeshBuilder.CreateBox("old buildings", {}, scene);
+        source.position.copyFrom(globe.getSurfacePosition(40.7484, -73.9857));
+        source.setParent(tile.mesh);
+        tile.buildingBatches.push(source);
+        const transition = new BuildingTransition();
+        transition.capture(globe, 15);
+        globe.updateRaster(40.7484, -73.9857, 15);
+        transition.update(1);
+        const retained = scene.getMeshByName("previous building detail");
+        expect(retained?.isDisposed()).toBe(false);
+        transition.update(2, () => true, true);
+        expect(retained?.isDisposed()).toBe(true);
+        transition.dispose(); scene.dispose(); engine.dispose();
+    });
 });

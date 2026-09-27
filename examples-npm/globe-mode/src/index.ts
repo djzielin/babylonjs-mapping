@@ -308,6 +308,17 @@ class GlobeDemo {
                     }
                 }
             }
+            // Resolve Google/Overture overlap before drawing the newly enabled model.
+            if (googleRevision !== this.lastCoverageRevision && performance.now() - this.lastCoverageRefresh > 100) {
+                this.lastCoverageRevision = googleRevision;
+                this.lastCoverageRefresh = performance.now();
+                this.refreshBuildingReplacements();
+                this.buildingTransition.update(performance.now(), (lat, lon) => this.googleCoversLocation(lat, lon), true);
+                for (const tile of this.landmarks?.loadedModelTiles ?? []) for (const mesh of tile.asset.meshes) {
+                    const point = this.detailGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
+                    mesh.setEnabled(!this.googleCoversLocation(point.latitude, point.longitude));
+                }
+            }
             const renderStart = performance.now();
             this.scene.render();
             this.framePacing.sample(performance.now(), this.scene.activeCamera!.getViewMatrix().m, !document.hidden);
@@ -327,16 +338,6 @@ class GlobeDemo {
                 this.scheduleGoogleTiles();
             }
             if (performance.now() - this.lastStats > 500) {
-                const coverageRevision = this.googleTiles?.coverageRevision ?? -1;
-                if (coverageRevision !== this.lastCoverageRevision && performance.now() - this.lastCoverageRefresh > 250) {
-                    this.lastCoverageRevision = coverageRevision;
-                    this.lastCoverageRefresh = performance.now();
-                    this.refreshBuildingReplacements();
-                    for (const tile of this.landmarks?.loadedModelTiles ?? []) for (const mesh of tile.asset.meshes) {
-                        const point = this.detailGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
-                        mesh.setEnabled(!this.googleCoversLocation(point.latitude, point.longitude));
-                    }
-                }
                 this.lastStats = performance.now();
                 const times = [...this.renderTimes].sort((a, b) => a - b);
                 const gpuTimes = [...this.gpuTimes].sort((a, b) => a - b);

@@ -43,8 +43,8 @@ export class BuildingTransition {
         this.nextCheck = 0;
     }
 
-    public update(now: number, googleCovers?: (latitude: number, longitude: number) => boolean): void {
-        if (now < this.nextCheck) return;
+    public update(now: number, googleCovers?: (latitude: number, longitude: number) => boolean, force = false): void {
+        if (!force && now < this.nextCheck) return;
         this.nextCheck = now + 200;
         for (const [globe, retained] of this.previous) {
             const tiles = globe.ourTiles;
@@ -57,6 +57,7 @@ export class BuildingTransition {
                 if (googleCovers) {
                     const box = old.mesh.getBoundingInfo().boundingBox;
                     if ([box.centerWorld, ...box.vectorsWorld].some(vertex => {
+                        if (!Number.isFinite(vertex.lengthSquared()) || vertex.lengthSquared() === 0) return false;
                         const point = globe.getSurfaceCoordinates(vertex);
                         return googleCovers(point.latitude, point.longitude);
                     })) {
