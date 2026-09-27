@@ -1097,23 +1097,47 @@ class GlobeDemo {
             provider.coverageRegion = undefined;
             const requestedError = new URLSearchParams(location.search).get("sse");
             const screenError = requestedError === null ? NaN : Number(requestedError);
-            provider.maximumScreenSpaceError = Number.isFinite(screenError) && screenError >= 0.5
+            const targetScreenError = Number.isFinite(screenError) && screenError >= 0.5
                 ? screenError : quality === "20" ? 2 : quality === "auto" ? 1 : 0.75;
+            const coldStart = provider.loadedModelTiles.length === 0;
+            provider.maximumScreenSpaceError = coldStart ? Math.max(4, targetScreenError) : targetScreenError;
+            provider.maximumDisplayGeometricError = 33;
+            provider.maxTiles = coldStart ? 512 : 2048;
             this.lastGoogleSelectionAt = performance.now();
             this.googleLoading = true;
             this.googleStatus("Google 3D · streaming nearby detail…");
             const started = performance.now();
             try {
-                const loaded = await provider.load();
+                const nearbyRadius = Math.min(provider.coverageRadius!, Math.max(this.inspecting ? 1500 : 600,
+                    currentView.altitude / this.detailGlobe.metresToWorld * (this.inspecting ? 2 : 0.75)));
+                this.canvas.dataset.googleNearbyRadius = String(Math.round(nearbyRadius));
+                const loaded = await provider.load(nearbyRadius);
                 if (generation !== this.googleGeneration) return;
                 this.setPhotorealisticActive(loaded.length > 0);
                 this.canvas.dataset.googleTiles = String(loaded.length);
+                this.canvas.dataset.googleInitialTiles = String(loaded.length);
                 this.canvas.dataset.googleLoadMs = String(Math.round(performance.now() - started));
+                this.canvas.dataset.googleFirstLoadMs ??= this.canvas.dataset.googleLoadMs;
+                this.canvas.dataset.googleFirstLoadTiles ??= String(loaded.length);
+                this.canvas.dataset.googleFirstDetailLimited ??= String(provider.stats.detailLimitedTiles);
+                this.canvas.dataset.googleFirstSourceLimited ??= String(provider.stats.sourceLimitedTiles);
+                this.canvas.dataset.googleForegroundLoads = String(Number(this.canvas.dataset.googleForegroundLoads ?? 0) + 1);
                 document.getElementById("googleSources")!.textContent = provider.getAttributions().join("; ");
                 document.getElementById("googleCredits")!.hidden = loaded.length === 0;
                 this.googleStatus(loaded.length ? `Google 3D · ${loaded.length} tiles` : "Google 3D · no coverage here");
                 this.googlePrefetchTimer = setTimeout(() => {
-                    if (generation === this.googleGeneration) void provider.prefetchSurroundings().catch(() => undefined);
+                    if (generation !== this.googleGeneration) return;
+                    provider.maximumScreenSpaceError = targetScreenError;
+                    provider.maximumDisplayGeometricError = 33;
+                    provider.maxTiles = 2048;
+                    void provider.load().then(fullCoverage => {
+                        if (generation === this.googleGeneration) {
+                            this.canvas.dataset.googleTiles = String(fullCoverage.length);
+                            document.getElementById("googleSources")!.textContent = provider.getAttributions().join("; ");
+                            this.googleStatus(`Google 3D · ${fullCoverage.length} tiles`);
+                            void provider.prefetchSurroundings().catch(() => undefined);
+                        }
+                    }).catch(() => undefined);
                 }, 1000);
             } catch (error) {
                 const reason = (error instanceof Error ? error.message : String(error)).replace(/https?:\/\/\S+/g, "[request]");

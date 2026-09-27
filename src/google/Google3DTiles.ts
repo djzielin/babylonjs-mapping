@@ -398,7 +398,7 @@ export default class Google3DTiles {
     }
 
     /** Loads content that overlaps the current TileSet. */
-    public async load(): Promise<readonly LoadedGoogle3DTile[]> {
+    public async load(selectionRadius = this.coverageRadius): Promise<readonly LoadedGoogle3DTile[]> {
         this.tileSet.assertRasterSetup("load Google 3D Tiles");
         this.validateOptions();
 
@@ -474,7 +474,7 @@ export default class Google3DTiles {
                 // New, disjoint coverage can appear immediately. Overlapping
                 // refinements still commit as a complete replacement subtree.
                 modelRequests.push(this.loadTile(selection, origin, generation, !overlapsExisting).catch(() => undefined));
-            });
+            }, false, selectionRadius);
             if (Array.from(desiredTiles.keys()).some(url => !this.loadedTiles.has(url))) {
                 await this.loadReplacementGroups(desiredTiles, origin, generation);
             }
@@ -482,7 +482,7 @@ export default class Google3DTiles {
             this.rootTileset.root,
             this.getRootTilesetURL(),
             0,
-            this.getTileSetBounds(),
+            this.getTileSetBounds(selectionRadius),
             desiredTiles,
             Matrix.Identity(),
             "REPLACE",
@@ -496,7 +496,7 @@ export default class Google3DTiles {
         if (generation !== this.generation) return [];
         this.stats.reusedModels += Array.from(desiredTiles.keys()).filter(url => residentAtStart.has(url) && this.loadedTiles.has(url)).length;
         // Keep the previous view visible while its replacement is streaming.
-        const currentBounds = this.getTileSetBounds();
+        const currentBounds = this.getTileSetBounds(selectionRadius);
         for (const url of Array.from(this.loadedTiles.keys())) {
             if (!desiredTiles.has(url)) {
                 const previous = this.loadedSelections.get(url);
@@ -835,13 +835,14 @@ export default class Google3DTiles {
     /** A complete renderable frontier: refine the largest projected error first.
      * A budget limit leaves a parent in place instead of dropping its siblings.
      */
-    private async selectFrontier(desired: Map<string, TileSelection>, generation: number, onStable: (selection: TileSelection) => void, surroundings = false): Promise<void> {
+    private async selectFrontier(desired: Map<string, TileSelection>, generation: number, onStable: (selection: TileSelection) => void,
+        surroundings = false, selectionRadius = this.coverageRadius): Promise<void> {
         const camera = this.tileSet.scene.activeCamera;
         const cameraHeight = surroundings && camera && this.tileSet.isGlobe
             ? (this.tileSet as GlobeSet).getSurfaceCoordinates(camera.globalPosition).elevation
                 / (this.tileSet as GlobeSet).metresToWorld : 0;
         const coverageRadius = surroundings && this.coverageRadius
-            ? Math.min(this.coverageRadius, Math.max(3000, cameraHeight * 2)) : this.coverageRadius;
+            ? Math.min(this.coverageRadius, Math.max(3000, cameraHeight * 2)) : selectionRadius;
         const bounds = this.getTileSetBounds(coverageRadius);
         const budget = surroundings ? Math.min(512, this.maxTiles) : this.maxTiles;
         const key = JSON.stringify([bounds, this.selectionEye?.asArray(),

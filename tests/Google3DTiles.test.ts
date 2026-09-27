@@ -795,6 +795,30 @@ it("centers the coverage radius on the viewer when the orbit target is elsewhere
   provider.dispose(); scene.dispose(); engine.dispose();
 });
 
+it("shows nearby models before extending selection to the full coverage radius", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, {radius: 60, attribution: false});
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const camera = new ArcRotateCamera("eye", 0, 1, 1, globe.getSurfacePosition(0, 0), scene);
+  camera.setPosition(globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld)); camera.getViewMatrix(true);
+  const sphere = (lon: number) => { const angle = lon * Math.PI / 180;
+    return {sphere: [6378137 * Math.cos(angle), 6378137 * Math.sin(angle), 0, 100]}; };
+  const requests: string[] = [];
+  const provider = new Google3DTiles(globe, {apiKey: "test", maximumScreenSpaceError: 1,
+    coverageRadius: 15 * 1609.344, tilesetLoader: async () => ({root: {children: [
+      {boundingVolume: sphere(0), geometricError: 0, content: {uri: "near.glb"}},
+      {boundingVolume: sphere(0.1), geometricError: 0, content: {uri: "far.glb"}},
+    ]}}), modelTileLoader: createModelLoader(requests)});
+  try {
+    const nearby = await provider.load(3000);
+    expect(nearby.map(tile => tile.url)).toEqual([expect.stringContaining("near.glb")]);
+    const full = await provider.load();
+    expect(full.map(tile => tile.url)).toEqual(expect.arrayContaining([
+      expect.stringContaining("near.glb"), expect.stringContaining("far.glb")]));
+    expect(requests).toHaveLength(2);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("commits nearby refinement without waiting for unrelated distant hierarchy", async () => {
   const {engine,scene,tileSet}=createTileSet();
   let release!:()=>void, reached!:()=>void;

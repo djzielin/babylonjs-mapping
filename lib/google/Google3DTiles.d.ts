@@ -198,7 +198,7 @@ export default class Google3DTiles {
     /** Reorder queued downloads immediately when the camera moves, without cancelling active requests. */
     reprioritizeRequests(): void;
     /** Loads content that overlaps the current TileSet. */
-    load(): Promise<readonly LoadedGoogle3DTile[]>;
+    load(selectionRadius?: number | undefined): Promise<readonly LoadedGoogle3DTile[]>;
     private acceptableDisplayQuality;
     private trimVisibleHistory;
     private trimRetainedTiles;
