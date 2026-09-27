@@ -88,3 +88,5 @@ export { landscapeTerrainLOD } from "./terrain/LandscapeLOD.js";
 
 export { setMappingDebugLogger } from "./shared/Diagnostics.js";
 export type { MappingDebugLogger } from "./shared/Diagnostics.js";
+export { fetchNYCRoadSpeeds, parseNYCRoadSpeeds, fetchOpenSkyAircraft, parseOpenSkyStates, aisStreamSubscription, parseAISStreamPosition } from "./traffic/TrafficSources.js";
+export type { TrafficBounds, RoadSpeed, AircraftPosition, VesselPosition } from "./traffic/TrafficSources.js";
