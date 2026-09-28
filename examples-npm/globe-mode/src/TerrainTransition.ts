@@ -11,7 +11,7 @@ export class TerrainTransition {
     public maxCaptureMs = 0;
     private previous = new Map<GlobeSet, Retained[]>();
     private nextCheck = 0;
-    public capture(globe: GlobeSet, nextZoom: number, latitude?: number, longitude?: number): void {
+    public capture(globe: GlobeSet, nextZoom: number, latitude?: number, longitude?: number, force = false): void {
         const started = performance.now();
         if (globe.zoom < 8) return;
         const nextCorner = latitude === undefined || longitude === undefined ? undefined : {
@@ -19,12 +19,12 @@ export class TerrainTransition {
             y: globe.ourTileMath.lat_to_tile(latitude, nextZoom) + Math.floor(globe.numTiles.y / 2),
         };
         const currentCorner = globe.ourTiles[0]?.tileCoords;
-        if (globe.zoom === nextZoom && (!nextCorner || !currentCorner
+        if (!force && globe.zoom === nextZoom && (!nextCorner || !currentCorner
             || (currentCorner.x === nextCorner.x && currentCorner.y === nextCorner.y))) return;
         const retained: Retained[] = this.previous.get(globe) ?? [];
         const retainedCoordinates = new Set(retained.map(old => old.coordinate.toString()));
         for (const tile of globe.ourTiles) {
-            if (globe.zoom === nextZoom && nextCorner
+            if (!force && globe.zoom === nextZoom && nextCorner
                 && tile.tileCoords.x >= nextCorner.x && tile.tileCoords.x < nextCorner.x + globe.numTiles.x
                 && tile.tileCoords.y <= nextCorner.y && tile.tileCoords.y > nextCorner.y - globe.numTiles.y) continue;
             const coordinateKey = tile.tileCoords.toString();

@@ -2,6 +2,7 @@ import {it,expect,vi} from 'vitest';
 import {NullEngine,Scene,StandardMaterial,Texture,Vector2,Vector3,VertexBuffer} from '@babylonjs/core';
 import GlobeSet from '../src/GlobeSet';
 import {TerrainTransition} from '../examples-npm/globe-mode/src/TerrainTransition';
+import RasterOSM from '../src/raster/RasterOSM';
 vi.mock('../src/core/Attribution',()=>({default:class {advancedTexture={};addAttribution(){}}}));
 it('retains independent terrain geometry until matching replacement imagery and elevation are ready',()=>{
  const engine=new NullEngine(),scene=new Scene(engine);
@@ -79,5 +80,29 @@ it('does not discard visible fallback terrain when fast movement crosses more th
  }
  expect(retained).toHaveLength(3);
  expect(retained.every(mesh=>mesh && !mesh.isDisposed())).toBe(true);
+ transition.dispose();scene.dispose();engine.dispose();
+});
+
+it('holds ready imagery through a basemap change at the same tile coordinates',()=>{
+ const engine=new NullEngine(),scene=new Scene(engine);
+ const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
+ globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(40.7484,-73.9857,14);
+ const tile=globe.ourTiles[0];tile.terrainLoaded=true;tile.mesh.setEnabled(true);
+ const oldMaterial=new StandardMaterial('old style',scene),oldTexture=new Texture(null,scene);
+ vi.spyOn(oldTexture,'isReady').mockReturnValue(true);oldMaterial.diffuseTexture=oldTexture;tile.mesh.material=oldMaterial;tile.material=oldMaterial;
+ const coordinate=tile.tileCoords.clone();
+ const transition=new TerrainTransition();transition.capture(globe,14,undefined,undefined,true);
+ const retained=scene.getMeshByName('previous terrain')!;
+ expect(retained.isDisposed()).toBe(false);
+ globe.setRasterProvider(new RasterOSM(globe));
+ globe.updateRaster(40.7484,-73.9857,14);
+ expect(tile.tileCoords.equals(coordinate)).toBe(true);
+ transition.update(500);
+ expect(retained.isDisposed()).toBe(false);
+ tile.terrainLoaded=true;
+ const newTexture=new Texture(null,scene);
+ vi.spyOn(newTexture,'isReady').mockReturnValue(true);tile.material!.diffuseTexture=newTexture;
+ transition.update(1000);
+ expect(retained.isDisposed()).toBe(true);
  transition.dispose();scene.dispose();engine.dispose();
 });

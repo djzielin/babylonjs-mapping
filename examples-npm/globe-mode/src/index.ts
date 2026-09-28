@@ -677,6 +677,9 @@ class GlobeDemo {
             pendingSatellite = false;
             activeStyle = basemap.value;
             document.getElementById("mapStyleStatus")!.textContent = "";
+            this.terrainTransition.capture(this.detailGlobe, this.detailGlobe.zoom, undefined, undefined, true);
+            for (const layer of this.distanceLayers)
+                this.terrainTransition.capture(layer.globe, layer.globe.zoom, undefined, undefined, true);
             for (const globe of [this.baseGlobe, this.detailGlobe]) this.applyMapStyle(globe);
             this.baseGlobe.updateRaster(40.98, 0, 2);
             this.syncDistanceStyles();
