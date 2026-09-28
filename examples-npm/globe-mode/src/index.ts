@@ -896,9 +896,9 @@ class GlobeDemo {
         if (!this.googleTiles || this.googleFarHidden) return false;
         const { x, y, z } = tile.tileCoords;
         const math = globe.ourTileMath;
-        for (const [dx, dy] of [[0.5, 0.5], [0.02, 0.02], [0.98, 0.02], [0.02, 0.98], [0.98, 0.98]])
-            if (!this.googleTiles.coversLocation(math.tile_to_lat(y + dy, z), math.tile_to_lon(x + dx, z))) return false;
-        return true;
+        return this.googleTiles.coversAreaCompletely(
+            math.tile_to_lat(y + 1, z), math.tile_to_lon(x, z),
+            math.tile_to_lat(y, z), math.tile_to_lon(x + 1, z));
     }
 
     private googleCoversFootprint(latitude: number, longitude: number,

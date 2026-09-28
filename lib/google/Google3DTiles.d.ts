@@ -244,6 +244,8 @@ export default class Google3DTiles {
     private loadedSelections;
     /** Whether loaded model bounds cover this geographic position. */
     coversLocation(latitude: number, longitude: number): boolean;
+    /** Skip a fallback tile only when one resident model covers its whole sampled footprint. */
+    coversAreaCompletely(south: number, west: number, north: number, east: number): boolean;
     /** Whether a resident model overlaps a geographic building footprint. */
     overlapsFootprint(south: number, west: number, north: number, east: number): boolean;
     private coverageTest;

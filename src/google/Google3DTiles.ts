@@ -465,10 +465,30 @@ export default class Google3DTiles {
             this.dirtyCoverageEntries.clear();
         }
         const nearby = this.coverageIndex.get(`${Math.floor(longitude * 1000)}/${Math.floor(latitude * 1000)}`) ?? [];
-        for (const selection of nearby) if (this.coverageTest(selection)(latitude, longitude)) return true;
+        for (const selection of nearby) if (this.loadedTiles.has(selection.url)
+            && this.coverageTest(selection)(latitude, longitude)) return true;
         for (const selection of this.broadCoverage.values())
-            if (this.coverageTest(selection)(latitude, longitude)) return true;
+            if (this.loadedTiles.has(selection.url) && this.coverageTest(selection)(latitude, longitude)) return true;
         return false;
+    }
+
+    /** Skip a fallback tile only when one resident model covers its whole sampled footprint. */
+    public coversAreaCompletely(south: number, west: number, north: number, east: number): boolean {
+        if (south > north || ![south, west, north, east].every(Number.isFinite)) return false;
+        const span = east >= west ? east - west : east + 360 - west;
+        if (span > 180) return false;
+        const longitudes = [west, west + span / 2, west + span].map(normalizeLongitude);
+        const latitudes = [south, (south + north) / 2, north];
+        const midpoint = longitudes[1], latitude = latitudes[1];
+        // Rebuild the resident-only index before examining its center cell.
+        this.coversLocation(latitude, midpoint);
+        const nearby = this.coverageIndex.get(`${Math.floor(midpoint * 1000)}/${Math.floor(latitude * 1000)}`) ?? [];
+        const covers = (selection: TileSelection) => {
+            if (!this.loadedTiles.has(selection.url)) return false;
+            const test = this.coverageTest(selection);
+            return latitudes.every(lat => longitudes.every(lon => test(lat, lon)));
+        };
+        return nearby.some(covers) || Array.from(this.broadCoverage.values()).some(covers);
     }
 
     /** Whether a resident model overlaps a geographic building footprint. */
@@ -481,6 +501,7 @@ export default class Google3DTiles {
         const queryLongitudes = longitudeIntervals(west, east);
         const seen = new Set<TileSelection>();
         const overlaps = (selection: TileSelection): boolean => {
+            if (!this.loadedTiles.has(selection.url)) return false;
             if (seen.has(selection)) return false;
             seen.add(selection);
             let bounds = this.footprintEnvelopes.get(selection);

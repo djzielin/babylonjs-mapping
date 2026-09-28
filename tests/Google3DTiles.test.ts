@@ -119,6 +119,29 @@ it("suppresses an Overture footprint when a resident Google tile clips its edge"
   provider.dispose();scene.dispose();engine.dispose();
 });
 
+it("keeps Overture where retired Google models or partial tile coverage leave gaps", () => {
+  const {engine,scene,tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet);
+  const radians=Math.PI/180;
+  const selection=(url:string,west:number,east:number)=>({url,depth:1,
+    boundingVolume:{region:[west*radians,40.74*radians,east*radians,40.75*radians,0,1000]}});
+  const loaded=(provider as any).loadedTiles as Map<string, unknown>;
+  const selections=(provider as any).loadedSelections as Map<string, unknown>;
+  selections.set("left",selection("left",-74.002,-74.001));loaded.set("left",{});
+  selections.set("right",selection("right",-74.001,-74));loaded.set("right",{});
+  expect(provider.coversLocation(40.745,-74.0015)).toBe(true);
+  expect(provider.coversLocation(40.745,-74.0005)).toBe(true);
+  expect(provider.coversAreaCompletely(40.742,-74.0018,40.748,-74.0002)).toBe(false);
+  selections.set("full",selection("full",-74.002,-74));loaded.set("full",{});
+  expect(provider.coversAreaCompletely(40.742,-74.0018,40.748,-74.0002)).toBe(true);
+  loaded.delete("full");loaded.delete("left");
+  expect(provider.coversAreaCompletely(40.742,-74.0018,40.748,-74.0002)).toBe(false);
+  expect(provider.coversLocation(40.745,-74.0015)).toBe(false);
+  expect(provider.overlapsFootprint(40.744,-74.0018,40.746,-74.0012)).toBe(false);
+  loaded.clear();
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
 it("shows Overture only until a Google model covers the same building footprint", async () => {
   const {default: BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
   const engine=new NullEngine(),scene=new Scene(engine);
