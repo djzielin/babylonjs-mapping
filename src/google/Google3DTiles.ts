@@ -1127,7 +1127,6 @@ export default class Google3DTiles {
         const seedQueue = new PriorityQueue<FrontierTile>(compare);
         const seedPending = new Map<FrontierTile, Promise<Expansion>>();
         let rootSeed: Promise<FrontierTile[]> | undefined;
-        let previousBounds = bounds;
         let seededAt = this.requestEye ?? this.selectionEye ?? this.cameraEye();
         let reseeds = 0;
         const activeURLs = new Set(initial.flatMap(node => node.selections.map(selection => selection.url)));
@@ -1135,14 +1134,7 @@ export default class Google3DTiles {
             [selection.url, ...(selection.ancestors ?? [])])));
         const enqueueSeed = (node: FrontierTile) => {
             const url = node.selections[0]?.url;
-            if (!url || !boundingVolumeIntersects(node.tile.boundingVolume, bounds, node.transform)) return;
-            const envelope = geographicEnvelope(node.selections[0]);
-            // Interior branches are already being refined by the active queue.
-            // Traverse only ancestors that can lead into the newly entered strip.
-            if (envelope && envelope.south >= previousBounds.south && envelope.north <= previousBounds.north
-                && envelope.longitudes.every(([west, east]) => previousBounds.longitudes.some(([left, right]) =>
-                    west >= left && east <= right))) return;
-            seedQueue.push(node);
+            if (url && boundingVolumeIntersects(node.tile.boundingVolume, bounds, node.transform)) seedQueue.push(node);
         };
         while ((queue.length || pending.size || seedQueue.length || seedPending.size || rootSeed)
             && generation === this.generation) {
@@ -1154,7 +1146,6 @@ export default class Google3DTiles {
             const eye = this.requestEye ?? this.selectionEye ?? this.cameraEye();
             if (!surroundings && coverageRadius && reseeds < 3 && !rootSeed
                 && Vector3.Distance(eye, seededAt) >= 1000) {
-                previousBounds = bounds;
                 bounds = this.getTileSetBounds(coverageRadius);
                 recordCenter();
                 seededAt = eye.clone();
