@@ -1277,7 +1277,7 @@ it("keeps a newly reached coarse model hidden over raster terrain until detail i
   camera.getViewMatrix(true);
   const provider = new Google3DTiles(globe, { apiKey: "test", coverageRadius: 1000,
     maximumScreenSpaceError: 1, maximumInitialErrorRatio: 2, maxDepth: 0,
-    tilesetLoader: async () => ({ root: { boundingVolume: { sphere: [6378137, 0, 0, 100] },
+    tilesetLoader: async () => ({ root: { boundingVolume: { sphere: [6378137, 0, 0, 1000] },
       geometricError: 16, content: { uri: "coarse.glb" },
       children: [{ boundingVolume: { sphere: [6378137, 0, 0, 100] },
         geometricError: 0, content: { uri: "fine.glb" } }] } }),
@@ -1290,6 +1290,24 @@ it("keeps a newly reached coarse model hidden over raster terrain until detail i
     await provider.load();
     expect(provider.loadedModelTiles.map(tile => tile.url)).toEqual([expect.stringContaining("fine.glb")]);
     expect(provider.measureVisibleQuality().underDetailedTiles).toBe(0);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
+it("shows a city-block model despite a pessimistic source geometric error", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const camera = new ArcRotateCamera("eye", 0, 1, 1, globe.getSurfacePosition(0, 0), scene);
+  camera.setPosition(globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld));
+  camera.getViewMatrix(true);
+  const provider = new Google3DTiles(globe, { apiKey: "test", coverageRadius: 1000,
+    maximumScreenSpaceError: 1, maximumInitialErrorRatio: 2, maxDepth: 0,
+    tilesetLoader: async () => ({ root: { boundingVolume: { sphere: [6378137, 0, 0, 100] },
+      geometricError: 16, content: { uri: "block.glb" } } }),
+    modelTileLoader: createModelLoader([]) });
+  try {
+    await provider.load();
+    expect(provider.loadedModelTiles.map(tile => tile.url)).toEqual([expect.stringContaining("block.glb")]);
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 

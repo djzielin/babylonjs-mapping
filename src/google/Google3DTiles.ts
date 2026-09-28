@@ -109,7 +109,7 @@ export interface Google3DTilesOptions {
     maximumScreenSpaceError?: number;
     /** Omit budget-limited content above this source error (metres), leaving room for a fallback provider. */
     maximumDisplayGeometricError?: number;
-    /** Maximum projected error ratio for a newly exposed Google model. Coarse residents remain until replacement is ready. */
+    /** Maximum projected error ratio for a newly exposed broad Google model. Coarse residents remain until replacement is ready. */
     maximumInitialErrorRatio?: number;
     /** Stream only bounding volumes intersecting the active camera frustum. */
     cullToCamera?: boolean;
@@ -593,7 +593,7 @@ export default class Google3DTiles {
             const selection = this.loadedSelections.get(url);
             if (!selection || residentAncestors.has(url)
                 || selection.ancestors?.some(ancestor => this.loadedTiles.has(ancestor))
-                || !this.acceptableDisplayQuality(selection)) continue;
+                || !this.acceptableDisplayQuality(selection) || !this.acceptableInitialQuality(selection)) continue;
             const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
             if (this.allowedGeometricError(selection.boundingVolume, transform, false,
                 this.selectionEye ?? this.cameraEye(), true) < 0) continue;
@@ -630,7 +630,8 @@ export default class Google3DTiles {
                     if (residentAncestors.has(ancestor)) continue;
                     const coarse = this.retainedTiles.get(ancestor);
                     const coarseSelection = this.loadedSelections.get(ancestor);
-                    if (!coarse || !coarseSelection || !this.acceptableDisplayQuality(coarseSelection)) continue;
+                    if (!coarse || !coarseSelection || !this.acceptableDisplayQuality(coarseSelection)
+                        || !this.acceptableInitialQuality(coarseSelection)) continue;
                     this.retainedTiles.delete(ancestor);
                     this.loadedTiles.set(ancestor, coarse);
                     coarse.root.setEnabled(true);
@@ -713,6 +714,19 @@ export default class Google3DTiles {
     private acceptableInitialQuality(selection: TileSelection): boolean {
         if (this.maximumInitialErrorRatio === undefined || selection.geometricError === undefined) return true;
         const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+        // Geometric error from the source can remain high even for a small,
+        // textured city block. The visible slab reports a much broader bound;
+        // gate broad first coverage without suppressing every Google building.
+        const volume = selection.boundingVolume;
+        if (volume?.sphere) {
+            const scale = Math.max(...[Vector3.Right(), Vector3.Up(), Vector3.Forward()]
+                .map(axis => Vector3.TransformNormal(axis, transform).length()));
+            if (volume.sphere[3] * scale <= 500) return true;
+        } else if (volume?.box) {
+            const radius = Math.hypot(...[3, 6, 9].map(offset =>
+                Vector3.TransformNormal(Vector3.FromArray(volume.box!, offset), transform).length()));
+            if (radius <= 500) return true;
+        }
         const allowed = this.allowedGeometricError(selection.boundingVolume, transform,
             false, this.requestEye ?? this.selectionEye ?? this.cameraEye());
         return allowed > 0 && selection.geometricError <= allowed * this.maximumInitialErrorRatio;

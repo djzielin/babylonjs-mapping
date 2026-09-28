@@ -84,7 +84,7 @@ export interface Google3DTilesOptions {
     maximumScreenSpaceError?: number;
     /** Omit budget-limited content above this source error (metres), leaving room for a fallback provider. */
     maximumDisplayGeometricError?: number;
-    /** Maximum projected error ratio for a newly exposed Google model. Coarse residents remain until replacement is ready. */
+    /** Maximum projected error ratio for a newly exposed broad Google model. Coarse residents remain until replacement is ready. */
     maximumInitialErrorRatio?: number;
     /** Stream only bounding volumes intersecting the active camera frustum. */
     cullToCamera?: boolean;
