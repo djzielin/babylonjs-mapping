@@ -8,7 +8,7 @@ import type TileSet from "./TileSet.js";
 export default class Tile {
     mesh: Mesh;
     tileSet: TileSet;
-    material: StandardMaterial;
+    material: StandardMaterial | undefined;
     tileCoords: Vector3;
     box2D: BoundingBox;
     buildings: TileBuilding[];

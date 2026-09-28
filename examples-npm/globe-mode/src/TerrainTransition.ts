@@ -8,9 +8,11 @@ type Retained = { mesh: Mesh; material: StandardMaterial; coordinate: Vector3 };
 
 /** Keep one previous zoom per tier while replacement imagery streams. */
 export class TerrainTransition {
+    public maxCaptureMs = 0;
     private previous = new Map<GlobeSet, Retained[]>();
     private nextCheck = 0;
     public capture(globe: GlobeSet, nextZoom: number, latitude?: number, longitude?: number): void {
+        const started = performance.now();
         if (globe.zoom < 8) return;
         const nextCorner = latitude === undefined || longitude === undefined ? undefined : {
             x: globe.ourTileMath.lon_to_tile(longitude, nextZoom) - Math.floor(globe.numTiles.x / 2),
@@ -30,21 +32,16 @@ export class TerrainTransition {
             const source = tile.mesh;
             const original = source.material as StandardMaterial;
             if (!tile.terrainLoaded || !original?.diffuseTexture?.isReady()) continue;
-            // The clone has never been drawn, so its setters have no existing
-            // draw wrappers to invalidate. Babylon otherwise scans every mesh
-            // in the scene for each copied material property.
-            const scene = globe.scene as typeof globe.scene & { _forceBlockMaterialDirtyMechanism(value: boolean): void };
-            const wasBlocked = scene.blockMaterialDirtyMechanism;
-            scene._forceBlockMaterialDirtyMechanism(true);
-            let material: StandardMaterial;
-            try { material = original.clone("previous terrain"); }
-            finally { scene._forceBlockMaterialDirtyMechanism(wasBlocked); }
+            // Transfer the ready material and texture to the fallback. The
+            // recycled tile gets a fresh material in updateRaster().
+            const material = original;
             // Current terrain draws first. Older data fills only uncovered pixels.
             material.stencil.func = Constants.GREATER;
             const mesh = source.clone("previous terrain", null, true)!;
             // The fallback keeps the old geometry. Detach the recycled tile
             // instead of copying its vertex and index buffers for every move.
             source.geometry?.releaseForMesh(source);
+            tile.material = undefined;
             mesh.material = material;
             mesh.visibility = 1;
             mesh.isVisible = true;
@@ -59,6 +56,7 @@ export class TerrainTransition {
         }
         while (retained.length > globe.ourTiles.length * 2) this.release(retained.shift()!);
         if (retained.length) this.previous.set(globe, retained);
+        this.maxCaptureMs = Math.max(this.maxCaptureMs, performance.now() - started);
     }
     public update(now: number): void {
         if (now < this.nextCheck) return;

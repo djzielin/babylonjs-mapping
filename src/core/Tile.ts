@@ -12,7 +12,7 @@ import type TileSet from "./TileSet.js";
 //import "@babylonjs/inspector";
 
 export default class Tile {
-    public material: StandardMaterial;
+    public material: StandardMaterial | undefined;
     public tileCoords: Vector3;
     public box2D: BoundingBox;
     

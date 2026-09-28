@@ -355,6 +355,7 @@ class GlobeDemo {
                 const gpuInfo = this.engine.getInfo();
                 document.getElementById("gpuInfo")!.textContent = `${this.engine.isWebGPU ? "WebGPU" : "WebGL"}${this.reversedDepth ? " · reverse float depth" : ""} · ${gpuInfo.vendor} · ${gpuInfo.renderer} · ${gpuInfo.version}`;
                 const googleSources = this.googleTiles?.getAttributions() ?? [];
+                this.canvas.dataset.maxTerrainCaptureMs = String(Math.round(this.terrainTransition.maxCaptureMs));
                 document.getElementById("googleSources")!.textContent = googleSources.join("; ");
                 document.getElementById("googleCredits")!.hidden = this.googleFarHidden || !(this.googleTiles?.loadedModelTiles.length);
                 if (this.googleTiles) {
