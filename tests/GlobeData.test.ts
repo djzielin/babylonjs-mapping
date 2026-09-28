@@ -581,6 +581,17 @@ describe("terrain encodings and overzoom", () => {
         for (let y = 12; y < 44; y++) impossible[y * 64 + 44] = -75;
         expect(TerrainRGB.repairIsolatedSpikes({ data: impossible, width: 64, height: 64 }, 14).data[20 * 64 + 20]).toBe(0);
         expect(TerrainRGB.repairIsolatedSpikes({ data: impossible, width: 64, height: 64 }, 14).data[20 * 64 + 44]).toBe(0);
+        // Newport's source DEM contained a 3,430-sample pit reaching the tile
+        // edge; its raw adjoining-tile jump exceeded 15 km.
+        const waterfront = new Float32Array(256 * 256).fill(2);
+        for (let y = 0; y < 36; y++) for (let x = 0; x < 96; x++)
+            waterfront[y * 256 + x] = -15400;
+        const repairedWaterfront = TerrainRGB.repairIsolatedSpikes({
+            data: waterfront, width: 256, height: 256,
+        }, 15);
+        expect(repairedWaterfront.data[0]).toBe(2);
+        expect(repairedWaterfront.data[35 * 256 + 95]).toBe(2);
+        expect(waterfront[0]).toBe(-15400);
         const narrowRiverbank = new Float32Array(64 * 64).fill(2);
         for (let y = 8; y < 56; y++) narrowRiverbank[y * 64 + 32] = -76;
         const riverbank = TerrainRGB.repairIsolatedSpikes({ data: narrowRiverbank, width: 64, height: 64 }, 15);
