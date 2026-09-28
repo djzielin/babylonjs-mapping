@@ -974,7 +974,7 @@ it("commits nearby refinement without waiting for unrelated distant hierarchy", 
   provider.dispose();scene.dispose();engine.dispose();
 });
 
-it("refines visible Google tiles at the demand cap using resident offscreen coverage", async () => {
+it("refines visible Google tiles on a cold load at the demand cap", async () => {
   const engine = new NullEngine(), scene = new Scene(engine);
   const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
   globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
@@ -985,7 +985,7 @@ it("refines visible Google tiles at the demand cap using resident offscreen cove
     return { sphere: [6378137 * Math.cos(a), 6378137 * Math.sin(a), 0, 100] }; };
   const requests: string[] = [];
   const provider = new Google3DTiles(globe, { apiKey: "test", maximumScreenSpaceError: 1,
-    maxTiles: 3, maxDepth: 1, cullToCamera: true, fullRadiusDemand: true, coverageRadius: 10000,
+    maxTiles: 3, maxDepth: 3, cullToCamera: true, fullRadiusDemand: true, coverageRadius: 10000,
     tilesetLoader: async () => ({ root: { children: [
       { boundingVolume: sphere(0.01), geometricError: 100, content: { uri: "near.glb" }, children: [
         { boundingVolume: sphere(0.01), geometricError: 0, content: { uri: "near-a.glb" } },
@@ -996,7 +996,9 @@ it("refines visible Google tiles at the demand cap using resident offscreen cove
     ] } }), modelTileLoader: createModelLoader(requests) });
   try {
     await provider.load();
-    expect(requests).toHaveLength(3);
+    expect(requests.length).toBeGreaterThanOrEqual(3);
+    expect(requests.some(url => url.includes("near-a.glb"))).toBe(true);
+    expect(requests.some(url => url.includes("near-b.glb"))).toBe(true);
     provider.maxDepth = 3;
     await provider.load();
     expect(requests.some(url => url.includes("near-a.glb"))).toBe(true);

@@ -1345,8 +1345,7 @@ export default class Google3DTiles {
                 let worstResident: FrontierTile | undefined;
                 for (const candidate of frontier) {
                     if (candidate.refine === "ADD" || pending.has(candidate)
-                        || !priority(candidate).background
-                        || !candidate.selections.every(selection => this.loadedTiles.has(selection.url))) continue;
+                        || !priority(candidate).background) continue;
                     if (!worstResident || compare(worstResident, candidate) < 0) worstResident = candidate;
                 }
                 const refinable: FrontierTile[] = [];
@@ -1384,8 +1383,7 @@ export default class Google3DTiles {
                     // slot is given to a newly entered, more urgent branch.
                     let victim: FrontierTile | undefined;
                     for (const candidate of frontier) {
-                        if (candidate.refine === "ADD" || pending.has(candidate)
-                            || !candidate.selections.every(selection => this.loadedTiles.has(selection.url))) continue;
+                        if (candidate.refine === "ADD" || pending.has(candidate)) continue;
                         if (!victim || compare(victim, candidate) < 0) victim = candidate;
                     }
                     if (!victim || compare(node, victim) >= 0
@@ -1465,7 +1463,6 @@ export default class Google3DTiles {
                     const victims = [...frontier].filter(candidate => candidate !== node
                         && candidate.refine !== "ADD" && !pending.has(candidate)
                         && priority(candidate).background
-                        && candidate.selections.every(selection => this.loadedTiles.has(selection.url))
                         && compare(node, candidate) < 0).sort((a, b) => compare(b, a));
                     let freed = 0;
                     const chosen: FrontierTile[] = [];
