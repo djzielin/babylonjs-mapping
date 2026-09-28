@@ -88,6 +88,7 @@ export type GoogleTilesetLoader = (url: string) => Promise<Google3DTileset>;
 export type GoogleModelTileLoader = (
     url: string,
     scene: Scene,
+    signal?: AbortSignal,
 ) => Promise<LoadedGoogleModelTile | undefined>;
 
 export interface Google3DTilesOptions {
@@ -262,6 +263,8 @@ export default class Google3DTiles {
     private attributionCacheValid = false;
     private attributionCache: string[] = [];
     private pendingModels = new Map<string, { generation: number; request: Promise<LoadedGoogle3DTile | undefined> }>();
+    private activeModelFetches = new Map<string, { selection: TileSelection; controller: AbortController }>();
+    private lastModelAbortEye?: Vector3;
     private selectionEye?: Vector3;
     private requestEye?: Vector3;
     private requestPriorityRevision = 0;
@@ -358,7 +361,7 @@ export default class Google3DTiles {
         this.origin = options.origin;
         this.apiKey = options.apiKey ?? "";
         this.tilesetLoader = options.tilesetLoader ?? defaultTilesetLoader;
-        this.modelTileLoader = options.modelTileLoader ?? ((url, scene) => defaultModelTileLoader(url, scene, this.stats));
+        this.modelTileLoader = options.modelTileLoader ?? ((url, scene, signal) => defaultModelTileLoader(url, scene, this.stats, signal));
     }
 
     /** Content currently attached to the Babylon scene. */
@@ -594,6 +597,15 @@ export default class Google3DTiles {
         this.requestEye = this.cameraEye();
         this.requestPriorityRevision++;
         this.lastPriorityUpdateAt = performance.now();
+        if (this.activeModelFetches.size && this.coverageRadius && !this.coverageRegion && this.tileSet.isGlobe
+            && (!this.lastModelAbortEye || Vector3.Distance(this.lastModelAbortEye, this.requestEye) >= 250)) {
+            this.lastModelAbortEye = this.requestEye.clone();
+            const bounds = this.getTileSetBounds();
+            for (const { selection, controller } of this.activeModelFetches.values()) {
+                const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+                if (!boundingVolumeIntersects(selection.boundingVolume, bounds, transform)) controller.abort();
+            }
+        }
         this.drainNetwork();
         for (const wake of this.movementWaiters) wake();
     }
@@ -1820,7 +1832,13 @@ export default class Google3DTiles {
         const request = this.networkSlot(async () => {
             if (generation !== this.generation) return undefined;
             this.stats.modelRequests++;
-            return this.modelTileLoader(selection.url, this.tileSet.scene);
+            const controller = new AbortController();
+            this.activeModelFetches.set(selection.url, { selection, controller });
+            try { return await this.modelTileLoader(selection.url, this.tileSet.scene, controller.signal); }
+            finally {
+                if (this.activeModelFetches.get(selection.url)?.controller === controller)
+                    this.activeModelFetches.delete(selection.url);
+            }
         }, () => this.requestPriority(selection.boundingVolume,
             selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity(), selection.geometricError,
             selection.ancestors?.some(url => this.loadedTiles.has(url)) ?? false), "model").then((model) => {
@@ -1986,6 +2004,7 @@ export default class Google3DTiles {
     }
 
     private disposeLoadedTiles(): void {
+        for (const { controller } of this.activeModelFetches.values()) controller.abort();
         this.frontierCache = undefined;
         for (const tile of this.retainedTiles.values()) {
             tile.asset.dispose(); tile.root.dispose(false, false);
@@ -2093,9 +2112,10 @@ async function defaultModelTileLoader(
     url: string,
     scene: Scene,
     stats?: Google3DTiles["stats"],
+    signal?: AbortSignal,
 ): Promise<LoadedGoogleModelTile | undefined> {
     const fetchStarted = performance.now();
-    const response = await fetch(url);
+    const response = await fetch(url, { signal });
     if (response.status === 204 || response.status === 404) {
         return undefined;
     }
@@ -2104,6 +2124,7 @@ async function defaultModelTileLoader(
     }
 
     const buffer = await response.arrayBuffer();
+    signal?.throwIfAborted();
     if (stats) { stats.modelFetchMs += performance.now() - fetchStarted; stats.modelFetchCount++; }
     const decodeStarted = performance.now();
     if (stats) {
@@ -2118,6 +2139,10 @@ async function defaultModelTileLoader(
         const asset = await LoadAssetContainerAsync(new Uint8Array(buffer), scene, {
             pluginExtension: ".glb", name: `google-photorealistic-tile-${nextModelFileId++}.glb`,
         });
+        if (signal?.aborted) {
+            asset.dispose();
+            signal.throwIfAborted();
+        }
         return {
             asset,
             attributions: metadata.attributions,

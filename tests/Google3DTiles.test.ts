@@ -997,6 +997,34 @@ it("starts visible work immediately while the full-radius queue is saturated", a
   } finally { provider.dispose();scene.dispose();engine.dispose(); }
 });
 
+it("cancels an active model fetch after Shift movement leaves it outside the full disk", async () => {
+  const engine=new NullEngine(),scene=new Scene(engine);
+  const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+  globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,12);
+  const camera=new ArcRotateCamera("eye",0,1,1,globe.getSurfacePosition(0,0),scene);
+  camera.setPosition(globe.getSurfacePosition(0,0,100*globe.metresToWorld));camera.getViewMatrix(true);
+  let activeSignal:AbortSignal|undefined;
+  const provider=new Google3DTiles(globe,{apiKey:"test",coverageRadius:1000,maxDepth:0,
+    maximumScreenSpaceError:1,tilesetLoader:async()=>({root:{
+      boundingVolume:{sphere:[6378137,0,0,100]},geometricError:0,content:{uri:"old.glb"}}}),
+    modelTileLoader:async (_url,_scene,signal)=>{
+      activeSignal=signal;
+      return new Promise((_resolve,reject)=>signal!.addEventListener("abort",()=>reject(signal!.reason),{once:true}));
+    }});
+  try {
+    const loading=provider.load();
+    await vi.waitFor(()=>expect(activeSignal).toBeDefined());
+    camera.setPosition(globe.getSurfacePosition(0,0.003,100*globe.metresToWorld));camera.getViewMatrix(true);
+    provider.reprioritizeRequests();
+    expect(activeSignal!.aborted).toBe(false);
+    camera.setPosition(globe.getSurfacePosition(0,0.04,100*globe.metresToWorld));camera.getViewMatrix(true);
+    provider.reprioritizeRequests();
+    await vi.waitFor(()=>expect(activeSignal!.aborted).toBe(true));
+    await loading;
+    expect(provider.loadedModelTiles).toHaveLength(0);
+  } finally {provider.dispose();scene.dispose();engine.dispose();}
+});
+
 it("commits nearby refinement without waiting for unrelated distant hierarchy", async () => {
   const {engine,scene,tileSet}=createTileSet();
   let release!:()=>void, reached!:()=>void;

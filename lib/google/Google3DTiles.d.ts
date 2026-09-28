@@ -59,7 +59,7 @@ export interface LoadedGoogleModelTile {
     rtcCenter?: Vector3;
 }
 export type GoogleTilesetLoader = (url: string) => Promise<Google3DTileset>;
-export type GoogleModelTileLoader = (url: string, scene: Scene) => Promise<LoadedGoogleModelTile | undefined>;
+export type GoogleModelTileLoader = (url: string, scene: Scene, signal?: AbortSignal) => Promise<LoadedGoogleModelTile | undefined>;
 export interface Google3DTilesOptions {
     /** Google Maps Platform API key. It is appended to every request. */
     apiKey?: string;
@@ -201,6 +201,8 @@ export default class Google3DTiles {
     private attributionCacheValid;
     private attributionCache;
     private pendingModels;
+    private activeModelFetches;
+    private lastModelAbortEye?;
     private selectionEye?;
     private requestEye?;
     private requestPriorityRevision;
