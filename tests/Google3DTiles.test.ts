@@ -1049,6 +1049,14 @@ it("admits a new geographic branch while a moving disk selection is in flight", 
   try {
     const loading = provider.load();
     await vi.waitFor(() => expect(holdRequests).toBe(1));
+    // A held hierarchy request must not pin the moving disk after several
+    // successive Shift-speed displacements.
+    for (const longitude of [0.05, 0.10, 0.15, 0.20]) {
+      camera.setPosition(globe.getSurfacePosition(0, longitude, 100 * globe.metresToWorld));
+      camera.getViewMatrix(true);
+      provider.reprioritizeRequests();
+      await vi.waitFor(() => expect(provider.selectedCoverageCenter?.longitude).toBeCloseTo(longitude, 2));
+    }
     camera.setPosition(globe.getSurfacePosition(0, 0.25, 100 * globe.metresToWorld));
     camera.getViewMatrix(true);
     provider.reprioritizeRequests();

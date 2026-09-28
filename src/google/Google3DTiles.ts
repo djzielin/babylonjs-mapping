@@ -225,6 +225,7 @@ export default class Google3DTiles {
     private selectionEye?: Vector3;
     private requestEye?: Vector3;
     private requestPriorityRevision = 0;
+    private readonly movementWaiters = new Set<() => void>();
     private frustumCache?: { camera: Camera; updateFlag: number; planes: Plane[] };
     private frontierCache?: { key: string; selections: TileSelection[] };
     private networkActive = 0;
@@ -482,13 +483,17 @@ export default class Google3DTiles {
     }
 
     /** Cancel queued work while retaining the visible scene and hierarchy cache. */
-    public cancelPendingLoad(): void { this.generation++; }
+    public cancelPendingLoad(): void {
+        this.generation++;
+        for (const wake of this.movementWaiters) wake();
+    }
 
     /** Reorder queued downloads immediately when the camera moves, without cancelling active requests. */
     public reprioritizeRequests(): void {
         this.requestEye = this.cameraEye();
         this.requestPriorityRevision++;
         this.drainNetwork();
+        for (const wake of this.movementWaiters) wake();
     }
 
     /** Loads content that overlaps the current TileSet. */
@@ -1150,7 +1155,7 @@ export default class Google3DTiles {
         const seedPending = new Map<FrontierTile, Promise<Expansion>>();
         let rootSeed: Promise<FrontierTile[]> | undefined;
         let seededAt = this.requestEye ?? this.selectionEye ?? this.cameraEye();
-        let reseeds = 0;
+        let reseeded = false;
         const activeURLs = new Set(initial.flatMap(node => node.selections.map(selection => selection.url)));
         const representedURLs = new Set(initial.flatMap(node => node.selections.flatMap(selection =>
             [selection.url, ...(selection.ancestors ?? [])])));
@@ -1166,12 +1171,12 @@ export default class Google3DTiles {
                 seedQueue.rebuild();
             }
             const eye = this.requestEye ?? this.selectionEye ?? this.cameraEye();
-            if (!surroundings && coverageRadius && reseeds < 3 && !rootSeed
+            if (!surroundings && coverageRadius
                 && Vector3.Distance(eye, seededAt) >= 1000) {
                 bounds = this.getTileSetBounds(coverageRadius);
                 recordCenter();
                 seededAt = eye.clone();
-                reseeds++;
+                reseeded = true;
                 this.frontierCache = undefined;
                 // The disk has moved: geometry wholly beyond its geographic
                 // bounds is no longer a coverage fallback. Retire it now,
@@ -1235,7 +1240,7 @@ export default class Google3DTiles {
                 if (generation !== this.generation) return;
                 if (!boundingVolumeIntersects(node.tile.boundingVolume, bounds, node.transform)) continue;
                 const url = node.selections[0]?.url;
-                if (!url || activeURLs.has(url)) continue;
+                if (!url) continue;
                 if (representedURLs.has(url)) {
                     seedPending.set(node, children(node).then(next => ({ kind: "seed", node, next }),
                         () => ({ kind: "seed", node, next: undefined })));
@@ -1277,11 +1282,19 @@ export default class Google3DTiles {
             }
             flushReplacements();
             if (!pending.size && !seedPending.size && !rootSeed) continue;
+            let wakeMovement!: () => void;
+            const movement = new Promise<{ kind: "movement" }>(resolve => {
+                wakeMovement = () => resolve({ kind: "movement" });
+                this.movementWaiters.add(wakeMovement);
+            });
             const result = await Promise.race([
                 ...pending.values(), ...seedPending.values(),
                 ...(rootSeed ? [rootSeed.then(next => ({ kind: "root" as const, next }))] : []),
+                movement,
             ]);
+            this.movementWaiters.delete(wakeMovement);
             if (generation !== this.generation) return;
+            if (result.kind === "movement") continue;
             if (result.kind === "root") {
                 rootSeed = undefined;
                 result.next.forEach(enqueueSeed);
@@ -1343,11 +1356,11 @@ export default class Google3DTiles {
         if (!surroundings) this.stats.sourceLimitedTiles = Array.from(frontier).filter(node => node.priority > 1
             && !(node.tile.children?.length) && !getTileContents(node.tile).some(isTilesetContent)).length;
         for (const node of frontier) if (renderable(node)) for (const selection of node.selections) desired.set(selection.url, selection);
-        if (reseeds) for (const [url, selection] of desired) {
+        if (reseeded) for (const [url, selection] of desired) {
             const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
             if (!boundingVolumeIntersects(selection.boundingVolume, bounds, transform)) desired.delete(url);
         }
-        if (!hierarchyFailed && !surroundings && !reseeds) this.frontierCache = { key, selections: Array.from(desired.values()) };
+        if (!hierarchyFailed && !surroundings && !reseeded) this.frontierCache = { key, selections: Array.from(desired.values()) };
     }
 
     private async collectTileContent(

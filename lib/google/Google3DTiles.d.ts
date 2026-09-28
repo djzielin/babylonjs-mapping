@@ -180,6 +180,7 @@ export default class Google3DTiles {
     private selectionEye?;
     private requestEye?;
     private requestPriorityRevision;
+    private readonly movementWaiters;
     private frustumCache?;
     private frontierCache?;
     private networkActive;
