@@ -2,7 +2,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { GlobeSet } from "babylonjs-mapping";
 
-type BuildingRange = { latitude: number; longitude: number; south: number; west: number; north: number; east: number; start: number; end: number };
+type BuildingRange = { id?: string; latitude: number; longitude: number; south: number; west: number; north: number; east: number; start: number; end: number };
 type Coverage = { ranges: BuildingRange[]; indices: Uint32Array };
 type Retained = { mesh: Mesh; coordinate: Vector3; source: object; coverage?: Coverage; mask?: Uint8Array; ownGeometry?: boolean };
 
@@ -10,6 +10,14 @@ type Retained = { mesh: Mesh; coordinate: Vector3; source: object; coverage?: Co
 export class BuildingTransition {
     private previous = new Map<GlobeSet, Retained[]>();
     private nextCheck = 0;
+
+    public *retainedFootprints(globe: GlobeSet): Generator<BuildingRange> {
+        for (const old of this.previous.get(globe) ?? []) {
+            if (old.mesh.isDisposed() || !old.mesh.isEnabled() || !old.mesh.isVisible || !old.coverage) continue;
+            for (const [index, range] of old.coverage.ranges.entries())
+                if (!old.mask || old.mask[index]) yield range;
+        }
+    }
 
     public capture(globe: GlobeSet, nextZoom: number, latitude?: number, longitude?: number): void {
         if (globe.zoom < 10) return;
@@ -32,10 +40,15 @@ export class BuildingTransition {
                 && (!globe.scene.frustumPlanes || mesh.isInFrustum(globe.scene.frustumPlanes)));
             for (const source of sources) {
                 if (retainedSources.has(source)) continue;
+                const world = source.computeWorldMatrix(true).clone();
                 const mesh = source.clone("previous building detail", null, true)!;
+                // Babylon keeps the source parent when clone() receives null.
+                // Recycling that tile would disable this supposedly retained
+                // building before a finer replacement is ready.
+                mesh.setParent(null);
                 mesh.setEnabled(true);
                 mesh.isPickable = false;
-                mesh.freezeWorldMatrix(source.computeWorldMatrix(true).clone());
+                mesh.freezeWorldMatrix(world);
                 const coverage = (source.metadata as { overtureCoverage?: Coverage } | null)?.overtureCoverage;
                 // Most outgoing batches still draw every building. Preserve
                 // their shared geometry until coverage actually changes.

@@ -19,12 +19,16 @@ describe("building detail transitions", () => {
         const source = MeshBuilder.CreateBox("old buildings", {}, scene);
         source.setParent(tile.mesh);
         tile.buildingBatches.push(source);
+        const sourceWorld = source.computeWorldMatrix(true).clone();
         const transition = new BuildingTransition();
         transition.capture(globe, 15);
         globe.updateRaster(40.7484, -73.9857, 15);
         transition.update(1);
         const retained = scene.getMeshByName("previous building detail");
         expect(retained?.isDisposed()).toBe(false);
+        expect(retained?.parent).toBeNull();
+        expect(retained?.isEnabled()).toBe(true);
+        expect(Array.from(retained!.computeWorldMatrix(true).m)).toEqual(Array.from(sourceWorld.m));
         globe.ourTiles[0].buildingsResolvedKey = globe.ourTiles[0].tileCoords.toString();
         transition.update(300);
         expect(retained?.isDisposed()).toBe(false);
@@ -124,8 +128,8 @@ describe("building detail transitions", () => {
         source.metadata = { overtureCoverage: {
             indices,
             ranges: [
-                { latitude: 1, longitude: 1, south: 0, west: 0, north: 2, east: 2, start: 0, end: half },
-                { latitude: 3, longitude: 3, south: 2, west: 2, north: 4, east: 4, start: half, end: indices.length },
+                { id: "one", latitude: 1, longitude: 1, south: 0, west: 0, north: 2, east: 2, start: 0, end: half },
+                { id: "two", latitude: 3, longitude: 3, south: 2, west: 2, north: 4, east: 4, start: half, end: indices.length },
             ],
         } };
         tile.buildingBatches.push(source);
@@ -135,8 +139,12 @@ describe("building detail transitions", () => {
         const retained = scene.getMeshByName("previous building detail")!;
         transition.update(1, latitude => latitude === 1, true);
         expect(retained.isDisposed()).toBe(false);
+        expect(retained.parent).toBeNull();
+        expect(retained.isEnabled()).toBe(true);
+        expect(Array.from(transition.retainedFootprints(globe), range => range.id)).toEqual(["two"]);
         expect(Array.from(retained.getIndices()!)).toEqual(Array.from(indices.subarray(half)));
         transition.update(2, undefined, true);
+        expect(Array.from(transition.retainedFootprints(globe), range => range.id)).toEqual(["one", "two"]);
         expect(Array.from(retained.getIndices()!)).toEqual(Array.from(indices));
         transition.update(3, () => true, true);
         expect(retained.isDisposed()).toBe(true);

@@ -3,6 +3,7 @@ import { NullEngine, Scene, Vector2, Vector3, Mesh, Ray, VertexData } from "@bab
 import GlobeSet from "../src/core/GlobeSet";
 import { EPSG_Type } from "../src/core/TileMath";
 import { GlobeBuildingBatch } from "../src/buildings/GlobeBuildingBatch";
+import { OvertureTierCoverage } from "../examples-npm/globe-mode/src/OvertureTierCoverage";
 import type { feature } from "../src/buildings/GeoJSON";
 vi.mock("../src/core/Attribution",()=>({default:class {advancedTexture={};addAttribution(){}}}));
 
@@ -66,6 +67,38 @@ it("uses each footprint bounds when Google detail reaches only its edge",async()
     provider.updateBatchVisibility();
     expect(tile.buildingBatches[0].isEnabled(false)).toBe(true);
     scene.dispose();engine.dispose();
+});
+
+it("keeps a coarse Overture building until matching finer geometry is ready",async()=>{
+    const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
+    const engine=new NullEngine(),scene=new Scene(engine);
+    const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+    globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,10);
+    const tile=globe.ourTiles[0];
+    const provider=new BuildingsOverture(globe,"https://example.invalid/buildings.pmtiles");
+    provider.batchGeometry=true;provider.doMerge=true;
+    let finer=new OvertureTierCoverage();
+    provider.batchVisibilityFilter=(_lat,_lon,bounds)=>!finer.covers(bounds);
+    const resolved=vi.fn();provider.onTileResolved=resolved;
+    const building={id:"same-building",type:"Feature",properties:{height:12},geometry:{type:"Polygon",coordinates:[
+        [[0,0],[0.001,0],[0.001,0.001],[0,0.001],[0,0]],
+    ]}} as feature;
+    await (provider as any).buildBatch({tile,tileCoords:tile.tileCoords.clone(),epsgType:EPSG_Type.EPSG_4326},[building]);
+    const mesh=tile.buildingBatches[0];
+    expect(resolved).toHaveBeenCalledWith(tile);
+    expect(mesh.isEnabled(false)).toBe(true);
+    const footprint=mesh.metadata.overtureCoverage.ranges[0];
+    expect(footprint.id).toBe(building.id);
+    finer.add({ ...footprint, west: footprint.west + 0.0008 });
+    provider.updateBatchVisibility();
+    expect(mesh.isEnabled(false)).toBe(true);
+    finer.add(footprint);
+    provider.updateBatchVisibility();
+    expect(mesh.isEnabled(false)).toBe(false);
+    finer=new OvertureTierCoverage();
+    provider.updateBatchVisibility();
+    expect(mesh.isEnabled(false)).toBe(true);
+    provider.cancelPendingRequests();scene.dispose();engine.dispose();
 });
 
 it("skips a fully Google-covered Overture tile and resumes it when coverage leaves",async()=>{

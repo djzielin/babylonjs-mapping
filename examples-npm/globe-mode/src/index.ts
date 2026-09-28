@@ -5,6 +5,7 @@ import { DracoCompression } from "@babylonjs/core/Meshes/Compression/dracoCompre
 import { lookFromEye, moveEye } from "./FirstPersonNavigation";
 import { TerrainTransition } from "./TerrainTransition";
 import { BuildingTransition } from "./BuildingTransition";
+import { OvertureTierCoverage } from "./OvertureTierCoverage";
 import "@babylonjs/core/Engines/AbstractEngine/abstractEngine.timeQuery";
 import "@babylonjs/core/Engines/Extensions/engine.query";
 import { EngineInstrumentation } from "@babylonjs/core/Instrumentation/engineInstrumentation";
@@ -120,6 +121,9 @@ class GlobeDemo {
     private camera: ArcRotateCamera;
     private layers: MapLayerRenderer;
     private replacements = new BuildingReplacementIndex();
+    private finerOvertureCoverage = new Map<GlobeSet, OvertureTierCoverage>();
+    private overtureCoverageTimer?: ReturnType<typeof setTimeout>;
+    private detailBuildingWindowKey = "";
     private lastCoverageRevision = -1;
     private replacementSignatures = new WeakMap<object, string>();
     private replacementLandmarkSignature?: string;
@@ -297,6 +301,7 @@ class GlobeDemo {
         window.addEventListener("pagehide", event => {
             if (event.persisted) return;
             clearTimeout(this.googleTimer);
+            clearTimeout(this.overtureCoverageTimer);
             this.googleTiles?.dispose(); this.scene.dispose(); this.engine.dispose();
         }, { once: true });
         void this.readGoogleKey();
@@ -510,7 +515,10 @@ class GlobeDemo {
                 this.buildings = new BuildingsOverture(this.detailGlobe, url);
                 this.buildings.doMerge = true;
                 this.buildings.batchGeometry = true;
-                this.buildings.batchVisibilityFilter = (lat, lon, bounds) => !this.googleCoversFootprint(lat, lon, bounds);
+                this.buildings.batchVisibilityFilter = (lat, lon, bounds) =>
+                    !this.googleCoversFootprint(lat, lon, bounds)
+                    && !this.finerOvertureCoverage.get(this.detailGlobe)?.covers(bounds);
+                this.buildings.onTileResolved = () => this.onFinerOvertureCoverageChanged(this.detailGlobe);
                 this.buildings.tileCoverageFilter = tile => this.googleCoversTile(this.detailGlobe, tile);
                 this.buildings.loadConcurrency = 6;
                 this.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
@@ -840,6 +848,47 @@ class GlobeDemo {
         });
     }
 
+    private onFinerOvertureCoverageChanged(globe: GlobeSet): void {
+        if ([{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]
+            .some(tier => tier.buildings && tier.globe.zoom >= MIN_GLOBE_BUILDING_ZOOM
+                && tier.globe.zoom < globe.zoom)) this.scheduleOvertureCoverageRefresh();
+    }
+
+    private scheduleOvertureCoverageRefresh(): void {
+        if (this.overtureCoverageTimer !== undefined) return;
+        // Coalesce batches completed in the same frame without delaying the
+        // fallback-to-detail handoff beyond the next frame.
+        this.overtureCoverageTimer = setTimeout(() => {
+            this.overtureCoverageTimer = undefined;
+            const tiers = [{ globe: this.detailGlobe, buildings: this.buildings }, ...this.distanceLayers]
+                .filter((tier): tier is { globe: GlobeSet; buildings: BuildingsOverture } =>
+                    !!tier.buildings && tier.globe.zoom >= MIN_GLOBE_BUILDING_ZOOM && tier.globe.zoom <= 14);
+            const coverage = new Map<GlobeSet, OvertureTierCoverage>();
+            for (const owner of tiers) {
+                const finerTiers = tiers.filter(tier => tier.globe.zoom > owner.globe.zoom);
+                if (!finerTiers.length) continue;
+                const available = new OvertureTierCoverage();
+                for (const finer of finerTiers) {
+                    for (const tile of finer.globe.ourTiles) {
+                        if (tile.buildingsResolvedKey !== tile.tileCoords.toString()) continue;
+                        for (const mesh of tile.buildingBatches) {
+                            if (mesh.isDisposed()) continue;
+                            const ranges = (mesh.metadata as { overtureCoverage?: {
+                                ranges: { id: string; south: number; west: number; north: number; east: number }[];
+                            } } | undefined)?.overtureCoverage?.ranges ?? [];
+                            for (const range of ranges) available.add(range);
+                        }
+                    }
+                    for (const range of this.buildingTransition.retainedFootprints(finer.globe))
+                        available.add(range);
+                }
+                coverage.set(owner.globe, available);
+            }
+            this.finerOvertureCoverage = coverage;
+            for (const tier of tiers) if (coverage.has(tier.globe)) tier.buildings.updateBatchVisibility();
+        }, 16);
+    }
+
     private keepBuildingFeature(coordinates: unknown, owner: GlobeSet, height = 4): boolean {
         let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
         const stack: unknown[] = [coordinates];
@@ -852,14 +901,9 @@ class GlobeDemo {
             } else for (const child of part) stack.push(child);
         }
         if (!Number.isFinite(west) || east - west > 180) return true;
-        // Skip only footprints wholly inside finer coverage. Boundary-crossing
-        // footprints still reach the existing geometry-based ownership filter.
-        for (const finer of [this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)]) {
-            if (finer.zoom <= owner.zoom || finer.zoom > 14) continue;
-            if ([west, east].every(lon => [south, north].every(lat => finer.ourTilesMap.has(
-                new Vector3(finer.ourTileMath.lon_to_tile(lon, finer.zoom), finer.ourTileMath.lat_to_tile(lat, finer.zoom), finer.zoom).toString(),
-            )))) return false;
-        }
+        // Keep the coarse geometry even when a finer tile window overlaps.
+        // Visibility changes only after the corresponding finer footprint is
+        // built, so a quick move cannot expose an empty building tile.
         const point = owner.getSurfacePosition((south + north) / 2, (west + east) / 2);
         if (owner.zoom < 14 && this.scene.activeCamera) {
             const camera = this.scene.activeCamera;
@@ -1096,6 +1140,11 @@ class GlobeDemo {
                 this.data.invalidate(false, (document.getElementById("buildings") as HTMLInputElement).checked);
             }
             this.updateDistanceLayers(view);
+            const detailWindow = this.detailGlobe.ourTiles[0]?.tileCoords.toString() ?? "";
+            if (detailWindow !== this.detailBuildingWindowKey) {
+                this.detailBuildingWindowKey = detailWindow;
+                this.onFinerOvertureCoverageChanged(this.detailGlobe);
+            }
             this.updateReadout(readout, view);
             this.scheduleGoogleTiles();
         });
@@ -1366,6 +1415,7 @@ class GlobeDemo {
             this.buildingTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude);
             layer.key = key;
             layer.globe.updateRaster(view.latitude, view.longitude, plan.zoom);
+            if (plan.zoom <= 14) this.onFinerOvertureCoverageChanged(layer.globe);
         });
     }
 
@@ -1398,7 +1448,10 @@ class GlobeDemo {
                 layer.buildings = new BuildingsOverture(layer.globe, this.overtureURL);
                 layer.buildings.doMerge = true;
                 layer.buildings.batchGeometry = true;
-                layer.buildings.batchVisibilityFilter = (lat, lon, bounds) => !this.googleCoversFootprint(lat, lon, bounds);
+                layer.buildings.batchVisibilityFilter = (lat, lon, bounds) =>
+                    !this.googleCoversFootprint(lat, lon, bounds)
+                    && !this.finerOvertureCoverage.get(layer.globe)?.covers(bounds);
+                layer.buildings.onTileResolved = () => this.onFinerOvertureCoverageChanged(layer.globe);
                 layer.buildings.tileCoverageFilter = tile => this.googleCoversTile(layer.globe, tile);
                 layer.buildings.loadConcurrency = 6;
                 layer.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });

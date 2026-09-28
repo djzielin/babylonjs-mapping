@@ -10,7 +10,7 @@ export class GlobeBuildingBatch {
     public readonly normals: number[] = [];
     public readonly indices: number[] = [];
     public featureCount = 0;
-    public readonly ranges: { latitude: number; longitude: number; south: number; west: number; north: number; east: number; start: number; end: number }[] = [];
+    public readonly ranges: { id: string; latitude: number; longitude: number; south: number; west: number; north: number; east: number; start: number; end: number }[] = [];
     constructor(private globe: Pick<GlobeSet, "metresToWorld" | "sampleElevation" | "getSurfaceNormal" | "getSurfacePosition">, public readonly origin: Vector3) {}
     private vertex(point: Vector3, normal: Vector3): number {
         const index = this.positions.length / 3;
@@ -76,7 +76,8 @@ export class GlobeBuildingBatch {
                 for (let i = 0; i < triangles.length; i += 3) this.triangle(underside[triangles[i]], underside[triangles[i + 1]], underside[triangles[i + 2]], up.negate());
             }
         }
-        if (this.indices.length > startIndex) this.ranges.push({ latitude: (south + north) / 2, longitude: (west + east) / 2,
+        if (this.indices.length > startIndex) this.ranges.push({ id: String(feature.id ?? ""),
+            latitude: (south + north) / 2, longitude: (west + east) / 2,
             south, west, north, east, start: startIndex, end: this.indices.length });
         this.featureCount++;
     }

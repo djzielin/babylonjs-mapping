@@ -20,11 +20,14 @@ export default class BuildingsOverture extends Buildings {
     batchGeometry: boolean;
     /** Hide covered footprints by updating indices while preserving prepared vertices. */
     batchVisibilityFilter?: (latitude: number, longitude: number, bounds?: {
+        id?: string;
         south: number;
         west: number;
         north: number;
         east: number;
     }) => boolean;
+    /** Notifies a viewer when prepared batch geometry can replace its fallback. */
+    onTileResolved?: (tile: Tile) => void;
     /** Omit an entire vector tile when loaded imagery already replaces every building in it. */
     tileCoverageFilter?: (tile: Tile) => boolean;
     private skippedCoverageTiles;

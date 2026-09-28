@@ -62,7 +62,9 @@ export default class BuildingsOverture extends Buildings {
     public batchGeometry = false;
     /** Hide covered footprints by updating indices while preserving prepared vertices. */
     public batchVisibilityFilter?: (latitude: number, longitude: number,
-        bounds?: { south: number; west: number; north: number; east: number }) => boolean;
+        bounds?: { id?: string; south: number; west: number; north: number; east: number }) => boolean;
+    /** Notifies a viewer when prepared batch geometry can replace its fallback. */
+    public onTileResolved?: (tile: Tile) => void;
     /** Omit an entire vector tile when loaded imagery already replaces every building in it. */
     public tileCoverageFilter?: (tile: Tile) => boolean;
     private skippedCoverageTiles = new WeakMap<Tile, string>();
@@ -277,6 +279,7 @@ export default class BuildingsOverture extends Buildings {
         request.tile.deleteBuildings();
         if (mesh) { request.tile.buildingBatches.push(mesh); this.updateMeshVisibility(mesh); }
         request.tile.buildingsResolvedKey = request.tile.tileCoords.toString();
+        this.onTileResolved?.(request.tile);
         if (specialized.length) this.ProcessGeoJSON({ ...request, mergeAfterLoad: false }, { type: "FeatureCollection", features: specialized });
     }
 
