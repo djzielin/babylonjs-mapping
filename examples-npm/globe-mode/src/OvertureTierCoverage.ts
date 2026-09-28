@@ -21,7 +21,9 @@ export class OvertureTierCoverage {
         if (!coarse?.id) return false;
         const area = (coarse.east - coarse.west) * (coarse.north - coarse.south);
         if (area <= 0) return false;
-        const threshold = area * 0.7;
+        // Retire the coarse copy only when the matching fine footprint is
+        // essentially complete; a 70% threshold left visible building holes.
+        const threshold = area * 0.98;
         const clipped: Array<{ west: number; east: number; south: number; north: number }> = [];
         for (const fine of this.byId.get(coarse.id) ?? []) {
             const west = Math.max(coarse.west, fine.west), east = Math.min(coarse.east, fine.east);

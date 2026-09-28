@@ -104,6 +104,9 @@ it("keeps a coarse Overture building until matching finer geometry is ready",asy
 it("combines split finer footprints without double-counting overlap",()=>{
     const coarse={id:"same",south:0,west:0,north:1,east:1};
     const finer=new OvertureTierCoverage();
+    finer.add({...coarse,id:"other"});
+    finer.add({...coarse,east:0.8});
+    expect(finer.covers(coarse)).toBe(false);
     finer.add({...coarse,east:0.5});
     finer.add({...coarse,east:0.5});
     expect(finer.covers(coarse)).toBe(false);
