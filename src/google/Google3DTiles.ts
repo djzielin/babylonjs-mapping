@@ -1244,14 +1244,28 @@ export default class Google3DTiles {
                     0, Matrix.Identity(), "REPLACE").catch(() => []);
             }
             let settledAtBudget = 0;
-            if (count >= budget) while (queue.length) {
-                const node = queue.shift()!;
-                if (frontier.has(node)) settle(node, true);
-                if (++settledAtBudget % 32 === 0) {
-                    const pause = workBudget.checkpoint(() => priority(node).distance, 0);
-                    if (pause) await pause;
-                    if (generation !== this.generation) return;
+            if (count >= budget && queue.length) {
+                let worstResident: FrontierTile | undefined;
+                for (const candidate of frontier) {
+                    if (candidate.refine === "ADD" || pending.has(candidate)
+                        || !priority(candidate).background
+                        || !candidate.selections.every(selection => this.loadedTiles.has(selection.url))) continue;
+                    if (!worstResident || compare(worstResident, candidate) < 0) worstResident = candidate;
                 }
+                const refinable: FrontierTile[] = [];
+                while (queue.length) {
+                    const node = queue.shift()!;
+                    if (!frontier.has(node)) continue;
+                    if (worstResident && node !== worstResident && compare(node, worstResident) < 0)
+                        refinable.push(node);
+                    else settle(node, true);
+                    if (++settledAtBudget % 32 === 0) {
+                        const pause = workBudget.checkpoint(() => priority(node).distance, 0);
+                        if (pause) await pause;
+                        if (generation !== this.generation) return;
+                    }
+                }
+                refinable.forEach(node => queue.push(node));
             }
             const coverage = count >= Math.min(128, budget / 4);
             if (coverage !== preferCoverage) { preferCoverage = coverage; queue.rebuild(); }
@@ -1350,7 +1364,29 @@ export default class Google3DTiles {
                     }
                     continue;
                 }
-                if (count + extra > budget) { settle(node, true); continue; }
+                if (count + extra > budget) {
+                    const victims = [...frontier].filter(candidate => candidate !== node
+                        && candidate.refine !== "ADD" && !pending.has(candidate)
+                        && priority(candidate).background
+                        && candidate.selections.every(selection => this.loadedTiles.has(selection.url))
+                        && compare(node, candidate) < 0).sort((a, b) => compare(b, a));
+                    let freed = 0;
+                    const chosen: FrontierTile[] = [];
+                    for (const victim of victims) {
+                        chosen.push(victim);
+                        freed += victim.selections.length;
+                        if (count + extra - freed <= budget) break;
+                    }
+                    if (count + extra - freed > budget) { settle(node, true); continue; }
+                    for (const victim of chosen) {
+                        frontier.delete(victim); track(victim, false); settled.delete(victim);
+                        count -= victim.selections.length;
+                        for (const selection of victim.selections) {
+                            activeURLs.delete(selection.url);
+                            desired.delete(selection.url);
+                        }
+                    }
+                }
                 if (node.refine !== "ADD") {
                     frontier.delete(node); track(node, false);
                     for (const selection of node.selections) activeURLs.delete(selection.url);
