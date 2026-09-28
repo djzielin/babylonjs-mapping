@@ -37,7 +37,9 @@ it('retains independent terrain geometry until matching replacement imagery and 
  const replacementDisposed=vi.spyOn(replacementTexture,'dispose');
  vi.spyOn(replacementTexture,'isReady').mockReturnValue(true);
  replacement.diffuseTexture=replacementTexture;
- transition.update(1300);expect(snapshot.isDisposed()).toBe(true);
+ transition.update(1300);expect(snapshot.isDisposed()).toBe(false);
+ tile.mesh.setEnabled(true);
+ transition.update(1600);expect(snapshot.isDisposed()).toBe(true);
  expect(disposed).toHaveBeenCalledOnce();
  expect(tile.mesh.material).toBe(replacement);
  expect(replacementDisposed).not.toHaveBeenCalled();
@@ -123,6 +125,9 @@ it('holds ready imagery through a basemap change at the same tile coordinates',(
  const newTexture=new Texture(null,scene);
  vi.spyOn(newTexture,'isReady').mockReturnValue(true);tile.material!.diffuseTexture=newTexture;
  transition.update(1000);
+ expect(retained.isDisposed()).toBe(false);
+ tile.mesh.setEnabled(true);
+ transition.update(1300);
  expect(retained.isDisposed()).toBe(true);
  transition.dispose();scene.dispose();engine.dispose();
 });

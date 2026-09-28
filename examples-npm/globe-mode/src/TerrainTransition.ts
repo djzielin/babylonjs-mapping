@@ -98,7 +98,8 @@ export class TerrainTransition {
                 if ((x1 - x0 + 1) * (y1 - y0 + 1) > globe.ourTiles.length) return true;
                 for (let y = y0; y <= y1 && covered; y++) for (let x = x0; x <= x1; x++) {
                     const tile = globe.ourTilesMap.get(new Vector3(x, y, globe.zoom).toString());
-                    if (!tile?.terrainLoaded || !(tile.mesh.material as StandardMaterial)?.diffuseTexture?.isReady()) { covered = false; break; }
+                    if (!tile?.terrainLoaded || !tile.mesh.isEnabled()
+                        || !(tile.mesh.material as StandardMaterial)?.diffuseTexture?.isReady()) { covered = false; break; }
                 }
                 if (!covered) return true;
                 this.release(old); return false;
