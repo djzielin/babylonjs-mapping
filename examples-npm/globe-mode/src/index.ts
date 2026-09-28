@@ -497,6 +497,7 @@ class GlobeDemo {
         this.data = new GlobeDataController(this.detailGlobe, {
             elevation: this.elevation.load,
             concurrency: 4,
+            prioritizeVisible: true,
             minTerrainZoom: 5,
             minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14,
             minFeatureZoom: 15, maxFeatureZoom: 18,
