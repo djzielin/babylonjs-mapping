@@ -180,6 +180,8 @@ export default class Google3DTiles {
         modelDecodeCount: number;
         modelDecodeActive: number;
         peakModelDecodeActive: number;
+        modelDecodeQueued: number;
+        peakModelDecodeQueued: number;
         peakHierarchyActive: number;
         peakModelActive: number;
         peakNetworkActive: number;
@@ -187,6 +189,7 @@ export default class Google3DTiles {
     origin?: Google3DTilesOrigin;
     private readonly tilesetLoader;
     private readonly modelTileLoader;
+    private readonly usesDefaultModelLoader;
     private rootTileset;
     private rootRequestKey;
     private rootRequest?;
@@ -219,6 +222,10 @@ export default class Google3DTiles {
     private networkActiveModel;
     private networkDispatchCount;
     private networkWaiters;
+    private modelDecodeActive;
+    private modelDecodeWaiters;
+    private drainModelDecode;
+    private modelDecodeSlot;
     private networkDrainQueued;
     private drainNetwork;
     private networkSlot;

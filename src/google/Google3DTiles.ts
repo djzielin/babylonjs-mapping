@@ -241,11 +241,13 @@ export default class Google3DTiles {
         frontierCommitMs: 0, replacementMs: 0, modelWaitMs: 0, loadMs: 0,
         modelFetchMs: 0, modelDecodeMs: 0, modelIntegrationMs: 0, modelIntegrationMaxMs: 0,
         modelFetchCount: 0, modelDecodeCount: 0, modelDecodeActive: 0, peakModelDecodeActive: 0,
+        modelDecodeQueued: 0, peakModelDecodeQueued: 0,
         peakHierarchyActive: 0, peakModelActive: 0, peakNetworkActive: 0 };
     public origin?: Google3DTilesOrigin;
 
     private readonly tilesetLoader: GoogleTilesetLoader;
     private readonly modelTileLoader: GoogleModelTileLoader;
+    private readonly usesDefaultModelLoader: boolean;
     private rootTileset: Google3DTileset | undefined;
     private rootRequestKey = "";
     private rootRequest?: { key: string; promise: Promise<Google3DTileset> };
@@ -282,6 +284,53 @@ export default class Google3DTiles {
     private networkDispatchCount = 0;
     private networkWaiters: Array<{ priority: number | (() => number); kind: "hierarchy" | "model";
         resume: (offscreen: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
+    private modelDecodeActive = 0;
+    private modelDecodeWaiters: Array<{ priority: () => number; generation: number;
+        resume: (ready: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
+
+    private drainModelDecode(): void {
+        // A cancelled view must release its downloaded buffers even while both
+        // decoder slots are busy with work from the previous generation.
+        this.modelDecodeWaiters = this.modelDecodeWaiters.filter(waiter => {
+            if (waiter.generation === this.generation) return true;
+            waiter.resume(false);
+            return false;
+        });
+        this.stats.modelDecodeQueued = this.modelDecodeWaiters.length;
+        if (this.modelDecodeActive >= 2 || !this.modelDecodeWaiters.length) return;
+        for (const waiter of this.modelDecodeWaiters) {
+            if (waiter.evaluatedAt === this.requestPriorityRevision) continue;
+            waiter.distance = waiter.priority();
+            waiter.evaluatedAt = this.requestPriorityRevision;
+        }
+        this.modelDecodeWaiters.sort((a, b) => a.distance! - b.distance!);
+        while (this.modelDecodeActive < 2 && this.modelDecodeWaiters.length) {
+            const next = this.modelDecodeWaiters.shift()!;
+            this.stats.modelDecodeQueued = this.modelDecodeWaiters.length;
+            if (next.generation !== this.generation) { next.resume(false); continue; }
+            this.modelDecodeActive++;
+            next.resume(true);
+        }
+    }
+
+    private async modelDecodeSlot<T>(work: () => Promise<T>, priority: () => number,
+        generation: number): Promise<T | undefined> {
+        const ready = await new Promise<boolean>(resume => {
+            this.modelDecodeWaiters.push({ priority, generation, resume });
+            this.stats.modelDecodeQueued = this.modelDecodeWaiters.length;
+            this.stats.peakModelDecodeQueued = Math.max(this.stats.peakModelDecodeQueued, this.stats.modelDecodeQueued);
+            this.drainModelDecode();
+        });
+        if (!ready) return undefined;
+        try {
+            if (generation !== this.generation) return undefined;
+            return await work();
+        } finally {
+            this.modelDecodeActive--;
+            this.drainModelDecode();
+            this.drainNetwork();
+        }
+    }
 
     private networkDrainQueued = false;
     private drainNetwork(): void {
@@ -307,13 +356,29 @@ export default class Google3DTiles {
                 // for the camera-facing quality deficit.
                 const fairBackground = visible > 0 && offscreen > 0
                     && this.networkActiveOffscreen < 4 && this.networkDispatchCount % 8 === 7;
-                const next = this.networkWaiters[fairBackground ? visible : 0];
+                let index = fairBackground ? visible : 0;
+                let next = this.networkWaiters[index];
+                if (this.usesDefaultModelLoader && next.kind === "model") {
+                    const outstanding = this.networkActiveModel + this.modelDecodeActive + this.modelDecodeWaiters.length;
+                    if (outstanding >= 16) {
+                        const worstDecode = this.modelDecodeWaiters.reduce((worst, waiter) =>
+                            Math.max(worst, waiter.evaluatedAt === this.requestPriorityRevision
+                                ? waiter.distance! : waiter.priority()), -Infinity);
+                        // A newly visible quality deficit can exceed the normal
+                        // buffer cap after a turn, without unbounded growth.
+                        if (outstanding >= 24 || next.distance! >= worstDecode) {
+                            index = this.networkWaiters.findIndex(waiter => waiter.kind === "hierarchy");
+                            if (index < 0) break;
+                            next = this.networkWaiters[index];
+                        }
+                    }
+                }
                 const isOffscreen = next.distance! >= 1e9;
                 // Keep two slots ready for a sudden camera turn while the
                 // stationary full-radius queue runs. Visible work always uses
                 // the current priority order and can fill all 48 slots.
                 if (isOffscreen && visible === 0 && this.networkActive >= 46) break;
-                this.networkWaiters.splice(fairBackground ? visible : 0, 1);
+                this.networkWaiters.splice(index, 1);
                 if (isOffscreen) offscreen--; else visible--;
                 this.networkActive++;
                 if (isOffscreen) this.networkActiveOffscreen++;
@@ -326,20 +391,24 @@ export default class Google3DTiles {
             }
         });
     }
-    private async networkSlot<T>(work: () => Promise<T>, priority: number | (() => number) = 0,
+    private async networkSlot<T>(work: (releaseSlot: () => void) => Promise<T>, priority: number | (() => number) = 0,
         kind: "hierarchy" | "model" = "hierarchy"): Promise<T> {
         const offscreen = await new Promise<boolean>(resolve => {
             this.networkWaiters.push({ priority, kind, resume: resolve });
             this.drainNetwork();
         });
-        try { return await work(); }
-        finally {
+        let released = false;
+        const releaseSlot = () => {
+            if (released) return;
+            released = true;
             this.networkActive--;
             // Classification is fixed at dispatch, even if the camera turns.
             if (offscreen) this.networkActiveOffscreen--;
             if (kind === "hierarchy") this.networkActiveHierarchy--; else this.networkActiveModel--;
             this.drainNetwork();
-        }
+        };
+        try { return await work(releaseSlot); }
+        finally { releaseSlot(); }
     }
 
     constructor(
@@ -364,6 +433,7 @@ export default class Google3DTiles {
         this.origin = options.origin;
         this.apiKey = options.apiKey ?? "";
         this.tilesetLoader = options.tilesetLoader ?? defaultTilesetLoader;
+        this.usesDefaultModelLoader = !options.modelTileLoader;
         this.modelTileLoader = options.modelTileLoader ?? ((url, scene, signal) => defaultModelTileLoader(url, scene, this.stats, signal));
     }
 
@@ -598,6 +668,7 @@ export default class Google3DTiles {
     /** Cancel queued work while retaining the visible scene and hierarchy cache. */
     public cancelPendingLoad(): void {
         this.generation++;
+        this.drainModelDecode();
         for (const wake of this.movementWaiters) wake();
     }
 
@@ -621,6 +692,7 @@ export default class Google3DTiles {
             }
         }
         this.drainNetwork();
+        this.drainModelDecode();
         for (const wake of this.movementWaiters) wake();
     }
 
@@ -635,6 +707,7 @@ export default class Google3DTiles {
         this.requestPriorityRevision++;
         const residentAtStart = new Set([...this.loadedTiles.keys(), ...this.retainedTiles.keys()]);
         const generation = ++this.generation;
+        this.drainModelDecode();
         this.unusableModelURLs.clear();
         const origin = this.getOrigin();
         const originStateKey = this.getOriginStateKey(origin);
@@ -885,6 +958,7 @@ export default class Google3DTiles {
     /** Disposes loaded GLB assets and clears the provider's request caches. */
     public dispose(): void {
         ++this.generation;
+        this.drainModelDecode();
         this.tileSet.ourAttribution.setGoogleAttributions?.([]);
         this.desiredTiles.clear();
         this.disposeLoadedTiles();
@@ -1851,19 +1925,30 @@ export default class Google3DTiles {
             }
             return retained;
         }
-        const request = this.networkSlot(async () => {
+        const priority = () => this.requestPriority(selection.boundingVolume,
+            selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity(), selection.geometricError,
+            selection.ancestors?.some(url => this.loadedTiles.has(url)) ?? false);
+        const request = this.networkSlot(async releaseSlot => {
             if (generation !== this.generation) return undefined;
             this.stats.modelRequests++;
             const controller = new AbortController();
             this.activeModelFetches.set(selection.url, { selection, controller });
-            try { return await this.modelTileLoader(selection.url, this.tileSet.scene, controller.signal); }
+            const fetched = () => {
+                if (this.activeModelFetches.get(selection.url)?.controller === controller)
+                    this.activeModelFetches.delete(selection.url);
+                releaseSlot();
+            };
+            try {
+                return this.usesDefaultModelLoader
+                    ? await defaultModelTileLoader(selection.url, this.tileSet.scene, this.stats, controller.signal,
+                        fetched, work => this.modelDecodeSlot(work, priority, generation))
+                    : await this.modelTileLoader(selection.url, this.tileSet.scene, controller.signal);
+            }
             finally {
                 if (this.activeModelFetches.get(selection.url)?.controller === controller)
                     this.activeModelFetches.delete(selection.url);
             }
-        }, () => this.requestPriority(selection.boundingVolume,
-            selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity(), selection.geometricError,
-            selection.ancestors?.some(url => this.loadedTiles.has(url)) ?? false), "model").then(async (model) => {
+        }, priority, "model").then(async (model) => {
             if (!model) {
                 return undefined;
             }
@@ -2155,10 +2240,13 @@ async function defaultModelTileLoader(
     scene: Scene,
     stats?: Google3DTiles["stats"],
     signal?: AbortSignal,
+    onFetched?: () => void,
+    decodeSlot?: (work: () => Promise<LoadedGoogleModelTile>) => Promise<LoadedGoogleModelTile | undefined>,
 ): Promise<LoadedGoogleModelTile | undefined> {
     const fetchStarted = performance.now();
     const response = await fetch(url, { signal });
     if (response.status === 204 || response.status === 404) {
+        onFetched?.();
         return undefined;
     }
     if (!response.ok) {
@@ -2166,38 +2254,42 @@ async function defaultModelTileLoader(
     }
 
     const buffer = await response.arrayBuffer();
-    signal?.throwIfAborted();
     if (stats) { stats.modelFetchMs += performance.now() - fetchStarted; stats.modelFetchCount++; }
-    const decodeStarted = performance.now();
-    if (stats) {
-        stats.modelDecodeActive++;
-        stats.peakModelDecodeActive = Math.max(stats.peakModelDecodeActive, stats.modelDecodeActive);
-    }
-    try {
-        const metadata = parseGoogleGLBMetadata(buffer);
-        // Babylon uses the file name in embedded-texture cache keys. Each
-        // GLB has a different image atlas, even when all images are called image0.
-        await import("@babylonjs/loaders/glTF/index.js");
-        const asset = await LoadAssetContainerAsync(new Uint8Array(buffer), scene, {
-            pluginExtension: ".glb", name: `google-photorealistic-tile-${nextModelFileId++}.glb`,
-        });
-        if (signal?.aborted) {
-            asset.dispose();
-            signal.throwIfAborted();
-        }
-        return {
-            asset,
-            attributions: metadata.attributions,
-            rtcCenter: metadata.rtcCenter,
-            renderable: asset.meshes.some(mesh => mesh.getTotalVertices() > 0),
-        };
-    } finally {
+    onFetched?.();
+    signal?.throwIfAborted();
+    const decode = async (): Promise<LoadedGoogleModelTile> => {
+        const decodeStarted = performance.now();
         if (stats) {
-            stats.modelDecodeActive--;
-            stats.modelDecodeMs += performance.now() - decodeStarted;
-            stats.modelDecodeCount++;
+            stats.modelDecodeActive++;
+            stats.peakModelDecodeActive = Math.max(stats.peakModelDecodeActive, stats.modelDecodeActive);
         }
-    }
+        try {
+            const metadata = parseGoogleGLBMetadata(buffer);
+            // Babylon uses the file name in embedded-texture cache keys. Each
+            // GLB has a different image atlas, even when all images are called image0.
+            await import("@babylonjs/loaders/glTF/index.js");
+            const asset = await LoadAssetContainerAsync(new Uint8Array(buffer), scene, {
+                pluginExtension: ".glb", name: `google-photorealistic-tile-${nextModelFileId++}.glb`,
+            });
+            if (signal?.aborted) {
+                asset.dispose();
+                signal.throwIfAborted();
+            }
+            return {
+                asset,
+                attributions: metadata.attributions,
+                rtcCenter: metadata.rtcCenter,
+                renderable: asset.meshes.some(mesh => mesh.getTotalVertices() > 0),
+            };
+        } finally {
+            if (stats) {
+                stats.modelDecodeActive--;
+                stats.modelDecodeMs += performance.now() - decodeStarted;
+                stats.modelDecodeCount++;
+            }
+        }
+    };
+    return decodeSlot ? decodeSlot(decode) : decode();
 }
 
 /** Extracts Google attribution and CESIUM_RTC metadata from a GLB JSON chunk. */

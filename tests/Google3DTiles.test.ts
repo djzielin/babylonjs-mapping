@@ -1725,6 +1725,152 @@ it("reprioritizes queued tile requests when the camera moves during a load", asy
   provider.dispose(); scene.dispose(); engine.dispose();
 });
 
+it("releases a model download slot before its decode completes", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  let finishDecode!: () => void;
+  const decoding = new Promise<void>(resolve => { finishDecode = resolve; });
+  let downloadReleased = false;
+  const model = provider.networkSlot(async (release: () => void) => {
+    release();
+    downloadReleased = true;
+    await decoding;
+  }, 0, "model");
+  await vi.waitFor(() => expect(downloadReleased).toBe(true));
+  expect(provider.networkActive).toBe(0);
+  const next = vi.fn();
+  await provider.networkSlot(async () => { next(); }, -1, "hierarchy");
+  expect(next).toHaveBeenCalledOnce();
+  finishDecode();
+  await model;
+  expect(provider.networkActive).toBe(0);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
+it("frees the default loader's network slot as soon as GLB bytes arrive", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  vi.stubGlobal("fetch", vi.fn(async () => ({ status: 200, ok: true,
+    arrayBuffer: async () => createGLB({ asset: { version: "2.0" } }) })));
+  const provider = new Google3DTiles(tileSet, { apiKey: "test", maxDepth: 0,
+    tilesetLoader: async () => ({ root: { content: { uri: "tile.glb" } } }) }) as any;
+  let finishDecode!: () => void;
+  const decodeReached = vi.fn();
+  vi.spyOn(provider, "modelDecodeSlot").mockImplementation(() => {
+    decodeReached();
+    return new Promise<undefined>(resolve => { finishDecode = () => resolve(undefined); });
+  });
+  try {
+    const loading = provider.load();
+    await vi.waitFor(() => expect(decodeReached).toHaveBeenCalledOnce());
+    expect(provider.networkActive).toBe(0);
+    expect(provider.activeModelFetches.size).toBe(0);
+    const hierarchy = vi.fn();
+    await provider.networkSlot(async () => { hierarchy(); }, -1, "hierarchy");
+    expect(hierarchy).toHaveBeenCalledOnce();
+    finishDecode();
+    await loading;
+  } finally {
+    provider.dispose(); scene.dispose(); engine.dispose(); vi.unstubAllGlobals();
+  }
+});
+
+it("bounds pending model downloads without blocking hierarchy work", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  const releases: (() => void)[] = [];
+  const active = Array.from({ length: 16 }, () => provider.networkSlot(() =>
+    new Promise<void>(resolve => releases.push(resolve)), 0, "model"));
+  await vi.waitFor(() => expect(releases).toHaveLength(16));
+  const blockedModel = provider.networkSlot(() => new Promise<void>(resolve => releases.push(resolve)), -1, "model");
+  let hierarchyStarted = false;
+  const hierarchy = provider.networkSlot(async () => { hierarchyStarted = true; }, 10, "hierarchy");
+  await vi.waitFor(() => expect(hierarchyStarted).toBe(true));
+  expect(releases).toHaveLength(16);
+  releases[0]();
+  await vi.waitFor(() => expect(releases).toHaveLength(17));
+  releases.slice(1).forEach(release => release());
+  await Promise.all([...active, blockedModel, hierarchy]);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
+it("starts newly visible downloads despite a full old-view decode queue", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  const releases: (() => void)[] = [];
+  const active = [0, 1].map(() => provider.modelDecodeSlot(() =>
+    new Promise<void>(resolve => releases.push(resolve)), () => 1e9, provider.generation));
+  await vi.waitFor(() => expect(releases).toHaveLength(2));
+  const buffered = Array.from({ length: 14 }, () => provider.modelDecodeSlot(async () => {},
+    () => 1e9, provider.generation));
+  expect(provider.modelDecodeWaiters).toHaveLength(14);
+  const foregroundStarted = vi.fn();
+  await provider.networkSlot(async () => { foregroundStarted(); }, 0, "model");
+  expect(foregroundStarted).toHaveBeenCalledOnce();
+  releases.forEach(release => release());
+  await Promise.all([...active, ...buffered]);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
+it("drops stale downloaded models before decoding after a movement restart", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  const releases: (() => void)[] = [];
+  const active = [0, 1].map(() => provider.modelDecodeSlot(() =>
+    new Promise<void>(resolve => releases.push(resolve)), () => 0, provider.generation));
+  await vi.waitFor(() => expect(releases).toHaveLength(2));
+  const decode = vi.fn();
+  const stale = provider.modelDecodeSlot(async () => { decode(); }, () => -1, provider.generation);
+  provider.cancelPendingLoad();
+  expect(await stale).toBeUndefined();
+  expect(provider.stats.modelDecodeQueued).toBe(0);
+  expect(decode).not.toHaveBeenCalled();
+  releases.forEach(release => release());
+  await Promise.all(active);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
+it("releases queued downloaded models when the provider is disposed", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  const releases: (() => void)[] = [];
+  const active = [0, 1].map(() => provider.modelDecodeSlot(() =>
+    new Promise<void>(resolve => releases.push(resolve)), () => 0, provider.generation));
+  await vi.waitFor(() => expect(releases).toHaveLength(2));
+  const decode = vi.fn();
+  const queued = provider.modelDecodeSlot(async () => { decode(); }, () => -1, provider.generation);
+  provider.dispose();
+  expect(await queued).toBeUndefined();
+  expect(provider.stats.modelDecodeQueued).toBe(0);
+  expect(decode).not.toHaveBeenCalled();
+  releases.forEach(release => release());
+  await Promise.all(active);
+  scene.dispose(); engine.dispose();
+});
+
+it("reprioritizes downloaded models waiting for decode after a camera turn", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  const releases: (() => void)[] = [];
+  const active = [0, 1].map(() => provider.modelDecodeSlot(() =>
+    new Promise<void>(resolve => releases.push(resolve)), () => 0, provider.generation));
+  await vi.waitFor(() => expect(releases).toHaveLength(2));
+  let eye = 0;
+  const order: string[] = [];
+  const formerNear = provider.modelDecodeSlot(async () => { order.push("former near"); },
+    () => Math.abs(eye), provider.generation);
+  const newlyNear = provider.modelDecodeSlot(async () => { order.push("newly near"); },
+    () => Math.abs(100 - eye), provider.generation);
+  eye = 100;
+  vi.spyOn(provider, "cameraEye").mockReturnValue(new Vector3(eye, 0, 0));
+  provider.reprioritizeRequests();
+  releases[0]();
+  await Promise.all([formerNear, newlyNear]);
+  expect(order).toEqual(["newly near", "former near"]);
+  releases[1]();
+  await Promise.all(active);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
 it("promotes queued tiles in the new view after a camera turn at the same position", async () => {
   const { engine, scene, tileSet } = createTileSet();
   const provider = new Google3DTiles(tileSet, { cullToCamera: true }) as any;
