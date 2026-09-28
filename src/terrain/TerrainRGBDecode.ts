@@ -38,32 +38,53 @@ export function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: numb
     // which otherwise produces kilometre-deep vertical walls in rivers.
     // Only replace small components whose entire surrounding ring is shallow;
     // broad or genuinely deep bathymetry retains its original samples.
-    const visited = new Uint8Array(width * height);
-    const source = repaired ?? data;
-    for (let start = 0; start < source.length; start++) {
-        if (visited[start] || source[start] >= -100) continue;
-        const component = [start], ring: number[] = [];
-        visited[start] = 1;
-        for (let head = 0; head < component.length; head++) {
-            const index = component[head], x = index % width, y = Math.floor(index / width);
-            for (const neighbor of [x > 0 ? index - 1 : -1, x + 1 < width ? index + 1 : -1,
-                y > 0 ? index - width : -1, y + 1 < height ? index + width : -1]) {
-                if (neighbor < 0) continue;
-                if (source[neighbor] < -100) {
-                    if (!visited[neighbor]) { visited[neighbor] = 1; component.push(neighbor); }
-                } else ring.push(source[neighbor]);
+    for (const pass of [{ seed: -100, fringe: -20, limit: 512, floor: -30 },
+        // A second, narrower pass catches one-pixel-wide riverbank seams
+        // around -70 m that never reach the deep-pit threshold.
+        ...(sourceZoom >= 12 ? [{ seed: -20, fringe: -10, limit: 128, floor: -10 }] : [])]) {
+        const visited = new Uint8Array(width * height);
+        const source = repaired ?? data;
+        for (let start = 0; start < source.length; start++) {
+            if (visited[start] || source[start] >= pass.seed) continue;
+            const component = [start], ring: number[] = [];
+            visited[start] = 1;
+            for (let head = 0; head < component.length; head++) {
+                const index = component[head], x = index % width, y = Math.floor(index / width);
+                for (const neighbor of [x > 0 ? index - 1 : -1, x + 1 < width ? index + 1 : -1,
+                    y > 0 ? index - width : -1, y + 1 < height ? index + width : -1]) {
+                    if (neighbor < 0) continue;
+                    // Include the less extreme lip around a corrupt pit; keeping
+                    // that lip still leaves a conspicuous vertical river wall.
+                    if (source[neighbor] < pass.fringe) {
+                        if (!visited[neighbor]) { visited[neighbor] = 1; component.push(neighbor); }
+                    } else ring.push(source[neighbor]);
+                }
             }
+            // Some corrupted urban water tiles contain over a thousand samples
+            // below -12 km, deeper than any real ocean floor. Keep the normal
+            // small-cluster limit for plausible bathymetry.
+            const impossibleDepth = component.some(index => source[index] < -12000);
+            if (component.length > (impossibleDepth ? 4096 : pass.limit) || ring.length < 3) continue;
+            ring.sort((a, b) => a - b);
+            const surrounding = ring[Math.floor(ring.length / 2)];
+            if (surrounding < pass.floor || surrounding > 100) continue;
+            repaired ??= Float32Array.from(data);
+            for (const index of component) repaired[index] = surrounding;
         }
-        // Some corrupted urban water tiles contain over a thousand samples
-        // below -12 km, deeper than any real ocean floor. Keep the normal
-        // small-cluster limit for plausible bathymetry.
-        const impossibleDepth = component.some(index => source[index] < -12000);
-        if (component.length > (impossibleDepth ? 4096 : 512) || ring.length < 3) continue;
-        ring.sort((a, b) => a - b);
-        const surrounding = ring[Math.floor(ring.length / 2)];
-        if (surrounding < -30 || surrounding > 100) continue;
-        repaired ??= Float32Array.from(data);
-        for (const index of component) repaired[index] = surrounding;
     }
     return repaired;
+}
+
+/** Dampen small DEM oscillations around sea level without a hard height seam. */
+export function smoothNearSeaLevel(data: ArrayLike<number>, sourceZoom: number): Float32Array | undefined {
+    if (sourceZoom < 8) return undefined;
+    let result: Float32Array | undefined;
+    for (let index = 0; index < data.length; index++) {
+        const height = data[index];
+        if (height === 0 || Math.abs(height) >= 30) continue;
+        const t = Math.abs(height) / 30;
+        result ??= Float32Array.from(data);
+        result[index] = height * t * t * (3 - 2 * t);
+    }
+    return result;
 }

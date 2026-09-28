@@ -1,5 +1,5 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
-import { decodeTerrainRGB, repairIsolatedTerrainSpikes } from "./TerrainRGBDecode.js";
+import { decodeTerrainRGB, repairIsolatedTerrainSpikes, smoothNearSeaLevel } from "./TerrainRGBDecode.js";
 import { TerrainRGBDecodePool } from "./TerrainRGBDecodePool.js";
 
 export interface ElevationGrid {
@@ -53,6 +53,7 @@ export default class TerrainRGB {
         const repaired = repairIsolatedTerrainSpikes(grid.data, grid.width, grid.height, sourceZoom);
         return repaired ? { data: repaired, width: grid.width, height: grid.height } : grid;
     }
+    public static smoothNearSeaLevel = smoothNearSeaLevel;
     /** Resample a child of an overzoomed source without losing its geographic bounds. */
     public static crop(
         grid: ElevationGrid,
@@ -142,7 +143,11 @@ export default class TerrainRGB {
         if (!response.ok) throw new Error(`Elevation HTTP ${response.status}`);
         const blob = await response.blob();
         const workers = TerrainRGBDecodePool.get();
-        if (workers) try { return await workers.decode(blob, this.encoding, sourceZoom); } catch { /* Unsupported workers use the same main-thread decoder. */ }
+        if (workers) try {
+            const grid = await workers.decode(blob, this.encoding, sourceZoom);
+            const smoothed = smoothNearSeaLevel(grid.data, sourceZoom);
+            return smoothed ? { ...grid, data: smoothed } : grid;
+        } catch { /* Unsupported workers use the same main-thread decoder. */ }
         const bitmap = await createImageBitmap(blob, {
             colorSpaceConversion: "none", premultiplyAlpha: "none",
         });
@@ -150,10 +155,12 @@ export default class TerrainRGB {
             const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
             const context = canvas.getContext("2d")!;
             context.drawImage(bitmap, 0, 0);
-            return TerrainRGB.repairIsolatedSpikes({
+            const grid = TerrainRGB.repairIsolatedSpikes({
                 data: TerrainRGB.decode(context.getImageData(0, 0, bitmap.width, bitmap.height).data, this.encoding),
                 width: bitmap.width, height: bitmap.height,
             }, sourceZoom);
+            const smoothed = smoothNearSeaLevel(grid.data, sourceZoom);
+            return smoothed ? { ...grid, data: smoothed } : grid;
         } finally { bitmap.close(); }
     }
     public clearCache(): void {
