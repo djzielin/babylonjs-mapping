@@ -59,9 +59,10 @@ describe("lossless terrain batching", () => {
         const material = new StandardMaterial("derived", scene);
         const texture = RawTexture.CreateRGBATexture(new Uint8Array(16), 2, 2, scene);
         batcher.batches.push({ mesh: derived, material, texture, sources: [batcher.snapshot(source)] });
-        batcher.owned.add(source); source.visibility = 0;
+        batcher.owned.add(source); source.isVisible = false;
         engine.onContextLostObservable.notifyObservers(engine);
         expect(source.visibility).toBe(1);
+        expect(source.isVisible).toBe(true);
         expect(source.isDisposed()).toBe(false);
         expect(derived.isDisposed()).toBe(true);
         expect(batcher.owned.size).toBe(0);
@@ -84,12 +85,14 @@ describe("lossless terrain batching", () => {
         const material = new StandardMaterial("derived", scene);
         const texture = RawTexture.CreateRGBATexture(new Uint8Array(16), 2, 2, scene);
         batcher.batches.push({ mesh: derived, material, texture, sources: [batcher.snapshot(source)] });
-        batcher.owned.add(source); source.visibility = 0;
+        batcher.owned.add(source); source.isVisible = false;
         scene.updateTransformMatrix(); batcher.update();
         expect(derived.isDisposed()).toBe(false);
+        expect(source.isVisible).toBe(false);
         camera.setTarget(new Vector3(0, 0, -10)); scene.updateTransformMatrix(); batcher.update();
         expect(derived.isDisposed()).toBe(true);
         expect(source.visibility).toBe(1);
+        expect(source.isVisible).toBe(true);
         expect(source.isDisposed()).toBe(false);
         expect(sourceMaterial.diffuseTexture).toBe(originalTexture);
         expect(originalTexture.getInternalTexture()).not.toBeNull();

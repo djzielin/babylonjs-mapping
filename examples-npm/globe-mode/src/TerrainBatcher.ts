@@ -70,7 +70,7 @@ export function terrainBatchGeometry(meshes: Mesh[]): { vertices: VertexData; la
     return { vertices, layers, origin };
 }
 
-type Source = { mesh: Mesh; texture: Texture; buffers: unknown[]; matrix: number; world: Matrix; visibility: number };
+type Source = { mesh: Mesh; texture: Texture; buffers: unknown[]; matrix: number; world: Matrix; visibility: number; isVisible: boolean };
 type Batch = { mesh: Mesh; material: StandardMaterial; texture: RawTexture2DArray; sources: Source[] };
 
 /** Batch settled raster tiles without resampling their pixels or simplifying their geometry. */
@@ -99,7 +99,8 @@ export class TerrainBatcher {
     private snapshot(mesh: Mesh): Source {
         return { mesh, texture: (mesh.material as StandardMaterial).diffuseTexture as Texture,
             buffers: [VertexBuffer.PositionKind, VertexBuffer.NormalKind, VertexBuffer.UVKind, VertexBuffer.ColorKind].map(kind => mesh.getVertexBuffer(kind)),
-            matrix: mesh.computeWorldMatrix().updateFlag, world: mesh.getWorldMatrix().clone(), visibility: mesh.visibility };
+            matrix: mesh.computeWorldMatrix().updateFlag, world: mesh.getWorldMatrix().clone(),
+            visibility: mesh.visibility, isVisible: mesh.isVisible };
     }
     private valid(source: Source): boolean {
         const mesh = source.mesh;
@@ -110,7 +111,7 @@ export class TerrainBatcher {
             // Parenting new buildings can recompute an unchanged terrain matrix.
             source.matrix = world.updateFlag;
         }
-        return mesh.isEnabled() && mesh.isVisible
+        return mesh.isEnabled() && mesh.isVisible === (this.owned.has(mesh) ? false : source.isVisible)
             && (mesh.material as StandardMaterial)?.diffuseTexture === source.texture
             && mesh.getVertexBuffer(VertexBuffer.PositionKind) === source.buffers[0]
             && mesh.getVertexBuffer(VertexBuffer.NormalKind) === source.buffers[1]
@@ -119,10 +120,18 @@ export class TerrainBatcher {
     }
     private release(batch: Batch): void {
         for (const source of batch.sources) {
-            if (!source.mesh.isDisposed()) source.mesh.visibility = source.visibility;
+            if (!source.mesh.isDisposed()) {
+                source.mesh.visibility = source.visibility;
+                source.mesh.isVisible = source.isVisible;
+            }
             this.owned.delete(source.mesh);
         }
         batch.mesh.dispose(); batch.material.dispose(); batch.texture.dispose();
+    }
+    /** Release batches before a caller changes an entire terrain tier's visibility. */
+    public invalidate(): void {
+        this.batches.forEach(batch => this.release(batch));
+        this.batches = [];
     }
     private update(): void {
         if (!this.scene.frustumPlanes) return;
@@ -239,7 +248,12 @@ export class TerrainBatcher {
         }
         material.checkReadyOnlyOnce = true;
         mesh.setEnabled(true);
-        for (const source of sources) { source.mesh.visibility = 0; this.owned.add(source.mesh); }
+        for (const source of sources) {
+            // visibility=0 still submits depth/stencil draws on some Babylon
+            // backends, producing severe z-fighting with the replacement mesh.
+            source.mesh.isVisible = false;
+            this.owned.add(source.mesh);
+        }
         this.batches.push({ mesh, material, texture, sources });
         this.lastError = "";
     }

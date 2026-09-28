@@ -716,17 +716,17 @@ export default class Google3DTiles {
         if (this.maximumInitialErrorRatio === undefined || selection.geometricError === undefined) return true;
         const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
         // Geometric error from the source can remain high even for a small,
-        // textured city block. The visible slab reports a much broader bound;
-        // gate broad first coverage without suppressing every Google building.
+        // textured city block. A radius near 500 m can cover an entire low
+        // detail landscape slab, so only exempt genuinely small models.
         const volume = selection.boundingVolume;
         if (volume?.sphere) {
             const scale = Math.max(...[Vector3.Right(), Vector3.Up(), Vector3.Forward()]
                 .map(axis => Vector3.TransformNormal(axis, transform).length()));
-            if (volume.sphere[3] * scale <= 500) return true;
+            if (volume.sphere[3] * scale <= 250) return true;
         } else if (volume?.box) {
             const radius = Math.hypot(...[3, 6, 9].map(offset =>
                 Vector3.TransformNormal(Vector3.FromArray(volume.box!, offset), transform).length()));
-            if (radius <= 500) return true;
+            if (radius <= 250) return true;
         }
         const allowed = this.allowedGeometricError(selection.boundingVolume, transform,
             false, this.requestEye ?? this.selectionEye ?? this.cameraEye());

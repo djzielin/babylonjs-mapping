@@ -590,7 +590,10 @@ class GlobeDemo {
             this.data.options.exaggeration = Number(exaggeration.value);
             document.getElementById("exaggerationValue")!.textContent =
                 exaggeration.value + "×";
-            if (!terrain.checked)
+            if (!terrain.checked) {
+                // Retained previous-view meshes still contain their old DEM.
+                // They must not keep drawing relief after the user disables it.
+                this.terrainTransition.dispose();
                 for (const tile of this.detailGlobe.ourTiles) {
                     const p = this.detailGlobe.meshPrecision;
                     this.detailGlobe.applyElevationGrid(
@@ -599,6 +602,7 @@ class GlobeDemo {
                         p,
                     );
                 }
+            }
             this.data.invalidate();
             this.configureDistanceLayers();
         };
@@ -1312,6 +1316,7 @@ class GlobeDemo {
             }
             const visible = view.zoom >= 8;
             if (layer.visible !== visible) {
+                this.terrainBatcher.invalidate();
                 for (const tile of layer.globe.ourTiles) tile.mesh.isVisible = visible;
                 layer.visible = visible;
             }
