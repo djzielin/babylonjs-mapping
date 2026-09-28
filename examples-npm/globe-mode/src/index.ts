@@ -530,7 +530,7 @@ class GlobeDemo {
                 )
                     this.data.options.buildings = this.buildings;
                 this.baseGlobe.ourAttribution.addAttribution("OVERTURE");
-                this.data.invalidate(true);
+                this.data.invalidate(true, true);
                 this.configureDistanceLayers();
                 this.message(
                     "Terrain and Overture buildings ready.",
@@ -614,7 +614,7 @@ class GlobeDemo {
                     );
                 }
             }
-            this.data.invalidate();
+            this.data.invalidate(false, buildings.checked);
             this.configureDistanceLayers();
         };
         terrain.addEventListener("change", reload);
@@ -622,7 +622,7 @@ class GlobeDemo {
         exaggeration.addEventListener("change", reload);
         document
             .getElementById("retry")!
-            .addEventListener("click", () => this.data.invalidate());
+            .addEventListener("click", () => this.data.invalidate(false, buildings.checked));
         document.getElementById("roads")!.addEventListener("change", () => {
             const enabled = (
                 document.getElementById("roads") as HTMLInputElement
@@ -652,7 +652,7 @@ class GlobeDemo {
             }
             this.data.options.features =
                 enabled && this.roads ? [this.roads] : [];
-            this.data.invalidate(true);
+            this.data.invalidate(true, enabled);
         });
         document.getElementById("landmarks")!.addEventListener("change", () => {
             if (
@@ -1093,7 +1093,7 @@ class GlobeDemo {
                 // createGeometry clears raster setup. Restore coordinates in
                 // this callback before Google selection reads the tile window.
                 this.detailGlobe.updateRaster(view.latitude, view.longitude, view.zoom);
-                this.data.invalidate();
+                this.data.invalidate(false, (document.getElementById("buildings") as HTMLInputElement).checked);
             }
             this.updateDistanceLayers(view);
             this.updateReadout(readout, view);
@@ -1344,7 +1344,7 @@ class GlobeDemo {
                 for (const tile of layer.globe.ourTiles) this.registerTerrain(tile.mesh, plan.group);
                 layer.key = "";
                 layer.visible = undefined;
-                layer.data.invalidate();
+                layer.data.invalidate(false, (document.getElementById("buildings") as HTMLInputElement).checked);
             }
             const visible = view.zoom >= 8;
             if (layer.visible !== visible) {
@@ -1417,7 +1417,7 @@ class GlobeDemo {
             if (!terrain) for (const tile of layer.globe.ourTiles) {
                 if (layer.globe.isTileGeometryReady(tile)) layer.globe.applyElevationGrid(tile, new Array((layer.globe.meshPrecision + 1) ** 2).fill(0), layer.globe.meshPrecision);
             }
-            if (terrainChanged || buildingsChanged) layer.data.invalidate(!terrainChanged);
+            if (terrainChanged || buildingsChanged) layer.data.invalidate(!terrainChanged, buildings);
         });
     }
 

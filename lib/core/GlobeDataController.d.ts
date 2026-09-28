@@ -42,6 +42,6 @@ export default class GlobeDataController {
     update(): void;
     private load;
     /** Explicitly retry failures or reload after changing provider settings. */
-    invalidate(preserveTerrain?: boolean): void;
+    invalidate(preserveTerrain?: boolean, preserveBuildings?: boolean): void;
     dispose(): void;
 }

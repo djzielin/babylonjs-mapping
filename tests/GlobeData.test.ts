@@ -67,6 +67,20 @@ const grid = (height: number): ElevationGrid => ({
 });
 
 describe("globe data fidelity", () => {
+    it("keeps ready building batches through a reload until the caller explicitly clears them", () => {
+        const { globe, scene, dispose } = setup();
+        const tile = globe.ourTiles[0];
+        const ready = MeshBuilder.CreateBox("ready Overture batch", {}, scene);
+        ready.setParent(tile.mesh);
+        tile.buildingBatches.push(ready);
+        const data = new GlobeDataController(globe);
+        data.invalidate(false, true);
+        expect(ready.isDisposed()).toBe(false);
+        expect(tile.buildingBatches).toContain(ready);
+        data.invalidate();
+        expect(ready.isDisposed()).toBe(true);
+        data.dispose(); dispose();
+    });
     it("places a marker sphere at a requested latitude and longitude", () => {
         const { globe, scene, dispose } = setup(1, 40.7484, -73.9857, 17);
         expect(globe.getSurfacePosition(0, 0).subtract(new Vector3(0, 0, globe.radius)).length()).toBeLessThan(1e-10);

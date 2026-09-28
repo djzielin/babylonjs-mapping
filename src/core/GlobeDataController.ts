@@ -195,7 +195,7 @@ export default class GlobeDataController {
         }
     }
     /** Explicitly retry failures or reload after changing provider settings. */
-    public invalidate(preserveTerrain = false): void {
+    public invalidate(preserveTerrain = false, preserveBuildings = false): void {
         if (!preserveTerrain) this.terrainReady = new WeakMap();
         this.settled = false;
         for (const job of this.jobs.values()) job.abort.abort();
@@ -204,7 +204,7 @@ export default class GlobeDataController {
         this.nextPriorityCheck = 0;
         this.ready = new WeakMap();
         for (const provider of this.providers) provider.cancelPendingRequests();
-        for (const tile of this.globe.ourTiles) tile.deleteBuildings();
+        if (!preserveBuildings) for (const tile of this.globe.ourTiles) tile.deleteBuildings();
     }
     public dispose(): void {
         this.disposed = true;
