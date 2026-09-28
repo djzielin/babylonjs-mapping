@@ -662,6 +662,17 @@ describe("terrain encodings and overzoom", () => {
         }, 12);
         expect(repairedWaterEdge.data[18 * 64]).toBe(4);
         expect(repairedWaterEdge.data[19 * 64]).toBe(4);
+        const regionalWaterPeak = new Float32Array(64 * 64).fill(1);
+        regionalWaterPeak[32 * 64 + 32] = 20;
+        regionalWaterPeak[32 * 64 + 31] = 13;
+        expect(TerrainRGB.repairIsolatedSpikes({
+            data: regionalWaterPeak, width: 64, height: 64,
+        }, 12).data[32 * 64 + 32]).toBe(1);
+        const regionalGroundPeak = new Float32Array(64 * 64).fill(8);
+        regionalGroundPeak[32 * 64 + 32] = 22;
+        expect(TerrainRGB.repairIsolatedSpikes({
+            data: regionalGroundPeak, width: 64, height: 64,
+        }, 13).data[32 * 64 + 32]).toBe(8);
         const shortCoastalSeam = new Float32Array(64 * 64).fill(0);
         for (let y = 15; y < 22; y++) shortCoastalSeam[y * 64 + 15] = 12;
         for (let y = 32; y < 39; y++) shortCoastalSeam[y * 64 + 32] = -16;

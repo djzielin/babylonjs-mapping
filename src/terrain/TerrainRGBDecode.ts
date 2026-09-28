@@ -1,5 +1,5 @@
 export type TerrainRGBEncoding = "terrarium" | "mapbox";
-export const TERRAIN_REPAIR_VERSION = 3;
+export const TERRAIN_REPAIR_VERSION = 4;
 
 export function decodeTerrainRGB(pixels: ArrayLike<number>, encoding: TerrainRGBEncoding): Float32Array {
     if (pixels.length % 4) throw new RangeError("Expected RGBA pixels");
@@ -84,7 +84,7 @@ export function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: numb
     // fragments with a misleading surrounding ring.
     const source = repaired ?? data;
     const singles: Array<[number, number]> = [];
-    const isolatedThreshold = sourceZoom >= 10 ? 15 : threshold;
+    const isolatedThreshold = sourceZoom >= 12 ? 10 : sourceZoom >= 10 ? 15 : threshold;
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
         const index = y * width + x, center = source[index];
         let different = 0;
