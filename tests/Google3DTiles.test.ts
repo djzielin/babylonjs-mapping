@@ -1560,7 +1560,7 @@ it("bounds offscreen history without evicting the current view", () => {
   provider.dispose();scene.dispose();engine.dispose();
 });
 
-it("trims offscreen history with full-radius demand while keeping visible detail", () => {
+it("keeps offscreen history inside the full radius while trimming tiles that leave it", () => {
   const engine = new NullEngine(), scene = new Scene(engine);
   const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
   globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
@@ -1570,9 +1570,10 @@ it("trims offscreen history with full-radius demand while keeping visible detail
   const sphere = (lon: number) => { const a = lon * Math.PI / 180;
     return { sphere: [6378137 * Math.cos(a), 6378137 * Math.sin(a), 0, 100] }; };
   const provider = new Google3DTiles(globe, { maxTiles: 1, maximumScreenSpaceError: 1,
-    cullToCamera: true, fullRadiusDemand: true }) as any;
+    cullToCamera: true, fullRadiusDemand: true, coverageRadius: 10000 }) as any;
   const desired = new Map();
-  for (const [url, lon] of [["old-offscreen", -0.01], ["old-visible", 0.01], ["current", 0.012]] as const) {
+  for (const [url, lon] of [["old-outside", -0.2], ["old-offscreen", -0.01],
+    ["old-visible", 0.01], ["current", 0.012]] as const) {
     const selection = { url, depth: 1, boundingVolume: sphere(lon) };
     provider.loadedSelections.set(url, selection);
     provider.loadedTiles.set(url, { url, depth: 1, root: new TransformNode(url, scene),
@@ -1582,8 +1583,9 @@ it("trims offscreen history with full-radius demand while keeping visible detail
   try {
     expect(provider.allowedGeometricError(sphere(-0.01), Matrix.Identity())).toBeGreaterThan(0);
     provider.trimVisibleHistory(desired);
-    expect(provider.loadedModelTiles.map((tile: { url: string }) => tile.url).sort()).toEqual(["current", "old-visible"]);
-    expect(provider.retainedTiles.get("old-offscreen").root.isEnabled()).toBe(false);
+    expect(provider.loadedModelTiles.map((tile: { url: string }) => tile.url).sort())
+      .toEqual(["current", "old-offscreen", "old-visible"]);
+    expect(provider.retainedTiles.get("old-outside").root.isEnabled()).toBe(false);
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
