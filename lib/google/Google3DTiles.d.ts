@@ -147,6 +147,15 @@ export default class Google3DTiles {
         reusedModels: number;
         detailLimitedTiles: number;
         sourceLimitedTiles: number;
+        rootMs: number;
+        frontierTraversalMs: number;
+        frontierCommitMs: number;
+        replacementMs: number;
+        modelWaitMs: number;
+        loadMs: number;
+        peakHierarchyActive: number;
+        peakModelActive: number;
+        peakNetworkActive: number;
     };
     origin?: Google3DTilesOrigin;
     private readonly tilesetLoader;
@@ -170,6 +179,8 @@ export default class Google3DTiles {
     private frontierCache?;
     private networkActive;
     private networkActiveOffscreen;
+    private networkActiveHierarchy;
+    private networkActiveModel;
     private networkDispatchCount;
     private networkWaiters;
     private networkDrainQueued;

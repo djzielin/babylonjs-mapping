@@ -139,6 +139,7 @@ class GlobeDemo {
     private googleTiles?: Google3DTiles;
     private googleKey = "";
     private googleViewKey = "";
+    private googlePriorityKey = "";
     private googleTimer?: ReturnType<typeof setTimeout>;
     private googleGeneration = 0;
     private googleMeshes = new WeakSet<object>();
@@ -1069,10 +1070,14 @@ class GlobeDemo {
         const showDetail = view.zoom >= GOOGLE_DETAIL_SHOW_ZOOM
             || (view.zoom >= GOOGLE_DETAIL_HIDE_ZOOM && !!this.googleTiles && !this.googleFarHidden);
         const key = enabled && showDetail
-            ? `${math.lon_to_tile(view.longitude, view.zoom)}/${math.lat_to_tile(view.latitude, view.zoom)}/${view.zoom}/${quality}/${bearing}/${distanceStep}/${positionKey}` : "";
+            ? `${math.lon_to_tile(view.longitude, view.zoom)}/${math.lat_to_tile(view.latitude, view.zoom)}/${view.zoom}/${quality}/${distanceStep}/${positionKey}` : "";
+        const priorityKey = key ? `${bearing}/${distanceStep}/${positionKey}` : "";
+        if (priorityKey !== this.googlePriorityKey) {
+            this.googlePriorityKey = priorityKey;
+            if (key) this.googleTiles?.reprioritizeRequests();
+        }
         if (!force && key === this.googleViewKey) return;
         this.googleViewKey = key;
-        if (key) this.googleTiles?.reprioritizeRequests();
         // Movement can change the key every frame. Let the current selection
         // finish; its shared request queue still reprioritizes for the live
         // camera. Start one new pass at the latest eye immediately afterward.
@@ -1152,6 +1157,14 @@ class GlobeDemo {
                 this.setPhotorealisticActive(loaded.length > 0);
                 this.canvas.dataset.googleTiles = String(loaded.length);
                 this.canvas.dataset.googleLoadMs = String(Math.round(performance.now() - started));
+                this.canvas.dataset.googleRootMs = String(Math.round(provider.stats.rootMs));
+                this.canvas.dataset.googleFrontierTraversalMs = String(Math.round(provider.stats.frontierTraversalMs));
+                this.canvas.dataset.googleFrontierCommitMs = String(Math.round(provider.stats.frontierCommitMs));
+                this.canvas.dataset.googleReplacementMs = String(Math.round(provider.stats.replacementMs));
+                this.canvas.dataset.googleModelWaitMs = String(Math.round(provider.stats.modelWaitMs));
+                this.canvas.dataset.googlePeakHierarchyActive = String(provider.stats.peakHierarchyActive);
+                this.canvas.dataset.googlePeakModelActive = String(provider.stats.peakModelActive);
+                this.canvas.dataset.googlePeakNetworkActive = String(provider.stats.peakNetworkActive);
                 this.canvas.dataset.googleFirstLoadMs ??= this.canvas.dataset.googleLoadMs;
                 this.canvas.dataset.googleFirstLoadTiles ??= String(loaded.length);
                 this.canvas.dataset.googleFirstDetailLimited ??= String(provider.stats.detailLimitedTiles);

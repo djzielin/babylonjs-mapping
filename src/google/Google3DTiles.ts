@@ -200,7 +200,10 @@ export default class Google3DTiles {
     public referenceImageHeight: number;
     public referenceFovY: number;
     public heightOffset = 0;
-    public readonly stats = { hierarchyRequests: 0, modelRequests: 0, reusedModels: 0, detailLimitedTiles: 0, sourceLimitedTiles: 0 };
+    public readonly stats = { hierarchyRequests: 0, modelRequests: 0, reusedModels: 0,
+        detailLimitedTiles: 0, sourceLimitedTiles: 0, rootMs: 0, frontierTraversalMs: 0,
+        frontierCommitMs: 0, replacementMs: 0, modelWaitMs: 0, loadMs: 0,
+        peakHierarchyActive: 0, peakModelActive: 0, peakNetworkActive: 0 };
     public origin?: Google3DTilesOrigin;
 
     private readonly tilesetLoader: GoogleTilesetLoader;
@@ -224,8 +227,11 @@ export default class Google3DTiles {
     private frontierCache?: { key: string; selections: TileSelection[] };
     private networkActive = 0;
     private networkActiveOffscreen = 0;
+    private networkActiveHierarchy = 0;
+    private networkActiveModel = 0;
     private networkDispatchCount = 0;
-    private networkWaiters: Array<{ priority: number | (() => number); resume: (offscreen: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
+    private networkWaiters: Array<{ priority: number | (() => number); kind: "hierarchy" | "model";
+        resume: (offscreen: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
 
     private networkDrainQueued = false;
     private drainNetwork(): void {
@@ -255,18 +261,28 @@ export default class Google3DTiles {
                 if (isOffscreen) offscreen--; else visible--;
                 this.networkActive++;
                 if (isOffscreen) this.networkActiveOffscreen++;
+                if (next.kind === "hierarchy") this.networkActiveHierarchy++; else this.networkActiveModel++;
+                this.stats.peakHierarchyActive = Math.max(this.stats.peakHierarchyActive, this.networkActiveHierarchy);
+                this.stats.peakModelActive = Math.max(this.stats.peakModelActive, this.networkActiveModel);
+                this.stats.peakNetworkActive = Math.max(this.stats.peakNetworkActive, this.networkActive);
                 if (offscreen > 0 && visible > 0) this.networkDispatchCount++;
                 next.resume(isOffscreen);
             }
         });
     }
-    private async networkSlot<T>(work: () => Promise<T>, priority: number | (() => number) = 0): Promise<T> {
+    private async networkSlot<T>(work: () => Promise<T>, priority: number | (() => number) = 0,
+        kind: "hierarchy" | "model" = "hierarchy"): Promise<T> {
         const offscreen = await new Promise<boolean>(resolve => {
-            this.networkWaiters.push({ priority, resume: resolve });
+            this.networkWaiters.push({ priority, kind, resume: resolve });
             this.drainNetwork();
         });
         try { return await work(); }
-        finally { this.networkActive--; if (offscreen) this.networkActiveOffscreen--; this.drainNetwork(); }
+        finally {
+            this.networkActive--;
+            if (offscreen) this.networkActiveOffscreen--;
+            if (kind === "hierarchy") this.networkActiveHierarchy--; else this.networkActiveModel--;
+            this.drainNetwork();
+        }
     }
 
     constructor(
@@ -430,6 +446,7 @@ export default class Google3DTiles {
 
     /** Loads content that overlaps the current TileSet. */
     public async load(selectionRadius = this.coverageRadius): Promise<readonly LoadedGoogle3DTile[]> {
+        const loadStarted = performance.now();
         this.tileSet.assertRasterSetup("load Google 3D Tiles");
         this.validateOptions();
 
@@ -468,6 +485,7 @@ export default class Google3DTiles {
         if (promoted) this.updateAttribution();
 
         await this.loadRootTileset(generation);
+        this.stats.rootMs = performance.now() - loadStarted;
         if (generation !== this.generation) return [];
         if (!this.rootTileset) {
             throw new Error("Google 3D Tiles root tileset was not loaded.");
@@ -507,7 +525,11 @@ export default class Google3DTiles {
                 modelRequests.push(this.loadTile(selection, origin, generation, !overlapsExisting).catch(() => undefined));
             }, false, selectionRadius);
             if (Array.from(desiredTiles.keys()).some(url => !this.loadedTiles.has(url))) {
+                const replacementStarted = performance.now();
                 await this.loadReplacementGroups(desiredTiles, origin, generation);
+                this.stats.replacementMs = performance.now() - replacementStarted;
+            } else {
+                this.stats.replacementMs = 0;
             }
         } else await this.collectTileContent(
             this.rootTileset.root,
@@ -523,7 +545,9 @@ export default class Google3DTiles {
         if (generation !== this.generation) return [];
         this.desiredTiles = desiredTiles;
 
+        const modelWaitStarted = performance.now();
         await Promise.all(modelRequests);
+        this.stats.modelWaitMs = performance.now() - modelWaitStarted;
         if (generation !== this.generation) return [];
         this.stats.reusedModels += Array.from(desiredTiles.keys()).filter(url => residentAtStart.has(url) && this.loadedTiles.has(url)).length;
         // Keep the previous view visible while its replacement is streaming.
@@ -549,6 +573,7 @@ export default class Google3DTiles {
         this.trimRetainedTiles();
         this.coverageKey = ""; this.coverageVersion++;
         this.updateAttribution();
+        this.stats.loadMs = performance.now() - loadStarted;
         return this.loadedModelTiles;
     }
 
@@ -916,6 +941,8 @@ export default class Google3DTiles {
             this.fullRadiusDemand, this.referenceImageHeight, this.referenceFovY,
             this.maximumGeometricError, this.originStateKey, this.rootRequestKey, surroundings, this.coverageRegion]);
         if (this.frontierCache?.key === key) {
+            this.stats.frontierTraversalMs = 0;
+            this.stats.frontierCommitMs = 0;
             for (const selection of this.frontierCache.selections) {
                 desired.set(selection.url, selection);
                 if (!this.loadedTiles.has(selection.url)) onStable(selection);
@@ -929,6 +956,7 @@ export default class Google3DTiles {
         const required = (volume: Google3DBoundingVolume | undefined, transform: Matrix) =>
             !!requiredBounds && boundingVolumeIntersects(volume, requiredBounds, transform);
         let hierarchyFailed = false;
+        const frontierStarted = performance.now();
         const workBudget = SceneWorkBudget.forScene(this.tileSet.scene);
         const firstContent = async (tile: Google3DTile, responseUrl: string, depth: number,
             parentTransform: Matrix, parentRefine: string, ancestors: string[] = []): Promise<FrontierTile[]> => {
@@ -1107,7 +1135,10 @@ export default class Google3DTiles {
         }
         if (generation !== this.generation) return;
         flushReplacements();
+        this.stats.frontierTraversalMs = performance.now() - frontierStarted;
+        const commitStarted = performance.now();
         await Promise.all(commits);
+        this.stats.frontierCommitMs = performance.now() - commitStarted;
         if (generation !== this.generation) return;
         if (!surroundings) this.stats.detailLimitedTiles = Array.from(frontier).filter(node => node.priority > 1
             && node.depth < this.maxDepth && ((node.tile.children?.length ?? 0) > 0 || getTileContents(node.tile).some(isTilesetContent))).length;
@@ -1335,7 +1366,7 @@ export default class Google3DTiles {
             return this.modelTileLoader(selection.url, this.tileSet.scene);
         }, () => this.requestPriority(selection.boundingVolume,
             selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity(), selection.geometricError,
-            selection.ancestors?.some(url => this.loadedTiles.has(url)) ?? false)).then((model) => {
+            selection.ancestors?.some(url => this.loadedTiles.has(url)) ?? false), "model").then((model) => {
             if (!model) {
                 return undefined;
             }
