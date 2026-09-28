@@ -26,6 +26,8 @@ export interface TileRequest {
     mesh: Mesh;
     texture: Texture | null;
     inProgress: boolean;
+    retryAfter?: number;
+    failures?: number;
 }
 /**
  * Describes a tile that was recycled by moveAllTiles().

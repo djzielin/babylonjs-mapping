@@ -31,6 +31,7 @@ export default class GlobeDataController {
     private jobs = new Map<Tile, { key: string; abort: AbortController }>();
     private ready = new WeakMap<Tile, string>();
     private terrainReady = new WeakMap<Tile, string>();
+    private retryAt = new WeakMap<Tile, { key: string; after: number; failures: number }>();
     private observer;
     private disposed = false;
     private refillTimer?: ReturnType<typeof setTimeout>;
@@ -85,10 +86,20 @@ export default class GlobeDataController {
             return Math.min(dx, count - dx) ** 2 + (tile.tileCoords.y + 0.5 - centerY) ** 2;
         };
         // Load the area around the viewer before the far corners of large LOD grids.
+        const now = performance.now();
         const candidates = this.globe.ourTiles.filter(tile => !tile.mesh.isDisposed() && this.globe.isTileGeometryReady(tile)
-            && this.ready.get(tile) !== tile.tileCoords.toString() && !this.jobs.has(tile));
+            && this.ready.get(tile) !== tile.tileCoords.toString() && !this.jobs.has(tile)
+            && (this.retryAt.get(tile)?.key !== tile.tileCoords.toString() || this.retryAt.get(tile)!.after <= now));
         if (candidates.length === 0 && this.jobs.size === 0 && this.globe.pendingGeometryCount === 0) {
-            this.settled = true;
+            const delayed = this.globe.ourTiles.map(tile => {
+                const retry = this.retryAt.get(tile);
+                return retry?.key === tile.tileCoords.toString() ? retry : undefined;
+            }).filter((retry): retry is { key: string; after: number; failures: number } => !!retry && retry.after > now);
+            if (!delayed.length) this.settled = true;
+            else if (this.refillTimer === undefined) this.refillTimer = setTimeout(() => {
+                this.refillTimer = undefined;
+                this.update();
+            }, Math.max(0, Math.min(...delayed.map(retry => retry.after)) - now));
             return;
         }
         if (full) {
@@ -172,12 +183,16 @@ export default class GlobeDataController {
                 && coords.z <= (this.options.maxFeatureZoom ?? this.options.maxBuildingZoom ?? Infinity))
                 for (const provider of this.options.features ?? []) submit(provider);
             this.ready.set(tile, key);
+            this.retryAt.delete(tile);
             this.stats.completed++;
         } catch (error) {
             if (!abort.signal.aborted) {
                 this.stats.failed++;
-                this.ready.set(tile, key);
-                this.onErrorObservable.notifyObservers(
+                const previous = this.retryAt.get(tile);
+                const failures = previous?.key === key ? previous.failures + 1 : 1;
+                this.retryAt.set(tile, { key, failures,
+                    after: performance.now() + Math.min(8000, 250 * 2 ** Math.min(5, failures - 1)) });
+                if (failures === 1) this.onErrorObservable.notifyObservers(
                     error instanceof Error ? error : new Error(String(error)),
                 );
             }
@@ -203,6 +218,7 @@ export default class GlobeDataController {
         this.stats.active = 0;
         this.nextPriorityCheck = 0;
         this.ready = new WeakMap();
+        this.retryAt = new WeakMap();
         for (const provider of this.providers) provider.cancelPendingRequests();
         if (!preserveBuildings) for (const tile of this.globe.ourTiles) tile.deleteBuildings();
     }

@@ -559,6 +559,20 @@ describe("bounded detail streaming", () => {
         data.dispose();
         dispose();
     });
+    it("automatically retries a transient terrain error without a manual reload", async () => {
+        const { globe, dispose } = setup();
+        const loader = vi.fn().mockRejectedValueOnce(new Error("temporary outage"))
+            .mockResolvedValueOnce(grid(42));
+        const data = new GlobeDataController(globe, { elevation: loader });
+        const error = vi.fn();
+        data.onErrorObservable.add(error);
+        data.update();
+        await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(2), { timeout: 2000 });
+        await vi.waitFor(() => expect(globe.ourTiles[0].terrainLoaded).toBe(true), { timeout: 2000 });
+        expect(error).toHaveBeenCalledOnce();
+        data.dispose();
+        dispose();
+    });
 });
 
 describe("terrain encodings and overzoom", () => {

@@ -30,6 +30,7 @@ export default class GlobeDataController {
     private jobs;
     private ready;
     private terrainReady;
+    private retryAt;
     private observer;
     private disposed;
     private refillTimer?;

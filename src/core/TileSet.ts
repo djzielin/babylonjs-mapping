@@ -37,6 +37,8 @@ export interface TileRequest {
     mesh: Mesh;
     texture: Texture | null;
     inProgress: boolean;
+    retryAfter?: number;
+    failures?: number;
 }
 
 /**
@@ -326,6 +328,7 @@ export default class TileSet {
 
     if (request.requestType == TileRequestType.LoadTile) {
         if (request.inProgress == false) {
+            if (request.retryAfter !== undefined && performance.now() < request.retryAfter) return;
             if ((activeCount ?? this.tileRequests.filter(r => r.inProgress).length) >= this.rasterConcurrency) return;
             debugLog(() => [this.prettyName() + "trying to load tile raster: " + request.tileCoords]);
             request.texture = new Texture(request.url, this.scene);
@@ -362,11 +365,12 @@ export default class TileSet {
                     return;
                 }
                 if (request.texture.loadingError) {
-                    console.warn(this.prettyName() + "error loading texture for tile: " + request.tileCoords);
+                    if (!request.failures) console.warn(this.prettyName() + "error loading texture for tile: " + request.tileCoords);
                     request.texture.dispose();
-
-                    this.requestsProcessedSinceCaughtUp++;
-                    this.tileRequests.shift(); //pop request off front of queue
+                    request.texture = null;
+                    request.inProgress = false;
+                    request.failures = (request.failures ?? 0) + 1;
+                    request.retryAfter = performance.now() + Math.min(8000, 250 * 2 ** Math.min(5, request.failures - 1));
                     return;
                 }
             }
