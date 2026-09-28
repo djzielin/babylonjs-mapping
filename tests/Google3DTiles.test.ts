@@ -119,6 +119,34 @@ it("suppresses an Overture footprint when a resident Google tile clips its edge"
   provider.dispose();scene.dispose();engine.dispose();
 });
 
+it("updates only changed resident geographic coverage when tiles swap", () => {
+  const {engine,scene,tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet);
+  const radians=Math.PI/180;
+  const selection=(url:string,west:number,east:number)=>({url,depth:1,
+    boundingVolume:{region:[west*radians,40.74*radians,east*radians,40.75*radians,0,1000]}});
+  const stable=selection("stable",-74.01,-74.009);
+  const changing=selection("changing",-73.99,-73.989);
+  (provider as any).loadedSelections.set("stable",stable);
+  (provider as any).loadedSelections.set("changing",changing);
+  (provider as any).loadedTiles.set("stable",{});
+  (provider as any).loadedTiles.set("changing",{});
+  expect(provider.coversLocation(40.745,-74.0095)).toBe(true);
+  expect(provider.coversLocation(40.745,-73.9895)).toBe(true);
+  const stableCell=(provider as any).coverageIndex.get("-74010/40745");
+  (provider as any).loadedSelections.set("changing",selection("changing",-73.97,-73.969));
+  (provider as any).coverageKey="";
+  expect(provider.coversLocation(40.745,-73.9895)).toBe(false);
+  expect(provider.coversLocation(40.745,-73.9695)).toBe(true);
+  expect((provider as any).coverageIndex.get("-74010/40745")).toBe(stableCell);
+  (provider as any).loadedTiles.delete("changing");
+  (provider as any).coverageKey="";
+  expect(provider.coversLocation(40.745,-73.9695)).toBe(false);
+  expect(provider.coversLocation(40.745,-74.0095)).toBe(true);
+  (provider as any).loadedTiles.delete("stable");
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
 describe("parseGoogleGLBMetadata", () => {
   it("extracts sorted-source inputs and CESIUM_RTC metadata from a GLB JSON chunk", () => {
     const metadata = parseGoogleGLBMetadata(createGLB({

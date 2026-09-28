@@ -344,7 +344,8 @@ export default class Google3DTiles {
         return false;
     }
     private coverageIndex = new Map<string, TileSelection[]>();
-    private broadCoverage: TileSelection[] = [];
+    private indexedCoverage = new Map<string, TileSelection>();
+    private broadCoverage = new Map<string, TileSelection>();
     private coverageTests = new WeakMap<TileSelection, (latitude: number, longitude: number) => boolean>();
     private footprintEnvelopes = new WeakMap<TileSelection, GeographicBounds>();
     private loadedSelections = new Map<string, TileSelection>();
@@ -354,19 +355,37 @@ export default class Google3DTiles {
         const key = `${this.generation}/${this.loadedTiles.size}`;
         if (this.coverageKey !== key) {
             this.coverageKey = key;
-            this.coverageIndex.clear(); this.broadCoverage = [];
+            for (const [url, indexed] of this.indexedCoverage) {
+                if (this.loadedTiles.has(url)
+                    && (this.loadedSelections.get(url) ?? this.desiredTiles.get(url)) === indexed) continue;
+                this.indexedCoverage.delete(url);
+                if (!this.broadCoverage.delete(url)) {
+                    const bounds = this.footprintEnvelopes.get(indexed);
+                    if (bounds) for (const [west, east] of bounds.longitudes)
+                        for (let x = Math.floor(west * 1000); x <= Math.floor(east * 1000); x++)
+                        for (let y = Math.floor(bounds.south * 1000); y <= Math.floor(bounds.north * 1000); y++) {
+                            const cell = `${x}/${y}`;
+                            const entries = this.coverageIndex.get(cell);
+                            if (!entries) continue;
+                            const index = entries.indexOf(indexed);
+                            if (index >= 0) entries.splice(index, 1);
+                            if (!entries.length) this.coverageIndex.delete(cell);
+                        }
+                }
+            }
             for (const url of this.loadedTiles.keys()) {
                 const selection = this.loadedSelections.get(url) ?? this.desiredTiles.get(url);
-                if (!selection?.boundingVolume) continue;
+                if (!selection?.boundingVolume || this.indexedCoverage.get(url) === selection) continue;
+                this.indexedCoverage.set(url, selection);
                 const bounds = geographicEnvelope(selection);
                 if (!bounds) {
-                    this.broadCoverage.push(selection); continue;
+                    this.broadCoverage.set(url, selection); continue;
                 }
                 this.footprintEnvelopes.set(selection, bounds);
                 const south = Math.floor(bounds.south * 1000), north = Math.floor(bounds.north * 1000);
                 const cells = bounds.longitudes.reduce((sum, [west, east]) =>
                     sum + (Math.floor(east * 1000) - Math.floor(west * 1000) + 1) * (north - south + 1), 0);
-                if (cells > 4096) { this.broadCoverage.push(selection); continue; }
+                if (cells > 4096) { this.broadCoverage.set(url, selection); continue; }
                 for (const [west, east] of bounds.longitudes)
                     for (let x = Math.floor(west * 1000); x <= Math.floor(east * 1000); x++)
                     for (let y = south; y <= north; y++) {
@@ -378,7 +397,9 @@ export default class Google3DTiles {
         }
         const nearby = this.coverageIndex.get(`${Math.floor(longitude * 1000)}/${Math.floor(latitude * 1000)}`) ?? [];
         for (const selection of nearby) if (this.coverageTest(selection)(latitude, longitude)) return true;
-        return this.broadCoverage.some(selection => this.coverageTest(selection)(latitude, longitude));
+        for (const selection of this.broadCoverage.values())
+            if (this.coverageTest(selection)(latitude, longitude)) return true;
+        return false;
     }
 
     /** Whether a resident model overlaps a geographic building footprint. */
@@ -411,7 +432,8 @@ export default class Google3DTiles {
             for (const selection of this.loadedSelections.values())
                 if (this.loadedTiles.has(selection.url) && overlaps(selection)) return true;
         }
-        return this.broadCoverage.some(overlaps);
+        for (const selection of this.broadCoverage.values()) if (overlaps(selection)) return true;
+        return false;
     }
 
     private coverageTest(selection: TileSelection): (latitude: number, longitude: number) => boolean {

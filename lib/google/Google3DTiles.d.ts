@@ -203,6 +203,7 @@ export default class Google3DTiles {
     /** Conservatively test whether changed model bounds can affect a geographic tile. */
     coverageChangesIntersect(urls: readonly string[], south: number, west: number, north: number, east: number): boolean;
     private coverageIndex;
+    private indexedCoverage;
     private broadCoverage;
     private coverageTests;
     private footprintEnvelopes;

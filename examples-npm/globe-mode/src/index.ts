@@ -143,6 +143,7 @@ class GlobeDemo {
     private googleTimer?: ReturnType<typeof setTimeout>;
     private googleGeneration = 0;
     private googleMeshes = new WeakSet<object>();
+    private registeredGoogleModels = new WeakSet<object>();
     private registeredGoogleTiles?: Google3DTiles;
     private registeredGoogleRevision = -1;
     private replacementCoverageProvider?: Google3DTiles;
@@ -297,6 +298,8 @@ class GlobeDemo {
                 this.registeredGoogleTiles = this.googleTiles;
                 this.registeredGoogleRevision = googleRevision;
                 for (const tile of this.googleTiles?.loadedModelTiles ?? []) {
+                    if (this.registeredGoogleModels.has(tile)) continue;
+                    this.registeredGoogleModels.add(tile);
                     for (const mesh of tile.asset.meshes) {
                         if (this.googleMeshes.has(mesh)) continue;
                         this.googleMeshes.add(mesh);
