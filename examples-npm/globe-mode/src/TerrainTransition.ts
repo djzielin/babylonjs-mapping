@@ -60,7 +60,9 @@ export class TerrainTransition {
             retained.push({ mesh, material, coordinate: tile.tileCoords.clone() });
             retainedCoordinates.add(coordinateKey);
         }
-        while (retained.length > globe.ourTiles.length * 2) this.release(retained.shift()!);
+        // Movement may expose several previously visited patches before their
+        // replacements finish loading. update() retires a patch only after it
+        // is covered or leaves the view; a count cap can create a visible hole.
         if (retained.length) this.previous.set(globe, retained);
         this.maxCaptureMs = Math.max(this.maxCaptureMs, performance.now() - started);
     }

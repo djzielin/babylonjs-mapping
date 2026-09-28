@@ -60,3 +60,24 @@ it('retains terrain during a same-zoom tile-window move',()=>{
  transition.update(300);expect(retained.isDisposed()).toBe(true);
  transition.dispose();scene.dispose();engine.dispose();
 });
+
+it('does not discard visible fallback terrain when fast movement crosses more than two windows',()=>{
+ const engine=new NullEngine(),scene=new Scene(engine);
+ const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
+ globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(40.7484,-73.9857,14);
+ const firstX=globe.ourTiles[0].tileCoords.x;
+ const transition=new TerrainTransition();
+ const retained=[];
+ for(let step=1;step<=3;step++){
+  const tile=globe.ourTiles[0];tile.terrainLoaded=true;
+  const material=new StandardMaterial(`terrain ${step}`,scene),texture=new Texture(null,scene);
+  vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;tile.mesh.material=material;
+  const longitude=globe.ourTileMath.tile_to_lon(firstX+step+0.5,14);
+  transition.capture(globe,14,40.7484,longitude);
+  retained.push(scene.meshes.filter(mesh=>mesh.name==='previous terrain').at(-1)!);
+  globe.updateRaster(40.7484,longitude,14);
+ }
+ expect(retained).toHaveLength(3);
+ expect(retained.every(mesh=>mesh && !mesh.isDisposed())).toBe(true);
+ transition.dispose();scene.dispose();engine.dispose();
+});
