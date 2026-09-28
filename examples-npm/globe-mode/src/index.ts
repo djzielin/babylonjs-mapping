@@ -1232,6 +1232,9 @@ class GlobeDemo {
                 this.canvas.dataset.googleLoadMs = String(Math.round(performance.now() - started));
                 this.canvas.dataset.googleRootMs = String(Math.round(provider.stats.rootMs));
                 this.canvas.dataset.googleFrontierTraversalMs = String(Math.round(provider.stats.frontierTraversalMs));
+                this.canvas.dataset.googleFrontierBudgetScanMs = String(Math.round(provider.stats.frontierBudgetScanMs));
+                this.canvas.dataset.googleFrontierBudgetScanCount = String(provider.stats.frontierBudgetScanCount);
+                this.canvas.dataset.googleFrontierYieldCount = String(provider.stats.frontierYieldCount);
                 this.canvas.dataset.googleFrontierCommitMs = String(Math.round(provider.stats.frontierCommitMs));
                 this.canvas.dataset.googleReplacementMs = String(Math.round(provider.stats.replacementMs));
                 this.canvas.dataset.googleModelWaitMs = String(Math.round(provider.stats.modelWaitMs));

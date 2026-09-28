@@ -163,6 +163,9 @@ export default class Google3DTiles {
         offscreenSourceLimitedTiles: number;
         rootMs: number;
         frontierTraversalMs: number;
+        frontierBudgetScanMs: number;
+        frontierBudgetScanCount: number;
+        frontierYieldCount: number;
         frontierCommitMs: number;
         replacementMs: number;
         modelWaitMs: number;

@@ -233,6 +233,7 @@ export default class Google3DTiles {
         visibleDetailLimitedTiles: 0, offscreenDetailLimitedTiles: 0,
         visibleSourceLimitedTiles: 0, offscreenSourceLimitedTiles: 0,
         rootMs: 0, frontierTraversalMs: 0,
+        frontierBudgetScanMs: 0, frontierBudgetScanCount: 0, frontierYieldCount: 0,
         frontierCommitMs: 0, replacementMs: 0, modelWaitMs: 0, loadMs: 0,
         modelFetchMs: 0, modelDecodeMs: 0, modelIntegrationMs: 0, modelIntegrationMaxMs: 0,
         modelFetchCount: 0, modelDecodeCount: 0, modelDecodeActive: 0, peakModelDecodeActive: 0,
@@ -1129,7 +1130,7 @@ export default class Google3DTiles {
             if (!boundingVolumeIntersects(tile.boundingVolume, bounds, transform)) return [];
             const pause = workBudget.checkpoint(() => this.tilePriority(tile.boundingVolume, transform,
                 this.requestEye ?? this.selectionEye ?? this.cameraEye()), 0);
-            if (pause) await pause;
+            if (pause) { this.stats.frontierYieldCount++; await pause; }
             if (generation !== this.generation) return [];
             let allowed = this.allowedGeometricError(tile.boundingVolume, transform, surroundings,
                 this.requestEye ?? this.selectionEye ?? this.cameraEye());
@@ -1266,6 +1267,28 @@ export default class Google3DTiles {
         let queueRevision = this.requestPriorityRevision;
         type Expansion = { kind: "expand" | "seed"; node: FrontierTile; next: FrontierTile[] | undefined };
         const pending = new Map<FrontierTile, Promise<Expansion>>();
+        let evictions = new PriorityQueue<FrontierTile>((a, b) => compare(b, a));
+        const evictionQueued = new Set<FrontierTile>();
+        const offerEviction = (node: FrontierTile) => {
+            if (frontier.has(node) && !evictionQueued.has(node)) {
+                evictions.push(node); evictionQueued.add(node);
+            }
+        };
+        const rebuildEvictions = () => {
+            evictions = new PriorityQueue<FrontierTile>((a, b) => compare(b, a));
+            evictionQueued.clear();
+            for (const node of frontier) offerEviction(node);
+        };
+        const takeWorst = (): FrontierTile | undefined => {
+            while (evictions.length) {
+                const node = evictions.shift()!;
+                evictionQueued.delete(node);
+                if (frontier.has(node) && node.refine !== "ADD" && !pending.has(node)
+                    && priority(node).background) return node;
+            }
+            return undefined;
+        };
+        initial.forEach(offerEviction);
         const seedQueue = new PriorityQueue<FrontierTile>(compare);
         const seedPending = new Map<FrontierTile, Promise<Expansion>>();
         let rootSeed: Promise<FrontierTile[]> | undefined;
@@ -1288,6 +1311,7 @@ export default class Google3DTiles {
                 queueRevision = this.requestPriorityRevision;
                 queue.rebuild();
                 seedQueue.rebuild();
+                rebuildEvictions();
             }
             const eye = this.requestEye ?? this.selectionEye ?? this.cameraEye();
             if (!surroundings && coverageRadius
@@ -1342,12 +1366,11 @@ export default class Google3DTiles {
             }
             let settledAtBudget = 0;
             if (count >= budget && queue.length) {
-                let worstResident: FrontierTile | undefined;
-                for (const candidate of frontier) {
-                    if (candidate.refine === "ADD" || pending.has(candidate)
-                        || !priority(candidate).background) continue;
-                    if (!worstResident || compare(worstResident, candidate) < 0) worstResident = candidate;
-                }
+                const scanStarted = performance.now();
+                const worstResident = takeWorst();
+                if (worstResident) offerEviction(worstResident);
+                this.stats.frontierBudgetScanMs += performance.now() - scanStarted;
+                this.stats.frontierBudgetScanCount++;
                 const refinable: FrontierTile[] = [];
                 while (queue.length) {
                     const node = queue.shift()!;
@@ -1364,7 +1387,7 @@ export default class Google3DTiles {
                 refinable.forEach(node => queue.push(node));
             }
             const coverage = count >= Math.min(128, budget / 4);
-            if (coverage !== preferCoverage) { preferCoverage = coverage; queue.rebuild(); }
+            if (coverage !== preferCoverage) { preferCoverage = coverage; queue.rebuild(); rebuildEvictions(); }
             while (seedQueue.length && pending.size + seedPending.size < pendingLimit) {
                 const node = seedQueue.shift()!;
                 const pause = workBudget.checkpoint(() => priority(node).distance, 0);
@@ -1381,11 +1404,8 @@ export default class Google3DTiles {
                 if (count + node.selections.length > budget) {
                     // Resident far coverage remains drawn even when its demand
                     // slot is given to a newly entered, more urgent branch.
-                    let victim: FrontierTile | undefined;
-                    for (const candidate of frontier) {
-                        if (candidate.refine === "ADD" || pending.has(candidate)) continue;
-                        if (!victim || compare(victim, candidate) < 0) victim = candidate;
-                    }
+                    const victim = takeWorst();
+                    if (victim) offerEviction(victim);
                     if (!victim || compare(node, victim) >= 0
                         || count - victim.selections.length + node.selections.length > budget) continue;
                     frontier.delete(victim); track(victim, false); settled.delete(victim);
@@ -1395,7 +1415,7 @@ export default class Google3DTiles {
                         desired.delete(selection.url);
                     }
                 }
-                frontier.add(node); track(node, true); count += node.selections.length;
+                frontier.add(node); offerEviction(node); track(node, true); count += node.selections.length;
                 for (const selection of node.selections) {
                     activeURLs.add(selection.url);
                     representedURLs.add(selection.url);
@@ -1439,6 +1459,7 @@ export default class Google3DTiles {
                 continue;
             }
             pending.delete(node);
+            offerEviction(node);
             if (!frontier.has(node)) continue;
             if (!next) { hierarchyFailed = true; settle(node, true); continue; }
             const extra = next.reduce((sum, child) => sum + child.selections.length, 0)
@@ -1460,17 +1481,23 @@ export default class Google3DTiles {
                     continue;
                 }
                 if (count + extra > budget) {
-                    const victims = [...frontier].filter(candidate => candidate !== node
-                        && candidate.refine !== "ADD" && !pending.has(candidate)
-                        && priority(candidate).background
-                        && compare(node, candidate) < 0).sort((a, b) => compare(b, a));
+                    const scanStarted = performance.now();
                     let freed = 0;
                     const chosen: FrontierTile[] = [];
-                    for (const victim of victims) {
+                    const inspected: FrontierTile[] = [];
+                    while (count + extra - freed > budget) {
+                        const victim = takeWorst();
+                        if (!victim) break;
+                        inspected.push(victim);
+                        if (victim === node) continue;
+                        if (compare(node, victim) >= 0) break;
                         chosen.push(victim);
                         freed += victim.selections.length;
-                        if (count + extra - freed <= budget) break;
                     }
+                    this.stats.frontierBudgetScanMs += performance.now() - scanStarted;
+                    this.stats.frontierBudgetScanCount++;
+                    if (count + extra - freed > budget) inspected.forEach(offerEviction);
+                    else inspected.filter(victim => !chosen.includes(victim)).forEach(offerEviction);
                     if (count + extra - freed > budget) { settle(node, true); continue; }
                     for (const victim of chosen) {
                         frontier.delete(victim); track(victim, false); settled.delete(victim);
@@ -1487,7 +1514,7 @@ export default class Google3DTiles {
                 }
                 else settle(node);
                 next.forEach(child => {
-                    frontier.add(child); track(child, true); queue.push(child);
+                    frontier.add(child); offerEviction(child); track(child, true); queue.push(child);
                     for (const selection of child.selections) {
                         activeURLs.add(selection.url);
                         representedURLs.add(selection.url);
