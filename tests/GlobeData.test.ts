@@ -652,6 +652,16 @@ describe("terrain encodings and overzoom", () => {
         const repairedEdge = TerrainRGB.repairIsolatedSpikes({ data: regionalEdge, width: 64, height: 64 }, 12);
         expect(repairedEdge.data[63 * 64 + 7]).toBe(6);
         expect(repairedEdge.data[63 * 64 + 8]).toBe(6);
+        // A Greenpoint z12 DEM boundary has two 17 m pixels against a 1-4 m
+        // adjoining tile. Welding vertices alone leaves a steep inner lip.
+        const regionalWaterEdge = new Float32Array(64 * 64).fill(4);
+        regionalWaterEdge[18 * 64] = 17;
+        regionalWaterEdge[19 * 64] = 17;
+        const repairedWaterEdge = TerrainRGB.repairIsolatedSpikes({
+            data: regionalWaterEdge, width: 64, height: 64,
+        }, 12);
+        expect(repairedWaterEdge.data[18 * 64]).toBe(4);
+        expect(repairedWaterEdge.data[19 * 64]).toBe(4);
         const shortCoastalSeam = new Float32Array(64 * 64).fill(0);
         for (let y = 15; y < 22; y++) shortCoastalSeam[y * 64 + 15] = 12;
         for (let y = 32; y < 39; y++) shortCoastalSeam[y * 64 + 32] = -16;
