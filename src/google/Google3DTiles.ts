@@ -205,7 +205,10 @@ export default class Google3DTiles {
     public referenceFovY: number;
     public heightOffset = 0;
     public readonly stats = { hierarchyRequests: 0, modelRequests: 0, reusedModels: 0,
-        detailLimitedTiles: 0, sourceLimitedTiles: 0, rootMs: 0, frontierTraversalMs: 0,
+        detailLimitedTiles: 0, sourceLimitedTiles: 0,
+        visibleDetailLimitedTiles: 0, offscreenDetailLimitedTiles: 0,
+        visibleSourceLimitedTiles: 0, offscreenSourceLimitedTiles: 0,
+        rootMs: 0, frontierTraversalMs: 0,
         frontierCommitMs: 0, replacementMs: 0, modelWaitMs: 0, loadMs: 0,
         modelFetchMs: 0, modelDecodeMs: 0, modelIntegrationMs: 0, modelIntegrationMaxMs: 0,
         modelFetchCount: 0, modelDecodeCount: 0, modelDecodeActive: 0, peakModelDecodeActive: 0,
@@ -1369,10 +1372,31 @@ export default class Google3DTiles {
         await Promise.all(commits);
         this.stats.frontierCommitMs = performance.now() - commitStarted;
         if (generation !== this.generation) return;
-        if (!surroundings) this.stats.detailLimitedTiles = Array.from(frontier).filter(node => node.priority > 1
-            && node.depth < this.maxDepth && ((node.tile.children?.length ?? 0) > 0 || getTileContents(node.tile).some(isTilesetContent))).length;
-        if (!surroundings) this.stats.sourceLimitedTiles = Array.from(frontier).filter(node => node.priority > 1
-            && !(node.tile.children?.length) && !getTileContents(node.tile).some(isTilesetContent)).length;
+        if (!surroundings) {
+            this.stats.detailLimitedTiles = 0;
+            this.stats.sourceLimitedTiles = 0;
+            this.stats.visibleDetailLimitedTiles = 0;
+            this.stats.offscreenDetailLimitedTiles = 0;
+            this.stats.visibleSourceLimitedTiles = 0;
+            this.stats.offscreenSourceLimitedTiles = 0;
+            const eye = this.requestEye ?? this.selectionEye ?? this.cameraEye();
+            for (const node of frontier) {
+                if (node.priority <= 1) continue;
+                const external = getTileContents(node.tile).some(isTilesetContent);
+                const hasChildren = !!node.tile.children?.length;
+                const offscreen = this.cullToCamera && this.allowedGeometricError(
+                    node.tile.boundingVolume, node.transform, false, eye, true) < 0;
+                if (node.depth < this.maxDepth && (hasChildren || external)) {
+                    this.stats.detailLimitedTiles++;
+                    if (offscreen) this.stats.offscreenDetailLimitedTiles++;
+                    else this.stats.visibleDetailLimitedTiles++;
+                } else if (!hasChildren && !external) {
+                    this.stats.sourceLimitedTiles++;
+                    if (offscreen) this.stats.offscreenSourceLimitedTiles++;
+                    else this.stats.visibleSourceLimitedTiles++;
+                }
+            }
+        }
         for (const node of frontier) if (renderable(node)) for (const selection of node.selections) desired.set(selection.url, selection);
         if (reseeded) for (const [url, selection] of desired) {
             const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();

@@ -1203,6 +1203,10 @@ class GlobeDemo {
                 this.canvas.dataset.googleFirstModelWaitMs ??= this.canvas.dataset.googleModelWaitMs;
                 this.canvas.dataset.googleFirstDetailLimited ??= String(provider.stats.detailLimitedTiles);
                 this.canvas.dataset.googleFirstSourceLimited ??= String(provider.stats.sourceLimitedTiles);
+                this.canvas.dataset.googleVisibleDetailLimited = String(provider.stats.visibleDetailLimitedTiles);
+                this.canvas.dataset.googleOffscreenDetailLimited = String(provider.stats.offscreenDetailLimitedTiles);
+                this.canvas.dataset.googleVisibleSourceLimited = String(provider.stats.visibleSourceLimitedTiles);
+                this.canvas.dataset.googleOffscreenSourceLimited = String(provider.stats.offscreenSourceLimitedTiles);
                 const limited = provider.stats.detailLimitedTiles + provider.stats.sourceLimitedTiles;
                 this.canvas.dataset.googleFullRadiusQuality = limited ? "known-incomplete" : "unverified";
                 this.canvas.dataset.googleForegroundLoads = String(Number(this.canvas.dataset.googleForegroundLoads ?? 0) + 1);

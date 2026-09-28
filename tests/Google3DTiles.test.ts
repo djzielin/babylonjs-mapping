@@ -989,8 +989,8 @@ it("demands offscreen models in the same full-radius queue as visible models", a
   const provider=new Google3DTiles(globe,{apiKey:"test",maximumScreenSpaceError:1,cullToCamera:true,
     fullRadiusDemand:true,referenceImageHeight:2160,referenceFovY:0.8,coverageRadius:10000,maxTiles:8,
     tilesetLoader:async()=>({root:{children:[
-      {boundingVolume:sphere(0.01),geometricError:0,content:{uri:"front.glb"}},
-      {boundingVolume:sphere(-0.01),geometricError:0,content:{uri:"behind.glb"}},
+      {boundingVolume:sphere(0.01),geometricError:128,content:{uri:"front.glb"}},
+      {boundingVolume:sphere(-0.01),geometricError:128,content:{uri:"behind.glb"}},
     ]}}),modelTileLoader:createModelLoader(requests)});
   try {
     const projected=(provider as any).allowedGeometricError(sphere(0.01),Matrix.Identity());
@@ -1000,6 +1000,8 @@ it("demands offscreen models in the same full-radius queue as visible models", a
     expect(loaded.map(tile=>tile.url)).toEqual(expect.arrayContaining([
       expect.stringContaining("front.glb"),expect.stringContaining("behind.glb")]));
     expect(requests).toHaveLength(2);
+    expect(provider.stats.visibleSourceLimitedTiles).toBe(1);
+    expect(provider.stats.offscreenSourceLimitedTiles).toBe(1);
   } finally {provider.dispose();scene.dispose();engine.dispose();}
 });
 

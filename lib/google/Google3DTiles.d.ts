@@ -154,6 +154,10 @@ export default class Google3DTiles {
         reusedModels: number;
         detailLimitedTiles: number;
         sourceLimitedTiles: number;
+        visibleDetailLimitedTiles: number;
+        offscreenDetailLimitedTiles: number;
+        visibleSourceLimitedTiles: number;
+        offscreenSourceLimitedTiles: number;
         rootMs: number;
         frontierTraversalMs: number;
         frontierCommitMs: number;
