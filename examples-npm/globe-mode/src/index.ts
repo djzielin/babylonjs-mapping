@@ -152,6 +152,7 @@ class GlobeDemo {
     private photorealisticActive = false;
     private googleFarHidden = false;
     private googleLoading = false;
+    private googlePassStartedAt = 0;
     private lastGoogleCheck = 0;
     private movementKeys = new Set<string>();
     private engineProfile: EngineInstrumentation;
@@ -1076,11 +1077,19 @@ class GlobeDemo {
         }
         if (!force && key === this.googleViewKey) return;
         this.googleViewKey = key;
-        // Movement can change the key every frame. Let the current selection
-        // finish; its shared request queue still reprioritizes for the live
-        // camera. Start one new pass at the latest eye immediately afterward.
-        if (!force && key && this.googleLoading) return;
         if (!force && key && this.googleTimer) return;
+        if (!force && key && this.googleLoading) {
+            const center = this.googleTiles?.selectedCoverageCenter;
+            if (!center || performance.now() - this.googlePassStartedAt < 500) return;
+            const selected = this.detailGlobe.getSurfacePosition(center.latitude, center.longitude);
+            const current = this.detailGlobe.getSurfacePosition(view.latitude, view.longitude);
+            if (Vector3.Distance(selected, current) / this.detailGlobe.metresToWorld < 1500) return;
+            // A pass waiting on old replacement groups cannot reseed. Retain
+            // its renderable tiles and reuse its in-flight models in a new pass.
+            this.googleTiles?.cancelPendingLoad();
+            this.canvas.dataset.googleMovementPreemptions = String(
+                Number(this.canvas.dataset.googleMovementPreemptions ?? 0) + 1);
+        }
         clearTimeout(this.googleTimer);
         this.googleTimer = undefined;
         const generation = ++this.googleGeneration;
@@ -1144,6 +1153,7 @@ class GlobeDemo {
             provider.maximumDisplayGeometricError = 33;
             provider.maxTiles = 2048;
             this.googleLoading = true;
+            this.googlePassStartedAt = performance.now();
             this.googleStatus("Google 3D · streaming visible detail…");
             const started = performance.now();
             try {
