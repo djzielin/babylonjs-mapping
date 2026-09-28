@@ -101,6 +101,16 @@ it("keeps a coarse Overture building until matching finer geometry is ready",asy
     provider.cancelPendingRequests();scene.dispose();engine.dispose();
 });
 
+it("combines split finer footprints without double-counting overlap",()=>{
+    const coarse={id:"same",south:0,west:0,north:1,east:1};
+    const finer=new OvertureTierCoverage();
+    finer.add({...coarse,east:0.5});
+    finer.add({...coarse,east:0.5});
+    expect(finer.covers(coarse)).toBe(false);
+    finer.add({...coarse,west:0.5});
+    expect(finer.covers(coarse)).toBe(true);
+});
+
 it("skips a fully Google-covered Overture tile and resumes it when coverage leaves",async()=>{
     const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
     const engine=new NullEngine(),scene=new Scene(engine);

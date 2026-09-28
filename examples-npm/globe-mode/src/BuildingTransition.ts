@@ -1,6 +1,7 @@
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { GlobeSet } from "babylonjs-mapping";
+import { OvertureTierCoverage } from "./OvertureTierCoverage";
 
 type BuildingRange = { id?: string; latitude: number; longitude: number; south: number; west: number; north: number; east: number; start: number; end: number };
 type Coverage = { ranges: BuildingRange[]; indices: Uint32Array };
@@ -75,25 +76,9 @@ export class BuildingTransition {
             const north = Math.min(...tiles.map(tile => tile.tileCoords.y));
             const south = Math.max(...tiles.map(tile => tile.tileCoords.y));
             const at = (x: number, y: number) => globe.ourTilesMap.get(new Vector3(x, y, globe.zoom).toString());
+            const finerCoverageByOverlap = new Map<string, OvertureTierCoverage>();
             const current = retained.filter(old => {
-                if (old.coverage) {
-                    const { ranges, indices } = old.coverage;
-                    const mask = Uint8Array.from(ranges, range => Number(!googleCovers?.(range.latitude, range.longitude, range)));
-                    const visibleCount = ranges.reduce((count, range, index) => count + (mask[index] ? range.end - range.start : 0), 0);
-                    if (!visibleCount) { old.mesh.dispose(); return false; }
-                    if (!old.mask || old.mask.length !== mask.length || mask.some((value, index) => value !== old.mask![index])) {
-                        if (!old.ownGeometry) { old.mesh.makeGeometryUnique(); old.ownGeometry = true; }
-                        const visibleIndices = new Uint32Array(visibleCount);
-                        let offset = 0;
-                        for (let i = 0; i < ranges.length; i++) if (mask[i]) {
-                            const range = ranges[i];
-                            visibleIndices.set(indices.subarray(range.start, range.end), offset);
-                            offset += range.end - range.start;
-                        }
-                        old.mesh.setIndices(visibleIndices);
-                        old.mask = mask;
-                    }
-                } else if (googleCovers) {
+                if (!old.coverage && googleCovers) {
                     const box = old.mesh.getBoundingInfo().boundingBox;
                     if ([box.centerWorld, ...box.vectorsWorld].some(vertex => {
                         if (!Number.isFinite(vertex.lengthSquared()) || vertex.lengthSquared() === 0) return false;
@@ -125,6 +110,46 @@ export class BuildingTransition {
                         const tile = at(x, y);
                         if (tile) overlap.push(tile);
                     }
+                }
+                if (old.coverage) {
+                    let finer: OvertureTierCoverage | undefined;
+                    if (globe.zoom >= old.coordinate.z) {
+                        const key = overlap.map(tile => tile.tileCoords.toString()).join(";");
+                        finer = finerCoverageByOverlap.get(key);
+                        if (!finer) {
+                            finer = new OvertureTierCoverage();
+                            for (const tile of overlap) {
+                                if (tile.buildingsResolvedKey !== tile.tileCoords.toString()) continue;
+                                for (const mesh of tile.buildingBatches) {
+                                    if (mesh.isDisposed() || !mesh.isEnabled() || !mesh.isVisible || !mesh.getIndices()?.length) continue;
+                                    const coverage = (mesh.metadata as { overtureCoverage?: Coverage } | null)?.overtureCoverage;
+                                    for (const range of coverage?.ranges ?? []) finer.add(range);
+                                }
+                            }
+                            finerCoverageByOverlap.set(key, finer);
+                        }
+                    }
+                    const { ranges, indices } = old.coverage;
+                    const mask = Uint8Array.from(ranges, range => Number(
+                        !googleCovers?.(range.latitude, range.longitude, range) && !finer?.covers(range)));
+                    const visibleCount = ranges.reduce((count, range, index) => count + (mask[index] ? range.end - range.start : 0), 0);
+                    if (!visibleCount) { old.mesh.dispose(); return false; }
+                    if (!old.mask || old.mask.length !== mask.length || mask.some((value, index) => value !== old.mask![index])) {
+                        if (!old.ownGeometry) { old.mesh.makeGeometryUnique(); old.ownGeometry = true; }
+                        const visibleIndices = new Uint32Array(visibleCount);
+                        let offset = 0;
+                        for (let i = 0; i < ranges.length; i++) if (mask[i]) {
+                            const range = ranges[i];
+                            visibleIndices.set(indices.subarray(range.start, range.end), offset);
+                            offset += range.end - range.start;
+                        }
+                        old.mesh.setIndices(visibleIndices);
+                        old.mask = mask;
+                    }
+                    if (!overlap.length && globe.scene.frustumPlanes && !old.mesh.isInFrustum(globe.scene.frustumPlanes)) {
+                        old.mesh.dispose(); return false;
+                    }
+                    return true;
                 }
                 if (!overlap.length && (!globe.scene.frustumPlanes || old.mesh.isInFrustum(globe.scene.frustumPlanes))) return true;
                 if (!overlap.length || overlap.every(tile => tile.buildingsResolvedKey === tile.tileCoords.toString()

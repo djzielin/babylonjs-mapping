@@ -174,4 +174,50 @@ describe("building detail transitions", () => {
         expect(retained.isDisposed()).toBe(true);
         transition.dispose(); scene.dispose(); engine.dispose();
     });
+
+    it("keeps unmatched old Overture footprints when a finer tile resolves only some buildings", () => {
+        const engine = new NullEngine(), scene = new Scene(engine);
+        const globe = new GlobeSet(scene, engine, { backingSurface: false });
+        globe.createGeometry(new Vector2(1, 1), 20, 8);
+        globe.updateRaster(40.7484, -73.9857, 14);
+        const tile = globe.ourTiles[0];
+        tile.mesh.setEnabled(true);
+        const source = MeshBuilder.CreateBox("old Overture batch", {}, scene);
+        source.setParent(tile.mesh);
+        const indices = Uint32Array.from(source.getIndices()!);
+        const half = indices.length / 2;
+        const range = (id: string, start: number, end: number) =>
+            ({ id, latitude: 40.7484, longitude: -73.9857, south: 40.748, west: -73.986,
+                north: 40.749, east: -73.985, start, end });
+        source.metadata = { overtureCoverage: { indices,
+            ranges: [range("one", 0, half), range("two", half, indices.length)] } };
+        tile.buildingBatches.push(source);
+        const transition = new BuildingTransition();
+        transition.capture(globe, 15);
+        globe.updateRaster(40.7484, -73.9857, 15);
+        const replacementTile = globe.ourTiles[0];
+        replacementTile.mesh.setEnabled(true);
+        const replacement = (id: string) => {
+            const mesh = MeshBuilder.CreateBox(`new ${id}`, {}, scene);
+            mesh.setParent(replacementTile.mesh);
+            const indices = Uint32Array.from(mesh.getIndices()!);
+            mesh.metadata = { overtureCoverage: { indices, ranges: [range(id, 0, indices.length)] } };
+            replacementTile.buildingBatches.push(mesh);
+            return mesh;
+        };
+        const first = replacement("one");
+        first.setEnabled(false);
+        replacementTile.buildingsResolvedKey = replacementTile.tileCoords.toString();
+        const retained = scene.getMeshByName("previous building detail")!;
+        transition.update(1);
+        expect(retained.isDisposed()).toBe(false);
+        expect(Array.from(transition.retainedFootprints(globe), footprint => footprint.id)).toEqual(["one", "two"]);
+        first.setEnabled(true);
+        transition.update(300);
+        expect(Array.from(transition.retainedFootprints(globe), footprint => footprint.id)).toEqual(["two"]);
+        replacement("two");
+        transition.update(600);
+        expect(retained.isDisposed()).toBe(true);
+        transition.dispose(); scene.dispose(); engine.dispose();
+    });
 });
