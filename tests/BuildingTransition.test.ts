@@ -83,4 +83,29 @@ describe("building detail transitions", () => {
         expect(retained?.isDisposed()).toBe(true);
         transition.dispose(); scene.dispose(); engine.dispose();
     });
+
+    it("keeps visible outgoing buildings across more than two fast tile-window moves", () => {
+        const engine = new NullEngine();
+        const scene = new Scene(engine);
+        const globe = new GlobeSet(scene, engine, { backingSurface: false });
+        globe.createGeometry(new Vector2(1, 1), 20, 8);
+        globe.updateRaster(40.7484, -73.9857, 14);
+        const firstX = globe.ourTiles[0].tileCoords.x;
+        const transition = new BuildingTransition();
+        const retained = [];
+        for (let step = 1; step <= 3; step++) {
+            const tile = globe.ourTiles[0];
+            tile.mesh.setEnabled(true);
+            const source = MeshBuilder.CreateBox(`outgoing ${step}`, {}, scene);
+            source.setParent(tile.mesh);
+            tile.buildingBatches.push(source);
+            const longitude = globe.ourTileMath.tile_to_lon(firstX + step + 0.5, 14);
+            transition.capture(globe, 14, 40.7484, longitude);
+            retained.push(scene.meshes.filter(mesh => mesh.name === "previous building detail").at(-1)!);
+            globe.updateRaster(40.7484, longitude, 14);
+        }
+        expect(retained).toHaveLength(3);
+        expect(retained.every(mesh => mesh && !mesh.isDisposed())).toBe(true);
+        transition.dispose(); scene.dispose(); engine.dispose();
+    });
 });

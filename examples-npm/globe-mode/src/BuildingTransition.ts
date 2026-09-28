@@ -38,7 +38,8 @@ export class BuildingTransition {
                 retainedSources.add(source);
             }
         }
-        while (retained.length > globe.ourTiles.length * 2) retained.shift()!.mesh.dispose();
+        // A fast move can leave more than two windows of ready detail in view.
+        // update() releases each fallback after replacement or frustum exit.
         if (retained.length) this.previous.set(globe, retained);
         this.nextCheck = 0;
     }
