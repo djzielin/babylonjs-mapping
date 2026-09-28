@@ -9,6 +9,8 @@ import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 
 import { EPSG_Type } from "../core/TileMath.js";
 
@@ -242,6 +244,7 @@ export default class Google3DTiles {
         modelFetchMs: 0, modelDecodeMs: 0, modelIntegrationMs: 0, modelIntegrationMaxMs: 0,
         modelFetchCount: 0, modelDecodeCount: 0, modelDecodeActive: 0, peakModelDecodeActive: 0,
         modelDecodeQueued: 0, peakModelDecodeQueued: 0,
+        coastalSkirtTrianglesRemoved: 0,
         peakHierarchyActive: 0, peakModelActive: 0, peakNetworkActive: 0 };
     public origin?: Google3DTilesOrigin;
 
@@ -2003,6 +2006,9 @@ export default class Google3DTiles {
             for (const node of model.asset.rootNodes) {
                 node.parent = root;
             }
+            if (this.tileSet.isGlobe) for (const mesh of model.asset.meshes)
+                if (mesh instanceof Mesh) this.stats.coastalSkirtTrianglesRemoved += removeCoastalSkirtTriangles(
+                    mesh, (this.tileSet as GlobeSet).metresToWorld);
             const integrationDuration = performance.now() - integrationStarted;
             this.stats.modelIntegrationMs += integrationDuration;
             this.stats.modelIntegrationMaxMs = Math.max(this.stats.modelIntegrationMaxMs, integrationDuration);
@@ -2233,6 +2239,39 @@ async function defaultTilesetLoader(url: string): Promise<Google3DTileset> {
         throw new Error(`Unable to load Google 3D Tileset (${response.status} ${response.statusText}).`);
     }
     return response.json() as Promise<Google3DTileset>;
+}
+
+/** Remove photogrammetry skirts that plunge below a coastal tile's surface. */
+export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): number {
+    const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
+    const indices = mesh.getIndices();
+    if (!positions || !indices || positions.length < 90 || indices.length < 3 || metresToWorld <= 0) return 0;
+    const matrix = mesh.computeWorldMatrix(true).m;
+    const heights = new Float32Array(positions.length / 3);
+    for (let i = 0; i < heights.length; i++) {
+        const offset = i * 3;
+        heights[i] = (positions[offset] * matrix[1] + positions[offset + 1] * matrix[5]
+            + positions[offset + 2] * matrix[9] + matrix[13]) / metresToWorld;
+    }
+    const ordered = Float32Array.from(heights).sort();
+    const lowSurface = ordered[Math.floor(ordered.length * 0.2)];
+    // Restrict the repair to nearly level coastal geometry. The lower fifth
+    // represents the sea/ground surface even when buildings dominate a tile.
+    if (lowSurface < -15 || lowSurface > 30) return 0;
+    const cutoff = lowSurface - 25;
+    let kept: number[] | undefined;
+    for (let i = 0; i + 2 < indices.length; i += 3) {
+        const a = indices[i], b = indices[i + 1], c = indices[i + 2];
+        if (heights[a] >= cutoff && heights[b] >= cutoff && heights[c] >= cutoff) {
+            if (kept) kept.push(a, b, c);
+        } else {
+            if (!kept) kept = Array.from(indices).slice(0, i);
+        }
+    }
+    if (!kept) return 0;
+    const removed = (indices.length - kept.length) / 3;
+    mesh.setIndices(kept);
+    return removed;
 }
 
 async function defaultModelTileLoader(

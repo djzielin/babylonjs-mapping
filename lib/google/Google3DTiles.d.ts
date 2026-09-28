@@ -2,6 +2,7 @@ import { AssetContainer } from "@babylonjs/core/assetContainer.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type TileSet from "../core/TileSet.js";
 /** Google Maps Platform Map Tiles API Photorealistic 3D Tiles endpoint. */
 export declare const GOOGLE_3D_TILES_ROOT_URL = "https://tile.googleapis.com/v1/3dtiles/root.json";
@@ -182,6 +183,7 @@ export default class Google3DTiles {
         peakModelDecodeActive: number;
         modelDecodeQueued: number;
         peakModelDecodeQueued: number;
+        coastalSkirtTrianglesRemoved: number;
         peakHierarchyActive: number;
         peakModelActive: number;
         peakNetworkActive: number;
@@ -322,5 +324,7 @@ export default class Google3DTiles {
     private updateAttribution;
     private getTileSetBounds;
 }
+/** Remove photogrammetry skirts that plunge below a coastal tile's surface. */
+export declare function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): number;
 /** Extracts Google attribution and CESIUM_RTC metadata from a GLB JSON chunk. */
 export declare function parseGoogleGLBMetadata(buffer: ArrayBuffer): GoogleGLBMetadata;

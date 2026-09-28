@@ -410,6 +410,7 @@ class GlobeDemo {
                     this.canvas.dataset.googlePeakModelDecodeActive = String(stages.peakModelDecodeActive);
                     this.canvas.dataset.googleModelDecodeQueued = String(stages.modelDecodeQueued);
                     this.canvas.dataset.googlePeakModelDecodeQueued = String(stages.peakModelDecodeQueued);
+                    this.canvas.dataset.googleCoastalSkirtTrianglesRemoved = String(stages.coastalSkirtTrianglesRemoved);
                     this.canvas.dataset.googleModelIntegrationMs = String(Math.round(stages.modelIntegrationMs));
                     this.canvas.dataset.googleModelIntegrationMaxMs = String(Math.round(stages.modelIntegrationMaxMs));
                     // Bounding every Google mesh and sorting the largest ones

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ArcRotateCamera, AssetContainer, Matrix, NullEngine, RawTexture, Scene, TransformNode, Vector2, Vector3 } from "@babylonjs/core";
+import { ArcRotateCamera, AssetContainer, Matrix, Mesh, NullEngine, RawTexture, Scene, TransformNode, Vector2, Vector3, VertexBuffer } from "@babylonjs/core";
 
 import Google3DTiles, {
   GOOGLE_3D_TILES_ROOT_URL,
@@ -10,6 +10,7 @@ import Google3DTiles, {
   type GoogleTilesetLoader,
   parseGoogleGLBMetadata,
 } from "../src/Google3DTiles";
+import { removeCoastalSkirtTriangles } from "../src/google/Google3DTiles";
 import { EPSG_Type } from "../src/core/TileMath";
 import TileSet from "../src/TileSet";
 import GlobeSet from "../src/GlobeSet";
@@ -63,6 +64,31 @@ function createModelLoader(requests: string[]) {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+it("removes deep coastal Google skirts while retaining the surface and building walls", () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const mesh = new Mesh("coastal photogrammetry", scene);
+  const positions = new Float32Array(32 * 3);
+  for (let i = 0; i < 32; i++) {
+    positions[i * 3] = i % 8;
+    positions[i * 3 + 1] = -5;
+    positions[i * 3 + 2] = Math.floor(i / 8);
+  }
+  positions[30 * 3 + 1] = -55;
+  positions[31 * 3 + 1] = 35;
+  mesh.setVerticesData(VertexBuffer.PositionKind, positions);
+  const triangles = [0, 1, 8, 0, 1, 30, 0, 1, 31];
+  mesh.setIndices(triangles);
+  mesh.position.y = 5;
+  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(1);
+  expect(Array.from(mesh.getIndices()!)).toEqual([0, 1, 8, 0, 1, 31]);
+  mesh.setIndices(triangles);
+  mesh.position.y = 105;
+  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(0);
+  expect(Array.from(mesh.getIndices()!)).toEqual(triangles);
+  scene.dispose(); engine.dispose();
 });
 
 it("restricts coverage updates to geographic tiles intersecting changed models", () => {
