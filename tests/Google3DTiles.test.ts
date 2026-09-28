@@ -914,6 +914,47 @@ it("demands offscreen models in the same full-radius queue as visible models", a
   } finally {provider.dispose();scene.dispose();engine.dispose();}
 });
 
+it("reprioritizes unexpanded hierarchy toward the moving camera", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const camera = new ArcRotateCamera("moving", 0, 1, 1, globe.getSurfacePosition(0, 0.001), scene);
+  camera.setPosition(globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld));
+  camera.getViewMatrix(true);
+  const sphere = (index: number) => { const longitude = index * 0.001 * Math.PI / 180;
+    return { sphere: [6378137 * Math.cos(longitude), 6378137 * Math.sin(longitude), 0, 100] }; };
+  const started: number[] = [], releases: Array<() => void> = [];
+  let unblock = false;
+  const provider = new Google3DTiles(globe, { apiKey: "test", maximumScreenSpaceError: 1,
+    fullRadiusDemand: true, coverageRadius: 10000, maxDepth: 3, maxTiles: 64,
+    tilesetLoader: async url => {
+      const match = url.match(/part-(\d+)\.json/);
+      if (!match) return { root: { children: Array.from({ length: 20 }, (_, i) => ({
+        boundingVolume: sphere(i), geometricError: 100,
+        contents: [{ uri: `coarse-${i}.glb` }, { uri: `part-${i}.json` }],
+      })) } };
+      const index = Number(match[1]);
+      started.push(index);
+      if (!unblock) await new Promise<void>(resolve => releases.push(resolve));
+      return { root: { boundingVolume: sphere(index), geometricError: 0,
+        content: { uri: `fine-${index}.glb` } } };
+    }, modelTileLoader: createModelLoader([]),
+  });
+  try {
+    const loading = provider.load();
+    await vi.waitFor(() => expect(started).toHaveLength(16));
+    camera.setPosition(globe.getSurfacePosition(0, 0.019, 100 * globe.metresToWorld));
+    camera.getViewMatrix(true);
+    provider.reprioritizeRequests();
+    releases[0]();
+    await vi.waitFor(() => expect(started).toHaveLength(17));
+    expect(started[16]).toBe(19);
+    unblock = true;
+    releases.slice(1).forEach(release => release());
+    await loading;
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("retains coarse unseen models across the configured fifteen-mile radius", async () => {
   const engine = new NullEngine(), scene = new Scene(engine);
   const globe = new GlobeSet(scene, engine, {radius: 60, attribution: false});
