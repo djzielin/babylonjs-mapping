@@ -536,7 +536,8 @@ export default class Google3DTiles {
                 || selection.ancestors?.some(ancestor => this.loadedTiles.has(ancestor))
                 || !this.acceptableDisplayQuality(selection)) continue;
             const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
-            if (this.allowedGeometricError(selection.boundingVolume, transform) < 0) continue;
+            if (this.allowedGeometricError(selection.boundingVolume, transform, false,
+                this.selectionEye ?? this.cameraEye(), true) < 0) continue;
             this.retainedTiles.delete(url);
             this.loadedTiles.set(url, tile);
             tile.root.setEnabled(true);
@@ -653,7 +654,9 @@ export default class Google3DTiles {
         if (this.loadedTiles.size > this.maxTiles * 2) {
             const candidates = Array.from(this.loadedSelections).filter(([url, selection]) =>
                 this.loadedTiles.has(url) && !desired.has(url)
-                && this.allowedGeometricError(selection.boundingVolume, selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity()) < 0);
+                && this.allowedGeometricError(selection.boundingVolume,
+                    selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity(),
+                    false, this.requestEye ?? this.selectionEye ?? this.cameraEye(), true) < 0);
             candidates.sort((a, b) => this.tilePriority(b[1].boundingVolume, b[1].transform ? Matrix.FromArray(b[1].transform) : Matrix.Identity())
                 - this.tilePriority(a[1].boundingVolume, a[1].transform ? Matrix.FromArray(a[1].transform) : Matrix.Identity()));
             for (const [url] of candidates) { if (this.loadedTiles.size <= this.maxTiles * 2) break; this.retireTile(url); }
