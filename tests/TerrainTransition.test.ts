@@ -18,6 +18,7 @@ it('retains independent terrain geometry until matching replacement imagery and 
  expect(snapshot.geometry).toBe(originalGeometry);
  expect(tile.mesh.geometry).toBeNull();
  expect(snapshot.material).toBe(material);
+ expect(snapshot.renderingGroupId).toBe(Math.min(7,tile.mesh.renderingGroupId+1));
  expect(tile.material).toBeUndefined();
  expect(disposed).not.toHaveBeenCalled();
  expect(snapshot.material?.isFrozen).toBe(true);

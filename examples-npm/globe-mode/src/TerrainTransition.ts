@@ -43,6 +43,12 @@ export class TerrainTransition {
             source.geometry?.releaseForMesh(source);
             tile.material = undefined;
             mesh.material = material;
+            // A replacement terrain batch is created after this fallback. If
+            // both use the same rendering group, the fallback can claim the
+            // stencil first and hide ready replacement tiles. Draw fallbacks
+            // in the following (coarser) group, after all current tiles and
+            // batches at this tier have had a chance to claim their pixels.
+            mesh.renderingGroupId = Math.min(7, source.renderingGroupId + 1);
             mesh.visibility = 1;
             mesh.isVisible = true;
             mesh.setEnabled(true);

@@ -81,6 +81,7 @@ describe("lossless terrain batching", () => {
         sourceMaterial.diffuseTexture = originalTexture; source.material = sourceMaterial;
         const batcher = new TerrainBatcher(scene, () => [], () => {}) as any;
         expect(() => batcher.update()).not.toThrow();
+        batcher.enabled = true;
         const derived = source.clone("derived")!;
         const material = new StandardMaterial("derived", scene);
         const texture = RawTexture.CreateRGBATexture(new Uint8Array(16), 2, 2, scene);

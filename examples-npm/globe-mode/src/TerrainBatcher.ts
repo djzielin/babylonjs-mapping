@@ -77,7 +77,9 @@ type Batch = { mesh: Mesh; material: StandardMaterial; texture: RawTexture2DArra
 export class TerrainBatcher {
     private batches: Batch[] = [];
     public lastError = "";
-    public enabled = true;
+    // The texture-array path currently produces visible overlapping imagery
+    // on WebGPU at city zooms. Keep the original tile draws until it is fixed.
+    public enabled = false;
     public get stats(): string { return `${this.batches.length} batches / ${this.owned.size} tiles${this.lastError ? ` / ${this.lastError}` : ""}`; }
     private owned = new Set<Mesh>();
     private busy = false;

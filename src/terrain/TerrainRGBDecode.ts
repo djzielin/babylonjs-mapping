@@ -15,7 +15,7 @@ export function decodeTerrainRGB(pixels: ArrayLike<number>, encoding: TerrainRGB
 /** Repair narrow source-data spikes before terrain tiles sample this grid. */
 export function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: number, height: number,
     sourceZoom: number): Float32Array | undefined {
-    if (sourceZoom < 12 || width < 3 || height < 3) return undefined;
+    if (sourceZoom < 8 || width < 3 || height < 3) return undefined;
     const threshold = 100;
     let repaired: Float32Array | undefined;
     for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) {
@@ -32,6 +32,38 @@ export function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: numb
             || neighbors.filter(value => Math.abs(value - median) < threshold / 2).length < 5) continue;
         repaired ??= Float32Array.from(data);
         repaired[index] = median;
+    }
+    // Terrarium has occasional short runs of invalid deep samples along
+    // shallow water. A single-pixel median cannot repair a connected run,
+    // which otherwise produces kilometre-deep vertical walls in rivers.
+    // Only replace small components whose entire surrounding ring is shallow;
+    // broad or genuinely deep bathymetry retains its original samples.
+    const visited = new Uint8Array(width * height);
+    const source = repaired ?? data;
+    for (let start = 0; start < source.length; start++) {
+        if (visited[start] || source[start] >= -100) continue;
+        const component = [start], ring: number[] = [];
+        visited[start] = 1;
+        for (let head = 0; head < component.length; head++) {
+            const index = component[head], x = index % width, y = Math.floor(index / width);
+            for (const neighbor of [x > 0 ? index - 1 : -1, x + 1 < width ? index + 1 : -1,
+                y > 0 ? index - width : -1, y + 1 < height ? index + width : -1]) {
+                if (neighbor < 0) continue;
+                if (source[neighbor] < -100) {
+                    if (!visited[neighbor]) { visited[neighbor] = 1; component.push(neighbor); }
+                } else ring.push(source[neighbor]);
+            }
+        }
+        // Some corrupted urban water tiles contain over a thousand samples
+        // below -12 km, deeper than any real ocean floor. Keep the normal
+        // small-cluster limit for plausible bathymetry.
+        const impossibleDepth = component.some(index => source[index] < -12000);
+        if (component.length > (impossibleDepth ? 4096 : 512) || ring.length < 3) continue;
+        ring.sort((a, b) => a - b);
+        const surrounding = ring[Math.floor(ring.length / 2)];
+        if (surrounding < -30 || surrounding > 100) continue;
+        repaired ??= Float32Array.from(data);
+        for (const index of component) repaired[index] = surrounding;
     }
     return repaired;
 }

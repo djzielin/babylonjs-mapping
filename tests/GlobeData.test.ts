@@ -559,18 +559,29 @@ describe("terrain encodings and overzoom", () => {
         ).toEqual([0, -1, 1.5]);
         expect(TerrainRGB.decode([0, 0, 0, 255], "mapbox")[0]).toBe(-10000);
     });
-    it("repairs narrow DEM pits while retaining real broad depressions", () => {
+    it("repairs isolated pixels and connected DEM pits while retaining broad bathymetry", () => {
         const width = 11, data = new Float32Array(width * width).fill(10);
         data[5 * width + 5] = -272;
         for (let y = 3; y <= 7; y++) data[y * width + 8] = -170;
         for (let y = 1; y <= 3; y++) for (let x = 1; x <= 3; x++) data[y * width + x] = -180;
         const source = { data, width, height: width };
-        expect(TerrainRGB.repairIsolatedSpikes(source, 10)).toBe(source);
+        expect(TerrainRGB.repairIsolatedSpikes(source, 7)).toBe(source);
+        expect(TerrainRGB.repairIsolatedSpikes(source, 8).data[5 * width + 5]).toBe(10);
         const repaired = TerrainRGB.repairIsolatedSpikes(source, 14);
         expect(repaired.data[5 * width + 5]).toBe(10);
         for (let y = 3; y <= 7; y++) expect(repaired.data[y * width + 8]).toBe(10);
-        expect(repaired.data[2 * width + 2]).toBe(-180);
+        expect(repaired.data[2 * width + 2]).toBe(10);
         expect(source.data[5 * width + 5]).toBe(-272);
+        const broad = new Float32Array(64 * 64).fill(0);
+        for (let y = 12; y < 44; y++) for (let x = 12; x < 44; x++) broad[y * 64 + x] = -180;
+        const broadSource = { data: broad, width: 64, height: 64 };
+        expect(TerrainRGB.repairIsolatedSpikes(broadSource, 14)).toBe(broadSource);
+        const impossible = new Float32Array(broad);
+        for (let y = 12; y < 44; y++) for (let x = 12; x < 44; x++) impossible[y * 64 + x] = -20000;
+        expect(TerrainRGB.repairIsolatedSpikes({ data: impossible, width: 64, height: 64 }, 14).data[20 * 64 + 20]).toBe(0);
+        const deepSea = new Float32Array(11 * 11).fill(-300);
+        deepSea[5 * 11 + 5] = -700;
+        expect(TerrainRGB.repairIsolatedSpikes({ data: deepSea, width: 11, height: 11 }, 14).data[60]).toBe(-300);
     });
     it("samples the correct ancestor quadrant when overzooming", () => {
         const data = Array.from({ length: 16 }, (_, i) => i);
