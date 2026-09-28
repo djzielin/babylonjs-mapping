@@ -1,4 +1,5 @@
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { Constants } from "@babylonjs/core/Engines/constants";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { GlobeSet } from "babylonjs-mapping";
 import { OvertureTierCoverage } from "./OvertureTierCoverage";
@@ -50,6 +51,19 @@ export class BuildingTransition {
                 mesh.setEnabled(true);
                 mesh.isPickable = false;
                 mesh.freezeWorldMatrix(world);
+                // New Google and Overture geometry draws first. The fallback
+                // fills only pixels their level-7 stencil has not claimed, so
+                // partial finer buildings do not z-fight with the old batch.
+                const material = (source.material ?? globe.scene.defaultMaterial).clone("retained building material");
+                if (material) {
+                    material.stencil.enabled = true;
+                    material.stencil.func = Constants.GREATER;
+                    material.stencil.funcRef = 8;
+                    material.stencil.opStencilDepthPass = Constants.REPLACE;
+                    mesh.material = material;
+                    mesh.onDisposeObservable.addOnce(() => material.dispose());
+                }
+                mesh.renderingGroupId = Math.min(7, source.renderingGroupId + 1);
                 const coverage = (source.metadata as { overtureCoverage?: Coverage } | null)?.overtureCoverage;
                 // Most outgoing batches still draw every building. Preserve
                 // their shared geometry until coverage actually changes.

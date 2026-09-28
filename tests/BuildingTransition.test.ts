@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MeshBuilder, NullEngine, Scene, Vector2 } from "@babylonjs/core";
+import { Constants, MeshBuilder, NullEngine, Scene, Vector2 } from "@babylonjs/core";
 import GlobeSet from "../src/core/GlobeSet";
 import { BuildingTransition } from "../examples-npm/globe-mode/src/BuildingTransition";
 
@@ -28,6 +28,10 @@ describe("building detail transitions", () => {
         expect(retained?.isDisposed()).toBe(false);
         expect(retained?.parent).toBeNull();
         expect(retained?.isEnabled()).toBe(true);
+        expect(retained?.material).not.toBe(source.material);
+        expect(retained?.material?.stencil.func).toBe(Constants.GREATER);
+        expect(retained?.material?.stencil.funcRef).toBe(8);
+        expect(retained?.renderingGroupId).toBe(source.renderingGroupId + 1);
         expect(Array.from(retained!.computeWorldMatrix(true).m)).toEqual(Array.from(sourceWorld.m));
         globe.ourTiles[0].buildingsResolvedKey = globe.ourTiles[0].tileCoords.toString();
         transition.update(300);
