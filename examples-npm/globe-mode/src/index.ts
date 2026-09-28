@@ -1045,6 +1045,7 @@ class GlobeDemo {
     }
 
     private setPhotorealisticActive(active: boolean): void {
+        if (this.photorealisticActive === active) return;
         this.photorealisticActive = active;
         const buildings = (document.getElementById("buildings") as HTMLInputElement).checked;
         this.data.options.buildings = buildings ? this.buildings : undefined;
