@@ -93,20 +93,16 @@ export default class GlobeDataController {
         }
         if (full) {
             this.nextPriorityCheck = performance.now() + 250;
-            if (candidates.length === 0) return;
+            // An in-window job remains useful to the full viewable disk. Let one
+            // newly urgent tile start without aborting that useful download.
+            if (candidates.length === 0 || this.stats.active >= concurrency + 1) return;
             const visible = (tile: Tile) => !!(this.options.prioritizeVisible && camera?.isInFrustum(tile.mesh));
             const better = (a: Tile, b: Tile) => Number(visible(a)) - Number(visible(b)) || distance(b) - distance(a);
             const best = candidates.reduce((a, b) => better(a, b) >= 0 ? a : b);
             const worst = [...this.jobs.keys()].reduce((a, b) => better(a, b) <= 0 ? a : b);
             const bestVisible = visible(best), worstVisible = visible(worst);
-            if ((bestVisible && !worstVisible)
-                || (bestVisible === worstVisible && distance(best) * 4 < distance(worst))) {
-                const job = this.jobs.get(worst)!;
-                job.abort.abort();
-                this.jobs.delete(worst);
-                this.stats.active--;
-                this.stats.cancelled++;
-            } else return;
+            if (!((bestVisible && !worstVisible)
+                || (bestVisible === worstVisible && distance(best) * 4 < distance(worst)))) return;
         }
         const distances = new Map(candidates.map(tile => [tile, distance(tile)]));
         const visible = new Set(this.options.prioritizeVisible && camera
@@ -123,7 +119,7 @@ export default class GlobeDataController {
             if (
                 this.ready.get(tile) === key ||
                 this.jobs.has(tile) ||
-                this.stats.active >= concurrency
+                this.stats.active >= concurrency + Number(full)
             )
                 continue;
             const abort = new AbortController();

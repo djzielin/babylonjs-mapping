@@ -494,7 +494,7 @@ describe("bounded detail streaming", () => {
         try { data.update(); expect(loader.mock.calls[0]?.[0]).toEqual(nearest.tileCoords); }
         finally { data.dispose(); dispose(); }
     });
-    it("promotes newly nearby terrain ahead of an unresolved distant request", async () => {
+    it("promotes newly nearby terrain without cancelling an in-window request", async () => {
         const { globe, scene, dispose } = setup(5);
         const first = globe.ourTiles[0], nearby = globe.ourTiles.at(-1)!;
         const camera = new ArcRotateCamera("moving eye", 0, 1, 1, globe.getSurfacePosition(35, -79), scene);
@@ -510,12 +510,13 @@ describe("bounded detail streaming", () => {
             camera.setPosition(nearby.mesh.getBoundingInfo().boundingSphere.centerWorld.scale(1.00001));
             camera.getViewMatrix(true);
             data.update();
-            expect(pending[0].signal.aborted).toBe(true);
+            expect(pending[0].signal.aborted).toBe(false);
             expect(loader.mock.calls[1][0]).toEqual(nearby.tileCoords);
-            expect(data.stats.active).toBe(1);
+            expect(data.stats.active).toBe(2);
             pending[0].resolve(grid(999));
             await Promise.resolve(); await Promise.resolve();
             expect(data.stats.active).toBe(1);
+            expect(first.terrainLoaded).toBe(true);
             pending[1].resolve(grid(25));
             await Promise.resolve(); await Promise.resolve();
             expect(nearby.terrainLoaded).toBe(true);
