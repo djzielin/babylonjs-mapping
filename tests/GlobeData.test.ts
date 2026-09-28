@@ -660,6 +660,25 @@ describe("terrain encodings and overzoom", () => {
         }, 15);
         expect(repairedSeam.data[18 * 64 + 15]).toBe(0);
         expect(repairedSeam.data[35 * 64 + 32]).toBe(0);
+        // Greenpoint's z10 waterfront DEM has a narrow +31 m lip beside
+        // shallow negative water. It must not form a fin while z12 streams.
+        const coarseWaterfront = new Float32Array(64 * 64).fill(2);
+        for (let y = 28; y < 33; y++) coarseWaterfront[y * 64 + 30] = 31;
+        for (let y = 28; y < 33; y++) coarseWaterfront[y * 64 + 31] = -20;
+        const coarseRepaired = TerrainRGB.repairIsolatedSpikes({
+            data: coarseWaterfront, width: 64, height: 64,
+        }, 10);
+        expect(coarseRepaired.data[30 * 64 + 30]).toBe(2);
+        expect(coarseRepaired.data[30 * 64 + 31]).toBe(2);
+        const slopedWaterfront = new Float32Array(64 * 64);
+        for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++)
+            slopedWaterfront[y * 64 + x] = x < 32 ? 2 : -18;
+        slopedWaterfront[32 * 64 + 31] = 64;
+        slopedWaterfront[32 * 64 + 32] = -83;
+        const slopedRepaired = TerrainRGB.repairIsolatedSpikes({
+            data: slopedWaterfront, width: 64, height: 64,
+        }, 10);
+        expect(slopedRepaired.data[32 * 64 + 32]).toBeGreaterThan(-30);
         const broadHill = new Float32Array(64 * 64).fill(0);
         for (let y = 8; y < 48; y++) for (let x = 8; x < 48; x++) broadHill[y * 64 + x] = 71;
         expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 13).data[25 * 64 + 25]).toBe(71);

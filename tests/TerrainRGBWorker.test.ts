@@ -18,7 +18,7 @@ it("decodes signed terrain pixels in a worker and transfers the exact height gri
         const [grid, options] = postMessage.mock.lastCall!;
         expect(Array.from(grid.data)).toEqual([0, -1]);
         expect([grid.width, grid.height]).toEqual([2, 1]);
-        expect(grid.repairVersion).toBe(1);
+        expect(grid.repairVersion).toBe(2);
         expect(options.transfer).toEqual([grid.data.buffer]);
         expect(close).toHaveBeenCalledOnce();
     } finally {
