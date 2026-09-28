@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { NullEngine, Scene, MeshBuilder, VertexBuffer, Vector3, StandardMaterial, RawTexture, FreeCamera } from "@babylonjs/core";
 import { defaultPixelShader } from "@babylonjs/core/Shaders/default.fragment";
-import { terrainBatchGeometry, TerrainBatcher, WEBGL_TILE_DIFFUSE_SAMPLE } from "../examples-npm/globe-mode/src/TerrainBatcher";
+import { defaultPixelShaderWGSL } from "@babylonjs/core/ShadersWGSL/default.fragment";
+import { terrainBatchGeometry, TerrainBatcher, WEBGL_TILE_DIFFUSE_SAMPLE,
+    WEBGPU_TILE_DIFFUSE_SAMPLE, WEBGPU_TILE_ARRAY_SAMPLE } from "../examples-npm/globe-mode/src/TerrainBatcher";
 
 describe("lossless terrain batching", () => {
     it("replaces Babylon's current diffuse lookup with the correct texture-array layer", () => {
@@ -10,6 +12,12 @@ describe("lossless terrain batching", () => {
         expect([...shader.matchAll(sample)]).toHaveLength(1);
         expect(shader.replace(sample, "texture(tileTextures, vec3(vDiffuseUV + uvOffset, vTileLayer))"))
             .toContain("baseColor=texture(tileTextures, vec3(vDiffuseUV + uvOffset, vTileLayer))");
+    });
+    it("rounds interpolated WebGPU layer IDs before selecting the raster image", () => {
+        const sample = new RegExp(WEBGPU_TILE_DIFFUSE_SAMPLE.slice(1), "g");
+        const shader = defaultPixelShaderWGSL.shader;
+        expect([...shader.matchAll(sample)]).toHaveLength(1);
+        expect(shader.replace(sample, WEBGPU_TILE_ARRAY_SAMPLE)).toContain("i32(round(fragmentInputs.vTileLayer))");
     });
     it("retains world positions, normals, UVs, colors and triangles in a local origin", () => {
         const engine = new NullEngine({ renderWidth: 32, renderHeight: 32, textureSize: 32, deterministicLockstep: false, lockstepMaxSteps: 4, useHighPrecisionMatrix: true });

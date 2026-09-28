@@ -15,6 +15,8 @@ import { Engine } from "@babylonjs/core/Engines/engine";
 
 /** Match Babylon's current StandardMaterial diffuse lookup before GLSL preprocessing. */
 export const WEBGL_TILE_DIFFUSE_SAMPLE = "!TEXRD\\(diffuseSampler,vDiffuseUV\\+uvOffset\\)";
+export const WEBGPU_TILE_DIFFUSE_SAMPLE = "!TEXRD\\(diffuseSampler,diffuseSamplerSampler,fragmentInputs\\.vDiffuseUV\\+uvOffset\\)";
+export const WEBGPU_TILE_ARRAY_SAMPLE = "textureSample(tileTextures, tileTexturesSampler, fragmentInputs.vDiffuseUV + uvOffset, i32(round(fragmentInputs.vTileLayer)));";
 
 class TileTextureArray extends MaterialPluginBase {
     constructor(material: StandardMaterial, private texture: RawTexture2DArray) {
@@ -30,7 +32,9 @@ class TileTextureArray extends MaterialPluginBase {
             CUSTOM_VERTEX_MAIN_END: "vertexOutputs.vTileLayer = vertexInputs.tileLayer;",
         } : {
             CUSTOM_FRAGMENT_DEFINITIONS: "var tileTextures: texture_2d_array<f32>; var tileTexturesSampler: sampler; varying vTileLayer: f32;",
-            "!TEXRD\\(diffuseSampler,diffuseSamplerSampler,fragmentInputs\\.vDiffuseUV\\+uvOffset\\)": "textureSample(tileTextures, tileTexturesSampler, fragmentInputs.vDiffuseUV + uvOffset, i32(fragmentInputs.vTileLayer));",
+            // Perspective interpolation can produce 0.999999 for a tile whose
+            // vertices all store layer 1. Truncation then samples layer 0.
+            [WEBGPU_TILE_DIFFUSE_SAMPLE]: WEBGPU_TILE_ARRAY_SAMPLE,
         };
         return type === "vertex" ? {
             CUSTOM_VERTEX_DEFINITIONS: "attribute float tileLayer; varying float vTileLayer;",
