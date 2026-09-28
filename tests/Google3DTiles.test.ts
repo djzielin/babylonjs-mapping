@@ -832,6 +832,23 @@ it("retains parent coverage when a replacement model fails", async () => {
   provider.dispose();scene.dispose();engine.dispose();
 });
 
+it("keeps the visible parent when a replacement GLB has no drawable geometry", async () => {
+  const {engine,scene,tileSet}=createTileSet();
+  const empty=new AssetContainer(scene);
+  const dispose=vi.spyOn(empty,"dispose");
+  const provider=new Google3DTiles(tileSet,{apiKey:"test",maximumScreenSpaceError:1,maxDepth:0,
+    tilesetLoader:async()=>({root:{content:{uri:"parent.glb"},children:[{content:{uri:"empty.glb"}}]}}),
+    modelTileLoader:async url=>url.includes("empty.glb")
+      ? {asset:empty,attributions:[],renderable:false}
+      : {asset:new AssetContainer(scene),attributions:[],renderable:true}});
+  const [parent]=await provider.load();
+  provider.maxDepth=4;
+  expect(await provider.load()).toEqual([parent]);
+  expect(parent.root.isEnabled()).toBe(true);
+  expect(dispose).toHaveBeenCalledOnce();
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
 it("keeps a coarse Google fallback visible when the tile budget prevents refinement", async () => {
   const {engine, scene, tileSet}=createTileSet();
   const provider=new Google3DTiles(tileSet,{apiKey:"test",maximumScreenSpaceError:1,maximumDisplayGeometricError:4,maxTiles:2,

@@ -57,6 +57,8 @@ export interface LoadedGoogleModelTile {
     asset: AssetContainer;
     attributions: readonly string[];
     rtcCenter?: Vector3;
+    /** The default GLB loader sets false when decoding produced no drawable mesh. */
+    renderable?: boolean;
 }
 export type GoogleTilesetLoader = (url: string) => Promise<Google3DTileset>;
 export type GoogleModelTileLoader = (url: string, scene: Scene, signal?: AbortSignal) => Promise<LoadedGoogleModelTile | undefined>;
@@ -201,6 +203,7 @@ export default class Google3DTiles {
     private attributionCacheValid;
     private attributionCache;
     private pendingModels;
+    private readonly unusableModelURLs;
     private activeModelFetches;
     private lastModelAbortEye?;
     private selectionEye?;
@@ -243,6 +246,7 @@ export default class Google3DTiles {
     private broadCoverage;
     private coverageTests;
     private footprintEnvelopes;
+    private footprintTests;
     private loadedSelections;
     /** Whether loaded model bounds cover this geographic position. */
     coversLocation(latitude: number, longitude: number): boolean;
@@ -251,6 +255,7 @@ export default class Google3DTiles {
     /** Whether a resident model overlaps a geographic building footprint. */
     overlapsFootprint(south: number, west: number, north: number, east: number): boolean;
     private coverageTest;
+    private footprintTest;
     /** The last root tileset response, if load() has been called. */
     get tileset(): Google3DTileset | undefined;
     /** The session token discovered in the tileset's child URIs. */

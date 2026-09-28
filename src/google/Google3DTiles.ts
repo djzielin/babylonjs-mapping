@@ -81,6 +81,8 @@ export interface LoadedGoogleModelTile {
     asset: AssetContainer;
     attributions: readonly string[];
     rtcCenter?: Vector3;
+    /** The default GLB loader sets false when decoding produced no drawable mesh. */
+    renderable?: boolean;
 }
 
 export type GoogleTilesetLoader = (url: string) => Promise<Google3DTileset>;
@@ -263,6 +265,7 @@ export default class Google3DTiles {
     private attributionCacheValid = false;
     private attributionCache: string[] = [];
     private pendingModels = new Map<string, { generation: number; request: Promise<LoadedGoogle3DTile | undefined> }>();
+    private readonly unusableModelURLs = new Set<string>();
     private activeModelFetches = new Map<string, { selection: TileSelection; controller: AbortController }>();
     private lastModelAbortEye?: Vector3;
     private selectionEye?: Vector3;
@@ -632,6 +635,7 @@ export default class Google3DTiles {
         this.requestPriorityRevision++;
         const residentAtStart = new Set([...this.loadedTiles.keys(), ...this.retainedTiles.keys()]);
         const generation = ++this.generation;
+        this.unusableModelURLs.clear();
         const origin = this.getOrigin();
         const originStateKey = this.getOriginStateKey(origin);
         if (this.originStateKey !== "" && this.originStateKey !== originStateKey) {
@@ -1804,6 +1808,7 @@ export default class Google3DTiles {
     }
 
     private loadTile(selection: TileSelection, origin: Google3DTilesOrigin, generation: number, activate = true): Promise<LoadedGoogle3DTile | undefined> {
+        if (generation === this.generation && this.unusableModelURLs.has(selection.url)) return Promise.resolve(undefined);
         const existing = this.pendingModels.get(selection.url);
         if (existing?.generation === generation) return existing.request;
         if (existing) {
@@ -1860,6 +1865,11 @@ export default class Google3DTiles {
             selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity(), selection.geometricError,
             selection.ancestors?.some(url => this.loadedTiles.has(url)) ?? false), "model").then((model) => {
             if (!model) {
+                return undefined;
+            }
+            if (model.renderable === false) {
+                if (generation === this.generation) this.unusableModelURLs.add(selection.url);
+                model.asset.dispose();
                 return undefined;
             }
             const integrationStarted = performance.now();
@@ -2164,6 +2174,7 @@ async function defaultModelTileLoader(
             asset,
             attributions: metadata.attributions,
             rtcCenter: metadata.rtcCenter,
+            renderable: asset.meshes.some(mesh => mesh.getTotalVertices() > 0),
         };
     } finally {
         if (stats) {
