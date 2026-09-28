@@ -154,7 +154,11 @@ export default class TerrainRGB {
                 minimum = Math.min(minimum, grid.data[i]);
                 maximum = Math.max(maximum, grid.data[i]);
             }
-            const suspectCoast = sourceZoom >= 8 && minimum < -20 && maximum > 0;
+            // A corrupt tile can be entirely water, so a positive sample is
+            // not required before checking deep pits. Small raised patches in
+            // otherwise low terrain need the same audit after a stale worker.
+            const suspectCoast = sourceZoom >= 8 && (minimum < -20
+                || sourceZoom >= 10 && maximum > 40 && minimum < 10);
             const checked = suspectCoast ? TerrainRGB.repairIsolatedSpikes(grid, sourceZoom) : grid;
             const smoothed = smoothNearSeaLevel(checked.data, sourceZoom);
             return smoothed ? { ...checked, data: smoothed } : checked;

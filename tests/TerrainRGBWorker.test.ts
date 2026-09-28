@@ -58,3 +58,37 @@ it("repairs a moderate riverbank seam returned by a stale worker", async () => {
         vi.unstubAllGlobals();
     }
 });
+
+it("repairs a deep pit when a stale worker returns an all-water tile", async () => {
+    const data = new Float32Array(64 * 64).fill(-1);
+    for (let y = 8; y < 32; y++) for (let x = 8; x < 32; x++) data[y * 64 + x] = -15000;
+    const worker = vi.spyOn(TerrainRGBDecodePool, "get").mockReturnValue({
+        decode: vi.fn(async () => ({ data, width: 64, height: 64 })),
+    } as unknown as TerrainRGBDecodePool);
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, blob: async () => new Blob() })));
+    try {
+        const grid = await new TerrainRGB({ maxZoom: 15 }).load(new Vector3(0, 0, 15), new AbortController().signal);
+        expect(Math.min(...grid.data)).toBeGreaterThan(-20);
+        expect(data[12 * 64 + 12]).toBe(-15000);
+    } finally {
+        worker.mockRestore();
+        vi.unstubAllGlobals();
+    }
+});
+
+it("repairs a raised waterfront patch when a stale worker returns only positive heights", async () => {
+    const data = new Float32Array(64 * 64).fill(2);
+    for (let y = 8; y < 24; y++) for (let x = 8; x < 24; x++) data[y * 64 + x] = 80;
+    const worker = vi.spyOn(TerrainRGBDecodePool, "get").mockReturnValue({
+        decode: vi.fn(async () => ({ data, width: 64, height: 64 })),
+    } as unknown as TerrainRGBDecodePool);
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, blob: async () => new Blob() })));
+    try {
+        const grid = await new TerrainRGB({ maxZoom: 15 }).load(new Vector3(0, 0, 15), new AbortController().signal);
+        expect(Math.max(...grid.data)).toBeLessThan(10);
+        expect(data[12 * 64 + 12]).toBe(80);
+    } finally {
+        worker.mockRestore();
+        vi.unstubAllGlobals();
+    }
+});
