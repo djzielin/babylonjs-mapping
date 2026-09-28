@@ -169,6 +169,8 @@ export default class Google3DTiles {
     private frustumCache?;
     private frontierCache?;
     private networkActive;
+    private networkActiveOffscreen;
+    private networkDispatchCount;
     private networkWaiters;
     private networkDrainQueued;
     private drainNetwork;

@@ -1179,6 +1179,32 @@ it("promotes queued tiles in the new view after a camera turn at the same positi
   provider.dispose(); scene.dispose(); engine.dispose();
 });
 
+it("starts outer-radius requests while visible requests remain queued", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  const activeReleases: (() => void)[] = [];
+  const active = Array.from({ length: 48 }, () => provider.networkSlot(() =>
+    new Promise<void>(resolve => activeReleases.push(resolve))));
+  await vi.waitFor(() => expect(activeReleases).toHaveLength(48));
+  const visibleReleases: (() => void)[] = [];
+  const offscreenReleases: (() => void)[] = [];
+  let unblockQueued = false;
+  const visible = Array.from({ length: 16 }, () => provider.networkSlot(() =>
+    unblockQueued ? Promise.resolve() : new Promise<void>(resolve => visibleReleases.push(resolve)), 0));
+  const offscreen = Array.from({ length: 16 }, () => provider.networkSlot(() =>
+    unblockQueued ? Promise.resolve() : new Promise<void>(resolve => offscreenReleases.push(resolve)), 1e9));
+  activeReleases.slice(0, 8).forEach(release => release());
+  await vi.waitFor(() => expect(visibleReleases.length + offscreenReleases.length).toBe(8));
+  expect(visibleReleases.length).toBeGreaterThan(offscreenReleases.length);
+  expect(offscreenReleases.length).toBeGreaterThan(0);
+  unblockQueued = true;
+  activeReleases.slice(8).forEach(release => release());
+  visibleReleases.forEach(release => release());
+  offscreenReleases.forEach(release => release());
+  await Promise.all([...active, ...visible, ...offscreen]);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
 it("ranks visible missing coverage and projected detail in the shared request queue", () => {
   const { engine, scene, tileSet } = createTileSet();
   const provider = new Google3DTiles(tileSet, { cullToCamera: true }) as any;

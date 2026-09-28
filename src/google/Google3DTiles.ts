@@ -223,7 +223,9 @@ export default class Google3DTiles {
     private frustumCache?: { camera: Camera; updateFlag: number; planes: Plane[] };
     private frontierCache?: { key: string; selections: TileSelection[] };
     private networkActive = 0;
-    private networkWaiters: Array<{ priority: number | (() => number); resume: () => void; distance?: number; evaluatedAt?: number }> = [];
+    private networkActiveOffscreen = 0;
+    private networkDispatchCount = 0;
+    private networkWaiters: Array<{ priority: number | (() => number); resume: (offscreen: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
 
     private networkDrainQueued = false;
     private drainNetwork(): void {
@@ -240,19 +242,31 @@ export default class Google3DTiles {
                 waiter.evaluatedAt = this.requestPriorityRevision;
             }
             this.networkWaiters.sort((a, b) => a.distance! - b.distance!);
+            let offscreen = this.networkWaiters.filter(waiter => waiter.distance! >= 1e9).length;
+            let visible = this.networkWaiters.length - offscreen;
             while (this.networkActive < 48 && this.networkWaiters.length) {
+                const offscreenShare = Math.min(24, Math.max(8, Math.ceil(48 *
+                    (offscreen + this.networkActiveOffscreen) / Math.max(1, offscreen + visible + this.networkActive))));
+                const reserveOffscreen = offscreen > 0 && (visible === 0 ||
+                    (this.networkActiveOffscreen < offscreenShare && this.networkDispatchCount % 4 === 3));
+                const index = reserveOffscreen ? visible : 0;
+                const next = this.networkWaiters.splice(index, 1)[0];
+                const isOffscreen = next.distance! >= 1e9;
+                if (isOffscreen) offscreen--; else visible--;
                 this.networkActive++;
-                this.networkWaiters.shift()!.resume();
+                if (isOffscreen) this.networkActiveOffscreen++;
+                if (offscreen > 0 && visible > 0) this.networkDispatchCount++;
+                next.resume(isOffscreen);
             }
         });
     }
     private async networkSlot<T>(work: () => Promise<T>, priority: number | (() => number) = 0): Promise<T> {
-        await new Promise<void>(resolve => {
+        const offscreen = await new Promise<boolean>(resolve => {
             this.networkWaiters.push({ priority, resume: resolve });
             this.drainNetwork();
         });
         try { return await work(); }
-        finally { this.networkActive--; this.drainNetwork(); }
+        finally { this.networkActive--; if (offscreen) this.networkActiveOffscreen--; this.drainNetwork(); }
     }
 
     constructor(
