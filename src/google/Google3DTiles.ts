@@ -2241,7 +2241,7 @@ async function defaultTilesetLoader(url: string): Promise<Google3DTileset> {
     return response.json() as Promise<Google3DTileset>;
 }
 
-/** Remove photogrammetry skirts that plunge below a coastal tile's surface. */
+/** Remove coastal photogrammetry skirts and oversized water fill polygons. */
 export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): number {
     const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
     const indices = mesh.getIndices();
@@ -2262,7 +2262,26 @@ export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): 
     let kept: number[] | undefined;
     for (let i = 0; i + 2 < indices.length; i += 3) {
         const a = indices[i], b = indices[i + 1], c = indices[i + 2];
-        if (heights[a] >= cutoff && heights[b] >= cutoff && heights[c] >= cutoff) {
+        const deepSkirt = heights[a] < cutoff || heights[b] < cutoff || heights[c] < cutoff;
+        // Google sometimes fills stretches of coastal water with single flat
+        // triangles hundreds of metres wide. At street LOD these show as hard
+        // dark blocks over the satellite water. The ready raster remains below.
+        const nearSurface = [a, b, c].every(index => Math.abs(heights[index] - lowSurface) < 5);
+        let oversizedFill = false;
+        if (nearSurface) {
+            const worldEdgeSquared = (left: number, right: number) => {
+                const l = left * 3, r = right * 3;
+                const dx = positions[l] - positions[r], dy = positions[l + 1] - positions[r + 1],
+                    dz = positions[l + 2] - positions[r + 2];
+                const wx = dx * matrix[0] + dy * matrix[4] + dz * matrix[8];
+                const wy = dx * matrix[1] + dy * matrix[5] + dz * matrix[9];
+                const wz = dx * matrix[2] + dy * matrix[6] + dz * matrix[10];
+                return (wx * wx + wy * wy + wz * wz) / (metresToWorld * metresToWorld);
+            };
+            oversizedFill = Math.max(worldEdgeSquared(a, b), worldEdgeSquared(b, c),
+                worldEdgeSquared(c, a)) > 150 * 150;
+        }
+        if (!deepSkirt && !oversizedFill) {
             if (kept) kept.push(a, b, c);
         } else {
             if (!kept) kept = Array.from(indices).slice(0, i);

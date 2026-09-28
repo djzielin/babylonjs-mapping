@@ -324,7 +324,7 @@ export default class Google3DTiles {
     private updateAttribution;
     private getTileSetBounds;
 }
-/** Remove photogrammetry skirts that plunge below a coastal tile's surface. */
+/** Remove coastal photogrammetry skirts and oversized water fill polygons. */
 export declare function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): number;
 /** Extracts Google attribution and CESIUM_RTC metadata from a GLB JSON chunk. */
 export declare function parseGoogleGLBMetadata(buffer: ArrayBuffer): GoogleGLBMetadata;
