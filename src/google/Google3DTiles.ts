@@ -171,6 +171,26 @@ interface FrontierTile {
     offscreen: boolean;
 }
 
+class ChangedTileMap<T> extends Map<string, T> {
+    constructor(private readonly changed: (url: string) => void) { super(); }
+
+    public override set(url: string, value: T): this {
+        if (this.get(url) !== value) this.changed(url);
+        return super.set(url, value);
+    }
+
+    public override delete(url: string): boolean {
+        const removed = super.delete(url);
+        if (removed) this.changed(url);
+        return removed;
+    }
+
+    public override clear(): void {
+        for (const url of this.keys()) this.changed(url);
+        super.clear();
+    }
+}
+
 interface LoadedTileset {
     tileset: Google3DTileset;
     url: string;
@@ -223,7 +243,8 @@ export default class Google3DTiles {
     private rootRequest?: { key: string; promise: Promise<Google3DTileset> };
     private session: string | undefined;
     private readonly externalTilesets = new Map<string, Promise<LoadedTileset>>();
-    private readonly loadedTiles = new Map<string, LoadedGoogle3DTile>();
+    private readonly dirtyCoverageEntries = new Set<string>();
+    private readonly loadedTiles = new ChangedTileMap<LoadedGoogle3DTile>(url => this.dirtyCoverageEntries.add(url));
     private retainedTiles = new Map<string, LoadedGoogle3DTile>();
     private generation = 0;
     private desiredTiles = new Map<string, TileSelection>();
@@ -358,16 +379,16 @@ export default class Google3DTiles {
     private broadCoverage = new Map<string, TileSelection>();
     private coverageTests = new WeakMap<TileSelection, (latitude: number, longitude: number) => boolean>();
     private footprintEnvelopes = new WeakMap<TileSelection, GeographicBounds>();
-    private loadedSelections = new Map<string, TileSelection>();
+    private loadedSelections = new ChangedTileMap<TileSelection>(url => this.dirtyCoverageEntries.add(url));
 
     /** Whether loaded model bounds cover this geographic position. */
     public coversLocation(latitude: number, longitude: number): boolean {
         const key = `${this.coverageVersion}/${this.loadedTiles.size}`;
-        if (this.coverageKey !== key) {
+        if (this.coverageKey !== key || this.dirtyCoverageEntries.size) {
             this.coverageKey = key;
-            for (const [url, indexed] of this.indexedCoverage) {
-                if (this.loadedTiles.has(url)
-                    && (this.loadedSelections.get(url) ?? this.desiredTiles.get(url)) === indexed) continue;
+            for (const url of this.dirtyCoverageEntries) {
+                const indexed = this.indexedCoverage.get(url);
+                if (!indexed) continue;
                 this.indexedCoverage.delete(url);
                 if (!this.broadCoverage.delete(url)) {
                     const bounds = this.footprintEnvelopes.get(indexed);
@@ -383,9 +404,10 @@ export default class Google3DTiles {
                         }
                 }
             }
-            for (const url of this.loadedTiles.keys()) {
+            for (const url of this.dirtyCoverageEntries) {
+                if (!this.loadedTiles.has(url)) continue;
                 const selection = this.loadedSelections.get(url) ?? this.desiredTiles.get(url);
-                if (!selection?.boundingVolume || this.indexedCoverage.get(url) === selection) continue;
+                if (!selection?.boundingVolume) continue;
                 this.indexedCoverage.set(url, selection);
                 const bounds = geographicEnvelope(selection);
                 if (!bounds) {
@@ -404,6 +426,7 @@ export default class Google3DTiles {
                         entries.push(selection); this.coverageIndex.set(cell, entries);
                     }
             }
+            this.dirtyCoverageEntries.clear();
         }
         const nearby = this.coverageIndex.get(`${Math.floor(longitude * 1000)}/${Math.floor(latitude * 1000)}`) ?? [];
         for (const selection of nearby) if (this.coverageTest(selection)(latitude, longitude)) return true;

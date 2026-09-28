@@ -167,6 +167,11 @@ class GlobeDemo {
     private depthCamera?: Scene["activeCamera"];
     private reversedDepth = false;
     private framePacing = new MotionFrameProfile(600);
+    private longFrameObserver?: PerformanceObserver;
+    private longestAnimationFrame = 0;
+    private longestFrameScript = "unattributed";
+    private longestFrameBreakdown = "";
+    private benchmarkPhaseMax = new Map<string, number>();
     private benchmark?: { started: number; previous: number; heading: number; tilt: number; shift: Vector3;
         moving: boolean; fullSpeed: boolean; profile: MotionFrameProfile;
         maxSelectionLagMeters: number; knownIncomplete: boolean };
@@ -238,6 +243,15 @@ class GlobeDemo {
                     ? fullSpeed ? this.movementSpeed() * 4 : Math.min(200 * this.detailGlobe.metresToWorld, this.movementSpeed()) : 0),
                 moving, fullSpeed, profile: new MotionFrameProfile(30000),
                 maxSelectionLagMeters: 0, knownIncomplete: false };
+            this.longestAnimationFrame = 0;
+            this.longestFrameScript = "unattributed";
+            this.longestFrameBreakdown = "";
+            this.benchmarkPhaseMax.clear();
+            if (typeof PerformanceObserver !== "undefined"
+                && PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame")) {
+                this.longFrameObserver = new PerformanceObserver(list => this.recordLongFrames(list.getEntries()));
+                this.longFrameObserver.observe({ type: "long-animation-frame" });
+            }
             document.getElementById("benchmark")!.textContent = "Stop measurement";
         });
         this.terrainBatcher = new TerrainBatcher(this.scene,
@@ -284,6 +298,7 @@ class GlobeDemo {
         });
         document.getElementById("googleQuality")!.addEventListener("change", () => this.scheduleGoogleTiles(true));
         this.engine.runRenderLoop(() => {
+            const frameStarted = performance.now();
             this.updateBenchmark();
             this.updateMovement();
             if (this.depthPass && this.depthCamera !== this.scene.activeCamera) {
@@ -294,6 +309,8 @@ class GlobeDemo {
             this.terrainTransition.update(performance.now());
             this.buildingTransition.update(performance.now(), this.googleTiles && !this.googleFarHidden
                 ? (lat, lon) => this.googleCoversLocation(lat, lon) : undefined);
+            this.sampleBenchmarkPhase("movement+transitions", frameStarted);
+            const registrationStarted = performance.now();
             const googleRevision = this.googleTiles?.coverageRevision ?? -1;
             if (this.registeredGoogleTiles !== this.googleTiles || this.registeredGoogleRevision !== googleRevision) {
                 this.registeredGoogleTiles = this.googleTiles;
@@ -316,6 +333,8 @@ class GlobeDemo {
                     }
                 }
             }
+            this.sampleBenchmarkPhase("model registration", registrationStarted);
+            const replacementStarted = performance.now();
             // Resolve Google/Overture overlap before drawing the newly enabled model.
             if (googleRevision !== this.lastCoverageRevision) {
                 this.lastCoverageRevision = googleRevision;
@@ -326,8 +345,11 @@ class GlobeDemo {
                     mesh.setEnabled(!this.googleCoversLocation(point.latitude, point.longitude));
                 }
             }
+            this.sampleBenchmarkPhase("coverage replacement", replacementStarted);
             const renderStart = performance.now();
             this.scene.render();
+            this.sampleBenchmarkPhase("scene render", renderStart);
+            const frameTailStarted = performance.now();
             this.framePacing.sample(performance.now(), this.scene.activeCamera!.getViewMatrix().m, !document.hidden);
             this.benchmark?.profile.sample(performance.now(), this.scene.activeCamera!.getViewMatrix().m, !document.hidden);
             this.renderTimes.push(performance.now() - renderStart);
@@ -388,6 +410,7 @@ class GlobeDemo {
                 document.getElementById("performance")!.textContent =
                     `${this.engine.getFps().toFixed(0)} FPS${heap} · ${this.scene.getActiveMeshes().length} active meshes · ${stat.active} detail jobs · ${buildingJobs} building / ${roadJobs} road jobs · ${stat.completed} completed · ${stat.failed} errors${this.googleTiles ? ` · Google: ${this.googleTiles.stats.hierarchyRequests} hierarchy / ${this.googleTiles.stats.modelRequests} fetched / ${this.googleTiles.stats.reusedModels} reused · last update ${this.canvas.dataset.googleLoadMs ?? "—"} ms` : ""}`;
             }
+            this.sampleBenchmarkPhase("post-render+stats", frameTailStarted);
         });
         const requestedPreset = new URLSearchParams(window.location.search).get("preset");
         if (requestedPreset) {
@@ -1453,6 +1476,11 @@ class GlobeDemo {
     private finishBenchmark(message?: string): void {
         const run = this.benchmark;
         const result = run?.profile.summary();
+        if (this.longFrameObserver) {
+            this.recordLongFrames(this.longFrameObserver.takeRecords());
+            this.longFrameObserver.disconnect();
+            this.longFrameObserver = undefined;
+        }
         this.benchmark = undefined;
         const textures = new Set<GPUTexture>();
         if (this.engine.isWebGPU) for (const texture of this.engine.getLoadedTexturesCache()) {
@@ -1470,9 +1498,38 @@ class GlobeDemo {
                     * texture.depthOrArrayLayers * texture.sampleCount;
         }
         const memory = textures.size ? ` · ${textures.size} texture allocations / ${(textureBytes / 1048576).toFixed(0)} MiB estimated` : "";
+        const longFrame = this.longestAnimationFrame
+            ? ` · longest animation frame ${this.longestAnimationFrame.toFixed(0)} ms (${this.longestFrameScript}; ${this.longestFrameBreakdown})` : "";
+        const phases = [...this.benchmarkPhaseMax].map(([name, duration]) => `${name} ${duration.toFixed(0)} ms`).join(", ");
         document.getElementById("benchmark")!.textContent = "Measure frame pacing";
         document.getElementById("benchmarkResult")!.textContent = message ?? (result
-            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · p99.9 ${result.p999.toFixed(1)} ms · worst ${result.worst.toFixed(1)} ms · selection center lag up to ${((run?.maxSelectionLagMeters ?? 0) / 1000).toFixed(1)} km · full-radius quality ${run?.knownIncomplete ? "known incomplete" : "unverified"}; diagnostic only${memory}` : "");
+            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · p99.9 ${result.p999.toFixed(1)} ms · worst ${result.worst.toFixed(1)} ms · selection center lag up to ${((run?.maxSelectionLagMeters ?? 0) / 1000).toFixed(1)} km · full-radius quality ${run?.knownIncomplete ? "known incomplete" : "unverified"}; diagnostic only${memory}${longFrame} · phase max: ${phases}` : "");
+    }
+
+    private sampleBenchmarkPhase(name: string, started: number): void {
+        if (!this.benchmark) return;
+        this.benchmarkPhaseMax.set(name, Math.max(this.benchmarkPhaseMax.get(name) ?? 0, performance.now() - started));
+    }
+
+    private recordLongFrames(entries: PerformanceEntry[]): void {
+        for (const entry of entries as Array<PerformanceEntry & { renderStart?: number;
+            styleAndLayoutStart?: number; blockingDuration?: number; scripts?: Array<{
+            duration: number; sourceFunctionName?: string; sourceURL?: string }> }>) {
+            if (entry.duration <= this.longestAnimationFrame) continue;
+            this.longestAnimationFrame = entry.duration;
+            const script = entry.scripts?.reduce((longest, current) =>
+                !longest || current.duration > longest.duration ? current : longest, undefined as
+                    { duration: number; sourceFunctionName?: string; sourceURL?: string } | undefined);
+            const source = script?.sourceURL?.split("?")[0].split("/").pop() ?? "browser";
+            this.longestFrameScript = script
+                ? `${script.sourceFunctionName || source} ${script.duration.toFixed(0)} ms` : "unattributed";
+            const totalScript = entry.scripts?.reduce((total, item) => total + item.duration, 0) ?? 0;
+            const beforeRender = entry.renderStart === undefined ? 0 : entry.renderStart - entry.startTime;
+            const afterRender = entry.renderStart === undefined ? 0 : entry.startTime + entry.duration - entry.renderStart;
+            this.longestFrameBreakdown = `${entry.scripts?.length ?? 0} scripts / ${totalScript.toFixed(0)} ms script, `
+                + `${beforeRender.toFixed(0)} ms before render, ${afterRender.toFixed(0)} ms after render, `
+                + `${(entry.blockingDuration ?? 0).toFixed(0)} ms blocking`;
+        }
     }
 
     private updateBenchmark(): void {

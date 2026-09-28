@@ -184,6 +184,7 @@ export default class Google3DTiles {
     private rootRequest?;
     private session;
     private readonly externalTilesets;
+    private readonly dirtyCoverageEntries;
     private readonly loadedTiles;
     private retainedTiles;
     private generation;

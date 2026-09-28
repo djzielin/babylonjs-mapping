@@ -163,6 +163,7 @@ it("updates only changed resident geographic coverage when tiles swap", () => {
   expect(provider.coversLocation(40.745,-74.0095)).toBe(true);
   expect(provider.coversLocation(40.745,-73.9895)).toBe(true);
   const stableCell=(provider as any).coverageIndex.get("-74010/40745");
+  const fullResidentScan=vi.spyOn((provider as any).loadedTiles,"keys");
   (provider as any).loadedSelections.set("changing",selection("changing",-73.97,-73.969));
   (provider as any).coverageKey="";
   expect(provider.coversLocation(40.745,-73.9895)).toBe(false);
@@ -172,6 +173,8 @@ it("updates only changed resident geographic coverage when tiles swap", () => {
   (provider as any).coverageKey="";
   expect(provider.coversLocation(40.745,-73.9695)).toBe(false);
   expect(provider.coversLocation(40.745,-74.0095)).toBe(true);
+  expect(fullResidentScan).not.toHaveBeenCalled();
+  fullResidentScan.mockRestore();
   (provider as any).loadedTiles.delete("stable");
   provider.dispose();scene.dispose();engine.dispose();
 });
