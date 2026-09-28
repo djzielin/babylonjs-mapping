@@ -140,6 +140,8 @@ class GlobeDemo {
     private googleKey = "";
     private googleViewKey = "";
     private googlePriorityKey = "";
+    private googleSelectionBearing = "";
+    private googleTurnPending = false;
     private googleTimer?: ReturnType<typeof setTimeout>;
     private googleGeneration = 0;
     private googleMeshes = new WeakSet<object>();
@@ -1131,6 +1133,7 @@ class GlobeDemo {
         // Small distance changes can reveal new detail before crossing a raster zoom level.
         const direction = this.scene.activeCamera!.getForwardRay().direction;
         const bearing = [direction.x, direction.y, direction.z].map(value => Math.round(value * 50)).join("/");
+        const selectionBearing = [direction.x, direction.y, direction.z].map(value => Math.round(value * 12)).join("/");
         const distanceStep = Math.round(Math.log(Math.max(view.altitude, 1e-9)) / Math.log(1.05));
         const positionStep = Math.max(2, Math.min(150, view.altitude / this.detailGlobe.metresToWorld * 0.08));
         const positionKey = `${Math.round(view.latitude * 111320 / positionStep)}/${Math.round(view.longitude * 111320 * Math.cos(view.latitude * Math.PI / 180) / positionStep)}`;
@@ -1144,6 +1147,15 @@ class GlobeDemo {
         if (priorityKey !== this.googlePriorityKey) {
             this.googlePriorityKey = priorityKey;
             if (key) this.googleTiles?.reprioritizeRequests();
+        }
+        if (key && selectionBearing !== this.googleSelectionBearing) {
+            this.googleSelectionBearing = selectionBearing;
+            this.googleTurnPending = true;
+        }
+        if (key && this.googleTurnPending && !this.googleLoading && !this.googleTimer && this.googleTiles) {
+            this.googleTurnPending = false;
+            const quality = this.googleTiles.measureVisibleQuality();
+            if (!quality.visibleTiles || quality.underDetailedTiles) force = true;
         }
         if (!force && key === this.googleViewKey) return;
         this.googleViewKey = key;
@@ -1170,6 +1182,8 @@ class GlobeDemo {
         this.googleTimer = undefined;
         const generation = ++this.googleGeneration;
         if (!key) {
+            this.googleSelectionBearing = "";
+            this.googleTurnPending = false;
             this.googleLoading = false;
             const retained = enabled && !showDetail && !!this.googleTiles;
             if (retained && this.googleTiles) {
@@ -1232,6 +1246,7 @@ class GlobeDemo {
             provider.maxTiles = 2048;
             provider.maxPendingHierarchy = 32;
             this.googleLoading = true;
+            this.googleTurnPending = false;
             this.googlePassStartedAt = performance.now();
             this.googleStatus("Google 3D · streaming visible detail…");
             const started = performance.now();
@@ -1288,7 +1303,8 @@ class GlobeDemo {
             } finally {
                 if (generation === this.googleGeneration) {
                     this.googleLoading = false;
-                    if (this.googleViewKey !== key) this.scheduleGoogleTiles(true);
+                    if (this.googleViewKey !== key || this.googleTurnPending)
+                        this.scheduleGoogleTiles(this.googleViewKey !== key);
                 }
             }
         }, 35);
