@@ -145,16 +145,17 @@ export default class TerrainRGB {
         const workers = TerrainRGBDecodePool.get();
         if (workers) try {
             const grid = await workers.decode(blob, this.encoding, sourceZoom);
-            // A worker can outlive a hot update to the decoder. Never send an
-            // impossible coastal pit straight to globe geometry in that case.
-            // The normal worker path is already repaired and only pays for a
-            // linear check, keeping the actual repair off the render thread.
-            let impossibleDepth = false;
-            for (let i = 0; i < grid.data.length; i++) if (grid.data[i] < -12000) {
-                impossibleDepth = true;
-                break;
+            // A worker can outlive a hot update to the decoder. A shallow
+            // coastal tile with a deep sample needs validation before its DEM
+            // reaches globe geometry. Already-repaired tiles only pay for a
+            // linear range check; the normal repair stays off the render thread.
+            let minimum = Infinity, maximum = -Infinity;
+            for (let i = 0; i < grid.data.length; i++) {
+                minimum = Math.min(minimum, grid.data[i]);
+                maximum = Math.max(maximum, grid.data[i]);
             }
-            const checked = impossibleDepth ? TerrainRGB.repairIsolatedSpikes(grid, sourceZoom) : grid;
+            const suspectCoast = sourceZoom >= 8 && minimum < -20 && maximum > 0;
+            const checked = suspectCoast ? TerrainRGB.repairIsolatedSpikes(grid, sourceZoom) : grid;
             const smoothed = smoothNearSeaLevel(checked.data, sourceZoom);
             return smoothed ? { ...checked, data: smoothed } : checked;
         } catch { /* Unsupported workers use the same main-thread decoder. */ }

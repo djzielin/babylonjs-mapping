@@ -41,3 +41,20 @@ it("repairs an impossible river pit even when a stale worker returns raw heights
         vi.unstubAllGlobals();
     }
 });
+
+it("repairs a moderate riverbank seam returned by a stale worker", async () => {
+    const data = new Float32Array(64 * 64).fill(2);
+    for (let y = 8; y < 56; y++) data[y * 64 + 32] = -76;
+    const worker = vi.spyOn(TerrainRGBDecodePool, "get").mockReturnValue({
+        decode: vi.fn(async () => ({ data, width: 64, height: 64 })),
+    } as unknown as TerrainRGBDecodePool);
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, blob: async () => new Blob() })));
+    try {
+        const grid = await new TerrainRGB({ maxZoom: 15 }).load(new Vector3(0, 0, 15), new AbortController().signal);
+        expect(Math.min(...grid.data)).toBeGreaterThan(0);
+        expect(data[30 * 64 + 32]).toBe(-76);
+    } finally {
+        worker.mockRestore();
+        vi.unstubAllGlobals();
+    }
+});
