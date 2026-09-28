@@ -158,6 +158,14 @@ export default class Google3DTiles {
         replacementMs: number;
         modelWaitMs: number;
         loadMs: number;
+        modelFetchMs: number;
+        modelDecodeMs: number;
+        modelIntegrationMs: number;
+        modelIntegrationMaxMs: number;
+        modelFetchCount: number;
+        modelDecodeCount: number;
+        modelDecodeActive: number;
+        peakModelDecodeActive: number;
         peakHierarchyActive: number;
         peakModelActive: number;
         peakNetworkActive: number;

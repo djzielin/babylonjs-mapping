@@ -357,6 +357,17 @@ class GlobeDemo {
                 const googleSources = this.googleTiles?.getAttributions() ?? [];
                 document.getElementById("googleSources")!.textContent = googleSources.join("; ");
                 document.getElementById("googleCredits")!.hidden = this.googleFarHidden || !(this.googleTiles?.loadedModelTiles.length);
+                if (this.googleTiles) {
+                    const stages = this.googleTiles.stats;
+                    this.canvas.dataset.googleModelFetchCount = String(stages.modelFetchCount);
+                    this.canvas.dataset.googleModelDecodeCount = String(stages.modelDecodeCount);
+                    this.canvas.dataset.googleModelFetchMs = String(Math.round(stages.modelFetchMs));
+                    this.canvas.dataset.googleModelDecodeMs = String(Math.round(stages.modelDecodeMs));
+                    this.canvas.dataset.googleModelDecodeActive = String(stages.modelDecodeActive);
+                    this.canvas.dataset.googlePeakModelDecodeActive = String(stages.peakModelDecodeActive);
+                    this.canvas.dataset.googleModelIntegrationMs = String(Math.round(stages.modelIntegrationMs));
+                    this.canvas.dataset.googleModelIntegrationMaxMs = String(Math.round(stages.modelIntegrationMaxMs));
+                }
 
                 const stat = this.distanceLayers.reduce<{ active: number; completed: number; failed: number }>((total, layer) => ({
                     active: total.active + layer.data.stats.active,

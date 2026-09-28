@@ -205,6 +205,8 @@ export default class Google3DTiles {
     public readonly stats = { hierarchyRequests: 0, modelRequests: 0, reusedModels: 0,
         detailLimitedTiles: 0, sourceLimitedTiles: 0, rootMs: 0, frontierTraversalMs: 0,
         frontierCommitMs: 0, replacementMs: 0, modelWaitMs: 0, loadMs: 0,
+        modelFetchMs: 0, modelDecodeMs: 0, modelIntegrationMs: 0, modelIntegrationMaxMs: 0,
+        modelFetchCount: 0, modelDecodeCount: 0, modelDecodeActive: 0, peakModelDecodeActive: 0,
         peakHierarchyActive: 0, peakModelActive: 0, peakNetworkActive: 0 };
     public origin?: Google3DTilesOrigin;
 
@@ -309,7 +311,7 @@ export default class Google3DTiles {
         this.origin = options.origin;
         this.apiKey = options.apiKey ?? "";
         this.tilesetLoader = options.tilesetLoader ?? defaultTilesetLoader;
-        this.modelTileLoader = options.modelTileLoader ?? defaultModelTileLoader;
+        this.modelTileLoader = options.modelTileLoader ?? ((url, scene) => defaultModelTileLoader(url, scene, this.stats));
     }
 
     /** Content currently attached to the Babylon scene. */
@@ -1585,6 +1587,7 @@ export default class Google3DTiles {
             if (!model) {
                 return undefined;
             }
+            const integrationStarted = performance.now();
             if (this.getOriginStateKey(origin) !== this.originStateKey) {
                 model.asset.dispose();
                 return undefined;
@@ -1623,6 +1626,9 @@ export default class Google3DTiles {
             for (const node of model.asset.rootNodes) {
                 node.parent = root;
             }
+            const integrationDuration = performance.now() - integrationStarted;
+            this.stats.modelIntegrationMs += integrationDuration;
+            this.stats.modelIntegrationMaxMs = Math.max(this.stats.modelIntegrationMaxMs, integrationDuration);
 
             const result: LoadedGoogle3DTile = {
                 url: selection.url,
@@ -1836,7 +1842,9 @@ async function defaultTilesetLoader(url: string): Promise<Google3DTileset> {
 async function defaultModelTileLoader(
     url: string,
     scene: Scene,
+    stats?: Google3DTiles["stats"],
 ): Promise<LoadedGoogleModelTile | undefined> {
+    const fetchStarted = performance.now();
     const response = await fetch(url);
     if (response.status === 204 || response.status === 404) {
         return undefined;
@@ -1846,18 +1854,32 @@ async function defaultModelTileLoader(
     }
 
     const buffer = await response.arrayBuffer();
-    const metadata = parseGoogleGLBMetadata(buffer);
-    // Babylon uses the file name in embedded-texture cache keys. Each
-    // GLB has a different image atlas, even when all images are called image0.
-    await import("@babylonjs/loaders/glTF/index.js");
-    const asset = await LoadAssetContainerAsync(new Uint8Array(buffer), scene, {
-        pluginExtension: ".glb", name: `google-photorealistic-tile-${nextModelFileId++}.glb`,
-    });
-    return {
-        asset,
-        attributions: metadata.attributions,
-        rtcCenter: metadata.rtcCenter,
-    };
+    if (stats) { stats.modelFetchMs += performance.now() - fetchStarted; stats.modelFetchCount++; }
+    const decodeStarted = performance.now();
+    if (stats) {
+        stats.modelDecodeActive++;
+        stats.peakModelDecodeActive = Math.max(stats.peakModelDecodeActive, stats.modelDecodeActive);
+    }
+    try {
+        const metadata = parseGoogleGLBMetadata(buffer);
+        // Babylon uses the file name in embedded-texture cache keys. Each
+        // GLB has a different image atlas, even when all images are called image0.
+        await import("@babylonjs/loaders/glTF/index.js");
+        const asset = await LoadAssetContainerAsync(new Uint8Array(buffer), scene, {
+            pluginExtension: ".glb", name: `google-photorealistic-tile-${nextModelFileId++}.glb`,
+        });
+        return {
+            asset,
+            attributions: metadata.attributions,
+            rtcCenter: metadata.rtcCenter,
+        };
+    } finally {
+        if (stats) {
+            stats.modelDecodeActive--;
+            stats.modelDecodeMs += performance.now() - decodeStarted;
+            stats.modelDecodeCount++;
+        }
+    }
 }
 
 /** Extracts Google attribution and CESIUM_RTC metadata from a GLB JSON chunk. */
