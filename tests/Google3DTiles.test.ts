@@ -119,6 +119,35 @@ it("suppresses an Overture footprint when a resident Google tile clips its edge"
   provider.dispose();scene.dispose();engine.dispose();
 });
 
+it("shows Overture only until a Google model covers the same building footprint", async () => {
+  const {default: BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
+  const engine=new NullEngine(),scene=new Scene(engine);
+  const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+  globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(40.7484,-73.9857,14);
+  const tile=globe.ourTiles[0], google=new Google3DTiles(globe);
+  const overture=new BuildingsOverture(globe,"https://example.invalid/buildings.pmtiles");
+  overture.batchGeometry=true;overture.doMerge=true;
+  overture.batchVisibilityFilter=(lat,lon,bounds)=>!google.coversLocation(lat,lon)
+    && !(bounds && google.overlapsFootprint(bounds.south,bounds.west,bounds.north,bounds.east));
+  const feature={type:"Feature",properties:{height:15},geometry:{type:"Polygon",coordinates:[[
+    [-73.9858,40.7483],[-73.9856,40.7483],[-73.9856,40.7485],[-73.9858,40.7485],[-73.9858,40.7483],
+  ]]}};
+  await (overture as any).buildBatch({tile,tileCoords:tile.tileCoords.clone(),epsgType:EPSG_Type.EPSG_4326},[feature]);
+  expect(tile.buildingBatches).toHaveLength(1);
+  expect(tile.buildingBatches[0].isEnabled(false)).toBe(true);
+  const radians=Math.PI/180;
+  (google as any).loadedSelections.set("google",{url:"google",depth:1,boundingVolume:{region:[
+    -73.986*radians,40.748*radians,-73.985*radians,40.749*radians,0,1000,
+  ]}});
+  (google as any).loadedTiles.set("google",{});
+  overture.updateBatchVisibility();
+  expect(tile.buildingBatches[0].isEnabled(false)).toBe(false);
+  (google as any).loadedTiles.delete("google");
+  overture.updateBatchVisibility();
+  expect(tile.buildingBatches[0].isEnabled(false)).toBe(true);
+  google.dispose();scene.dispose();engine.dispose();
+});
+
 it("updates only changed resident geographic coverage when tiles swap", () => {
   const {engine,scene,tileSet}=createTileSet();
   const provider=new Google3DTiles(tileSet);
