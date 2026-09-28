@@ -1406,7 +1406,7 @@ class GlobeDemo {
         const memory = textures.size ? ` · ${textures.size} texture allocations / ${(textureBytes / 1048576).toFixed(0)} MiB estimated` : "";
         document.getElementById("benchmark")!.textContent = "Measure frame pacing";
         document.getElementById("benchmarkResult")!.textContent = message ?? (result
-            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · ${result.low01 >= 200 ? "Pass" : "Below 200 FPS target"}${memory}` : "");
+            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · p99.9 ${result.p999.toFixed(1)} ms · worst ${result.worst.toFixed(1)} ms · full-radius quality unverified; diagnostic only${memory}` : "");
     }
 
     private updateBenchmark(): void {
