@@ -174,7 +174,9 @@ class GlobeDemo {
     private benchmarkPhaseMax = new Map<string, number>();
     private benchmark?: { started: number; previous: number; heading: number; tilt: number; shift: Vector3;
         moving: boolean; fullSpeed: boolean; profile: MotionFrameProfile;
-        maxSelectionLagMeters: number; knownIncomplete: boolean };
+        maxSelectionLagMeters: number; knownIncomplete: boolean; qualitySamples: number;
+        qualityFailures: number; maxVisibleErrorRatio: number; maxUnderDetailedTiles: number;
+        lastQualitySampleAt: number };
     private googleSelectionCenter?: { latitude: number; longitude: number };
 
     public constructor(engine?: GlobeEngine) {
@@ -242,7 +244,9 @@ class GlobeDemo {
                 shift: this.inspectionBasis().north.scale(this.inspecting
                     ? fullSpeed ? this.movementSpeed() * 4 : Math.min(200 * this.detailGlobe.metresToWorld, this.movementSpeed()) : 0),
                 moving, fullSpeed, profile: new MotionFrameProfile(30000),
-                maxSelectionLagMeters: 0, knownIncomplete: false };
+                maxSelectionLagMeters: 0, knownIncomplete: false, qualitySamples: 0,
+                qualityFailures: 0, maxVisibleErrorRatio: 0, maxUnderDetailedTiles: 0,
+                lastQualitySampleAt: -Infinity };
             this.longestAnimationFrame = 0;
             this.longestFrameScript = "unattributed";
             this.longestFrameBreakdown = "";
@@ -363,7 +367,7 @@ class GlobeDemo {
             this.updateOrientation();
             this.updateLandmarks();
             this.updateLandscapeLOD();
-            if (performance.now() - this.lastGoogleCheck > 100) {
+            if (performance.now() - this.lastGoogleCheck > 50) {
                 this.lastGoogleCheck = performance.now();
                 this.scheduleGoogleTiles();
             }
@@ -391,6 +395,20 @@ class GlobeDemo {
                     this.canvas.dataset.googlePeakModelDecodeActive = String(stages.peakModelDecodeActive);
                     this.canvas.dataset.googleModelIntegrationMs = String(Math.round(stages.modelIntegrationMs));
                     this.canvas.dataset.googleModelIntegrationMaxMs = String(Math.round(stages.modelIntegrationMaxMs));
+                    if (new URLSearchParams(location.search).has("diagnoseGoogle")) {
+                        this.canvas.dataset.googleVisibleQuality = JSON.stringify(this.googleTiles.measureVisibleQuality());
+                        const scale = this.detailGlobe.metresToWorld;
+                        const largest = this.googleTiles.loadedModelTiles.flatMap(tile => tile.asset.meshes
+                            .filter(mesh => mesh.getTotalVertices() > 0 && mesh.isEnabled())
+                            .map(mesh => {
+                                const box = mesh.getBoundingInfo().boundingBox;
+                                const size = box.maximumWorld.subtract(box.minimumWorld).length() / scale;
+                                const point = this.detailGlobe.getSurfaceCoordinates(box.centerWorld);
+                                return { depth: tile.depth, size: Math.round(size), latitude: +point.latitude.toFixed(4),
+                                    longitude: +point.longitude.toFixed(4), name: mesh.name.slice(0, 40) };
+                            })).sort((a, b) => b.size - a.size).slice(0, 8);
+                        this.canvas.dataset.googleLargestMeshes = JSON.stringify(largest);
+                    }
                 }
 
                 const stat = this.distanceLayers.reduce<{ active: number; completed: number; failed: number }>((total, layer) => ({
@@ -1097,7 +1115,7 @@ class GlobeDemo {
         const math = this.detailGlobe.ourTileMath;
         // Small distance changes can reveal new detail before crossing a raster zoom level.
         const direction = this.scene.activeCamera!.getForwardRay().direction;
-        const bearing = [direction.x, direction.y, direction.z].map(value => Math.round(value * 10)).join("/");
+        const bearing = [direction.x, direction.y, direction.z].map(value => Math.round(value * 50)).join("/");
         const distanceStep = Math.round(Math.log(Math.max(view.altitude, 1e-9)) / Math.log(1.05));
         const positionStep = Math.max(2, Math.min(150, view.altitude / this.detailGlobe.metresToWorld * 0.08));
         const positionKey = `${Math.round(view.latitude * 111320 / positionStep)}/${Math.round(view.longitude * 111320 * Math.cos(view.latitude * Math.PI / 180) / positionStep)}`;
@@ -1171,6 +1189,7 @@ class GlobeDemo {
                 origin: { latitude: currentView.latitude, longitude: currentView.longitude },
                 maxTiles: 2048,
                 maximumDisplayGeometricError: 33,
+                maximumInitialErrorRatio: 2,
                 cullToCamera: true,
                 fullRadiusDemand: true,
                 referenceImageHeight: 2160,
@@ -1190,6 +1209,7 @@ class GlobeDemo {
                 ? screenError : quality === "20" ? 2 : quality === "auto" ? 1 : 0.75;
             provider.maximumScreenSpaceError = targetScreenError;
             provider.maximumDisplayGeometricError = 33;
+            provider.maximumInitialErrorRatio = 2;
             provider.maxTiles = 2048;
             provider.maxPendingHierarchy = 32;
             this.googleLoading = true;
@@ -1504,7 +1524,7 @@ class GlobeDemo {
         const phases = [...this.benchmarkPhaseMax].map(([name, duration]) => `${name} ${duration.toFixed(0)} ms`).join(", ");
         document.getElementById("benchmark")!.textContent = "Measure frame pacing";
         document.getElementById("benchmarkResult")!.textContent = message ?? (result
-            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · p99.9 ${result.p999.toFixed(1)} ms · worst ${result.worst.toFixed(1)} ms · selection center lag up to ${((run?.maxSelectionLagMeters ?? 0) / 1000).toFixed(1)} km · full-radius quality ${run?.knownIncomplete ? "known incomplete" : "unverified"}; diagnostic only${memory}${longFrame} · phase max: ${phases}` : "");
+            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · p99.9 ${result.p999.toFixed(1)} ms · worst ${result.worst.toFixed(1)} ms · selection center lag up to ${((run?.maxSelectionLagMeters ?? 0) / 1000).toFixed(1)} km · visible quality ${run?.qualityFailures ? `FAILED ${run.qualityFailures}/${run.qualitySamples} samples` : "unverified"} (up to ${run?.maxUnderDetailedTiles ?? 0} coarse tiles, ${Math.round(run?.maxVisibleErrorRatio ?? 0)}× error) · full-radius quality ${run?.knownIncomplete ? "known incomplete" : "unverified"}; diagnostic only${memory}${longFrame} · phase max: ${phases}` : "");
     }
 
     private sampleBenchmarkPhase(name: string, started: number): void {
@@ -1545,6 +1565,14 @@ class GlobeDemo {
             this.orientView(run.tilt, (run.heading + seconds * 6) % 360);
         }
         if (this.canvas.dataset.googleFullRadiusQuality === "known-incomplete") run.knownIncomplete = true;
+        if (performance.now() - run.lastQualitySampleAt >= 500) {
+            run.lastQualitySampleAt = performance.now();
+            run.qualitySamples++;
+            const quality = this.googleTiles?.measureVisibleQuality();
+            if (!quality?.visibleTiles || quality.underDetailedTiles > 0) run.qualityFailures++;
+            run.maxVisibleErrorRatio = Math.max(run.maxVisibleErrorRatio, quality?.worstErrorRatio ?? 0);
+            run.maxUnderDetailedTiles = Math.max(run.maxUnderDetailedTiles, quality?.underDetailedTiles ?? 0);
+        }
         const selectionCenter = this.googleTiles?.selectedCoverageCenter ?? this.googleSelectionCenter;
         if (selectionCenter) {
             const view = this.navigator.getView();

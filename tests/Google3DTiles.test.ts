@@ -1268,6 +1268,31 @@ it("shows a prefetched coarse tile during a turn until its finer replacement is 
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
+it("keeps a newly reached coarse model hidden over raster terrain until detail is ready", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const camera = new ArcRotateCamera("eye", 0, 1, 1, globe.getSurfacePosition(0, 0), scene);
+  camera.setPosition(globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld));
+  camera.getViewMatrix(true);
+  const provider = new Google3DTiles(globe, { apiKey: "test", coverageRadius: 1000,
+    maximumScreenSpaceError: 1, maximumInitialErrorRatio: 2, maxDepth: 0,
+    tilesetLoader: async () => ({ root: { boundingVolume: { sphere: [6378137, 0, 0, 100] },
+      geometricError: 16, content: { uri: "coarse.glb" },
+      children: [{ boundingVolume: { sphere: [6378137, 0, 0, 100] },
+        geometricError: 0, content: { uri: "fine.glb" } }] } }),
+    modelTileLoader: createModelLoader([]) });
+  try {
+    await provider.load();
+    expect(provider.loadedModelTiles).toHaveLength(0);
+    expect((provider as any).retainedTiles.size).toBe(1);
+    provider.maxDepth = 1;
+    await provider.load();
+    expect(provider.loadedModelTiles.map(tile => tile.url)).toEqual([expect.stringContaining("fine.glb")]);
+    expect(provider.measureVisibleQuality().underDetailedTiles).toBe(0);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("does not promote a prefetched parent above the display quality limit", async () => {
   const engine = new NullEngine(), scene = new Scene(engine);
   const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
@@ -1506,6 +1531,11 @@ it("ranks visible missing coverage and projected detail in the shared request qu
   const urgent = provider.requestPriority(volume, Matrix.Identity(), 16, true);
   expect(missing).toBeLessThan(covered);
   expect(urgent).toBeLessThan(covered);
+  vi.spyOn(provider, "tilePriority").mockImplementation((candidate: { sphere?: number[] }) =>
+    candidate.sphere?.[0] === 2 ? 600 : 100);
+  const sharperNearby = provider.requestPriority(volume, Matrix.Identity(), 2, true);
+  const badlyCoarseFarther = provider.requestPriority({ sphere: [2, 0, 0, 1] }, Matrix.Identity(), 1024, true);
+  expect(badlyCoarseFarther).toBeLessThan(sharperNearby);
   provider.dispose(); scene.dispose(); engine.dispose();
 });
 
@@ -1555,7 +1585,7 @@ it("commits independent replacement groups while a different subtree is still lo
   provider.dispose(); scene.dispose(); engine.dispose();
 });
 
-it("does not let regional coverage jump ahead of refinement next to the camera", async () => {
+it("continues nearby refinement while requesting regional coverage", async () => {
   const engine = new NullEngine(), scene = new Scene(engine);
   const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
   globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
@@ -1570,6 +1600,10 @@ it("does not let regional coverage jump ahead of refinement next to the camera",
       return { root: { children: Array.from({ length: 17 }, (_, i) => ({ boundingVolume: sphere(i === 0 ? 0 : 0.01 + i * 0.001),
         geometricError: i === 0 ? 16 : 128, content: { uri: `coarse-${i}.glb` }, children: [{ content: { uri: `branch-${i}.json` } }] })) } };
     }, modelTileLoader: createModelLoader([]) });
-  try { await provider.load(); expect(hierarchy[0]).toContain("branch-0.json"); }
+  try {
+    await provider.load();
+    expect(hierarchy.findIndex(url => url.includes("branch-0.json"))).toBeGreaterThanOrEqual(0);
+    expect(hierarchy).toHaveLength(17);
+  }
   finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });

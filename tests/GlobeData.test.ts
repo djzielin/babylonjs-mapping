@@ -559,6 +559,19 @@ describe("terrain encodings and overzoom", () => {
         ).toEqual([0, -1, 1.5]);
         expect(TerrainRGB.decode([0, 0, 0, 255], "mapbox")[0]).toBe(-10000);
     });
+    it("repairs narrow DEM pits while retaining real broad depressions", () => {
+        const width = 11, data = new Float32Array(width * width).fill(10);
+        data[5 * width + 5] = -272;
+        for (let y = 3; y <= 7; y++) data[y * width + 8] = -170;
+        for (let y = 1; y <= 3; y++) for (let x = 1; x <= 3; x++) data[y * width + x] = -180;
+        const source = { data, width, height: width };
+        expect(TerrainRGB.repairIsolatedSpikes(source, 10)).toBe(source);
+        const repaired = TerrainRGB.repairIsolatedSpikes(source, 14);
+        expect(repaired.data[5 * width + 5]).toBe(10);
+        for (let y = 3; y <= 7; y++) expect(repaired.data[y * width + 8]).toBe(10);
+        expect(repaired.data[2 * width + 2]).toBe(-180);
+        expect(source.data[5 * width + 5]).toBe(-272);
+    });
     it("samples the correct ancestor quadrant when overzooming", () => {
         const data = Array.from({ length: 16 }, (_, i) => i);
         const left = TerrainRGB.crop(

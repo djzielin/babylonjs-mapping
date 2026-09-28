@@ -84,6 +84,8 @@ export interface Google3DTilesOptions {
     maximumScreenSpaceError?: number;
     /** Omit budget-limited content above this source error (metres), leaving room for a fallback provider. */
     maximumDisplayGeometricError?: number;
+    /** Maximum projected error ratio for a newly exposed Google model. Coarse residents remain until replacement is ready. */
+    maximumInitialErrorRatio?: number;
     /** Stream only bounding volumes intersecting the active camera frustum. */
     cullToCamera?: boolean;
     /** Demand the same projected quality throughout the coverage disk, including behind the camera. */
@@ -141,6 +143,7 @@ export default class Google3DTiles {
     maximumGeometricError: number;
     maximumScreenSpaceError?: number;
     maximumDisplayGeometricError?: number;
+    maximumInitialErrorRatio?: number;
     cullToCamera: boolean;
     fullRadiusDemand: boolean;
     /** Maximum hierarchy branches inspected in parallel during frontier selection. */
@@ -213,6 +216,14 @@ export default class Google3DTiles {
     constructor(tileSet: TileSet, options?: Google3DTilesOptions);
     /** Content currently attached to the Babylon scene. */
     get loadedModelTiles(): readonly LoadedGoogle3DTile[];
+    /** Current camera-facing resident quality, sampled independently of the last completed traversal. */
+    measureVisibleQuality(): {
+        visibleTiles: number;
+        underDetailedTiles: number;
+        worstErrorRatio: number;
+        worstDepth: number;
+        worstGeometricError: number;
+    };
     private coverageKey;
     private coverageVersion;
     get coverageRevision(): number;
@@ -252,6 +263,7 @@ export default class Google3DTiles {
     /** Loads content that overlaps the current TileSet. */
     load(selectionRadius?: number | undefined): Promise<readonly LoadedGoogle3DTile[]>;
     private acceptableDisplayQuality;
+    private acceptableInitialQuality;
     private trimVisibleHistory;
     private trimRetainedTiles;
     /** Prepare a bounded surrounding ring after visible loading has finished. */
