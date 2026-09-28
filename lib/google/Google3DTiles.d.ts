@@ -143,6 +143,8 @@ export default class Google3DTiles {
     maximumDisplayGeometricError?: number;
     cullToCamera: boolean;
     fullRadiusDemand: boolean;
+    /** Maximum hierarchy branches inspected in parallel during frontier selection. */
+    maxPendingHierarchy: number;
     referenceImageHeight: number;
     referenceFovY: number;
     heightOffset: number;
@@ -188,6 +190,7 @@ export default class Google3DTiles {
     private selectionEye?;
     private requestEye?;
     private requestPriorityRevision;
+    private lastPriorityUpdateAt;
     private readonly movementWaiters;
     private frustumCache?;
     private frontierCache?;

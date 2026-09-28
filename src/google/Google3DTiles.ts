@@ -199,6 +199,8 @@ export default class Google3DTiles {
     public maximumDisplayGeometricError?: number;
     public cullToCamera = false;
     public fullRadiusDemand = false;
+    /** Maximum hierarchy branches inspected in parallel during frontier selection. */
+    public maxPendingHierarchy = 16;
     public referenceImageHeight: number;
     public referenceFovY: number;
     public heightOffset = 0;
@@ -227,6 +229,7 @@ export default class Google3DTiles {
     private selectionEye?: Vector3;
     private requestEye?: Vector3;
     private requestPriorityRevision = 0;
+    private lastPriorityUpdateAt = -Infinity;
     private readonly movementWaiters = new Set<() => void>();
     private frustumCache?: { camera: Camera; updateFlag: number; planes: Plane[] };
     private frontierCache?: { key: string; selections: TileSelection[] };
@@ -494,6 +497,7 @@ export default class Google3DTiles {
     public reprioritizeRequests(): void {
         this.requestEye = this.cameraEye();
         this.requestPriorityRevision++;
+        this.lastPriorityUpdateAt = performance.now();
         this.drainNetwork();
         for (const wake of this.movementWaiters) wake();
     }
@@ -1170,6 +1174,10 @@ export default class Google3DTiles {
         };
         while ((queue.length || pending.size || seedQueue.length || seedPending.size || rootSeed)
             && generation === this.generation) {
+            // Preserve unexpanded work for turns and fast traversal. Once the
+            // view settles, look farther ahead to fill idle network capacity.
+            const pendingLimit = performance.now() - this.lastPriorityUpdateAt < 500
+                ? Math.min(16, this.maxPendingHierarchy) : this.maxPendingHierarchy;
             if (queueRevision !== this.requestPriorityRevision) {
                 queueRevision = this.requestPriorityRevision;
                 queue.rebuild();
@@ -1238,7 +1246,7 @@ export default class Google3DTiles {
             }
             const coverage = count >= Math.min(128, budget / 4);
             if (coverage !== preferCoverage) { preferCoverage = coverage; queue.rebuild(); }
-            while (seedQueue.length && pending.size + seedPending.size < 16) {
+            while (seedQueue.length && pending.size + seedPending.size < pendingLimit) {
                 const node = seedQueue.shift()!;
                 const pause = workBudget.checkpoint(() => priority(node).distance, 0);
                 if (pause) await pause;
@@ -1277,7 +1285,7 @@ export default class Google3DTiles {
                 }
                 queue.push(node);
             }
-            while (queue.length && pending.size + seedPending.size < 16) {
+            while (queue.length && pending.size + seedPending.size < pendingLimit) {
                 const node = queue.shift()!;
                 if (!frontier.has(node)) continue;
                 // A tile that meets SSE may still be too coarse to display.

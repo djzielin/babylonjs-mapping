@@ -1166,6 +1166,7 @@ class GlobeDemo {
             provider.maximumScreenSpaceError = targetScreenError;
             provider.maximumDisplayGeometricError = 33;
             provider.maxTiles = 2048;
+            provider.maxPendingHierarchy = 32;
             this.googleLoading = true;
             this.googlePassStartedAt = performance.now();
             this.googleStatus("Google 3D · streaming visible detail…");
@@ -1194,6 +1195,11 @@ class GlobeDemo {
                 this.canvas.dataset.googlePeakNetworkActive = String(provider.stats.peakNetworkActive);
                 this.canvas.dataset.googleFirstLoadMs ??= this.canvas.dataset.googleLoadMs;
                 this.canvas.dataset.googleFirstLoadTiles ??= String(loaded.length);
+                this.canvas.dataset.googleFirstRootMs ??= this.canvas.dataset.googleRootMs;
+                this.canvas.dataset.googleFirstFrontierTraversalMs ??= this.canvas.dataset.googleFrontierTraversalMs;
+                this.canvas.dataset.googleFirstFrontierCommitMs ??= this.canvas.dataset.googleFrontierCommitMs;
+                this.canvas.dataset.googleFirstReplacementMs ??= this.canvas.dataset.googleReplacementMs;
+                this.canvas.dataset.googleFirstModelWaitMs ??= this.canvas.dataset.googleModelWaitMs;
                 this.canvas.dataset.googleFirstDetailLimited ??= String(provider.stats.detailLimitedTiles);
                 this.canvas.dataset.googleFirstSourceLimited ??= String(provider.stats.sourceLimitedTiles);
                 const limited = provider.stats.detailLimitedTiles + provider.stats.sourceLimitedTiles;
