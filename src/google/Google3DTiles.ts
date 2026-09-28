@@ -111,6 +111,12 @@ export interface Google3DTilesOptions {
     maximumDisplayGeometricError?: number;
     /** Stream only bounding volumes intersecting the active camera frustum. */
     cullToCamera?: boolean;
+    /** Demand the same projected quality throughout the coverage disk, including behind the camera. */
+    fullRadiusDemand?: boolean;
+    /** Fixed vertical resolution used for full-radius geometric-error demand. */
+    referenceImageHeight?: number;
+    /** Fixed vertical field of view in radians used for full-radius geometric-error demand. */
+    referenceFovY?: number;
     /** Metres added to ellipsoid heights to match the scene vertical datum. */
     heightOffset?: number;
     /** Multiplier applied to the local vertical axis after loading. */
@@ -161,6 +167,7 @@ interface FrontierTile {
     selections: TileSelection[];
     ancestors: string[];
     priority: number;
+    offscreen: boolean;
 }
 
 interface LoadedTileset {
@@ -189,6 +196,9 @@ export default class Google3DTiles {
     public maximumScreenSpaceError?: number;
     public maximumDisplayGeometricError?: number;
     public cullToCamera = false;
+    public fullRadiusDemand = false;
+    public referenceImageHeight: number;
+    public referenceFovY: number;
     public heightOffset = 0;
     public readonly stats = { hierarchyRequests: 0, modelRequests: 0, reusedModels: 0, detailLimitedTiles: 0, sourceLimitedTiles: 0 };
     public origin?: Google3DTilesOrigin;
@@ -259,6 +269,9 @@ export default class Google3DTiles {
         this.maximumScreenSpaceError = options.maximumScreenSpaceError;
         this.maximumDisplayGeometricError = options.maximumDisplayGeometricError;
         this.cullToCamera = options.cullToCamera ?? false;
+        this.fullRadiusDemand = options.fullRadiusDemand ?? false;
+        this.referenceImageHeight = options.referenceImageHeight ?? 2160;
+        this.referenceFovY = options.referenceFovY ?? 0.8;
         this.heightOffset = options.heightOffset ?? 0;
         this.origin = options.origin;
         this.apiKey = options.apiKey ?? "";
@@ -641,6 +654,10 @@ export default class Google3DTiles {
             throw new RangeError("maximumScreenSpaceError must be positive and finite.");
         if (this.maximumDisplayGeometricError !== undefined && (!Number.isFinite(this.maximumDisplayGeometricError) || this.maximumDisplayGeometricError <= 0))
             throw new RangeError("maximumDisplayGeometricError must be positive and finite.");
+        if (!Number.isFinite(this.referenceImageHeight) || this.referenceImageHeight <= 0)
+            throw new RangeError("referenceImageHeight must be positive and finite.");
+        if (!Number.isFinite(this.referenceFovY) || this.referenceFovY <= 0 || this.referenceFovY >= Math.PI)
+            throw new RangeError("referenceFovY must be between zero and pi.");
         if (!Number.isFinite(this.heightOffset)) throw new RangeError("heightOffset must be finite.");
         if (!Number.isFinite(this.maximumGeometricError) || this.maximumGeometricError < 0)
             throw new RangeError("maximumGeometricError must be non-negative and finite.");
@@ -787,7 +804,7 @@ export default class Google3DTiles {
         geometricError?: number, covered = false): number {
         const distance = this.tilePriority(volume, transform, this.requestEye ?? this.selectionEye ?? this.cameraEye());
         const allowed = this.allowedGeometricError(volume, transform, false,
-            this.requestEye ?? this.selectionEye ?? this.cameraEye());
+            this.requestEye ?? this.selectionEye ?? this.cameraEye(), true);
         // Hierarchy and models share a queue. Re-evaluate this score when a
         // slot opens so turns favor visible, missing, and under-detailed work.
         if (this.cullToCamera && allowed < 0) return 1e9 + distance;
@@ -798,7 +815,7 @@ export default class Google3DTiles {
     }
 
     private allowedGeometricError(volume: Google3DBoundingVolume | undefined, transform: Matrix,
-        surroundings = false, eye = this.selectionEye ?? this.cameraEye()): number {
+        surroundings = false, eye = this.selectionEye ?? this.cameraEye(), forPriority = false): number {
         const camera = this.tileSet.scene.activeCamera;
         if (!this.maximumScreenSpaceError || !this.tileSet.isGlobe || !camera || !volume) return this.maximumGeometricError;
         const globe = this.tileSet as GlobeSet;
@@ -842,7 +859,7 @@ export default class Google3DTiles {
                 planes: Frustum.GetPlanes(cameraMatrix) };
         const planes = this.frustumCache.planes;
         const visible = !planes.some(plane => plane.dotCoordinate(world) < -radius * globe.metresToWorld);
-        if (this.cullToCamera && !visible && !surroundings) return -1;
+        if (this.cullToCamera && !visible && !surroundings && (!this.fullRadiusDemand || forPriority)) return -1;
         let distance = Math.max(1, Vector3.Distance(eye, center) - radius);
         if (volume.box) {
             // A sphere around a long city block greatly exaggerates proximity.
@@ -860,9 +877,13 @@ export default class Google3DTiles {
                 distance = Math.max(1, Vector3.Distance(eye, closest));
             }
         }
-        return this.maximumScreenSpaceError * (surroundings ? 4 : 1) * (visible ? 1 : 4)
-            * 2 * distance * Math.tan(camera.fov / 2)
-            / this.tileSet.scene.getEngine().getRenderHeight();
+        const referenceHeight = this.fullRadiusDemand && !surroundings
+            ? this.referenceImageHeight : this.tileSet.scene.getEngine().getRenderHeight();
+        const referenceFov = this.fullRadiusDemand && !surroundings ? this.referenceFovY : camera.fov;
+        return this.maximumScreenSpaceError * (surroundings ? 4 : 1)
+            * (this.fullRadiusDemand && !surroundings ? 1 : visible ? 1 : 4)
+            * 2 * distance * Math.tan(referenceFov / 2)
+            / referenceHeight;
     }
 
     /** A complete renderable frontier: refine the largest projected error first.
@@ -878,6 +899,7 @@ export default class Google3DTiles {
             camera && Array.from(camera.getViewMatrix().m), camera && Array.from(camera.getProjectionMatrix().m),
             this.tileSet.scene.getEngine().getRenderHeight(), budget, this.maxDepth,
             this.maximumScreenSpaceError, this.maximumDisplayGeometricError, this.cullToCamera,
+            this.fullRadiusDemand, this.referenceImageHeight, this.referenceFovY,
             this.maximumGeometricError, this.originStateKey, this.rootRequestKey, surroundings, this.coverageRegion]);
         if (this.frontierCache?.key === key) {
             for (const selection of this.frontierCache.selections) {
@@ -903,6 +925,8 @@ export default class Google3DTiles {
             if (pause) await pause;
             if (generation !== this.generation) return [];
             let allowed = this.allowedGeometricError(tile.boundingVolume, transform, surroundings);
+            const offscreen = this.cullToCamera && this.allowedGeometricError(tile.boundingVolume, transform,
+                false, this.selectionEye ?? this.cameraEye(), true) < 0;
             const inRegion = required(tile.boundingVolume, transform);
             if (allowed < 0 && !inRegion) return [];
             if (inRegion) allowed = allowed < 0 ? this.maximumDisplayGeometricError ?? 33
@@ -915,7 +939,7 @@ export default class Google3DTiles {
                 transform: transform.isIdentity() ? undefined : Array.from(transform.m),
             }));
             const node: FrontierTile = { tile, responseUrl, depth, transform, refine, selections, ancestors,
-                priority: (tile.geometricError ?? Infinity) / Math.max(allowed, 1e-12) };
+                priority: (tile.geometricError ?? Infinity) / Math.max(allowed, 1e-12), offscreen };
             if (selections.length) return [node];
             return children(node);
         };
@@ -998,7 +1022,7 @@ export default class Google3DTiles {
             if (!value) {
                 const distance = this.tilePriority(node.tile.boundingVolume, node.transform);
                 value = { distance, band: Math.floor(Math.log2(1 + distance / 250)),
-                    background: surroundings ? Number(this.allowedGeometricError(node.tile.boundingVolume, node.transform) >= 0) : 0,
+                    background: surroundings ? Number(!node.offscreen) : Number(node.offscreen),
                     coverage: Number(!renderable(node) && required(node.tile.boundingVolume, node.transform)) };
                 priorities.set(node, value);
             }

@@ -86,6 +86,12 @@ export interface Google3DTilesOptions {
     maximumDisplayGeometricError?: number;
     /** Stream only bounding volumes intersecting the active camera frustum. */
     cullToCamera?: boolean;
+    /** Demand the same projected quality throughout the coverage disk, including behind the camera. */
+    fullRadiusDemand?: boolean;
+    /** Fixed vertical resolution used for full-radius geometric-error demand. */
+    referenceImageHeight?: number;
+    /** Fixed vertical field of view in radians used for full-radius geometric-error demand. */
+    referenceFovY?: number;
     /** Metres added to ellipsoid heights to match the scene vertical datum. */
     heightOffset?: number;
     /** Multiplier applied to the local vertical axis after loading. */
@@ -131,6 +137,9 @@ export default class Google3DTiles {
     maximumScreenSpaceError?: number;
     maximumDisplayGeometricError?: number;
     cullToCamera: boolean;
+    fullRadiusDemand: boolean;
+    referenceImageHeight: number;
+    referenceFovY: number;
     heightOffset: number;
     readonly stats: {
         hierarchyRequests: number;

@@ -150,7 +150,6 @@ class GlobeDemo {
     private googleFarHidden = false;
     private googleLoading = false;
     private lastGoogleCheck = 0;
-    private googlePrefetchTimer: ReturnType<typeof setTimeout> | undefined;
     private movementKeys = new Set<string>();
     private engineProfile: EngineInstrumentation;
     private sceneProfile: SceneInstrumentation;
@@ -267,7 +266,7 @@ class GlobeDemo {
         });
         window.addEventListener("pagehide", event => {
             if (event.persisted) return;
-            clearTimeout(this.googleTimer); clearTimeout(this.googlePrefetchTimer);
+            clearTimeout(this.googleTimer);
             this.googleTiles?.dispose(); this.scene.dispose(); this.engine.dispose();
         }, { once: true });
         void this.readGoogleKey();
@@ -1065,8 +1064,6 @@ class GlobeDemo {
         if (!force && key && this.googleTimer) return;
         clearTimeout(this.googleTimer);
         this.googleTimer = undefined;
-        clearTimeout(this.googlePrefetchTimer);
-        this.googlePrefetchTimer = undefined;
         const generation = ++this.googleGeneration;
         if (!key) {
             this.googleLoading = false;
@@ -1108,6 +1105,9 @@ class GlobeDemo {
                 maxTiles: 2048,
                 maximumDisplayGeometricError: 33,
                 cullToCamera: true,
+                fullRadiusDemand: true,
+                referenceImageHeight: 2160,
+                referenceFovY: 0.8,
                 coverageRadius: 15 * 1609.344,
                 heightOffset: -meanSeaLevel(currentView.latitude, currentView.longitude),
             });
@@ -1139,17 +1139,14 @@ class GlobeDemo {
                 this.canvas.dataset.googleFirstLoadTiles ??= String(loaded.length);
                 this.canvas.dataset.googleFirstDetailLimited ??= String(provider.stats.detailLimitedTiles);
                 this.canvas.dataset.googleFirstSourceLimited ??= String(provider.stats.sourceLimitedTiles);
+                const limited = provider.stats.detailLimitedTiles + provider.stats.sourceLimitedTiles;
+                this.canvas.dataset.googleFullRadiusQuality = limited ? "known-incomplete" : "unverified";
                 this.canvas.dataset.googleForegroundLoads = String(Number(this.canvas.dataset.googleForegroundLoads ?? 0) + 1);
                 document.getElementById("googleSources")!.textContent = provider.getAttributions().join("; ");
                 document.getElementById("googleCredits")!.hidden = loaded.length === 0;
-                this.googleStatus(loaded.length ? `Google 3D · ${loaded.length} tiles` : "Google 3D · no coverage here");
-                this.googlePrefetchTimer = setTimeout(() => {
-                    if (generation !== this.googleGeneration) return;
-                    void provider.prefetchSurroundings().then(() => {
-                        if (generation === this.googleGeneration)
-                            this.canvas.dataset.googlePrefetchMs = String(Math.round(performance.now() - started));
-                    }).catch(() => undefined);
-                }, 500);
+                this.googleStatus(loaded.length ? `Google 3D · ${loaded.length} tiles${limited
+                    ? ` · ${provider.stats.detailLimitedTiles} budget-limited / ${provider.stats.sourceLimitedTiles} source-limited`
+                    : " · full-radius quality unverified"}` : "Google 3D · no coverage here");
             } catch (error) {
                 const reason = (error instanceof Error ? error.message : String(error)).replace(/https?:\/\/\S+/g, "[request]");
                 console.warn("Google 3D loading failed:", reason);
