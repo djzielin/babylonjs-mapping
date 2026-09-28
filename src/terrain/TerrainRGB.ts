@@ -1,5 +1,5 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
-import { decodeTerrainRGB } from "./TerrainRGBDecode.js";
+import { decodeTerrainRGB, repairIsolatedTerrainSpikes } from "./TerrainRGBDecode.js";
 import { TerrainRGBDecodePool } from "./TerrainRGBDecodePool.js";
 
 export interface ElevationGrid {
@@ -50,26 +50,8 @@ export default class TerrainRGB {
     }
     /** Remove single-pixel DEM pits/ridges without flattening broad terrain or bathymetry. */
     public static repairIsolatedSpikes(grid: ElevationGrid, sourceZoom: number): ElevationGrid {
-        if (sourceZoom < 12 || grid.width < 3 || grid.height < 3) return grid;
-        const { data, width, height } = grid;
-        const threshold = 100;
-        let repaired: Float32Array | undefined;
-        for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) {
-            const index = y * width + x, center = data[index];
-            const left = data[index - 1], right = data[index + 1];
-            const above = data[index - width], below = data[index + width];
-            if (!((Math.abs(center - left) > threshold && Math.abs(center - right) > threshold)
-                || (Math.abs(center - above) > threshold && Math.abs(center - below) > threshold))) continue;
-            const neighbors = [data[index - width - 1], above, data[index - width + 1],
-                left, right, data[index + width - 1], below, data[index + width + 1]];
-            neighbors.sort((a, b) => a - b);
-            const median = (neighbors[3] + neighbors[4]) / 2;
-            if (Math.abs(center - median) <= threshold
-                || neighbors.filter(value => Math.abs(value - median) < threshold / 2).length < 5) continue;
-            repaired ??= Float32Array.from(data);
-            repaired[index] = median;
-        }
-        return repaired ? { data: repaired, width, height } : grid;
+        const repaired = repairIsolatedTerrainSpikes(grid.data, grid.width, grid.height, sourceZoom);
+        return repaired ? { data: repaired, width: grid.width, height: grid.height } : grid;
     }
     /** Resample a child of an overzoomed source without losing its geographic bounds. */
     public static crop(
@@ -133,8 +115,7 @@ export default class TerrainRGB {
             if (!pending) {
                 // Overzoomed children share one decoded source. A moving caller must
                 // not abort the same request still needed by its neighbours.
-                pending = this.fetchGrid(url).then(grid => {
-                    grid = TerrainRGB.repairIsolatedSpikes(grid, z);
+                pending = this.fetchGrid(url, z).then(grid => {
                     this.cache.set(url, grid);
                     while (this.cache.size > this.cacheSize) this.cache.delete(this.cache.keys().next().value!);
                     return grid;
@@ -156,12 +137,12 @@ export default class TerrainRGB {
         }
         return cropped;
     };
-    private async fetchGrid(url: string): Promise<ElevationGrid> {
+    private async fetchGrid(url: string, sourceZoom: number): Promise<ElevationGrid> {
         const response = await fetch(url);
         if (!response.ok) throw new Error(`Elevation HTTP ${response.status}`);
         const blob = await response.blob();
         const workers = TerrainRGBDecodePool.get();
-        if (workers) try { return await workers.decode(blob, this.encoding); } catch { /* Unsupported workers use the same main-thread decoder. */ }
+        if (workers) try { return await workers.decode(blob, this.encoding, sourceZoom); } catch { /* Unsupported workers use the same main-thread decoder. */ }
         const bitmap = await createImageBitmap(blob, {
             colorSpaceConversion: "none", premultiplyAlpha: "none",
         });
@@ -169,8 +150,10 @@ export default class TerrainRGB {
             const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
             const context = canvas.getContext("2d")!;
             context.drawImage(bitmap, 0, 0);
-            return { data: TerrainRGB.decode(context.getImageData(0, 0, bitmap.width, bitmap.height).data, this.encoding),
-                width: bitmap.width, height: bitmap.height };
+            return TerrainRGB.repairIsolatedSpikes({
+                data: TerrainRGB.decode(context.getImageData(0, 0, bitmap.width, bitmap.height).data, this.encoding),
+                width: bitmap.width, height: bitmap.height,
+            }, sourceZoom);
         } finally { bitmap.close(); }
     }
     public clearCache(): void {

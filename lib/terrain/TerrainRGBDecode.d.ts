@@ -1,2 +1,4 @@
 export type TerrainRGBEncoding = "terrarium" | "mapbox";
 export declare function decodeTerrainRGB(pixels: ArrayLike<number>, encoding: TerrainRGBEncoding): Float32Array;
+/** Repair narrow source-data spikes before terrain tiles sample this grid. */
+export declare function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: number, height: number, sourceZoom: number): Float32Array | undefined;

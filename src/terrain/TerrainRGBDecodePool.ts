@@ -1,7 +1,8 @@
 import type { ElevationGrid } from "./TerrainRGB.js";
 import type { TerrainRGBEncoding } from "./TerrainRGBDecode.js";
 
-type Task = { blob: Blob; encoding: TerrainRGBEncoding; resolve: (grid: ElevationGrid) => void; reject: (error: Error) => void };
+type Task = { blob: Blob; encoding: TerrainRGBEncoding; sourceZoom: number;
+    resolve: (grid: ElevationGrid) => void; reject: (error: Error) => void };
 
 /** Keep image decoding and pixel readback off the render thread. */
 export class TerrainRGBDecodePool {
@@ -14,9 +15,9 @@ export class TerrainRGBDecodePool {
     private workers = new Map<Worker, Task | undefined>();
     private queue: Task[] = [];
     private failed = false;
-    public decode(blob: Blob, encoding: TerrainRGBEncoding): Promise<ElevationGrid> {
+    public decode(blob: Blob, encoding: TerrainRGBEncoding, sourceZoom: number): Promise<ElevationGrid> {
         if (this.failed) return Promise.reject(new Error("Terrain decoder workers unavailable"));
-        return new Promise((resolve, reject) => { this.queue.push({ blob, encoding, resolve, reject }); this.drain(); });
+        return new Promise((resolve, reject) => { this.queue.push({ blob, encoding, sourceZoom, resolve, reject }); this.drain(); });
     }
     private drain(): void {
         const limit = Math.min(4, Math.max(1, Math.floor((navigator.hardwareConcurrency || 2) / 4)));
@@ -38,7 +39,7 @@ export class TerrainRGBDecodePool {
                 }
                 const task = this.queue.shift()!;
                 this.workers.set(worker, task);
-                worker.postMessage({ blob: task.blob, encoding: task.encoding });
+                worker.postMessage({ blob: task.blob, encoding: task.encoding, sourceZoom: task.sourceZoom });
             } catch { this.fail(); return; }
         }
     }

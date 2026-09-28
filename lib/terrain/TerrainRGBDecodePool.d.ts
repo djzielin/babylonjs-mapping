@@ -7,7 +7,7 @@ export declare class TerrainRGBDecodePool {
     private workers;
     private queue;
     private failed;
-    decode(blob: Blob, encoding: TerrainRGBEncoding): Promise<ElevationGrid>;
+    decode(blob: Blob, encoding: TerrainRGBEncoding, sourceZoom: number): Promise<ElevationGrid>;
     private drain;
     private fail;
 }
