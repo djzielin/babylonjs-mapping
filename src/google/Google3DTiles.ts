@@ -465,10 +465,9 @@ export default class Google3DTiles {
             this.dirtyCoverageEntries.clear();
         }
         const nearby = this.coverageIndex.get(`${Math.floor(longitude * 1000)}/${Math.floor(latitude * 1000)}`) ?? [];
-        for (const selection of nearby) if (this.loadedTiles.has(selection.url)
-            && this.coverageTest(selection)(latitude, longitude)) return true;
+        for (const selection of nearby) if (this.coverageTest(selection)(latitude, longitude)) return true;
         for (const selection of this.broadCoverage.values())
-            if (this.loadedTiles.has(selection.url) && this.coverageTest(selection)(latitude, longitude)) return true;
+            if (this.coverageTest(selection)(latitude, longitude)) return true;
         return false;
     }
 
@@ -484,7 +483,6 @@ export default class Google3DTiles {
         this.coversLocation(latitude, midpoint);
         const nearby = this.coverageIndex.get(`${Math.floor(midpoint * 1000)}/${Math.floor(latitude * 1000)}`) ?? [];
         const covers = (selection: TileSelection) => {
-            if (!this.loadedTiles.has(selection.url)) return false;
             const test = this.coverageTest(selection);
             return latitudes.every(lat => longitudes.every(lon => test(lat, lon)));
         };
@@ -501,7 +499,6 @@ export default class Google3DTiles {
         const queryLongitudes = longitudeIntervals(west, east);
         const seen = new Set<TileSelection>();
         const overlaps = (selection: TileSelection): boolean => {
-            if (!this.loadedTiles.has(selection.url)) return false;
             if (seen.has(selection)) return false;
             seen.add(selection);
             let bounds = this.footprintEnvelopes.get(selection);
