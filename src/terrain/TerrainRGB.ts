@@ -17,11 +17,12 @@ export interface TerrainRGBOptions {
     maxZoom?: number;
     cacheSize?: number;
 }
+type PendingGrid = { promise: Promise<ElevationGrid>; controller: AbortController; users: number };
 /** Numeric DEM streaming, including negative ocean depths. No GPU readback. */
 export default class TerrainRGB {
     private cache = new Map<string, ElevationGrid>();
     private cropped = new Map<string, ElevationGrid>();
-    private pending = new Map<string, Promise<ElevationGrid>>();
+    private pending = new Map<string, PendingGrid>();
     private url: string;
     private encoding: "terrarium" | "mapbox";
     private maxZoom: number;
@@ -113,17 +114,35 @@ export default class TerrainRGB {
         let grid = this.cache.get(url);
         if (!grid) {
             let pending = this.pending.get(url);
-            if (!pending) {
+            if (!pending || pending.controller.signal.aborted) {
                 // Overzoomed children share one decoded source. A moving caller must
                 // not abort the same request still needed by its neighbours.
-                pending = this.fetchGrid(url, z).then(grid => {
-                    this.cache.set(url, grid);
-                    while (this.cache.size > this.cacheSize) this.cache.delete(this.cache.keys().next().value!);
+                const controller = new AbortController();
+                let entry!: PendingGrid;
+                const promise = this.fetchGrid(url, z, controller.signal).then(grid => {
+                    if (!controller.signal.aborted) {
+                        this.cache.set(url, grid);
+                        while (this.cache.size > this.cacheSize) this.cache.delete(this.cache.keys().next().value!);
+                    }
                     return grid;
-                }).finally(() => this.pending.delete(url));
+                }).finally(() => {
+                    if (this.pending.get(url) === entry) this.pending.delete(url);
+                });
+                pending = entry = { controller, users: 0, promise };
                 this.pending.set(url, pending);
             }
-            grid = await pending;
+            const entry = pending;
+            entry.users++;
+            let released = false;
+            const release = () => {
+                if (released) return;
+                released = true;
+                entry.users--;
+                if (entry.users === 0 && this.pending.get(url) === entry) entry.controller.abort();
+            };
+            signal.addEventListener("abort", release, { once: true });
+            try { grid = await entry.promise; }
+            finally { signal.removeEventListener("abort", release); release(); }
         }
         signal.throwIfAborted();
         this.cache.delete(url);
@@ -138,13 +157,15 @@ export default class TerrainRGB {
         }
         return cropped;
     };
-    private async fetchGrid(url: string, sourceZoom: number): Promise<ElevationGrid> {
-        const response = await fetch(url);
+    private async fetchGrid(url: string, sourceZoom: number, signal: AbortSignal): Promise<ElevationGrid> {
+        const response = await fetch(url, { signal });
         if (!response.ok) throw new Error(`Elevation HTTP ${response.status}`);
         const blob = await response.blob();
+        signal.throwIfAborted();
         const workers = TerrainRGBDecodePool.get();
         if (workers) try {
             const grid = await workers.decode(blob, this.encoding, sourceZoom);
+            signal.throwIfAborted();
             // A worker can outlive a hot update to the decoder. A shallow
             // coastal tile with a deep sample needs validation before its DEM
             // reaches globe geometry. Already-repaired tiles only pay for a
@@ -162,7 +183,10 @@ export default class TerrainRGB {
             const checked = suspectCoast ? TerrainRGB.repairIsolatedSpikes(grid, sourceZoom) : grid;
             const smoothed = smoothNearSeaLevel(checked.data, sourceZoom);
             return smoothed ? { ...checked, data: smoothed } : checked;
-        } catch { /* Unsupported workers use the same main-thread decoder. */ }
+        } catch {
+            signal.throwIfAborted();
+            /* Unsupported workers use the same main-thread decoder. */
+        }
         const bitmap = await createImageBitmap(blob, {
             colorSpaceConversion: "none", premultiplyAlpha: "none",
         });
@@ -175,6 +199,7 @@ export default class TerrainRGB {
                 width: bitmap.width, height: bitmap.height,
             }, sourceZoom);
             const smoothed = smoothNearSeaLevel(grid.data, sourceZoom);
+            signal.throwIfAborted();
             return smoothed ? { ...grid, data: smoothed } : grid;
         } finally { bitmap.close(); }
     }

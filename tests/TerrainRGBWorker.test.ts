@@ -92,3 +92,44 @@ it("repairs a raised waterfront patch when a stale worker returns only positive 
         vi.unstubAllGlobals();
     }
 });
+
+it("aborts a shared DEM fetch only after every moving tile releases it", async () => {
+    const terrain = new TerrainRGB({ maxZoom: 14 });
+    const signals: AbortSignal[] = [];
+    const fetchGrid = vi.spyOn(terrain as any, "fetchGrid").mockImplementation((_url: string, _zoom: number, signal: AbortSignal) => {
+        signals.push(signal);
+        return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    });
+    const first = new AbortController(), second = new AbortController();
+    const a = terrain.load(new Vector3(0, 0, 15), first.signal);
+    const b = terrain.load(new Vector3(1, 0, 15), second.signal);
+    expect(fetchGrid).toHaveBeenCalledOnce();
+    first.abort();
+    expect(signals[0].aborted).toBe(false);
+    second.abort();
+    expect(signals[0].aborted).toBe(true);
+    await expect(a).rejects.toBeDefined();
+    await expect(b).rejects.toBeDefined();
+    const third = new AbortController();
+    const c = terrain.load(new Vector3(0, 0, 15), third.signal);
+    expect(fetchGrid).toHaveBeenCalledTimes(2);
+    third.abort();
+    await expect(c).rejects.toBeDefined();
+});
+
+it("passes the final consumer's cancellation through to the DEM HTTP request", async () => {
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => {
+        requestSignal = init.signal as AbortSignal;
+        return new Promise((_resolve, reject) => requestSignal!.addEventListener("abort",
+            () => reject(requestSignal!.reason), { once: true }));
+    }));
+    try {
+        const controller = new AbortController();
+        const load = new TerrainRGB().load(new Vector3(0, 0, 15), controller.signal);
+        expect(requestSignal).toBeDefined();
+        controller.abort();
+        expect(requestSignal!.aborted).toBe(true);
+        await expect(load).rejects.toBeDefined();
+    } finally { vi.unstubAllGlobals(); }
+});
