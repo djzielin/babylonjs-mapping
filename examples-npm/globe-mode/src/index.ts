@@ -1140,6 +1140,10 @@ class GlobeDemo {
         if (!force && key && this.googleLoading) {
             const center = this.googleTiles?.selectedCoverageCenter;
             if (!center || performance.now() - this.googlePassStartedAt < 500) return;
+            // The live frontier reseeds at 250 m and reprioritizes its queue
+            // on every turn. Cancelling it at 500 m repeatedly starves Shift
+            // traversal of both nearby detail and full-radius completion.
+            if (this.googleTiles?.selectingFrontier) return;
             const selected = this.detailGlobe.getSurfacePosition(center.latitude, center.longitude);
             const current = this.detailGlobe.getSurfacePosition(view.latitude, view.longitude);
             // The active frontier follows the camera inside one pass. Restart

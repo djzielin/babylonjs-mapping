@@ -254,6 +254,7 @@ export default class Google3DTiles {
     });
     private retainedTiles = new Map<string, LoadedGoogle3DTile>();
     private generation = 0;
+    private frontierGeneration = -1;
     private desiredTiles = new Map<string, TileSelection>();
     private originStateKey = "";
     private googleAttributionAdded = false;
@@ -557,6 +558,11 @@ export default class Google3DTiles {
         for (const wake of this.movementWaiters) wake();
     }
 
+    /** The active frontier can follow camera movement without discarding its work. */
+    public get selectingFrontier(): boolean {
+        return this.frontierGeneration === this.generation;
+    }
+
     /** Reorder queued downloads immediately when the camera moves, without cancelling active requests. */
     public reprioritizeRequests(): void {
         this.requestEye = this.cameraEye();
@@ -623,7 +629,8 @@ export default class Google3DTiles {
             }));
         };
         if (this.maximumScreenSpaceError) {
-            await this.selectFrontier(desiredTiles, generation, selection => {
+            this.frontierGeneration = generation;
+            try { await this.selectFrontier(desiredTiles, generation, selection => {
                 desiredTiles.set(selection.url, selection);
                 // A nearby offscreen parent may already be prefetched. Show it
                 // immediately on a turn while its complete detail subtree loads.
@@ -648,7 +655,8 @@ export default class Google3DTiles {
                 // refinements still commit as a complete replacement subtree.
                 modelRequests.push(this.loadTile(selection, origin, generation,
                     !overlapsExisting && this.acceptableInitialQuality(selection)).catch(() => undefined));
-            }, false, selectionRadius);
+            }, false, selectionRadius); }
+            finally { if (this.frontierGeneration === generation) this.frontierGeneration = -1; }
             if (Array.from(desiredTiles.keys()).some(url => !this.loadedTiles.has(url))) {
                 const replacementStarted = performance.now();
                 await this.loadReplacementGroups(desiredTiles, origin, generation);

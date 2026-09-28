@@ -1096,6 +1096,7 @@ it("reprioritizes unexpanded hierarchy toward the moving camera", async () => {
   try {
     const loading = provider.load();
     await vi.waitFor(() => expect(started).toHaveLength(16));
+    expect(provider.selectingFrontier).toBe(true);
     camera.setPosition(globe.getSurfacePosition(0, 0.019, 100 * globe.metresToWorld));
     camera.getViewMatrix(true);
     provider.reprioritizeRequests();
@@ -1105,6 +1106,7 @@ it("reprioritizes unexpanded hierarchy toward the moving camera", async () => {
     unblock = true;
     releases.slice(1).forEach(release => release());
     await loading;
+    expect(provider.selectingFrontier).toBe(false);
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
