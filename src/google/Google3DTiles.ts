@@ -2245,7 +2245,8 @@ async function defaultTilesetLoader(url: string): Promise<Google3DTileset> {
 export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): number {
     const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
     const indices = mesh.getIndices();
-    if (!positions || !indices || positions.length < 90 || indices.length < 3 || metresToWorld <= 0) return 0;
+    if (!positions || !indices || positions.length < 90 || indices.length < 3 || metresToWorld <= 0
+        || mesh.subMeshes.length !== 1 || (mesh.geometry?.meshes.length ?? 0) !== 1) return 0;
     const matrix = mesh.computeWorldMatrix(true).m;
     const heights = new Float32Array(positions.length / 3);
     for (let i = 0; i < heights.length; i++) {

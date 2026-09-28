@@ -86,6 +86,10 @@ it("removes deep coastal Google skirts while retaining the surface and building 
   expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(2);
   expect(Array.from(mesh.getIndices()!)).toEqual([0, 1, 8, 0, 1, 31]);
   mesh.setIndices(triangles);
+  mesh.subMeshes.push(mesh.subMeshes[0]);
+  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(0);
+  expect(Array.from(mesh.getIndices()!)).toEqual(triangles);
+  mesh.subMeshes.pop();
   mesh.position.y = 105;
   expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(0);
   expect(Array.from(mesh.getIndices()!)).toEqual(triangles);
