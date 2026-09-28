@@ -815,8 +815,10 @@ it("reuses a stable budget frontier without additional model requests", async ()
     ]}}),modelTileLoader:createModelLoader(requests)});
   const first = await provider.load();
   const count = requests.length;
+  const coverageRevision = provider.coverageRevision;
   expect(await provider.load()).toEqual(first);
   expect(requests).toHaveLength(count);
+  expect(provider.coverageRevision).toBe(coverageRevision);
   provider.dispose();scene.dispose();engine.dispose();
 });
 

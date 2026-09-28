@@ -358,7 +358,7 @@ export default class Google3DTiles {
 
     /** Whether loaded model bounds cover this geographic position. */
     public coversLocation(latitude: number, longitude: number): boolean {
-        const key = `${this.generation}/${this.loadedTiles.size}`;
+        const key = `${this.coverageVersion}/${this.loadedTiles.size}`;
         if (this.coverageKey !== key) {
             this.coverageKey = key;
             for (const [url, indexed] of this.indexedCoverage) {
@@ -613,6 +613,7 @@ export default class Google3DTiles {
         // already inside the full coverage area must stay visible while that
         // pass and the subsequent wider selection are in flight.
         const currentBounds = this.getTileSetBounds();
+        let retired = false;
         for (const url of Array.from(this.loadedTiles.keys())) {
             if (!desiredTiles.has(url)) {
                 const previous = this.loadedSelections.get(url);
@@ -624,13 +625,16 @@ export default class Google3DTiles {
                 tile.root.setEnabled(false);
                 this.loadedTiles.delete(url);
                 this.retainedTiles.set(url, tile);
+                retired = true;
             }
         }
         this.trimVisibleHistory(desiredTiles);
         // Bound GPU memory while retaining the most recently visited detail.
         this.trimRetainedTiles();
-        this.coverageKey = ""; this.coverageVersion++;
-        this.updateAttribution();
+        if (retired) {
+            this.coverageKey = ""; this.coverageVersion++;
+        }
+        if (retired || !this.googleAttributionAdded) this.updateAttribution();
         this.stats.loadMs = performance.now() - loadStarted;
         return this.loadedModelTiles;
     }
