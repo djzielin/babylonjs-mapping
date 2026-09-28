@@ -42,7 +42,9 @@ export class TerrainTransition {
             // Current terrain draws first. Older data fills only uncovered pixels.
             material.stencil.func = Constants.GREATER;
             const mesh = source.clone("previous terrain", null, true)!;
-            mesh.makeGeometryUnique();
+            // The fallback keeps the old geometry. Detach the recycled tile
+            // instead of copying its vertex and index buffers for every move.
+            source.geometry?.releaseForMesh(source);
             mesh.material = material;
             mesh.visibility = 1;
             mesh.isVisible = true;

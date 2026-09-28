@@ -10,14 +10,18 @@ it('retains independent terrain geometry until matching replacement imagery and 
  const tile=globe.ourTiles[0];tile.terrainLoaded=true;
  const material=new StandardMaterial('terrain',scene);const texture=new Texture(null,scene);
  vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;tile.mesh.material=material;
+ const originalGeometry=tile.mesh.geometry;
  const transition=new TerrainTransition();transition.capture(globe as any,16);
  const snapshot=scene.meshes.find(mesh=>mesh.name==='previous terrain')!;
  expect(snapshot).toBeDefined();expect(snapshot.geometry).not.toBe(tile.mesh.geometry);
+ expect(snapshot.geometry).toBe(originalGeometry);
+ expect(tile.mesh.geometry).toBeNull();
  expect(snapshot.material).not.toBe(material);
  expect(snapshot.material?.isFrozen).toBe(true);
  expect(scene.blockMaterialDirtyMechanism).toBe(false);
  const positions=Array.from(snapshot.getVerticesData(VertexBuffer.PositionKind)!);
  globe.updateRaster(0,0,16);tile.terrainLoaded=false;
+ expect(tile.mesh.geometry).not.toBe(originalGeometry);
  transition.update(1000);expect(snapshot.isDisposed()).toBe(false);
  expect(Array.from(snapshot.getVerticesData(VertexBuffer.PositionKind)!)).toEqual(positions);
  tile.terrainLoaded=true;tile.mesh.material=material;
