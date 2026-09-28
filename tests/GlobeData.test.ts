@@ -585,6 +585,14 @@ describe("terrain encodings and overzoom", () => {
         for (let y = 8; y < 56; y++) narrowRiverbank[y * 64 + 32] = -76;
         const riverbank = TerrainRGB.repairIsolatedSpikes({ data: narrowRiverbank, width: 64, height: 64 }, 15);
         expect(riverbank.data[30 * 64 + 32]).toBe(2);
+        const raisedCoast = new Float32Array(64 * 64).fill(0);
+        for (let y = 20; y < 26; y++) for (let x = 20; x < 25; x++) raisedCoast[y * 64 + x] = 71;
+        const raised = TerrainRGB.repairIsolatedSpikes({ data: raisedCoast, width: 64, height: 64 }, 13);
+        expect(raised.data[23 * 64 + 22]).toBe(0);
+        expect(raised.data[23 * 64 + 26]).toBe(0);
+        const broadHill = new Float32Array(64 * 64).fill(0);
+        for (let y = 8; y < 48; y++) for (let x = 8; x < 48; x++) broadHill[y * 64 + x] = 71;
+        expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 13).data[25 * 64 + 25]).toBe(71);
         const coastalSamples = new Float32Array([-300, -30, -5, 0, 5, 30, 300]);
         const coast = TerrainRGB.smoothNearSeaLevel(coastalSamples, 15);
         expect(coast).toBeDefined();

@@ -38,14 +38,18 @@ export function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: numb
     // which otherwise produces kilometre-deep vertical walls in rivers.
     // Only replace small components whose entire surrounding ring is shallow;
     // broad or genuinely deep bathymetry retains its original samples.
-    for (const pass of [{ seed: -100, fringe: -20, limit: 512, floor: -30 },
+    for (const pass of [{ seed: -100, fringe: -20, limit: 512, floor: -30, ceiling: 100, positive: false },
         // A second, narrower pass catches one-pixel-wide riverbank seams
         // around -70 m that never reach the deep-pit threshold.
-        ...(sourceZoom >= 12 ? [{ seed: -20, fringe: -10, limit: 128, floor: -10 }] : [])]) {
+        ...(sourceZoom >= 12 ? [{ seed: -20, fringe: -10, limit: 128, floor: -10, ceiling: 100, positive: false }] : []),
+        // Urban DEMs can include compact raised roofs or encoding glitches in
+        // otherwise level coastal ground. Those create the same vertical walls
+        // as pits, including at coarse LoD where they cover several map tiles.
+        ...(sourceZoom >= 12 ? [{ seed: 40, fringe: 10, limit: 1024, floor: -10, ceiling: 10, positive: true }] : [])]) {
         const visited = new Uint8Array(width * height);
         const source = repaired ?? data;
         for (let start = 0; start < source.length; start++) {
-            if (visited[start] || source[start] >= pass.seed) continue;
+            if (visited[start] || (pass.positive ? source[start] <= pass.seed : source[start] >= pass.seed)) continue;
             const component = [start], ring: number[] = [];
             visited[start] = 1;
             for (let head = 0; head < component.length; head++) {
@@ -55,7 +59,7 @@ export function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: numb
                     if (neighbor < 0) continue;
                     // Include the less extreme lip around a corrupt pit; keeping
                     // that lip still leaves a conspicuous vertical river wall.
-                    if (source[neighbor] < pass.fringe) {
+                    if (pass.positive ? source[neighbor] > pass.fringe : source[neighbor] < pass.fringe) {
                         if (!visited[neighbor]) { visited[neighbor] = 1; component.push(neighbor); }
                     } else ring.push(source[neighbor]);
                 }
@@ -63,11 +67,11 @@ export function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: numb
             // Some corrupted urban water tiles contain over a thousand samples
             // below -12 km, deeper than any real ocean floor. Keep the normal
             // small-cluster limit for plausible bathymetry.
-            const impossibleDepth = component.some(index => source[index] < -12000);
+            const impossibleDepth = !pass.positive && component.some(index => source[index] < -12000);
             if (component.length > (impossibleDepth ? 4096 : pass.limit) || ring.length < 3) continue;
             ring.sort((a, b) => a - b);
             const surrounding = ring[Math.floor(ring.length / 2)];
-            if (surrounding < pass.floor || surrounding > 100) continue;
+            if (surrounding < pass.floor || surrounding > pass.ceiling) continue;
             repaired ??= Float32Array.from(data);
             for (const index of component) repaired[index] = surrounding;
         }
