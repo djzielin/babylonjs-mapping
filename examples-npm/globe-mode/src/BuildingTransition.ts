@@ -1,5 +1,6 @@
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Constants } from "@babylonjs/core/Engines/constants";
+import type { Material } from "@babylonjs/core/Materials/material";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { GlobeSet } from "babylonjs-mapping";
 import { OvertureTierCoverage } from "./OvertureTierCoverage";
@@ -11,6 +12,7 @@ type Retained = { mesh: Mesh; coordinate: Vector3; source: object; coverage?: Co
 /** Keep the old building tier visible until the replacement tiles finish. */
 export class BuildingTransition {
     private previous = new Map<GlobeSet, Retained[]>();
+    private fallbackMaterials = new Map<Material, { material: Material; users: number }>();
     private nextCheck = 0;
 
     public *retainedFootprints(globe: GlobeSet): Generator<BuildingRange> {
@@ -54,14 +56,29 @@ export class BuildingTransition {
                 // New Google and Overture geometry draws first. The fallback
                 // fills only pixels their level-7 stencil has not claimed, so
                 // partial finer buildings do not z-fight with the old batch.
-                const material = (source.material ?? globe.scene.defaultMaterial).clone("retained building material");
-                if (material) {
-                    material.stencil.enabled = true;
-                    material.stencil.func = Constants.GREATER;
-                    material.stencil.funcRef = 8;
-                    material.stencil.opStencilDepthPass = Constants.REPLACE;
-                    mesh.material = material;
-                    mesh.onDisposeObservable.addOnce(() => material.dispose());
+                const sourceMaterial = source.material ?? globe.scene.defaultMaterial;
+                let fallback = this.fallbackMaterials.get(sourceMaterial);
+                if (!fallback) {
+                    const material = sourceMaterial.clone("retained building material");
+                    if (material) {
+                        material.stencil.enabled = true;
+                        material.stencil.func = Constants.GREATER;
+                        material.stencil.funcRef = 8;
+                        material.stencil.opStencilDepthPass = Constants.REPLACE;
+                        fallback = { material, users: 0 };
+                        this.fallbackMaterials.set(sourceMaterial, fallback);
+                    }
+                }
+                if (fallback) {
+                    fallback.users++;
+                    mesh.material = fallback.material;
+                    const shared = fallback;
+                    mesh.onDisposeObservable.addOnce(() => {
+                        if (--shared.users === 0) {
+                            this.fallbackMaterials.delete(sourceMaterial);
+                            shared.material.dispose();
+                        }
+                    });
                 }
                 mesh.renderingGroupId = Math.min(7, source.renderingGroupId + 1);
                 const coverage = (source.metadata as { overtureCoverage?: Coverage } | null)?.overtureCoverage;

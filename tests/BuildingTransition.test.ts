@@ -8,6 +8,28 @@ vi.mock("../src/core/Attribution", () => ({
 }));
 
 describe("building detail transitions", () => {
+    it("shares one stencil fallback material across outgoing building batches", () => {
+        const engine = new NullEngine(), scene = new Scene(engine);
+        const globe = new GlobeSet(scene, engine, { backingSurface: false });
+        globe.createGeometry(new Vector2(1, 1), 20, 8);
+        globe.updateRaster(40.7484, -73.9857, 14);
+        const tile = globe.ourTiles[0];
+        tile.mesh.setEnabled(true);
+        for (let i = 0; i < 2; i++) {
+            const source = MeshBuilder.CreateBox(`source ${i}`, {}, scene);
+            source.setParent(tile.mesh);
+            tile.buildingBatches.push(source);
+        }
+        const transition = new BuildingTransition();
+        transition.capture(globe, 15);
+        const fallbacks = scene.meshes.filter(mesh => mesh.name === "previous building detail");
+        expect(fallbacks).toHaveLength(2);
+        expect(fallbacks[0].material).toBe(fallbacks[1].material);
+        const dispose = vi.spyOn(fallbacks[0].material!, "dispose");
+        transition.dispose();
+        expect(dispose).toHaveBeenCalledOnce();
+        scene.dispose(); engine.dispose();
+    });
     it("keeps the old batch until its replacement tile completes", () => {
         const engine = new NullEngine();
         const scene = new Scene(engine);
