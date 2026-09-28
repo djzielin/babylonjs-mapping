@@ -331,6 +331,7 @@ class GlobeDemo {
                         }
                         mesh.isPickable = false;
                     }
+                    this.drawSnapshot?.registerStaticGroup(tile.asset.meshes);
                 }
             }
             this.sampleBenchmarkPhase("model registration", registrationStarted);

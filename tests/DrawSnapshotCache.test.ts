@@ -95,3 +95,27 @@ it("keeps the enabled mesh index current when a parent is hidden", async () => {
     expect(gpu.snapshotRendering).toBe(false);
     scene.dispose(); engine.dispose();
 });
+
+it("culls frozen model groups conservatively across camera turns", async () => {
+    const engine = new NullEngine(); const scene = new Scene(engine);
+    const camera = new FreeCamera("eye", Vector3.Zero(), scene);
+    const gpu = { snapshotRendering: false, snapshotRenderingMode: 0,
+        onResizeObservable: new Observable(), onContextLostObservable: new Observable() } as unknown as WebGPUEngine;
+    const cache = new DrawSnapshotCache(scene, gpu);
+    const material = new StandardMaterial("tile", scene); material.freeze();
+    const boxes = [8, 12, -8, -12].map((z, i) => {
+        const mesh = MeshBuilder.CreateBox(`tile ${i}`, {}, scene);
+        mesh.position.z = z; mesh.freezeWorldMatrix(); mesh.material = material;
+        return mesh;
+    });
+    cache.registerStaticGroup(boxes.slice(0, 2));
+    cache.registerStaticGroup(boxes.slice(2));
+    await scene.whenReadyAsync();
+    scene.render(); scene.render();
+    expect(cache.stats).toContain("2 cached");
+    expect(cache.stats).toContain("1 captures / 1 replays");
+    camera.setTarget(new Vector3(0, 0, -10)); scene.render();
+    expect(cache.stats).toContain("2 cached");
+    expect(cache.stats).toContain("2 captures");
+    scene.dispose(); engine.dispose();
+});

@@ -191,6 +191,8 @@ export default class Google3DTiles {
     private desiredTiles;
     private originStateKey;
     private googleAttributionAdded;
+    private attributionCacheValid;
+    private attributionCache;
     private pendingModels;
     private selectionEye?;
     private requestEye?;

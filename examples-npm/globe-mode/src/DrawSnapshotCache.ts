@@ -10,6 +10,7 @@ type DrawState = {
     worldVersion: number; visibility: number; group: number; mask: number;
     index: unknown; buffers: Record<string, unknown>; effects: readonly unknown[]; textures: readonly unknown[];
 };
+type StaticGroup = { center: Vector3; radius: number; view: number; visible: boolean };
 export class DrawSnapshotCache {
     private recorded = new Map<Mesh, DrawState>();
     private immutableMaterials = new WeakSet<NonNullable<Mesh["material"]>>();
@@ -31,6 +32,28 @@ export class DrawSnapshotCache {
     private viewRevision = 0;
     private camera?: Scene["activeCamera"];
     private culling = new WeakMap<Mesh, { view: number; world: number; position: unknown; expanded: boolean }>();
+    private staticGroups = new WeakMap<Mesh, StaticGroup>();
+    /** A conservative first pass for the frozen meshes in one model tile. */
+    public registerStaticGroup(meshes: readonly AbstractMesh[]): void {
+        const drawable = meshes.filter((mesh): mesh is Mesh => mesh.isWorldMatrixFrozen && !!(mesh as Mesh).subMeshes?.length);
+        if (drawable.length < 2) return;
+        const min = new Vector3(Infinity, Infinity, Infinity);
+        const max = new Vector3(-Infinity, -Infinity, -Infinity);
+        for (const mesh of drawable) {
+            const sphere = mesh.getBoundingInfo().boundingSphere;
+            const c = sphere.centerWorld, r = sphere.radiusWorld;
+            min.x = Math.min(min.x, c.x - r); min.y = Math.min(min.y, c.y - r); min.z = Math.min(min.z, c.z - r);
+            max.x = Math.max(max.x, c.x + r); max.y = Math.max(max.y, c.y + r); max.z = Math.max(max.z, c.z + r);
+        }
+        const center = Vector3.Center(min, max);
+        let radius = 0;
+        for (const mesh of drawable) {
+            const sphere = mesh.getBoundingInfo().boundingSphere;
+            radius = Math.max(radius, Vector3.Distance(center, sphere.centerWorld) + sphere.radiusWorld);
+        }
+        const group: StaticGroup = { center, radius, view: -1, visible: true };
+        for (const mesh of drawable) this.staticGroups.set(mesh, group);
+    }
     public get stats(): string { return `${this.recorded.size} cached / ${this.enabledMeshes.size} enabled / ${this.scene.meshes.length} resident meshes · ${this.captures} captures / ${this.replays} replays${this.blocked ? ` / ${this.blocked}` : ""} · cache ${this.cpuMs.toFixed(2)} ms`; }
     constructor(private scene: Scene, private engine: WebGPUEngine) {
         engine.snapshotRenderingMode = 1;
@@ -158,6 +181,22 @@ export class DrawSnapshotCache {
             const world = mesh.getWorldMatrix().updateFlag;
             const position = mesh.getVertexBuffer("position");
             const recorded = this.recorded.get(mesh);
+            const group = mesh.isWorldMatrixFrozen ? this.staticGroups.get(mesh) : undefined;
+            if (group) {
+                if (group.view !== this.viewRevision) {
+                    // Include the farthest member's possible 2% view margin.
+                    const margin = (Vector3.Distance(camera.globalPosition, group.center) + group.radius) * 0.02;
+                    group.visible = true;
+                    for (const plane of scene.frustumPlanes) if (plane.dotCoordinate(group.center) < -group.radius - margin) {
+                        group.visible = false; break;
+                    }
+                    group.view = this.viewRevision;
+                }
+                if (!group.visible) {
+                    if (recorded) reuse = false;
+                    continue;
+                }
+            }
             let cull = this.culling.get(mesh);
             if (!cull || cull.view !== this.viewRevision || cull.world !== world || cull.position !== position || !mesh.isWorldMatrixFrozen) {
                 const bounds = mesh.getBoundingInfo().boundingSphere;

@@ -244,12 +244,17 @@ export default class Google3DTiles {
     private session: string | undefined;
     private readonly externalTilesets = new Map<string, Promise<LoadedTileset>>();
     private readonly dirtyCoverageEntries = new Set<string>();
-    private readonly loadedTiles = new ChangedTileMap<LoadedGoogle3DTile>(url => this.dirtyCoverageEntries.add(url));
+    private readonly loadedTiles = new ChangedTileMap<LoadedGoogle3DTile>(url => {
+        this.dirtyCoverageEntries.add(url);
+        this.attributionCacheValid = false;
+    });
     private retainedTiles = new Map<string, LoadedGoogle3DTile>();
     private generation = 0;
     private desiredTiles = new Map<string, TileSelection>();
     private originStateKey = "";
     private googleAttributionAdded = false;
+    private attributionCacheValid = false;
+    private attributionCache: string[] = [];
     private pendingModels = new Map<string, { generation: number; request: Promise<LoadedGoogle3DTile | undefined> }>();
     private selectionEye?: Vector3;
     private requestEye?: Vector3;
@@ -490,6 +495,7 @@ export default class Google3DTiles {
 
     /** Returns attribution sources sorted by frequency, then alphabetically. */
     public getAttributions(): string[] {
+        if (this.attributionCacheValid) return [...this.attributionCache];
         const counts = new Map<string, number>();
         for (const tile of this.loadedTiles.values()) {
             for (const attribution of new Set(tile.attributions)) {
@@ -497,11 +503,13 @@ export default class Google3DTiles {
             }
         }
 
-        return Array.from(counts.entries())
+        this.attributionCache = Array.from(counts.entries())
             .sort(([leftName, leftCount], [rightName, rightCount]) => {
                 return rightCount - leftCount || leftName.localeCompare(rightName);
             })
             .map(([name]) => name);
+        this.attributionCacheValid = true;
+        return [...this.attributionCache];
     }
 
     /**
@@ -680,9 +688,11 @@ export default class Google3DTiles {
                 && this.allowedGeometricError(selection.boundingVolume,
                     selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity(),
                     false, this.requestEye ?? this.selectionEye ?? this.cameraEye(), true) < 0);
-            candidates.sort((a, b) => this.tilePriority(b[1].boundingVolume, b[1].transform ? Matrix.FromArray(b[1].transform) : Matrix.Identity())
-                - this.tilePriority(a[1].boundingVolume, a[1].transform ? Matrix.FromArray(a[1].transform) : Matrix.Identity()));
-            for (const [url] of candidates) { if (this.loadedTiles.size <= this.maxTiles * 2) break; this.retireTile(url); }
+            const priorities = candidates.map(([url, selection]) => ({ url,
+                priority: this.tilePriority(selection.boundingVolume,
+                    selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity()) }));
+            priorities.sort((a, b) => b.priority - a.priority);
+            for (const { url } of priorities) { if (this.loadedTiles.size <= this.maxTiles * 2) break; this.retireTile(url); }
         }
     }
 
