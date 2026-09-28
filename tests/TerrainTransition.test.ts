@@ -126,3 +126,19 @@ it('holds ready imagery through a basemap change at the same tile coordinates',(
  expect(retained.isDisposed()).toBe(true);
  transition.dispose();scene.dispose();engine.dispose();
 });
+
+it('keeps raster fallback when a same-zoom regional window grows',()=>{
+ const engine=new NullEngine(),scene=new Scene(engine);
+ const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
+ globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(40.7484,-73.9857,12);
+ const tile=globe.ourTiles[0];tile.terrainLoaded=true;
+ const material=new StandardMaterial('ready map',scene),texture=new Texture(null,scene);
+ vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;tile.mesh.material=material;
+ const transition=new TerrainTransition();transition.capture(globe,12,40.7484,-73.9857,true);
+ globe.createGeometry(new Vector2(2,2),20,2);globe.updateRaster(40.7484,-73.9857,12);
+ transition.update(1);
+ const retained=scene.getMeshByName('previous terrain')!;
+ expect(retained.isDisposed()).toBe(false);
+ expect(retained.isEnabled()).toBe(true);
+ transition.dispose();scene.dispose();engine.dispose();
+});

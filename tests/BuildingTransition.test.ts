@@ -65,6 +65,30 @@ describe("building detail transitions", () => {
         transition.dispose(); scene.dispose(); engine.dispose();
     });
 
+    it("retains ready buildings when a same-zoom LOD window is resized", () => {
+        const engine = new NullEngine(), scene = new Scene(engine);
+        const globe = new GlobeSet(scene, engine, { backingSurface: false });
+        globe.createGeometry(new Vector2(1, 1), 20, 8);
+        globe.updateRaster(40.7484, -73.9857, 14);
+        const tile = globe.ourTiles[0];
+        tile.mesh.setEnabled(true);
+        const source = MeshBuilder.CreateBox("ready buildings", {}, scene);
+        source.setParent(tile.mesh);
+        tile.buildingBatches.push(source);
+        const world = source.computeWorldMatrix(true).clone();
+        const transition = new BuildingTransition();
+        transition.capture(globe, 14, 40.7484, -73.9857, true);
+        globe.createGeometry(new Vector2(2, 2), 20, 8);
+        globe.updateRaster(40.7484, -73.9857, 14);
+        transition.update(1);
+        const retained = scene.getMeshByName("previous building detail")!;
+        expect(retained.isDisposed()).toBe(false);
+        expect(retained.isEnabled()).toBe(true);
+        expect(retained.parent).toBeNull();
+        expect(Array.from(retained.computeWorldMatrix(true).m)).toEqual(Array.from(world.m));
+        transition.dispose();scene.dispose();engine.dispose();
+    });
+
     it("drops retained Overture detail immediately when Google covers it", () => {
         const engine = new NullEngine();
         const scene = new Scene(engine);

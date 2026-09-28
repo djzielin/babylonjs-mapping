@@ -19,19 +19,19 @@ export class BuildingTransition {
         }
     }
 
-    public capture(globe: GlobeSet, nextZoom: number, latitude?: number, longitude?: number): void {
+    public capture(globe: GlobeSet, nextZoom: number, latitude?: number, longitude?: number, force = false): void {
         if (globe.zoom < 10) return;
         const nextCorner = latitude === undefined || longitude === undefined ? undefined : {
             x: globe.ourTileMath.lon_to_tile(longitude, nextZoom) - Math.floor(globe.numTiles.x / 2),
             y: globe.ourTileMath.lat_to_tile(latitude, nextZoom) + Math.floor(globe.numTiles.y / 2),
         };
         const currentCorner = globe.ourTiles[0]?.tileCoords;
-        if (globe.zoom === nextZoom && (!nextCorner || !currentCorner
+        if (!force && globe.zoom === nextZoom && (!nextCorner || !currentCorner
             || (currentCorner.x === nextCorner.x && currentCorner.y === nextCorner.y))) return;
         const retained = this.previous.get(globe) ?? [];
         const retainedSources = new Set(retained.map(old => old.source));
         for (const tile of globe.ourTiles) {
-            if (globe.zoom === nextZoom && nextCorner
+            if (!force && globe.zoom === nextZoom && nextCorner
                 && tile.tileCoords.x >= nextCorner.x && tile.tileCoords.x < nextCorner.x + globe.numTiles.x
                 && tile.tileCoords.y <= nextCorner.y && tile.tileCoords.y > nextCorner.y - globe.numTiles.y) continue;
             if (!tile.buildingBatches.length && !tile.mergedBuildingMesh) continue;

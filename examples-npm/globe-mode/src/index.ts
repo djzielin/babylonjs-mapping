@@ -306,6 +306,7 @@ class GlobeDemo {
         }, { once: true });
         void this.readGoogleKey();
         document.getElementById("googleTiles")!.addEventListener("change", () => {
+            this.updateDistanceLayers(this.navigator.getView());
             if (!this.googleKey && (document.getElementById("googleTiles") as HTMLInputElement).checked) void this.readGoogleKey();
             else this.scheduleGoogleTiles(true);
         });
@@ -1362,7 +1363,8 @@ class GlobeDemo {
 
     private updateDistanceLayers(view: GlobeView): void {
         if (view.zoom < 8 && !this.distanceLayers.length) return;
-        const plans = globeLODPlan(view.zoom);
+        const detailed15MileRadius = (document.getElementById("googleTiles") as HTMLInputElement).checked;
+        const plans = globeLODPlan(view.zoom, detailed15MileRadius);
         if (!this.distanceLayers.length) {
             // Construct near tiers first so their scene observers request
             // imagery and elevation before the much larger horizon windows.
@@ -1371,12 +1373,14 @@ class GlobeDemo {
                     radius: GLOBE_RADIUS, backingSurface: false, attribution: false, geometryBudgetMs: 0.5,
                 });
                 globe.setOptimizationOptions({ freezeTileWorldMatrices: true, disableTilePicking: true, disableTileCollisions: true });
-                globe.rasterConcurrency = plan.group >= 4 ? 4 : 2;
+                globe.rasterConcurrency = detailed15MileRadius && plan.group === 2 ? 8
+                    : plan.group >= 4 ? 4 : 2;
                 globe.setRasterProvider(new RasterOSM(globe));
                 globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);
                 for (const tile of globe.ourTiles) this.registerTerrain(tile.mesh, plan.group);
                 const data = new GlobeDataController(globe, { elevation: this.elevation.load,
-                    concurrency: plan.group === 5 ? 6 : plan.group >= 3 ? 4 : 1,
+                    concurrency: detailed15MileRadius && plan.group === 2 ? 8
+                        : plan.group === 5 ? 6 : plan.group >= 3 ? 4 : 1,
                     minTerrainZoom: 5, prioritizeVisible: true,
                     minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14 });
                 this.distanceLayers.unshift({ globe, data, key: "" });
@@ -1386,9 +1390,15 @@ class GlobeDemo {
         }
         this.distanceLayers.forEach((layer, index) => {
             const plan = plans[index];
+            layer.globe.rasterConcurrency = detailed15MileRadius && plan.group === 2 ? 8
+                : plan.group >= 4 ? 4 : 2;
+            layer.data.options.concurrency = detailed15MileRadius && plan.group === 2 ? 8
+                : plan.group === 5 ? 6 : plan.group >= 3 ? 4 : 1;
             // At global zooms use a small valid world window rather than repeating tiles.
             const size = view.zoom < 8 ? 1 : Math.min(plan.size, 2 ** plan.zoom);
             if (layer.globe.ourTiles.length !== size * size) {
+                this.terrainTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude, true);
+                this.buildingTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude, true);
                 layer.globe.createGeometry(new Vector2(size, size), 20, plan.precision);
                 for (const tile of layer.globe.ourTiles) this.registerTerrain(tile.mesh, plan.group);
                 layer.key = "";
@@ -1408,8 +1418,12 @@ class GlobeDemo {
             const previous = layer.key.split("/").map(Number);
             const deltaX = Math.abs(tileX - previous[1]);
             const wrap = 2 ** plan.zoom;
-            if (previous[0] === plan.zoom && Math.min(deltaX, wrap - deltaX) <= 1
-                && Math.abs(tileY - previous[2]) <= 1) return;
+            // The ten-tile regional window has one tile of radius margin at
+            // NYC. Recenter it on every tile crossing so Shift movement never
+            // lets the 15-mile disk drift beyond that window.
+            const slack = detailed15MileRadius && plan.group === 2 ? 0 : 1;
+            if (previous[0] === plan.zoom && Math.min(deltaX, wrap - deltaX) <= slack
+                && Math.abs(tileY - previous[2]) <= slack) return;
             const key = `${plan.zoom}/${tileX}/${tileY}`;
             this.terrainTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude);
             this.buildingTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude);
