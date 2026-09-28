@@ -625,7 +625,19 @@ describe("terrain encodings and overzoom", () => {
         expect(TerrainRGB.repairIsolatedSpikes({ data: lowRidge, width: 64, height: 64 }, 15)
             .data[23 * 64 + 23]).toBe(2);
         expect(TerrainRGB.repairIsolatedSpikes({ data: lowRidge, width: 64, height: 64 }, 13)
-            .data[23 * 64 + 23]).toBe(36);
+            .data[23 * 64 + 23]).toBe(2);
+        const regionalCoast = new Float32Array(64 * 64).fill(2);
+        regionalCoast[33 * 64 + 34] = 21;
+        expect(TerrainRGB.repairIsolatedSpikes({ data: regionalCoast, width: 64, height: 64 }, 12)
+            .data[33 * 64 + 34]).toBe(2);
+        // The Greenpoint regional DEM has adjacent 29-33 m outliers on its
+        // southern edge; no sample exists below that edge within this tile.
+        const regionalEdge = new Float32Array(64 * 64).fill(6);
+        regionalEdge[63 * 64 + 7] = 33;
+        regionalEdge[63 * 64 + 8] = 29;
+        const repairedEdge = TerrainRGB.repairIsolatedSpikes({ data: regionalEdge, width: 64, height: 64 }, 12);
+        expect(repairedEdge.data[63 * 64 + 7]).toBe(6);
+        expect(repairedEdge.data[63 * 64 + 8]).toBe(6);
         const shortCoastalSeam = new Float32Array(64 * 64).fill(0);
         for (let y = 15; y < 22; y++) shortCoastalSeam[y * 64 + 15] = 12;
         for (let y = 32; y < 39; y++) shortCoastalSeam[y * 64 + 32] = -16;

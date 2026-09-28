@@ -31,8 +31,8 @@ export function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: numb
         // surroundings is still a conspicuous vertical terrain wall. The
         // coarser tiles keep the higher threshold to retain real hills.
         ...(sourceZoom >= 10 ? [
-            { seed: sourceZoom >= 14 ? 20 : 40,
-                fringe: sourceZoom >= 14 ? 5 : 10, limit: sourceZoom >= 14 ? 1024 : 128,
+            { seed: sourceZoom >= 12 ? 20 : 40,
+                fringe: sourceZoom >= 12 ? 5 : 10, limit: sourceZoom >= 14 ? 1024 : 128,
                 floor: -10, ceiling: 10, positive: true },
             ...(sourceZoom >= 14 ? [{ seed: 10, fringe: 3, limit: 128,
                 floor: -10, ceiling: 10, positive: true }] : []),
@@ -79,18 +79,28 @@ export function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: numb
     // fragments with a misleading surrounding ring.
     const source = repaired ?? data;
     const singles: Array<[number, number]> = [];
-    for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) {
+    const isolatedThreshold = sourceZoom >= 12 ? 15 : threshold;
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
         const index = y * width + x, center = source[index];
-        const left = source[index - 1], right = source[index + 1];
-        const above = source[index - width], below = source[index + width];
-        if (!((Math.abs(center - left) > threshold && Math.abs(center - right) > threshold)
-            || (Math.abs(center - above) > threshold && Math.abs(center - below) > threshold))) continue;
-        const neighbors = [source[index - width - 1], above, source[index - width + 1],
-            left, right, source[index + width - 1], below, source[index + width + 1]];
+        let different = 0;
+        if (x > 0 && Math.abs(center - source[index - 1]) > isolatedThreshold) different++;
+        if (x + 1 < width && Math.abs(center - source[index + 1]) > isolatedThreshold) different++;
+        if (y > 0 && Math.abs(center - source[index - width]) > isolatedThreshold) different++;
+        if (y + 1 < height && Math.abs(center - source[index + width]) > isolatedThreshold) different++;
+        if (different < 2) continue;
+        const neighbors: number[] = [];
+        for (let ny = Math.max(0, y - 1); ny <= Math.min(height - 1, y + 1); ny++)
+            for (let nx = Math.max(0, x - 1); nx <= Math.min(width - 1, x + 1); nx++)
+                if (nx !== x || ny !== y) neighbors.push(source[ny * width + nx]);
+        if (neighbors.length < 3) continue;
+        // A real slope or broad bathymetric shelf has several nearby samples
+        // at its own elevation, even when this pixel sits at a sharp corner.
+        if (neighbors.filter(value => Math.abs(center - value) < isolatedThreshold / 2).length > 1) continue;
         neighbors.sort((a, b) => a - b);
-        const median = (neighbors[3] + neighbors[4]) / 2;
-        if (Math.abs(center - median) <= threshold
-            || neighbors.filter(value => Math.abs(value - median) < threshold / 2).length < 5) continue;
+        const middle = Math.floor(neighbors.length / 2);
+        const median = neighbors.length % 2 ? neighbors[middle] : (neighbors[middle - 1] + neighbors[middle]) / 2;
+        if (Math.abs(center - median) <= isolatedThreshold
+            || neighbors.filter(value => Math.abs(value - median) < isolatedThreshold / 2).length < Math.min(5, neighbors.length - 1)) continue;
         singles.push([index, median]);
     }
     if (singles.length) {
