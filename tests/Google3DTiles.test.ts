@@ -1315,6 +1315,30 @@ it("shows a city-block model despite a pessimistic source geometric error", asyn
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
+it("holds a coarse city-block parent until its finer child is ready", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const camera = new ArcRotateCamera("eye", 0, 1, 1, globe.getSurfacePosition(0, 0), scene);
+  camera.setPosition(globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld));
+  camera.getViewMatrix(true);
+  const provider = new Google3DTiles(globe, { apiKey: "test", coverageRadius: 1000,
+    maximumScreenSpaceError: 1, maximumInitialErrorRatio: 2, maxDepth: 0,
+    tilesetLoader: async () => ({ root: { boundingVolume: { sphere: [6378137, 0, 0, 100] },
+      geometricError: 16, content: { uri: "coarse-block.glb" },
+      children: [{ boundingVolume: { sphere: [6378137, 0, 0, 100] },
+        geometricError: 0, content: { uri: "fine-block.glb" } }] } }),
+    modelTileLoader: createModelLoader([]) });
+  try {
+    await provider.load();
+    expect(provider.loadedModelTiles).toHaveLength(0);
+    expect((provider as any).retainedTiles.size).toBe(1);
+    provider.maxDepth = 1;
+    await provider.load();
+    expect(provider.loadedModelTiles.map(tile => tile.url)).toEqual([expect.stringContaining("fine-block.glb")]);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("keeps a half-kilometre coarse slab hidden until its smaller replacement is ready", async () => {
   const engine = new NullEngine(), scene = new Scene(engine);
   const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });

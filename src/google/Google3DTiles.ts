@@ -154,6 +154,7 @@ interface GeographicBounds {
 
 interface TileSelection {
     geometricError?: number;
+    hasRefinement?: boolean;
     ancestors?: string[];
     boundingVolume?: Google3DBoundingVolume;
     url: string;
@@ -727,11 +728,11 @@ export default class Google3DTiles {
         // textured city block. A radius near 500 m can cover an entire low
         // detail landscape slab, so only exempt genuinely small models.
         const volume = selection.boundingVolume;
-        if (volume?.sphere) {
+        if (!selection.hasRefinement && volume?.sphere) {
             const scale = Math.max(...[Vector3.Right(), Vector3.Up(), Vector3.Forward()]
                 .map(axis => Vector3.TransformNormal(axis, transform).length()));
             if (volume.sphere[3] * scale <= 250) return true;
-        } else if (volume?.box) {
+        } else if (!selection.hasRefinement && volume?.box) {
             const radius = Math.hypot(...[3, 6, 9].map(offset =>
                 Vector3.TransformNormal(Vector3.FromArray(volume.box!, offset), transform).length()));
             if (radius <= 250) return true;
@@ -1150,8 +1151,10 @@ export default class Google3DTiles {
                 : Math.min(allowed, this.maximumDisplayGeometricError ?? 33);
             const refine = tile.refine?.toUpperCase() ?? parentRefine;
             const contents = getTileContents(tile);
+            const hasRefinement = !!tile.children?.length || contents.some(isTilesetContent);
             const selections = contents.filter(content => !isTilesetContent(content)).map(content => ({
                 url: this.authenticateURL(getContentURI(content), responseUrl), depth, ancestors, geometricError: tile.geometricError,
+                hasRefinement,
                 boundingVolume: tile.boundingVolume,
                 transform: transform.isIdentity() ? undefined : Array.from(transform.m),
             }));
@@ -1659,6 +1662,7 @@ export default class Google3DTiles {
                 desiredTiles.set(url, {
                     url,
                     depth,
+                    hasRefinement: !!tile.children?.length || contents.some(isTilesetContent),
                     boundingVolume: tile.boundingVolume,
                     transform: accumulatedTransform.isIdentity()
                         ? undefined
