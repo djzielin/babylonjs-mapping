@@ -292,16 +292,22 @@ export default class Google3DTiles {
                 waiter.evaluatedAt = this.requestPriorityRevision;
             }
             this.networkWaiters.sort((a, b) => a.distance! - b.distance!);
-            let offscreen = this.networkWaiters.filter(waiter => waiter.distance! >= 1e9).length;
-            let visible = this.networkWaiters.length - offscreen;
+            let visible = this.networkWaiters.findIndex(waiter => waiter.distance! >= 1e9);
+            if (visible < 0) visible = this.networkWaiters.length;
+            let offscreen = this.networkWaiters.length - visible;
             while (this.networkActive < 48 && this.networkWaiters.length) {
-                const offscreenShare = Math.min(24, Math.max(8, Math.ceil(48 *
-                    (offscreen + this.networkActiveOffscreen) / Math.max(1, offscreen + visible + this.networkActive))));
-                const reserveOffscreen = offscreen > 0 && (visible === 0 ||
-                    (this.networkActiveOffscreen < offscreenShare && this.networkDispatchCount % 4 === 3));
-                const index = reserveOffscreen ? visible : 0;
-                const next = this.networkWaiters.splice(index, 1)[0];
+                // Give the full disk a small guaranteed share under a long
+                // visible backlog, while leaving nearly every released slot
+                // for the camera-facing quality deficit.
+                const fairBackground = visible > 0 && offscreen > 0
+                    && this.networkActiveOffscreen < 4 && this.networkDispatchCount % 8 === 7;
+                const next = this.networkWaiters[fairBackground ? visible : 0];
                 const isOffscreen = next.distance! >= 1e9;
+                // Keep two slots ready for a sudden camera turn while the
+                // stationary full-radius queue runs. Visible work always uses
+                // the current priority order and can fill all 48 slots.
+                if (isOffscreen && visible === 0 && this.networkActive >= 46) break;
+                this.networkWaiters.splice(fairBackground ? visible : 0, 1);
                 if (isOffscreen) offscreen--; else visible--;
                 this.networkActive++;
                 if (isOffscreen) this.networkActiveOffscreen++;
@@ -309,7 +315,7 @@ export default class Google3DTiles {
                 this.stats.peakHierarchyActive = Math.max(this.stats.peakHierarchyActive, this.networkActiveHierarchy);
                 this.stats.peakModelActive = Math.max(this.stats.peakModelActive, this.networkActiveModel);
                 this.stats.peakNetworkActive = Math.max(this.stats.peakNetworkActive, this.networkActive);
-                if (offscreen > 0 && visible > 0) this.networkDispatchCount++;
+                if (visible > 0 && offscreen > 0) this.networkDispatchCount++;
                 next.resume(isOffscreen);
             }
         });
@@ -323,6 +329,7 @@ export default class Google3DTiles {
         try { return await work(); }
         finally {
             this.networkActive--;
+            // Classification is fixed at dispatch, even if the camera turns.
             if (offscreen) this.networkActiveOffscreen--;
             if (kind === "hierarchy") this.networkActiveHierarchy--; else this.networkActiveModel--;
             this.drainNetwork();

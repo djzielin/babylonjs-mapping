@@ -978,6 +978,25 @@ it("shows nearby models before extending selection to the full coverage radius",
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
+it("starts visible work immediately while the full-radius queue is saturated", async () => {
+  const {engine,scene,tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet);
+  const releases: Array<()=>void>=[];
+  const background=Array.from({length:48},()=> (provider as any).networkSlot(
+    ()=>new Promise<void>(resolve=>{releases.push(resolve);}),1e9));
+  try {
+    await vi.waitFor(()=>expect(releases).toHaveLength(46));
+    const visibleStarted=vi.fn();
+    const visible=(provider as any).networkSlot(async()=>{visibleStarted();},-1);
+    await vi.waitFor(()=>expect(visibleStarted).toHaveBeenCalledOnce());
+    expect(releases).toHaveLength(46);
+    for (const release of releases) release();
+    await vi.waitFor(()=>expect(releases).toHaveLength(48));
+    releases[46]();releases[47]();
+    await Promise.all([...background,visible]);
+  } finally { provider.dispose();scene.dispose();engine.dispose(); }
+});
+
 it("commits nearby refinement without waiting for unrelated distant hierarchy", async () => {
   const {engine,scene,tileSet}=createTileSet();
   let release!:()=>void, reached!:()=>void;
@@ -1579,9 +1598,11 @@ it("promotes queued tiles in the new view after a camera turn at the same positi
   facing = west;
   provider.reprioritizeRequests();
   releases[0]();
+  await vi.waitFor(() => expect(order[0]).toBe("west"));
+  releases.slice(1,3).forEach(release => release());
   await Promise.all([eastRequest, westRequest]);
   expect(order).toEqual(["west", "east"]);
-  releases.slice(1).forEach(release => release());
+  releases.slice(3).forEach(release => release());
   await Promise.all(active);
   provider.dispose(); scene.dispose(); engine.dispose();
 });
