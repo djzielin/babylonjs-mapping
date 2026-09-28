@@ -178,6 +178,8 @@ class GlobeDemo {
         qualityFailures: number; maxVisibleErrorRatio: number; maxUnderDetailedTiles: number;
         lastQualitySampleAt: number };
     private googleSelectionCenter?: { latitude: number; longitude: number };
+    private readonly diagnoseGoogle = new URLSearchParams(location.search).has("diagnoseGoogle");
+    private nextGoogleDiagnosticsAt = 0;
 
     public constructor(engine?: GlobeEngine) {
         this.canvas = document.getElementById(
@@ -395,7 +397,13 @@ class GlobeDemo {
                     this.canvas.dataset.googlePeakModelDecodeActive = String(stages.peakModelDecodeActive);
                     this.canvas.dataset.googleModelIntegrationMs = String(Math.round(stages.modelIntegrationMs));
                     this.canvas.dataset.googleModelIntegrationMaxMs = String(Math.round(stages.modelIntegrationMaxMs));
-                    if (new URLSearchParams(location.search).has("diagnoseGoogle")) {
+                    // Bounding every Google mesh and sorting the largest ones
+                    // costs a full frame during streaming. The benchmark takes
+                    // its own quality samples, so keep this panel diagnostic
+                    // off the render hot path while measuring frame pacing.
+                    if (this.diagnoseGoogle && !this.benchmark
+                        && performance.now() >= this.nextGoogleDiagnosticsAt) {
+                        this.nextGoogleDiagnosticsAt = performance.now() + 5000;
                         this.canvas.dataset.googleVisibleQuality = JSON.stringify(this.googleTiles.measureVisibleQuality());
                         const scale = this.detailGlobe.metresToWorld;
                         const largest = this.googleTiles.loadedModelTiles.flatMap(tile => tile.asset.meshes

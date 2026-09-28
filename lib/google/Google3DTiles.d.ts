@@ -194,6 +194,7 @@ export default class Google3DTiles {
     private readonly loadedTiles;
     private retainedTiles;
     private generation;
+    private frontierGeneration;
     private desiredTiles;
     private originStateKey;
     private googleAttributionAdded;
@@ -261,6 +262,8 @@ export default class Google3DTiles {
     getTileURL(uri: string, baseUrl?: string): string;
     /** Cancel queued work while retaining the visible scene and hierarchy cache. */
     cancelPendingLoad(): void;
+    /** The active frontier can follow camera movement without discarding its work. */
+    get selectingFrontier(): boolean;
     /** Reorder queued downloads immediately when the camera moves, without cancelling active requests. */
     reprioritizeRequests(): void;
     /** Loads content that overlaps the current TileSet. */
