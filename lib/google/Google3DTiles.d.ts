@@ -132,6 +132,11 @@ export default class Google3DTiles {
     maxTiles: number;
     exaggeration: number;
     coverageRadius?: number;
+    /** Center of the latest geographic frontier admitted during the active load. */
+    selectedCoverageCenter?: {
+        latitude: number;
+        longitude: number;
+    };
     coverageRegion?: Google3DTilesOptions["coverageRegion"];
     maximumGeometricError: number;
     maximumScreenSpaceError?: number;

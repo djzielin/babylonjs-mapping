@@ -973,6 +973,69 @@ it("reprioritizes unexpanded hierarchy toward the moving camera", async () => {
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
+it("admits a new geographic branch while a moving disk selection is in flight", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const camera = new ArcRotateCamera("moving-disk", 0, 1, 1, globe.getSurfacePosition(0, 0), scene);
+  camera.setPosition(globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld));
+  camera.getViewMatrix(true);
+  const region = (west: number, east: number) =>
+    ({ region: [west * Math.PI / 180, -0.01, east * Math.PI / 180, 0.01, -100, 1000] });
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let releaseRight!: () => void;
+  const rightHeld = new Promise<void>(resolve => { releaseRight = resolve; });
+  let holdRequests = 0;
+  let rightRequests = 0;
+  const models: string[] = [];
+  const modelLoader = createModelLoader(models);
+  const provider = new Google3DTiles(globe, {
+    apiKey: "test", maximumScreenSpaceError: 1, fullRadiusDemand: true,
+    coverageRadius: 10000, maxTiles: 16,
+    tilesetLoader: async url => {
+      if (url.includes("hold.json")) {
+        holdRequests++;
+        await held;
+        return { root: { boundingVolume: region(-0.05, 0.3) } };
+      }
+      return { root: { boundingVolume: region(-0.05, 0.3), geometricError: 100,
+        contents: [{ uri: "parent.glb" }, { uri: "hold.json" }],
+        children: [
+          { boundingVolume: region(-0.01, 0.01), geometricError: 0, content: { uri: "left.glb" } },
+          { boundingVolume: region(0.24, 0.26), geometricError: 0, content: { uri: "right.glb" } },
+        ],
+      } };
+    }, modelTileLoader: async (url, modelScene) => {
+      if (url.includes("right.glb")) { rightRequests++; await rightHeld; }
+      return modelLoader(url, modelScene);
+    },
+  });
+  const oldRoot = { setEnabled: vi.fn(), dispose: vi.fn() };
+  (provider as any).loadedSelections.set("old", {
+    url: "old", depth: 1, boundingVolume: region(-0.01, 0.01),
+  });
+  (provider as any).loadedTiles.set("old", {
+    url: "old", depth: 1, root: oldRoot, asset: { dispose: vi.fn() }, attributions: [],
+  });
+  try {
+    const loading = provider.load();
+    await vi.waitFor(() => expect(holdRequests).toBe(1));
+    camera.setPosition(globe.getSurfacePosition(0, 0.25, 100 * globe.metresToWorld));
+    camera.getViewMatrix(true);
+    provider.reprioritizeRequests();
+    release();
+    await vi.waitFor(() => expect(rightRequests).toBe(1));
+    // Content beyond the moving disk can leave before the new side finishes.
+    expect(oldRoot.setEnabled).toHaveBeenCalledWith(false);
+    releaseRight();
+    const loaded = await loading;
+    expect(loaded.map(tile => tile.url)).toEqual(expect.arrayContaining([expect.stringContaining("right.glb")]));
+    expect(models.some(url => url.includes("right.glb"))).toBe(true);
+    expect(provider.selectedCoverageCenter?.longitude).toBeCloseTo(0.25, 2);
+  } finally { release(); releaseRight(); provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("retains coarse unseen models across the configured fifteen-mile radius", async () => {
   const engine = new NullEngine(), scene = new Scene(engine);
   const globe = new GlobeSet(scene, engine, {radius: 60, attribution: false});

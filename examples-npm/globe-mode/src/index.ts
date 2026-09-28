@@ -1149,6 +1149,11 @@ class GlobeDemo {
                 this.googleSelectionCenter = { latitude: currentView.latitude, longitude: currentView.longitude };
                 const loaded = await provider.load();
                 if (generation !== this.googleGeneration) return;
+                const selectedCenter = provider.selectedCoverageCenter;
+                if (selectedCenter) {
+                    this.googleSelectionCenter = selectedCenter;
+                    this.canvas.dataset.googleSelectionCenter = `${selectedCenter.latitude.toFixed(5)},${selectedCenter.longitude.toFixed(5)}`;
+                }
                 this.setPhotorealisticActive(loaded.length > 0);
                 this.canvas.dataset.googleTiles = String(loaded.length);
                 this.canvas.dataset.googleLoadMs = String(Math.round(performance.now() - started));
@@ -1444,13 +1449,14 @@ class GlobeDemo {
             this.orientView(run.tilt, (run.heading + seconds * 6) % 360);
         }
         if (this.canvas.dataset.googleFullRadiusQuality === "known-incomplete") run.knownIncomplete = true;
-        if (this.googleSelectionCenter) {
+        const selectionCenter = this.googleTiles?.selectedCoverageCenter ?? this.googleSelectionCenter;
+        if (selectionCenter) {
             const view = this.navigator.getView();
             const radians = Math.PI / 180;
-            const dLat = (view.latitude - this.googleSelectionCenter.latitude) * radians;
-            const dLon = (view.longitude - this.googleSelectionCenter.longitude) * radians;
+            const dLat = (view.latitude - selectionCenter.latitude) * radians;
+            const dLon = (view.longitude - selectionCenter.longitude) * radians;
             const a = Math.sin(dLat / 2) ** 2 + Math.cos(view.latitude * radians)
-                * Math.cos(this.googleSelectionCenter.latitude * radians) * Math.sin(dLon / 2) ** 2;
+                * Math.cos(selectionCenter.latitude * radians) * Math.sin(dLon / 2) ** 2;
             run.maxSelectionLagMeters = Math.max(run.maxSelectionLagMeters,
                 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(a))));
         }

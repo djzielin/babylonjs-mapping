@@ -191,6 +191,8 @@ export default class Google3DTiles {
     public maxTiles: number;
     public exaggeration: number;
     public coverageRadius?: number;
+    /** Center of the latest geographic frontier admitted during the active load. */
+    public selectedCoverageCenter?: { latitude: number; longitude: number };
     public coverageRegion?: Google3DTilesOptions["coverageRegion"];
     public maximumGeometricError = 0;
     public maximumScreenSpaceError?: number;
@@ -955,7 +957,13 @@ export default class Google3DTiles {
         surroundings = false, selectionRadius = this.coverageRadius): Promise<void> {
         const camera = this.tileSet.scene.activeCamera;
         const coverageRadius = surroundings ? this.coverageRadius : selectionRadius;
-        const bounds = this.getTileSetBounds(coverageRadius);
+        let bounds = this.getTileSetBounds(coverageRadius);
+        const recordCenter = () => {
+            if (surroundings || !this.tileSet.isGlobe || !this.tileSet.scene.activeCamera) return;
+            const point = (this.tileSet as GlobeSet).getSurfaceCoordinates(this.tileSet.scene.activeCamera.globalPosition);
+            this.selectedCoverageCenter = { latitude: point.latitude, longitude: point.longitude };
+        };
+        recordCenter();
         const budget = surroundings ? Math.min(512, this.maxTiles) : this.maxTiles;
         const key = JSON.stringify([bounds, this.selectionEye?.asArray(),
             camera && Array.from(camera.getViewMatrix().m), camera && Array.from(camera.getProjectionMatrix().m),
@@ -1106,34 +1114,175 @@ export default class Google3DTiles {
             }
             return value;
         };
-        const queue = new PriorityQueue<FrontierTile>((a, b) => {
+        const compare = (a: FrontierTile, b: FrontierTile) => {
             const pa = priority(a), pb = priority(b);
             return pa.background - pb.background || pa.band - pb.band
                 || (preferCoverage ? pb.coverage - pa.coverage : 0) || b.priority - a.priority || pa.distance - pb.distance;
-        });
+        };
+        const queue = new PriorityQueue<FrontierTile>(compare);
         initial.forEach(node => queue.push(node));
         let queueRevision = this.requestPriorityRevision;
-        type Expansion = { node: FrontierTile; next: FrontierTile[] | undefined };
+        type Expansion = { kind: "expand" | "seed"; node: FrontierTile; next: FrontierTile[] | undefined };
         const pending = new Map<FrontierTile, Promise<Expansion>>();
-        while ((queue.length || pending.size) && generation === this.generation) {
+        const seedQueue = new PriorityQueue<FrontierTile>(compare);
+        const seedPending = new Map<FrontierTile, Promise<Expansion>>();
+        let rootSeed: Promise<FrontierTile[]> | undefined;
+        let previousBounds = bounds;
+        let seededAt = this.requestEye ?? this.selectionEye ?? this.cameraEye();
+        let reseeds = 0;
+        const activeURLs = new Set(initial.flatMap(node => node.selections.map(selection => selection.url)));
+        const representedURLs = new Set(initial.flatMap(node => node.selections.flatMap(selection =>
+            [selection.url, ...(selection.ancestors ?? [])])));
+        const enqueueSeed = (node: FrontierTile) => {
+            const url = node.selections[0]?.url;
+            if (!url || !boundingVolumeIntersects(node.tile.boundingVolume, bounds, node.transform)) return;
+            const envelope = geographicEnvelope(node.selections[0]);
+            // Interior branches are already being refined by the active queue.
+            // Traverse only ancestors that can lead into the newly entered strip.
+            if (envelope && envelope.south >= previousBounds.south && envelope.north <= previousBounds.north
+                && envelope.longitudes.every(([west, east]) => previousBounds.longitudes.some(([left, right]) =>
+                    west >= left && east <= right))) return;
+            seedQueue.push(node);
+        };
+        while ((queue.length || pending.size || seedQueue.length || seedPending.size || rootSeed)
+            && generation === this.generation) {
             if (queueRevision !== this.requestPriorityRevision) {
                 queueRevision = this.requestPriorityRevision;
                 queue.rebuild();
+                seedQueue.rebuild();
             }
-            if (count >= budget) while (queue.length) settle(queue.shift()!);
+            const eye = this.requestEye ?? this.selectionEye ?? this.cameraEye();
+            if (!surroundings && coverageRadius && reseeds < 3 && !rootSeed
+                && Vector3.Distance(eye, seededAt) >= 1000) {
+                previousBounds = bounds;
+                bounds = this.getTileSetBounds(coverageRadius);
+                recordCenter();
+                seededAt = eye.clone();
+                reseeds++;
+                this.frontierCache = undefined;
+                // The disk has moved: geometry wholly beyond its geographic
+                // bounds is no longer a coverage fallback. Retire it now,
+                // rather than keeping it visible for the rest of a long pass.
+                let checkedResidents = 0, retiredResidents = 0;
+                for (const [url, selection] of this.loadedSelections) {
+                    if (!this.loadedTiles.has(url)) continue;
+                    const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+                    if (!boundingVolumeIntersects(selection.boundingVolume, bounds, transform)) {
+                        const tile = this.loadedTiles.get(url)!;
+                        tile.root.setEnabled(false);
+                        this.loadedTiles.delete(url);
+                        this.retainedTiles.set(url, tile);
+                        retiredResidents++;
+                    }
+                    if (++checkedResidents % 32 === 0) {
+                        const pause = workBudget.checkpoint(() => this.tilePriority(selection.boundingVolume, transform), 0);
+                        if (pause) await pause;
+                        if (generation !== this.generation) return;
+                    }
+                }
+                if (retiredResidents) {
+                    this.trimRetainedTiles();
+                    this.coverageKey = ""; this.coverageVersion++;
+                    this.updateAttribution();
+                }
+                for (const node of frontier) {
+                    if (boundingVolumeIntersects(node.tile.boundingVolume, bounds, node.transform)) continue;
+                    frontier.delete(node); track(node, false);
+                    count -= node.selections.length;
+                    settled.delete(node);
+                    for (const selection of node.selections) {
+                        activeURLs.delete(selection.url);
+                        desired.delete(selection.url);
+                    }
+                }
+                representedURLs.clear();
+                for (const node of frontier) for (const selection of node.selections) {
+                    representedURLs.add(selection.url);
+                    for (const ancestor of selection.ancestors ?? []) representedURLs.add(ancestor);
+                }
+                rootSeed = firstContent(this.rootTileset!.root, this.getRootTilesetURL(),
+                    0, Matrix.Identity(), "REPLACE").catch(() => []);
+            }
+            let settledAtBudget = 0;
+            if (count >= budget) while (queue.length) {
+                const node = queue.shift()!;
+                if (frontier.has(node)) settle(node);
+                if (++settledAtBudget % 32 === 0) {
+                    const pause = workBudget.checkpoint(() => priority(node).distance, 0);
+                    if (pause) await pause;
+                    if (generation !== this.generation) return;
+                }
+            }
             const coverage = count >= Math.min(128, budget / 4);
             if (coverage !== preferCoverage) { preferCoverage = coverage; queue.rebuild(); }
-            while (queue.length && pending.size < 16) {
+            while (seedQueue.length && pending.size + seedPending.size < 16) {
+                const node = seedQueue.shift()!;
+                const pause = workBudget.checkpoint(() => priority(node).distance, 0);
+                if (pause) await pause;
+                if (generation !== this.generation) return;
+                if (!boundingVolumeIntersects(node.tile.boundingVolume, bounds, node.transform)) continue;
+                const url = node.selections[0]?.url;
+                if (!url || activeURLs.has(url)) continue;
+                if (representedURLs.has(url)) {
+                    seedPending.set(node, children(node).then(next => ({ kind: "seed", node, next }),
+                        () => ({ kind: "seed", node, next: undefined })));
+                    continue;
+                }
+                if (count + node.selections.length > budget) {
+                    // Resident far coverage remains drawn even when its demand
+                    // slot is given to a newly entered, more urgent branch.
+                    let victim: FrontierTile | undefined;
+                    for (const candidate of frontier) {
+                        if (candidate.refine === "ADD" || pending.has(candidate)
+                            || !candidate.selections.every(selection => this.loadedTiles.has(selection.url))) continue;
+                        if (!victim || compare(victim, candidate) < 0) victim = candidate;
+                    }
+                    if (!victim || compare(node, victim) >= 0
+                        || count - victim.selections.length + node.selections.length > budget) continue;
+                    frontier.delete(victim); track(victim, false); settled.delete(victim);
+                    count -= victim.selections.length;
+                    for (const selection of victim.selections) {
+                        activeURLs.delete(selection.url);
+                        desired.delete(selection.url);
+                    }
+                }
+                frontier.add(node); track(node, true); count += node.selections.length;
+                for (const selection of node.selections) {
+                    activeURLs.add(selection.url);
+                    representedURLs.add(selection.url);
+                    for (const ancestor of selection.ancestors ?? []) representedURLs.add(ancestor);
+                }
+                queue.push(node);
+            }
+            while (queue.length && pending.size + seedPending.size < 16) {
                 const node = queue.shift()!;
+                if (!frontier.has(node)) continue;
                 // A tile that meets SSE may still be too coarse to display.
                 if (node.priority <= 1 && renderable(node)) { settle(node); continue; }
-                pending.set(node, children(node).then(next => ({ node, next }), () => ({ node, next: undefined })));
+                pending.set(node, children(node).then(next => ({ kind: "expand", node, next }),
+                    () => ({ kind: "expand", node, next: undefined })));
             }
             flushReplacements();
-            if (!pending.size) continue;
-            const { node, next } = await Promise.race(Array.from(pending.values()));
-            pending.delete(node);
+            if (!pending.size && !seedPending.size && !rootSeed) continue;
+            const result = await Promise.race([
+                ...pending.values(), ...seedPending.values(),
+                ...(rootSeed ? [rootSeed.then(next => ({ kind: "root" as const, next }))] : []),
+            ]);
             if (generation !== this.generation) return;
+            if (result.kind === "root") {
+                rootSeed = undefined;
+                result.next.forEach(enqueueSeed);
+                continue;
+            }
+            const { node, next } = result;
+            if (result.kind === "seed") {
+                seedPending.delete(node);
+                if (next) next.forEach(enqueueSeed);
+                else hierarchyFailed = true;
+                continue;
+            }
+            pending.delete(node);
+            if (!frontier.has(node)) continue;
             if (!next) { hierarchyFailed = true; settle(node); continue; }
             const extra = next.reduce((sum, child) => sum + child.selections.length, 0)
                     - (node.refine === "ADD" ? 0 : node.selections.length);
@@ -1147,13 +1296,26 @@ export default class Google3DTiles {
                             && this.allowedGeometricError(child.boundingVolume, transform, surroundings) >= 0;
                     });
                     if (node.depth >= this.maxDepth || leaf || visibleEmptyChild) settle(node);
-                    else { frontier.delete(node); track(node, false); count -= node.selections.length; }
+                    else {
+                        frontier.delete(node); track(node, false); count -= node.selections.length;
+                        for (const selection of node.selections) activeURLs.delete(selection.url);
+                    }
                     continue;
                 }
                 if (count + extra > budget) { settle(node); continue; }
-                if (node.refine !== "ADD") { frontier.delete(node); track(node, false); }
+                if (node.refine !== "ADD") {
+                    frontier.delete(node); track(node, false);
+                    for (const selection of node.selections) activeURLs.delete(selection.url);
+                }
                 else settle(node);
-                next.forEach(child => { frontier.add(child); track(child, true); queue.push(child); });
+                next.forEach(child => {
+                    frontier.add(child); track(child, true); queue.push(child);
+                    for (const selection of child.selections) {
+                        activeURLs.add(selection.url);
+                        representedURLs.add(selection.url);
+                        for (const ancestor of selection.ancestors ?? []) representedURLs.add(ancestor);
+                    }
+                });
                 count += extra;
         }
         if (generation !== this.generation) return;
@@ -1168,7 +1330,11 @@ export default class Google3DTiles {
         if (!surroundings) this.stats.sourceLimitedTiles = Array.from(frontier).filter(node => node.priority > 1
             && !(node.tile.children?.length) && !getTileContents(node.tile).some(isTilesetContent)).length;
         for (const node of frontier) if (renderable(node)) for (const selection of node.selections) desired.set(selection.url, selection);
-        if (!hierarchyFailed && !surroundings) this.frontierCache = { key, selections: Array.from(desired.values()) };
+        if (reseeds) for (const [url, selection] of desired) {
+            const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+            if (!boundingVolumeIntersects(selection.boundingVolume, bounds, transform)) desired.delete(url);
+        }
+        if (!hierarchyFailed && !surroundings && !reseeds) this.frontierCache = { key, selections: Array.from(desired.values()) };
     }
 
     private async collectTileContent(
