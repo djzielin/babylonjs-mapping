@@ -163,7 +163,10 @@ class GlobeDemo {
     private depthCamera?: Scene["activeCamera"];
     private reversedDepth = false;
     private framePacing = new MotionFrameProfile(600);
-    private benchmark?: { started: number; previous: number; heading: number; tilt: number; shift: Vector3; moving: boolean; fullSpeed: boolean; profile: MotionFrameProfile };
+    private benchmark?: { started: number; previous: number; heading: number; tilt: number; shift: Vector3;
+        moving: boolean; fullSpeed: boolean; profile: MotionFrameProfile;
+        maxSelectionLagMeters: number; knownIncomplete: boolean };
+    private googleSelectionCenter?: { latitude: number; longitude: number };
 
     public constructor(engine?: GlobeEngine) {
         this.canvas = document.getElementById(
@@ -229,7 +232,8 @@ class GlobeDemo {
                 tilt: Number((document.getElementById("tilt") as HTMLInputElement).value),
                 shift: this.inspectionBasis().north.scale(this.inspecting
                     ? fullSpeed ? this.movementSpeed() * 4 : Math.min(200 * this.detailGlobe.metresToWorld, this.movementSpeed()) : 0),
-                moving, fullSpeed, profile: new MotionFrameProfile(30000) };
+                moving, fullSpeed, profile: new MotionFrameProfile(30000),
+                maxSelectionLagMeters: 0, knownIncomplete: false };
             document.getElementById("benchmark")!.textContent = "Stop measurement";
         });
         this.terrainBatcher = new TerrainBatcher(this.scene,
@@ -1130,6 +1134,7 @@ class GlobeDemo {
             try {
                 this.canvas.dataset.googleSelectionRadius = String(Math.round(provider.coverageRadius!));
                 this.canvas.dataset.googleSelectionCenter = `${currentView.latitude.toFixed(5)},${currentView.longitude.toFixed(5)}`;
+                this.googleSelectionCenter = { latitude: currentView.latitude, longitude: currentView.longitude };
                 const loaded = await provider.load();
                 if (generation !== this.googleGeneration) return;
                 this.setPhotorealisticActive(loaded.length > 0);
@@ -1383,7 +1388,8 @@ class GlobeDemo {
     }
 
     private finishBenchmark(message?: string): void {
-        const result = this.benchmark?.profile.summary();
+        const run = this.benchmark;
+        const result = run?.profile.summary();
         this.benchmark = undefined;
         const textures = new Set<GPUTexture>();
         if (this.engine.isWebGPU) for (const texture of this.engine.getLoadedTexturesCache()) {
@@ -1403,7 +1409,7 @@ class GlobeDemo {
         const memory = textures.size ? ` · ${textures.size} texture allocations / ${(textureBytes / 1048576).toFixed(0)} MiB estimated` : "";
         document.getElementById("benchmark")!.textContent = "Measure frame pacing";
         document.getElementById("benchmarkResult")!.textContent = message ?? (result
-            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · p99.9 ${result.p999.toFixed(1)} ms · worst ${result.worst.toFixed(1)} ms · full-radius quality unverified; diagnostic only${memory}` : "");
+            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · p99.9 ${result.p999.toFixed(1)} ms · worst ${result.worst.toFixed(1)} ms · selection center lag up to ${((run?.maxSelectionLagMeters ?? 0) / 1000).toFixed(1)} km · full-radius quality ${run?.knownIncomplete ? "known incomplete" : "unverified"}; diagnostic only${memory}` : "");
     }
 
     private updateBenchmark(): void {
@@ -1416,6 +1422,17 @@ class GlobeDemo {
             this.translateInspection(run.shift.scale(position - run.previous));
             run.previous = position;
             this.orientView(run.tilt, (run.heading + seconds * 6) % 360);
+        }
+        if (this.canvas.dataset.googleFullRadiusQuality === "known-incomplete") run.knownIncomplete = true;
+        if (this.googleSelectionCenter) {
+            const view = this.navigator.getView();
+            const radians = Math.PI / 180;
+            const dLat = (view.latitude - this.googleSelectionCenter.latitude) * radians;
+            const dLon = (view.longitude - this.googleSelectionCenter.longitude) * radians;
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos(view.latitude * radians)
+                * Math.cos(this.googleSelectionCenter.latitude * radians) * Math.sin(dLon / 2) ** 2;
+            run.maxSelectionLagMeters = Math.max(run.maxSelectionLagMeters,
+                2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(a))));
         }
         document.getElementById("benchmarkResult")!.textContent = `Measuring ${run.moving ? "movement and streaming" : "current view"} · ${Math.floor(seconds)} / 60 s`;
     }
