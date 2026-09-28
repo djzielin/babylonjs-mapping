@@ -1860,6 +1860,76 @@ it("drops stale downloaded models before decoding after a movement restart", asy
   provider.dispose(); scene.dispose(); engine.dispose();
 });
 
+it("keeps downloaded in-radius models queued across a Shift-movement preemption", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  const releases: (() => void)[] = [];
+  const active = [0, 1].map(() => provider.modelDecodeSlot(() =>
+    new Promise<void>(resolve => releases.push(resolve)), () => 0, provider.generation));
+  await vi.waitFor(() => expect(releases).toHaveLength(2));
+  const decode = vi.fn(async () => "reused bytes");
+  const downloaded = provider.modelDecodeSlot(decode, () => 0, provider.generation, () => true);
+  provider.cancelPendingLoad(true);
+  expect(provider.stats.modelDecodeQueued).toBe(1);
+  releases[0]();
+  expect(await downloaded).toBe("reused bytes");
+  expect(decode).toHaveBeenCalledOnce();
+  releases[1]();
+  await Promise.all(active);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
+it("integrates downloaded Google bytes after a movement restart without refetching", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const fetchMock = vi.fn(async () => ({ status: 200, ok: true,
+    arrayBuffer: async () => createGLB({ asset: { version: "2.0" } }) }));
+  vi.stubGlobal("fetch", fetchMock);
+  const provider = new Google3DTiles(tileSet, { apiKey: "test", maxDepth: 0,
+    tilesetLoader: async () => ({ root: { content: { uri: "tile.glb" } } }) }) as any;
+  const originalDecodeSlot = provider.modelDecodeSlot.bind(provider);
+  vi.spyOn(provider, "modelDecodeSlot").mockImplementation((_work, priority, generation, reuse) =>
+    originalDecodeSlot(async () => {
+      const asset = new AssetContainer(scene);
+      asset.rootNodes.push(new TransformNode("downloaded model", scene));
+      return { asset, attributions: [], rtcCenter: Vector3.Zero() };
+    }, priority, generation, reuse));
+  const releases: (() => void)[] = [];
+  const active = [0, 1].map(() => originalDecodeSlot(() =>
+    new Promise<void>(resolve => releases.push(resolve)), () => 0, provider.generation));
+  try {
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    const oldPass = provider.load();
+    await vi.waitFor(() => expect(provider.stats.modelDecodeQueued).toBe(1));
+    provider.cancelPendingLoad(true);
+    const newPass = provider.load();
+    releases.forEach(release => release());
+    await Promise.all([oldPass, newPass, ...active]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(provider.loadedModelTiles).toHaveLength(1);
+  } finally {
+    releases.forEach(release => release());
+    provider.dispose(); scene.dispose(); engine.dispose(); vi.unstubAllGlobals();
+  }
+});
+
+it("reuses downloaded models only inside the current geographic window", () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  const origin = provider.getOrigin();
+  provider.originStateKey = provider.getOriginStateKey(origin);
+  expect(provider.canReusePendingModel({ boundingVolume: {
+    region: [0.2, -0.3, 0.3, -0.2, 0, 100],
+  } }, origin)).toBe(true);
+  expect(provider.canReusePendingModel({ boundingVolume: {
+    region: [-1.3, 0.7, -1.2, 0.8, 0, 100],
+  } }, origin)).toBe(false);
+  provider.cancelPendingLoad();
+  expect(provider.canReusePendingModel({ boundingVolume: {
+    region: [0.2, -0.3, 0.3, -0.2, 0, 100],
+  } }, origin)).toBe(false);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
 it("releases queued downloaded models when the provider is disposed", async () => {
   const { engine, scene, tileSet } = createTileSet();
   const provider = new Google3DTiles(tileSet) as any;

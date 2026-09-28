@@ -226,6 +226,10 @@ export default class Google3DTiles {
     private networkWaiters;
     private modelDecodeActive;
     private modelDecodeWaiters;
+    private pendingModelReuseBlocked;
+    private pendingReuseBounds?;
+    private canReusePendingModel;
+    private canDecodeModel;
     private drainModelDecode;
     private modelDecodeSlot;
     private networkDrainQueued;
@@ -279,7 +283,7 @@ export default class Google3DTiles {
      */
     getTileURL(uri: string, baseUrl?: string): string;
     /** Cancel queued work while retaining the visible scene and hierarchy cache. */
-    cancelPendingLoad(): void;
+    cancelPendingLoad(preserveDownloadedModels?: boolean): void;
     /** The active frontier can follow camera movement without discarding its work. */
     get selectingFrontier(): boolean;
     /** Reorder queued downloads immediately when the camera moves, without cancelling active requests. */

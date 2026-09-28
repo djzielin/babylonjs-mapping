@@ -289,13 +289,27 @@ export default class Google3DTiles {
         resume: (offscreen: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
     private modelDecodeActive = 0;
     private modelDecodeWaiters: Array<{ priority: () => number; generation: number;
-        resume: (ready: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
+        reuse?: () => boolean; resume: (ready: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
+    private pendingModelReuseBlocked = false;
+    private pendingReuseBounds?: { revision: number; bounds: GeographicBounds };
+
+    private canReusePendingModel(selection: TileSelection, origin: Google3DTilesOrigin): boolean {
+        if (this.pendingModelReuseBlocked || this.getOriginStateKey(origin) !== this.originStateKey) return false;
+        if (this.pendingReuseBounds?.revision !== this.requestPriorityRevision)
+            this.pendingReuseBounds = { revision: this.requestPriorityRevision, bounds: this.getTileSetBounds() };
+        const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+        return boundingVolumeIntersects(selection.boundingVolume, this.pendingReuseBounds.bounds, transform);
+    }
+
+    private canDecodeModel(generation: number, reuse?: () => boolean): boolean {
+        return generation === this.generation || !!reuse?.();
+    }
 
     private drainModelDecode(): void {
         // A cancelled view must release its downloaded buffers even while both
         // decoder slots are busy with work from the previous generation.
         this.modelDecodeWaiters = this.modelDecodeWaiters.filter(waiter => {
-            if (waiter.generation === this.generation) return true;
+            if (this.canDecodeModel(waiter.generation, waiter.reuse)) return true;
             waiter.resume(false);
             return false;
         });
@@ -310,23 +324,23 @@ export default class Google3DTiles {
         while (this.modelDecodeActive < 2 && this.modelDecodeWaiters.length) {
             const next = this.modelDecodeWaiters.shift()!;
             this.stats.modelDecodeQueued = this.modelDecodeWaiters.length;
-            if (next.generation !== this.generation) { next.resume(false); continue; }
+            if (!this.canDecodeModel(next.generation, next.reuse)) { next.resume(false); continue; }
             this.modelDecodeActive++;
             next.resume(true);
         }
     }
 
     private async modelDecodeSlot<T>(work: () => Promise<T>, priority: () => number,
-        generation: number): Promise<T | undefined> {
+        generation: number, reuse?: () => boolean): Promise<T | undefined> {
         const ready = await new Promise<boolean>(resume => {
-            this.modelDecodeWaiters.push({ priority, generation, resume });
+            this.modelDecodeWaiters.push({ priority, generation, reuse, resume });
             this.stats.modelDecodeQueued = this.modelDecodeWaiters.length;
             this.stats.peakModelDecodeQueued = Math.max(this.stats.peakModelDecodeQueued, this.stats.modelDecodeQueued);
             this.drainModelDecode();
         });
         if (!ready) return undefined;
         try {
-            if (generation !== this.generation) return undefined;
+            if (!this.canDecodeModel(generation, reuse)) return undefined;
             return await work();
         } finally {
             this.modelDecodeActive--;
@@ -669,7 +683,8 @@ export default class Google3DTiles {
     }
 
     /** Cancel queued work while retaining the visible scene and hierarchy cache. */
-    public cancelPendingLoad(): void {
+    public cancelPendingLoad(preserveDownloadedModels = false): void {
+        this.pendingModelReuseBlocked = !preserveDownloadedModels;
         this.generation++;
         this.drainModelDecode();
         for (const wake of this.movementWaiters) wake();
@@ -708,6 +723,7 @@ export default class Google3DTiles {
         this.selectionEye = this.cameraEye();
         this.requestEye = this.selectionEye;
         this.requestPriorityRevision++;
+        this.pendingModelReuseBlocked = false;
         const residentAtStart = new Set([...this.loadedTiles.keys(), ...this.retainedTiles.keys()]);
         const generation = ++this.generation;
         this.drainModelDecode();
@@ -960,6 +976,7 @@ export default class Google3DTiles {
 
     /** Disposes loaded GLB assets and clears the provider's request caches. */
     public dispose(): void {
+        this.pendingModelReuseBlocked = true;
         ++this.generation;
         this.drainModelDecode();
         this.tileSet.ourAttribution.setGoogleAttributions?.([]);
@@ -1944,7 +1961,8 @@ export default class Google3DTiles {
             try {
                 return this.usesDefaultModelLoader
                     ? await defaultModelTileLoader(selection.url, this.tileSet.scene, this.stats, controller.signal,
-                        fetched, work => this.modelDecodeSlot(work, priority, generation))
+                        fetched, work => this.modelDecodeSlot(work, priority, generation,
+                            () => this.canReusePendingModel(selection, origin)))
                     : await this.modelTileLoader(selection.url, this.tileSet.scene, controller.signal);
             }
             finally {

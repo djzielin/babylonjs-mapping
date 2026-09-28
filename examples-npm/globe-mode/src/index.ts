@@ -1296,7 +1296,7 @@ class GlobeDemo {
             if (Vector3.Distance(selected, current) / this.detailGlobe.metresToWorld < 500) return;
             // A pass waiting on old replacement groups cannot reseed. Retain
             // its renderable tiles and reuse its in-flight models in a new pass.
-            this.googleTiles?.cancelPendingLoad();
+            this.googleTiles?.cancelPendingLoad(true);
             this.canvas.dataset.googleMovementPreemptions = String(
                 Number(this.canvas.dataset.googleMovementPreemptions ?? 0) + 1);
         }
