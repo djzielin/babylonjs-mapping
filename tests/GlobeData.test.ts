@@ -617,10 +617,20 @@ describe("terrain encodings and overzoom", () => {
         expect(raised.data[23 * 64 + 26]).toBe(0);
         expect(TerrainRGB.repairIsolatedSpikes({ data: raisedCoast, width: 64, height: 64 }, 11).data[23 * 64 + 22]).toBe(0);
         expect(TerrainRGB.repairIsolatedSpikes({ data: raisedCoast, width: 64, height: 64 }, 8).data).toBe(raisedCoast);
+        // A Newport z15 source tile leaves a 36 m wall against nearly level
+        // ground when only peaks above the old 40 m threshold are repaired.
+        const lowRidge = new Float32Array(64 * 64).fill(2);
+        for (let y = 20; y < 28; y++) for (let x = 20; x < 27; x++)
+            lowRidge[y * 64 + x] = 36;
+        expect(TerrainRGB.repairIsolatedSpikes({ data: lowRidge, width: 64, height: 64 }, 15)
+            .data[23 * 64 + 23]).toBe(2);
+        expect(TerrainRGB.repairIsolatedSpikes({ data: lowRidge, width: 64, height: 64 }, 13)
+            .data[23 * 64 + 23]).toBe(36);
         const broadHill = new Float32Array(64 * 64).fill(0);
         for (let y = 8; y < 48; y++) for (let x = 8; x < 48; x++) broadHill[y * 64 + x] = 71;
         expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 13).data[25 * 64 + 25]).toBe(71);
         expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 10).data[25 * 64 + 25]).toBe(71);
+        expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 15).data[25 * 64 + 25]).toBe(71);
         const coarseCoast = new Float32Array(64 * 64).fill(1);
         for (const [x, y, height] of [[30, 29, 252], [31, 30, 299], [30, 31, 220],
             [30, 30, -51], [29, 31, -40], [32, 29, -126]]) coarseCoast[y * 64 + x] = height;
