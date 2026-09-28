@@ -344,6 +344,7 @@ export default class Google3DTiles {
     private coverageIndex = new Map<string, TileSelection[]>();
     private broadCoverage: TileSelection[] = [];
     private coverageTests = new WeakMap<TileSelection, (latitude: number, longitude: number) => boolean>();
+    private footprintEnvelopes = new WeakMap<TileSelection, GeographicBounds>();
     private loadedSelections = new Map<string, TileSelection>();
 
     /** Whether loaded model bounds cover this geographic position. */
@@ -355,29 +356,18 @@ export default class Google3DTiles {
             for (const url of this.loadedTiles.keys()) {
                 const selection = this.loadedSelections.get(url) ?? this.desiredTiles.get(url);
                 if (!selection?.boundingVolume) continue;
-                const volume = selection.boundingVolume;
-                let west: number, east: number, south: number, north: number;
-                if (volume.region) {
-                    [west, south, east, north] = volume.region.map(value => value / RADIANS_PER_DEGREE);
-                } else {
-                    const values = volume.box ?? volume.sphere;
-                    if (!values) continue;
-                    const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
-                    const center = Vector3.TransformCoordinates(Vector3.FromArray(values), transform);
-                    if (center.length() < WGS84_SEMI_MAJOR_AXIS / 2) { this.broadCoverage.push(selection); continue; }
-                    const radius = volume.box ? [3, 6, 9].reduce((sum, offset) => sum + Vector3.TransformNormal(Vector3.FromArray(values, offset), transform).length(), 0) : values[3];
-                    const lat = Math.atan2(center.z, Math.hypot(center.x, center.y) * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED)) / RADIANS_PER_DEGREE;
-                    const lon = Math.atan2(center.y, center.x) / RADIANS_PER_DEGREE;
-                    const delta = radius / 6300000 / RADIANS_PER_DEGREE + 0.0001;
-                    south = lat - delta; north = lat + delta;
-                    const longitudeDelta = delta / Math.max(0.01, Math.cos(Math.max(Math.abs(south), Math.abs(north)) * RADIANS_PER_DEGREE));
-                    west = lon - longitudeDelta; east = lon + longitudeDelta;
-                }
-                if (east < west || (Math.ceil((east - west) * 1000) + 1) * (Math.ceil((north - south) * 1000) + 1) > 4096 || west < -180 || east > 180) {
+                const bounds = geographicEnvelope(selection);
+                if (!bounds) {
                     this.broadCoverage.push(selection); continue;
                 }
-                for (let x = Math.floor(west * 1000); x <= Math.floor(east * 1000); x++)
-                    for (let y = Math.floor(south * 1000); y <= Math.floor(north * 1000); y++) {
+                this.footprintEnvelopes.set(selection, bounds);
+                const south = Math.floor(bounds.south * 1000), north = Math.floor(bounds.north * 1000);
+                const cells = bounds.longitudes.reduce((sum, [west, east]) =>
+                    sum + (Math.floor(east * 1000) - Math.floor(west * 1000) + 1) * (north - south + 1), 0);
+                if (cells > 4096) { this.broadCoverage.push(selection); continue; }
+                for (const [west, east] of bounds.longitudes)
+                    for (let x = Math.floor(west * 1000); x <= Math.floor(east * 1000); x++)
+                    for (let y = south; y <= north; y++) {
                         const cell = `${x}/${y}`;
                         const entries = this.coverageIndex.get(cell) ?? [];
                         entries.push(selection); this.coverageIndex.set(cell, entries);
@@ -387,6 +377,39 @@ export default class Google3DTiles {
         const nearby = this.coverageIndex.get(`${Math.floor(longitude * 1000)}/${Math.floor(latitude * 1000)}`) ?? [];
         for (const selection of nearby) if (this.coverageTest(selection)(latitude, longitude)) return true;
         return this.broadCoverage.some(selection => this.coverageTest(selection)(latitude, longitude));
+    }
+
+    /** Whether a resident model overlaps a geographic building footprint. */
+    public overlapsFootprint(south: number, west: number, north: number, east: number): boolean {
+        if (!this.loadedTiles.size || south > north || ![south, west, north, east].every(Number.isFinite)) return false;
+        // coversLocation also rebuilds the resident-only spatial index after a
+        // replacement commits. A point query alone misses narrow tile edges
+        // that pass between the building footprint's sample points.
+        this.coversLocation((south + north) / 2, (west + east) / 2);
+        const queryLongitudes = longitudeIntervals(west, east);
+        const seen = new Set<TileSelection>();
+        const overlaps = (selection: TileSelection): boolean => {
+            if (seen.has(selection)) return false;
+            seen.add(selection);
+            let bounds = this.footprintEnvelopes.get(selection);
+            if (!bounds) {
+                bounds = geographicEnvelope(selection);
+                if (bounds) this.footprintEnvelopes.set(selection, bounds);
+            }
+            return !!bounds && bounds.north >= south && bounds.south <= north
+                && bounds.longitudes.some(([left, right]) => queryLongitudes.some(([queryLeft, queryRight]) =>
+                    right >= queryLeft && left <= queryRight));
+        };
+        const minX = Math.floor(west * 1000), maxX = Math.floor(east * 1000);
+        const minY = Math.floor(south * 1000), maxY = Math.floor(north * 1000);
+        if ((maxX - minX + 1) * (maxY - minY + 1) <= 4096) {
+            for (let x = minX; x <= maxX; x++) for (let y = minY; y <= maxY; y++)
+                for (const selection of this.coverageIndex.get(`${x}/${y}`) ?? []) if (overlaps(selection)) return true;
+        } else {
+            for (const selection of this.loadedSelections.values())
+                if (this.loadedTiles.has(selection.url) && overlaps(selection)) return true;
+        }
+        return this.broadCoverage.some(overlaps);
     }
 
     private coverageTest(selection: TileSelection): (latitude: number, longitude: number) => boolean {

@@ -835,12 +835,7 @@ class GlobeDemo {
         bounds?: { south: number; west: number; north: number; east: number }): boolean {
         if (this.googleCoversLocation(latitude, longitude)) return true;
         if (!bounds || !this.googleTiles || this.googleFarHidden) return false;
-        // A Google model can cover a roof or wall while missing its centroid.
-        // Suppress that Overture footprint once any sampled part has a loaded replacement.
-        for (const lat of [bounds.south, (bounds.south + bounds.north) / 2, bounds.north])
-            for (const lon of [bounds.west, (bounds.west + bounds.east) / 2, bounds.east])
-                if (this.googleTiles.coversLocation(lat, lon)) return true;
-        return false;
+        return this.googleTiles.overlapsFootprint(bounds.south, bounds.west, bounds.north, bounds.east);
     }
 
     private refreshBuildingReplacements(): void {

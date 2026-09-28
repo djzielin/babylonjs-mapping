@@ -200,9 +200,12 @@ export default class Google3DTiles {
     private coverageIndex;
     private broadCoverage;
     private coverageTests;
+    private footprintEnvelopes;
     private loadedSelections;
     /** Whether loaded model bounds cover this geographic position. */
     coversLocation(latitude: number, longitude: number): boolean;
+    /** Whether a resident model overlaps a geographic building footprint. */
+    overlapsFootprint(south: number, west: number, north: number, east: number): boolean;
     private coverageTest;
     /** The last root tileset response, if load() has been called. */
     get tileset(): Google3DTileset | undefined;

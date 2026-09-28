@@ -101,6 +101,24 @@ it("restricts coverage updates to geographic tiles intersecting changed models",
   provider.dispose();scene.dispose();engine.dispose();
 });
 
+it("suppresses an Overture footprint when a resident Google tile clips its edge", () => {
+  const {engine,scene,tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet);
+  const radians=Math.PI/180;
+  (provider as any).loadedSelections.set("edge", {
+    url:"edge",depth:1,boundingVolume:{region:[-73.9902*radians,40.7402*radians,
+      -73.9901*radians,40.7408*radians,0,1000]},
+  });
+  // A known selection is not coverage until its model is in the scene.
+  expect(provider.overlapsFootprint(40.74,-73.991,40.741,-73.99)).toBe(false);
+  (provider as any).loadedTiles.set("edge", {});
+  expect(provider.overlapsFootprint(40.74,-73.991,40.741,-73.99)).toBe(true);
+  expect(provider.overlapsFootprint(40.74,-73.993,40.741,-73.992)).toBe(false);
+  (provider as any).loadedTiles.delete("edge");
+  expect(provider.overlapsFootprint(40.74,-73.991,40.741,-73.99)).toBe(false);
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
 describe("parseGoogleGLBMetadata", () => {
   it("extracts sorted-source inputs and CESIUM_RTC metadata from a GLB JSON chunk", () => {
     const metadata = parseGoogleGLBMetadata(createGLB({
