@@ -590,9 +590,17 @@ describe("terrain encodings and overzoom", () => {
         const raised = TerrainRGB.repairIsolatedSpikes({ data: raisedCoast, width: 64, height: 64 }, 13);
         expect(raised.data[23 * 64 + 22]).toBe(0);
         expect(raised.data[23 * 64 + 26]).toBe(0);
+        expect(TerrainRGB.repairIsolatedSpikes({ data: raisedCoast, width: 64, height: 64 }, 11).data[23 * 64 + 22]).toBe(0);
         const broadHill = new Float32Array(64 * 64).fill(0);
         for (let y = 8; y < 48; y++) for (let x = 8; x < 48; x++) broadHill[y * 64 + x] = 71;
         expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 13).data[25 * 64 + 25]).toBe(71);
+        expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 10).data[25 * 64 + 25]).toBe(71);
+        const coarseCoast = new Float32Array(64 * 64).fill(1);
+        for (const [x, y, height] of [[30, 29, 252], [31, 30, 299], [30, 31, 220],
+            [30, 30, -51], [29, 31, -40], [32, 29, -126]]) coarseCoast[y * 64 + x] = height;
+        const coarse = TerrainRGB.repairIsolatedSpikes({ data: coarseCoast, width: 64, height: 64 }, 11);
+        for (let y = 29; y <= 31; y++) for (let x = 29; x <= 32; x++)
+            expect(Math.abs(coarse.data[y * 64 + x] - 1)).toBeLessThan(5);
         const coastalSamples = new Float32Array([-300, -30, -5, 0, 5, 30, 300]);
         const coast = TerrainRGB.smoothNearSeaLevel(coastalSamples, 15);
         expect(coast).toBeDefined();
