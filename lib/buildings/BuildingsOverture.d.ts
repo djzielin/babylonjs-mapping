@@ -25,6 +25,9 @@ export default class BuildingsOverture extends Buildings {
         north: number;
         east: number;
     }) => boolean;
+    /** Omit an entire vector tile when loaded imagery already replaces every building in it. */
+    tileCoverageFilter?: (tile: Tile) => boolean;
+    private skippedCoverageTiles;
     private batches;
     private archive;
     private static archives;

@@ -46,6 +46,7 @@ import {
     GeoJSON,
     EPSG_Type,
     type GlobeView,
+    type Tile,
 } from "babylonjs-mapping";
 
 declare const DEMO_MAPBOX_TOKEN: string;
@@ -436,6 +437,7 @@ class GlobeDemo {
                 this.buildings.doMerge = true;
                 this.buildings.batchGeometry = true;
                 this.buildings.batchVisibilityFilter = (lat, lon, bounds) => !this.googleCoversFootprint(lat, lon, bounds);
+                this.buildings.tileCoverageFilter = tile => this.googleCoversTile(this.detailGlobe, tile);
                 this.buildings.loadConcurrency = 6;
                 this.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 this.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, this.detailGlobe, Number(feature.properties?.height) || 4);
@@ -813,6 +815,15 @@ class GlobeDemo {
 
     private googleCoversLocation(latitude: number, longitude: number): boolean {
         return !this.googleFarHidden && !!this.googleTiles?.coversLocation(latitude, longitude);
+    }
+
+    private googleCoversTile(globe: GlobeSet, tile: Tile): boolean {
+        if (!this.googleTiles || this.googleFarHidden) return false;
+        const { x, y, z } = tile.tileCoords;
+        const math = globe.ourTileMath;
+        for (const [dx, dy] of [[0.5, 0.5], [0.02, 0.02], [0.98, 0.02], [0.02, 0.98], [0.98, 0.98]])
+            if (!this.googleTiles.coversLocation(math.tile_to_lat(y + dy, z), math.tile_to_lon(x + dx, z))) return false;
+        return true;
     }
 
     private googleCoversFootprint(latitude: number, longitude: number,
@@ -1239,6 +1250,7 @@ class GlobeDemo {
                 layer.buildings.doMerge = true;
                 layer.buildings.batchGeometry = true;
                 layer.buildings.batchVisibilityFilter = (lat, lon, bounds) => !this.googleCoversFootprint(lat, lon, bounds);
+                layer.buildings.tileCoverageFilter = tile => this.googleCoversTile(layer.globe, tile);
                 layer.buildings.loadConcurrency = 6;
                 layer.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, layer.globe, Number(feature.properties?.height) || 4);

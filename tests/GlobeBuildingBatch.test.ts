@@ -68,6 +68,31 @@ it("uses each footprint bounds when Google detail reaches only its edge",async()
     scene.dispose();engine.dispose();
 });
 
+it("skips a fully Google-covered Overture tile and resumes it when coverage leaves",async()=>{
+    const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
+    const engine=new NullEngine(),scene=new Scene(engine);
+    const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+    globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,14);
+    const tile=globe.ourTiles[0];
+    const provider=new BuildingsOverture(globe,"https://example.invalid/buildings.pmtiles");
+    provider.batchGeometry=true;
+    provider.tileCoverageFilter=()=>false;
+    provider.SubmitLoadTileRequest(tile);
+    expect((provider as any).buildingRequests).toHaveLength(1);
+    const old=new Mesh("old Overture",scene);
+    tile.buildingBatches.push(old);
+    provider.tileCoverageFilter=()=>true;
+    provider.updateBatchVisibility();
+    expect(tile.buildingsResolvedKey).toBe(tile.tileCoords.toString());
+    expect((provider as any).buildingRequests).toHaveLength(0);
+    expect(old.isDisposed()).toBe(true);
+    provider.tileCoverageFilter=()=>false;
+    provider.updateBatchVisibility();
+    expect((provider as any).buildingRequests).toHaveLength(1);
+    provider.cancelPendingRequests();
+    scene.dispose();engine.dispose();
+});
+
 it("atomically replaces a building batch and keeps the old one if work is cancelled",async()=>{
     const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
     const engine=new NullEngine(),scene=new Scene(engine);

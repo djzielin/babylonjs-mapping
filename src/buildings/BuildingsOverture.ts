@@ -63,6 +63,9 @@ export default class BuildingsOverture extends Buildings {
     /** Hide covered footprints by updating indices while preserving prepared vertices. */
     public batchVisibilityFilter?: (latitude: number, longitude: number,
         bounds?: { south: number; west: number; north: number; east: number }) => boolean;
+    /** Omit an entire vector tile when loaded imagery already replaces every building in it. */
+    public tileCoverageFilter?: (tile: Tile) => boolean;
+    private skippedCoverageTiles = new WeakMap<Tile, string>();
     private batches = new WeakMap<Mesh, { batch: { ranges: GlobeBuildingBatch["ranges"]; indices: Uint32Array }; mask: Uint8Array }>();
     private archive: PMTiles;
     private static archives = new Map<string, PMTiles>();
@@ -84,6 +87,14 @@ export default class BuildingsOverture extends Buildings {
         if (this.excludedTileKeys.has(tile.tileCoords.toString())) {
             return;
         }
+        if (this.tileCoverageFilter?.(tile)) {
+            this.cancelPendingRequests(tile);
+            tile.deleteBuildings();
+            tile.buildingsResolvedKey = tile.tileCoords.toString();
+            this.skippedCoverageTiles.set(tile, tile.buildingsResolvedKey);
+            return;
+        }
+        this.skippedCoverageTiles.delete(tile);
 
         const request: BuildingRequest = {
             requestType: BuildingRequestType.LoadTile,
@@ -115,6 +126,11 @@ export default class BuildingsOverture extends Buildings {
 
     private async loadTile(request: BuildingRequest, requestIndex: number): Promise<void> {
         try {
+            if (this.tileCoverageFilter?.(request.tile)) {
+                this.SubmitLoadTileRequest(request.tile);
+                this.removePendingRequest(requestIndex, request);
+                return;
+            }
             const header = await this.archive.getHeader();
             const z = Math.min(request.tileCoords.z, header.maxZoom);
             const factor = 2 ** (request.tileCoords.z - z);
@@ -263,6 +279,12 @@ export default class BuildingsOverture extends Buildings {
     public updateBatchVisibility(coverageOnlyGrows = false, shouldUpdateTile?: (tile: Tile) => boolean): void {
         for (const tile of this.tileSet.ourTiles) {
             if (shouldUpdateTile && !shouldUpdateTile(tile)) continue;
+            if (this.tileCoverageFilter?.(tile)) {
+                if (this.skippedCoverageTiles.get(tile) !== tile.tileCoords.toString()
+                    || tile.buildingBatches.length || tile.buildings.length) this.SubmitLoadTileRequest(tile);
+                continue;
+            }
+            if (this.skippedCoverageTiles.get(tile) === tile.tileCoords.toString()) this.SubmitLoadTileRequest(tile);
             for (const mesh of tile.buildingBatches) this.updateMeshVisibility(mesh, coverageOnlyGrows);
             if (this.batchGeometry && this.tileSet.isGlobe) for (const building of tile.buildings) {
                 if (coverageOnlyGrows && !building.mesh.isEnabled(false)) continue;
