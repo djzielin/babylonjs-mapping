@@ -1,4 +1,7 @@
 import { expect, it, vi } from "vitest";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import TerrainRGB from "../src/terrain/TerrainRGB.js";
+import { TerrainRGBDecodePool } from "../src/terrain/TerrainRGBDecodePool.js";
 
 it("decodes signed terrain pixels in a worker and transfers the exact height grid", async () => {
     const postMessage = vi.fn();
@@ -18,6 +21,23 @@ it("decodes signed terrain pixels in a worker and transfers the exact height gri
         expect(options.transfer).toEqual([grid.data.buffer]);
         expect(close).toHaveBeenCalledOnce();
     } finally {
+        vi.unstubAllGlobals();
+    }
+});
+
+it("repairs an impossible river pit even when a stale worker returns raw heights", async () => {
+    const data = new Float32Array(64 * 64).fill(2);
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) data[y * 64 + x] = -15400;
+    const decode = vi.fn(async () => ({ data, width: 64, height: 64 }));
+    const worker = vi.spyOn(TerrainRGBDecodePool, "get").mockReturnValue({ decode } as unknown as TerrainRGBDecodePool);
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, blob: async () => new Blob() })));
+    try {
+        const grid = await new TerrainRGB({ maxZoom: 15 }).load(new Vector3(0, 0, 15), new AbortController().signal);
+        expect(decode).toHaveBeenCalledOnce();
+        expect(Math.min(...grid.data)).toBeGreaterThan(0);
+        expect(data[0]).toBe(-15400);
+    } finally {
+        worker.mockRestore();
         vi.unstubAllGlobals();
     }
 });

@@ -145,8 +145,18 @@ export default class TerrainRGB {
         const workers = TerrainRGBDecodePool.get();
         if (workers) try {
             const grid = await workers.decode(blob, this.encoding, sourceZoom);
-            const smoothed = smoothNearSeaLevel(grid.data, sourceZoom);
-            return smoothed ? { ...grid, data: smoothed } : grid;
+            // A worker can outlive a hot update to the decoder. Never send an
+            // impossible coastal pit straight to globe geometry in that case.
+            // The normal worker path is already repaired and only pays for a
+            // linear check, keeping the actual repair off the render thread.
+            let impossibleDepth = false;
+            for (let i = 0; i < grid.data.length; i++) if (grid.data[i] < -12000) {
+                impossibleDepth = true;
+                break;
+            }
+            const checked = impossibleDepth ? TerrainRGB.repairIsolatedSpikes(grid, sourceZoom) : grid;
+            const smoothed = smoothNearSeaLevel(checked.data, sourceZoom);
+            return smoothed ? { ...checked, data: smoothed } : checked;
         } catch { /* Unsupported workers use the same main-thread decoder. */ }
         const bitmap = await createImageBitmap(blob, {
             colorSpaceConversion: "none", premultiplyAlpha: "none",
