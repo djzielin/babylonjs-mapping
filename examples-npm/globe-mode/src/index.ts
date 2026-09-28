@@ -1095,7 +1095,9 @@ class GlobeDemo {
             if (!center || performance.now() - this.googlePassStartedAt < 500) return;
             const selected = this.detailGlobe.getSurfacePosition(center.latitude, center.longitude);
             const current = this.detailGlobe.getSurfacePosition(view.latitude, view.longitude);
-            if (Vector3.Distance(selected, current) / this.detailGlobe.metresToWorld < 1500) return;
+            // Keep the 15-mile selection disk close to a Shift-speed camera.
+            // In-flight models stay reusable after a pass is preempted.
+            if (Vector3.Distance(selected, current) / this.detailGlobe.metresToWorld < 250) return;
             // A pass waiting on old replacement groups cannot reseed. Retain
             // its renderable tiles and reuse its in-flight models in a new pass.
             this.googleTiles?.cancelPendingLoad();
