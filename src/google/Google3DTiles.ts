@@ -1065,10 +1065,13 @@ export default class Google3DTiles {
         if (count > budget) throw new Error("The first renderable Google tile level exceeds the configured tile budget.");
         let preferCoverage = false;
         const settled = new Set<FrontierTile>();
+        const fallback = new WeakSet<FrontierTile>();
         const renderable = (node: FrontierTile) => this.maximumDisplayGeometricError === undefined
             || (node.tile.geometricError ?? 0) <= this.maximumDisplayGeometricError
+            || fallback.has(node)
             || surroundings && node.priority <= 1;
-        const settle = (node: FrontierTile) => {
+        const settle = (node: FrontierTile, useFallback = false) => {
+            if (useFallback) fallback.add(node);
             if (settled.has(node)) return;
             settled.add(node);
             for (const root of nodeGroups.get(node) ?? []) changedGroups.add(root);
@@ -1174,7 +1177,7 @@ export default class Google3DTiles {
             }
             const eye = this.requestEye ?? this.selectionEye ?? this.cameraEye();
             if (!surroundings && coverageRadius
-                && Vector3.Distance(eye, seededAt) >= 1000) {
+                && Vector3.Distance(eye, seededAt) >= 250) {
                 bounds = this.getTileSetBounds(coverageRadius);
                 recordCenter();
                 seededAt = eye.clone();
@@ -1226,7 +1229,7 @@ export default class Google3DTiles {
             let settledAtBudget = 0;
             if (count >= budget) while (queue.length) {
                 const node = queue.shift()!;
-                if (frontier.has(node)) settle(node);
+                if (frontier.has(node)) settle(node, true);
                 if (++settledAtBudget % 32 === 0) {
                     const pause = workBudget.checkpoint(() => priority(node).distance, 0);
                     if (pause) await pause;
@@ -1311,7 +1314,7 @@ export default class Google3DTiles {
             }
             pending.delete(node);
             if (!frontier.has(node)) continue;
-            if (!next) { hierarchyFailed = true; settle(node); continue; }
+            if (!next) { hierarchyFailed = true; settle(node, true); continue; }
             const extra = next.reduce((sum, child) => sum + child.selections.length, 0)
                     - (node.refine === "ADD" ? 0 : node.selections.length);
                 if (!next.length) {
@@ -1323,14 +1326,14 @@ export default class Google3DTiles {
                         return boundingVolumeIntersects(child.boundingVolume, bounds, transform)
                             && this.allowedGeometricError(child.boundingVolume, transform, surroundings) >= 0;
                     });
-                    if (node.depth >= this.maxDepth || leaf || visibleEmptyChild) settle(node);
+                    if (node.depth >= this.maxDepth || leaf || visibleEmptyChild) settle(node, true);
                     else {
                         frontier.delete(node); track(node, false); count -= node.selections.length;
                         for (const selection of node.selections) activeURLs.delete(selection.url);
                     }
                     continue;
                 }
-                if (count + extra > budget) { settle(node); continue; }
+                if (count + extra > budget) { settle(node, true); continue; }
                 if (node.refine !== "ADD") {
                     frontier.delete(node); track(node, false);
                     for (const selection of node.selections) activeURLs.delete(selection.url);

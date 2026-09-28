@@ -751,7 +751,7 @@ it("retains parent coverage when a replacement model fails", async () => {
   provider.dispose();scene.dispose();engine.dispose();
 });
 
-it("leaves distorted budget fallbacks to the conventional map provider", async () => {
+it("keeps a coarse Google fallback visible when the tile budget prevents refinement", async () => {
   const {engine, scene, tileSet}=createTileSet();
   const provider=new Google3DTiles(tileSet,{apiKey:"test",maximumScreenSpaceError:1,maximumDisplayGeometricError:4,maxTiles:2,
     tilesetLoader:async()=>({root:{children:[
@@ -759,8 +759,20 @@ it("leaves distorted budget fallbacks to the conventional map provider", async (
       {geometricError:64,content:{uri:"distorted.glb"},children:[{content:{uri:"fine-a.glb"}},{content:{uri:"fine-b.glb"}}]},
     ]}}),modelTileLoader:createModelLoader([])});
   const tiles=await provider.load();
-  expect(tiles).toHaveLength(1);expect(tiles[0].url).toContain("sharp.glb");
-  expect(provider.stats.modelRequests).toBe(1);
+  expect(tiles.map(tile=>tile.url)).toEqual(expect.arrayContaining([
+    expect.stringContaining("sharp.glb"), expect.stringContaining("distorted.glb"),
+  ]));
+  expect(provider.stats.modelRequests).toBe(2);
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
+it("renders the best available Google leaf even when its source error exceeds the display target", async () => {
+  const {engine, scene, tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet,{apiKey:"test",maximumScreenSpaceError:1,maximumDisplayGeometricError:4,maxTiles:8,
+    tilesetLoader:async()=>({root:{geometricError:64,content:{uri:"source-leaf.glb"}}}),
+    modelTileLoader:createModelLoader([])});
+  const tiles=await provider.load();
+  expect(tiles.map(tile=>tile.url)).toEqual([expect.stringContaining("source-leaf.glb")]);
   provider.dispose();scene.dispose();engine.dispose();
 });
 
@@ -1051,11 +1063,11 @@ it("admits a new geographic branch while a moving disk selection is in flight", 
     await vi.waitFor(() => expect(holdRequests).toBe(1));
     // A held hierarchy request must not pin the moving disk after several
     // successive Shift-speed displacements.
-    for (const longitude of [0.05, 0.10, 0.15, 0.20]) {
+    for (const longitude of [0.003, 0.05, 0.10, 0.15, 0.20]) {
       camera.setPosition(globe.getSurfacePosition(0, longitude, 100 * globe.metresToWorld));
       camera.getViewMatrix(true);
       provider.reprioritizeRequests();
-      await vi.waitFor(() => expect(provider.selectedCoverageCenter?.longitude).toBeCloseTo(longitude, 2));
+      await vi.waitFor(() => expect(provider.selectedCoverageCenter?.longitude).toBeCloseTo(longitude, 3));
     }
     camera.setPosition(globe.getSurfacePosition(0, 0.25, 100 * globe.metresToWorld));
     camera.getViewMatrix(true);
