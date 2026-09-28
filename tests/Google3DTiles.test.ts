@@ -119,6 +119,32 @@ it("suppresses an Overture footprint when a resident Google tile clips its edge"
   provider.dispose();scene.dispose();engine.dispose();
 });
 
+it("keeps Overture outside a narrow rotated Google box despite its loose geographic envelope", () => {
+  const {engine,scene,tileSet}=createTileSet();
+  const provider=new Google3DTiles(tileSet);
+  const latitude=40.7484*Math.PI/180,longitude=-73.9857*Math.PI/180;
+  const eccentricitySquared=0.00669437999014;
+  const radius=6378137/Math.sqrt(1-eccentricitySquared*Math.sin(latitude)**2);
+  const center=new Vector3(radius*Math.cos(latitude)*Math.cos(longitude),
+    radius*Math.cos(latitude)*Math.sin(longitude),radius*(1-eccentricitySquared)*Math.sin(latitude));
+  const up=center.normalizeToNew();
+  const east=new Vector3(-Math.sin(longitude),Math.cos(longitude),0);
+  const north=Vector3.Cross(up,east).normalize();
+  const longAxis=east.add(north).normalize().scale(100);
+  const narrowAxis=east.subtract(north).normalize().scale(2);
+  const vertical=up.scale(50);
+  (provider as any).loadedSelections.set("rotated",{url:"rotated",depth:1,boundingVolume:{box:[
+    ...center.asArray(),...longAxis.asArray(),...narrowAxis.asArray(),...vertical.asArray(),
+  ]}});
+  (provider as any).loadedTiles.set("rotated",{});
+  expect(provider.coversLocation(40.7484,-73.9857)).toBe(true);
+  expect(provider.overlapsFootprint(40.74839,-73.98571,40.74841,-73.98569)).toBe(true);
+  expect(provider.coversLocation(40.7484,-73.9847)).toBe(false);
+  expect(provider.overlapsFootprint(40.74839,-73.98471,40.74841,-73.98469)).toBe(false);
+  (provider as any).loadedTiles.clear();
+  provider.dispose();scene.dispose();engine.dispose();
+});
+
 it("keeps Overture where retired Google models or partial tile coverage leave gaps", () => {
   const {engine,scene,tileSet}=createTileSet();
   const provider=new Google3DTiles(tileSet);

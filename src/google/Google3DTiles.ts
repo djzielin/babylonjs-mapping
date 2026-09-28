@@ -425,6 +425,7 @@ export default class Google3DTiles {
     private broadCoverage = new Map<string, TileSelection>();
     private coverageTests = new WeakMap<TileSelection, (latitude: number, longitude: number) => boolean>();
     private footprintEnvelopes = new WeakMap<TileSelection, GeographicBounds>();
+    private footprintTests = new WeakMap<TileSelection, (south: number, west: number, north: number, east: number) => boolean>();
     private loadedSelections = new ChangedTileMap<TileSelection>(url => this.dirtyCoverageEntries.add(url));
 
     /** Whether loaded model bounds cover this geographic position. */
@@ -518,7 +519,8 @@ export default class Google3DTiles {
             }
             return !!bounds && bounds.north >= south && bounds.south <= north
                 && bounds.longitudes.some(([left, right]) => queryLongitudes.some(([queryLeft, queryRight]) =>
-                    right >= queryLeft && left <= queryRight));
+                    right >= queryLeft && left <= queryRight))
+                && this.footprintTest(selection)(south, west, north, east);
         };
         const minX = Math.floor(west * 1000), maxX = Math.floor(east * 1000);
         const minY = Math.floor(south * 1000), maxY = Math.floor(north * 1000);
@@ -538,6 +540,15 @@ export default class Google3DTiles {
         if (!test) {
             test = compileVerticalIntersection(selection.boundingVolume!, selection.transform);
             this.coverageTests.set(selection, test);
+        }
+        return test;
+    }
+
+    private footprintTest(selection: TileSelection): (south: number, west: number, north: number, east: number) => boolean {
+        let test = this.footprintTests.get(selection);
+        if (!test) {
+            test = compileBoxFootprintIntersection(selection.boundingVolume!, selection.transform);
+            this.footprintTests.set(selection, test);
         }
         return test;
     }
@@ -2416,6 +2427,52 @@ function geographicToECEF(origin: Google3DTilesOrigin): Vector3 {
         (radius * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED) + height)
             * sinLatitude,
     );
+}
+
+/** Reject footprints inside a box's loose geographic envelope but outside its projected shape. */
+function compileBoxFootprintIntersection(volume: Google3DBoundingVolume, transform?: number[]):
+    (south: number, west: number, north: number, east: number) => boolean {
+    const box = volume.box;
+    if (!box || box.length !== 12 || !box.every(Number.isFinite)) return () => true;
+    const matrix = transform ? Matrix.FromArray(transform) : Matrix.Identity();
+    const center = Vector3.TransformCoordinates(Vector3.FromArray(box), matrix);
+    const longitude = Math.atan2(center.y, center.x);
+    const latitude = Math.atan2(center.z, Math.hypot(center.x, center.y)
+        * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED));
+    const east = new Vector3(-Math.sin(longitude), Math.cos(longitude), 0);
+    const north = new Vector3(-Math.sin(latitude) * Math.cos(longitude),
+        -Math.sin(latitude) * Math.sin(longitude), Math.cos(latitude));
+    const project = (point: Vector3): [number, number] => {
+        const offset = point.subtract(center);
+        return [Vector3.Dot(offset, east), Vector3.Dot(offset, north)];
+    };
+    const halfAxes = [3, 6, 9].map(index => {
+        const axis = Vector3.TransformNormal(Vector3.FromArray(box, index), matrix);
+        return [Vector3.Dot(axis, east), Vector3.Dot(axis, north)] as [number, number];
+    });
+    return (south, west, north, east) => {
+        const corners: Array<[number, number]> = [];
+        for (const height of [-12000, 12000]) for (const lat of [south, north]) for (const lon of [west, east])
+            corners.push(project(geographicToECEF({ latitude: lat, longitude: lon, height })));
+        const directions = [...halfAxes,
+            [corners[1][0] - corners[0][0], corners[1][1] - corners[0][1]],
+            [corners[2][0] - corners[0][0], corners[2][1] - corners[0][1]],
+            [corners[4][0] - corners[0][0], corners[4][1] - corners[0][1]]];
+        for (const [dx, dy] of directions) {
+            const ax = -dy, ay = dx;
+            const length = Math.hypot(ax, ay);
+            if (length < 1e-9) continue;
+            const extent = halfAxes.reduce((sum, [x, y]) => sum + Math.abs(ax * x + ay * y), 0) + length;
+            let minimum = Infinity, maximum = -Infinity;
+            for (const [x, y] of corners) {
+                const projected = ax * x + ay * y;
+                minimum = Math.min(minimum, projected);
+                maximum = Math.max(maximum, projected);
+            }
+            if (minimum > extent || maximum < -extent) return false;
+        }
+        return true;
+    };
 }
 
 // Intersect a geographic vertical segment with the tile's oriented volume.
