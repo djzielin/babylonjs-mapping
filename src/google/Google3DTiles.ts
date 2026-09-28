@@ -613,6 +613,7 @@ export default class Google3DTiles {
         // already inside the full coverage area must stay visible while that
         // pass and the subsequent wider selection are in flight.
         const currentBounds = this.getTileSetBounds();
+        const revisionBeforeCleanup = this.coverageVersion;
         let retired = false;
         for (const url of Array.from(this.loadedTiles.keys())) {
             if (!desiredTiles.has(url)) {
@@ -634,7 +635,7 @@ export default class Google3DTiles {
         if (retired) {
             this.coverageKey = ""; this.coverageVersion++;
         }
-        if (retired || !this.googleAttributionAdded) this.updateAttribution();
+        if (this.coverageVersion !== revisionBeforeCleanup || !this.googleAttributionAdded) this.updateAttribution();
         this.stats.loadMs = performance.now() - loadStarted;
         return this.loadedModelTiles;
     }
