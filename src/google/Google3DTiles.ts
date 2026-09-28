@@ -1923,6 +1923,7 @@ export default class Google3DTiles {
             this.stats.modelIntegrationMaxMs = Math.max(this.stats.modelIntegrationMaxMs, integrationDuration);
 
             if (mipmapsReady && !await mipmapsReady) {
+                if (generation === this.generation) this.unusableModelURLs.add(selection.url);
                 model.asset.dispose();
                 root.dispose();
                 return undefined;

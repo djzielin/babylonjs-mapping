@@ -316,6 +316,34 @@ describe("Google3DTiles", () => {
     provider.dispose(); scene.dispose(); engine.dispose();
   });
 
+  it("retains the Google parent if replacement mip generation fails", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    Object.defineProperty(engine, "isWebGPU", { value: true });
+    (engine as any)._generateMipmaps = () => { throw new Error("GPU upload failed"); };
+    let childStarted!: () => void;
+    const started = new Promise<void>(resolve => { childStarted = resolve; });
+    const provider = new Google3DTiles(tileSet, { apiKey: "test", maximumScreenSpaceError: 1, maxDepth: 0,
+      tilesetLoader: async () => ({ root: { content: { uri: "parent.glb" }, children: [{ content: { uri: "child.glb" } }] } }),
+      modelTileLoader: async url => {
+        const asset = new AssetContainer(scene);
+        asset.rootNodes.push(new TransformNode(url, scene));
+        if (url.includes("child.glb")) {
+          asset.textures.push(new RawTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, 5, scene, true));
+          childStarted();
+        }
+        return { asset, attributions: [] };
+      } });
+    const [parent] = await provider.load();
+    provider.maxDepth = 4;
+    const refining = provider.load();
+    await started;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    engine.onEndFrameObservable.notifyObservers(engine);
+    expect(await refining).toEqual([parent]);
+    expect(parent.root.isEnabled()).toBe(true);
+    provider.dispose(); scene.dispose(); engine.dispose();
+  });
+
   it("reuses model assets and hierarchy when zooming out and back", async () => {
     const { engine, scene, tileSet } = createTileSet();
     const requests: string[] = [];
