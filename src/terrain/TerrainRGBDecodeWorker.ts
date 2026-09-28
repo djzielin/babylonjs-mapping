@@ -1,4 +1,4 @@
-import { decodeTerrainRGB, repairIsolatedTerrainSpikes, type TerrainRGBEncoding } from "./TerrainRGBDecode.js";
+import { decodeTerrainRGB, repairIsolatedTerrainSpikes, TERRAIN_REPAIR_VERSION, type TerrainRGBEncoding } from "./TerrainRGBDecode.js";
 
 self.onmessage = async (event: MessageEvent<{ blob: Blob; encoding: TerrainRGBEncoding; sourceZoom: number }>) => {
     let bitmap: ImageBitmap | undefined;
@@ -11,7 +11,7 @@ self.onmessage = async (event: MessageEvent<{ blob: Blob; encoding: TerrainRGBEn
         context.drawImage(bitmap, 0, 0);
         const decoded = decodeTerrainRGB(context.getImageData(0, 0, bitmap.width, bitmap.height).data, event.data.encoding);
         const data = repairIsolatedTerrainSpikes(decoded, bitmap.width, bitmap.height, event.data.sourceZoom) ?? decoded;
-        self.postMessage({ data, width: bitmap.width, height: bitmap.height }, { transfer: [data.buffer] });
+        self.postMessage({ data, width: bitmap.width, height: bitmap.height, repairVersion: TERRAIN_REPAIR_VERSION }, { transfer: [data.buffer] });
     } catch (error) {
         self.postMessage({ error: String(error) });
     } finally {

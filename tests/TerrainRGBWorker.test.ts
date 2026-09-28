@@ -18,6 +18,7 @@ it("decodes signed terrain pixels in a worker and transfers the exact height gri
         const [grid, options] = postMessage.mock.lastCall!;
         expect(Array.from(grid.data)).toEqual([0, -1]);
         expect([grid.width, grid.height]).toEqual([2, 1]);
+        expect(grid.repairVersion).toBe(1);
         expect(options.transfer).toEqual([grid.data.buffer]);
         expect(close).toHaveBeenCalledOnce();
     } finally {
@@ -87,6 +88,23 @@ it("repairs a raised waterfront patch when a stale worker returns only positive 
         const grid = await new TerrainRGB({ maxZoom: 15 }).load(new Vector3(0, 0, 15), new AbortController().signal);
         expect(Math.max(...grid.data)).toBeLessThan(10);
         expect(data[12 * 64 + 12]).toBe(80);
+    } finally {
+        worker.mockRestore();
+        vi.unstubAllGlobals();
+    }
+});
+
+it("repairs a moderate regional ridge returned by a stale worker", async () => {
+    const data = new Float32Array(64 * 64).fill(2);
+    data[33 * 64 + 34] = 21;
+    const worker = vi.spyOn(TerrainRGBDecodePool, "get").mockReturnValue({
+        decode: vi.fn(async () => ({ data, width: 64, height: 64 })),
+    } as unknown as TerrainRGBDecodePool);
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, blob: async () => new Blob() })));
+    try {
+        const grid = await new TerrainRGB({ maxZoom: 12 }).load(new Vector3(0, 0, 12), new AbortController().signal);
+        expect(grid.data[33 * 64 + 34]).toBeLessThan(1);
+        expect(data[33 * 64 + 34]).toBe(21);
     } finally {
         worker.mockRestore();
         vi.unstubAllGlobals();

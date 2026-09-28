@@ -1,11 +1,12 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
-import { decodeTerrainRGB, repairIsolatedTerrainSpikes, smoothNearSeaLevel } from "./TerrainRGBDecode.js";
+import { decodeTerrainRGB, repairIsolatedTerrainSpikes, smoothNearSeaLevel, TERRAIN_REPAIR_VERSION } from "./TerrainRGBDecode.js";
 import { TerrainRGBDecodePool } from "./TerrainRGBDecodePool.js";
 
 export interface ElevationGrid {
     data: ArrayLike<number>;
     width: number;
     height: number;
+    repairVersion?: number;
 }
 export type ElevationLoader = (
     coordinates: Vector3,
@@ -166,21 +167,11 @@ export default class TerrainRGB {
         if (workers) try {
             const grid = await workers.decode(blob, this.encoding, sourceZoom);
             signal.throwIfAborted();
-            // A worker can outlive a hot update to the decoder. A shallow
-            // coastal tile with a deep sample needs validation before its DEM
-            // reaches globe geometry. Already-repaired tiles only pay for a
-            // linear range check; the normal repair stays off the render thread.
-            let minimum = Infinity, maximum = -Infinity;
-            for (let i = 0; i < grid.data.length; i++) {
-                minimum = Math.min(minimum, grid.data[i]);
-                maximum = Math.max(maximum, grid.data[i]);
-            }
-            // A corrupt tile can be entirely water, so a positive sample is
-            // not required before checking deep pits. Small raised patches in
-            // otherwise low terrain need the same audit after a stale worker.
-            const suspectCoast = sourceZoom >= 8 && (minimum < -20
-                || sourceZoom >= 10 && maximum > 40 && minimum < 10);
-            const checked = suspectCoast ? TerrainRGB.repairIsolatedSpikes(grid, sourceZoom) : grid;
+            // A worker survives hot updates. Trust its repair only when it
+            // reports the current decoder version; stale workers can miss
+            // moderate coastal spikes without extreme min/max values.
+            const checked = grid.repairVersion === TERRAIN_REPAIR_VERSION
+                ? grid : TerrainRGB.repairIsolatedSpikes(grid, sourceZoom);
             const smoothed = smoothNearSeaLevel(checked.data, sourceZoom);
             return smoothed ? { ...checked, data: smoothed } : checked;
         } catch {

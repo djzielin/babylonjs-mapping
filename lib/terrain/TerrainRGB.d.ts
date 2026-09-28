@@ -4,6 +4,7 @@ export interface ElevationGrid {
     data: ArrayLike<number>;
     width: number;
     height: number;
+    repairVersion?: number;
 }
 export type ElevationLoader = (coordinates: Vector3, signal: AbortSignal) => Promise<ElevationGrid>;
 export interface TerrainRGBOptions {

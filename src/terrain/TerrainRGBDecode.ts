@@ -1,4 +1,5 @@
 export type TerrainRGBEncoding = "terrarium" | "mapbox";
+export const TERRAIN_REPAIR_VERSION = 1;
 
 export function decodeTerrainRGB(pixels: ArrayLike<number>, encoding: TerrainRGBEncoding): Float32Array {
     if (pixels.length % 4) throw new RangeError("Expected RGBA pixels");
