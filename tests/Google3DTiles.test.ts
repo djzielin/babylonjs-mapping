@@ -1905,6 +1905,7 @@ it("integrates downloaded Google bytes after a movement restart without refetchi
     releases.forEach(release => release());
     await Promise.all([oldPass, newPass, ...active]);
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(provider.stats.reusedDownloadedModels).toBe(1);
     expect(provider.loadedModelTiles).toHaveLength(1);
   } finally {
     releases.forEach(release => release());

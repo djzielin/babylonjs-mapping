@@ -243,7 +243,7 @@ export default class Google3DTiles {
         frontierCommitMs: 0, replacementMs: 0, modelWaitMs: 0, loadMs: 0,
         modelFetchMs: 0, modelDecodeMs: 0, modelIntegrationMs: 0, modelIntegrationMaxMs: 0,
         modelFetchCount: 0, modelDecodeCount: 0, modelDecodeActive: 0, peakModelDecodeActive: 0,
-        modelDecodeQueued: 0, peakModelDecodeQueued: 0,
+        modelDecodeQueued: 0, peakModelDecodeQueued: 0, reusedDownloadedModels: 0,
         coastalSkirtTrianglesRemoved: 0,
         peakHierarchyActive: 0, peakModelActive: 0, peakNetworkActive: 0 };
     public origin?: Google3DTilesOrigin;
@@ -341,6 +341,7 @@ export default class Google3DTiles {
         if (!ready) return undefined;
         try {
             if (!this.canDecodeModel(generation, reuse)) return undefined;
+            if (generation !== this.generation) this.stats.reusedDownloadedModels++;
             return await work();
         } finally {
             this.modelDecodeActive--;

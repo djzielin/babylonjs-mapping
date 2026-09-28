@@ -183,6 +183,7 @@ export default class Google3DTiles {
         peakModelDecodeActive: number;
         modelDecodeQueued: number;
         peakModelDecodeQueued: number;
+        reusedDownloadedModels: number;
         coastalSkirtTrianglesRemoved: number;
         peakHierarchyActive: number;
         peakModelActive: number;
