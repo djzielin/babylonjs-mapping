@@ -40,7 +40,10 @@ export class TerrainTransition {
             const mesh = source.clone("previous terrain", null, true)!;
             // The fallback keeps the old geometry. Detach the recycled tile
             // instead of copying its vertex and index buffers for every move.
-            source.geometry?.releaseForMesh(source);
+            // A style change keeps the same tile coordinates and geometry
+            // readiness key. Share the geometry with the clone in that case;
+            // detaching it would leave the replacement marked ready but empty.
+            if (!force) source.geometry?.releaseForMesh(source);
             tile.material = undefined;
             mesh.material = material;
             // A replacement terrain batch is created after this fallback. If

@@ -91,12 +91,15 @@ it('holds ready imagery through a basemap change at the same tile coordinates',(
  const oldMaterial=new StandardMaterial('old style',scene),oldTexture=new Texture(null,scene);
  vi.spyOn(oldTexture,'isReady').mockReturnValue(true);oldMaterial.diffuseTexture=oldTexture;tile.mesh.material=oldMaterial;tile.material=oldMaterial;
  const coordinate=tile.tileCoords.clone();
+ const geometry=tile.mesh.geometry;
  const transition=new TerrainTransition();transition.capture(globe,14,undefined,undefined,true);
  const retained=scene.getMeshByName('previous terrain')!;
  expect(retained.isDisposed()).toBe(false);
+ expect(tile.mesh.geometry).toBe(geometry);
  globe.setRasterProvider(new RasterOSM(globe));
  globe.updateRaster(40.7484,-73.9857,14);
  expect(tile.tileCoords.equals(coordinate)).toBe(true);
+ expect(tile.mesh.geometry).toBe(geometry);
  transition.update(500);
  expect(retained.isDisposed()).toBe(false);
  tile.terrainLoaded=true;
