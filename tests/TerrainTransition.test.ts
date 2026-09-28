@@ -62,6 +62,23 @@ it('retains terrain during a same-zoom tile-window move',()=>{
  transition.dispose();scene.dispose();engine.dispose();
 });
 
+it('retains visible imagery while its DEM is still loading',()=>{
+ const engine=new NullEngine(),scene=new Scene(engine);
+ const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
+ globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(40.7484,-73.9857,14);
+ const tile=globe.ourTiles[0];tile.terrainLoaded=false;
+ const material=new StandardMaterial('ready imagery',scene),texture=new Texture(null,scene);
+ vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;tile.mesh.material=material;
+ const transition=new TerrainTransition();transition.capture(globe,15);
+ const retained=scene.getMeshByName('previous terrain');
+ expect(retained).toBeDefined();
+ globe.updateRaster(40.7484,-73.9857,15);
+ transition.update(1);
+ expect(retained!.isDisposed()).toBe(false);
+ expect(retained!.isEnabled()).toBe(true);
+ transition.dispose();scene.dispose();engine.dispose();
+});
+
 it('does not discard visible fallback terrain when fast movement crosses more than two windows',()=>{
  const engine=new NullEngine(),scene=new Scene(engine);
  const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
