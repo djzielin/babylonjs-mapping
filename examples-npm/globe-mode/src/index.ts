@@ -35,6 +35,7 @@ import {
     landscapeTerrainLOD,
     GlobeSet,
     RasterOSM,
+    RasterGoogleSatellite,
     RasterGEBCO,
     RasterMB,
     GlobeDataController,
@@ -47,6 +48,7 @@ import {
     GeoJSON,
     EPSG_Type,
     type GlobeView,
+    type GoogleSatelliteSession,
     type Tile,
 } from "babylonjs-mapping";
 
@@ -142,6 +144,11 @@ class GlobeDemo {
     private overtureURL?: string;
     private googleTiles?: Google3DTiles;
     private googleKey = "";
+    private satelliteSession?: GoogleSatelliteSession;
+    private satelliteSessionPending?: Promise<GoogleSatelliteSession>;
+    private satelliteCopyright = "";
+    private satelliteAttributionKey = "";
+    private satelliteAttributionRetryAt = 0;
     private googleViewKey = "";
     private googlePriorityKey = "";
     private googleSelectionBearing = "";
@@ -391,10 +398,8 @@ class GlobeDemo {
                     `CPU render p50 ${times[Math.floor(times.length * 0.5)]?.toFixed(2)} ms · p95 ${times[Math.floor(times.length * 0.95)]?.toFixed(2)} ms · GPU p50 ${gpuMs.toFixed(2)} ms · moving ${motion.fps.toFixed(0)} FPS / 1% ${motion.low1.toFixed(0)} / 0.1% ${motion.low01.toFixed(0)} / p95 ${motion.p95.toFixed(2)} ms (${motion.samples} frames) · mesh evaluation ${this.sceneProfile.activeMeshesEvaluationTimeCounter.average.toFixed(2)} ms · draw ${this.sceneProfile.renderTimeCounter.average.toFixed(2)} ms · render targets ${this.sceneProfile.renderTargetsRenderTimeCounter.average.toFixed(2)} ms · ${this.sceneProfile.drawCallsCounter.current} draws · ${this.terrainBatcher.stats}${this.drawSnapshot ? ` · ${this.drawSnapshot.stats}` : ""}`;
                 const gpuInfo = this.engine.getInfo();
                 document.getElementById("gpuInfo")!.textContent = `${this.engine.isWebGPU ? "WebGPU" : "WebGL"}${this.reversedDepth ? " · reverse float depth" : ""} · ${gpuInfo.vendor} · ${gpuInfo.renderer} · ${gpuInfo.version}`;
-                const googleSources = this.googleTiles?.getAttributions() ?? [];
                 this.canvas.dataset.maxTerrainCaptureMs = String(Math.round(this.terrainTransition.maxCaptureMs));
-                document.getElementById("googleSources")!.textContent = googleSources.join("; ");
-                document.getElementById("googleCredits")!.hidden = this.googleFarHidden || !(this.googleTiles?.loadedModelTiles.length);
+                this.updateGoogleCredits();
                 if (this.googleTiles) {
                     const stages = this.googleTiles.stats;
                     this.canvas.dataset.googleModelFetchCount = String(stages.modelFetchCount);
@@ -678,12 +683,18 @@ class GlobeDemo {
         let activeStyle = "osm";
         let pendingSatellite = false;
         const applyStyle = () => {
-            if (basemap.value === "satellite" && !tokenInput.value.trim()) {
+            if (basemap.value === "satellite" && !tokenInput.value.trim() && !this.satelliteSession) {
                 pendingSatellite = true;
                 basemap.value = activeStyle;
-                document.getElementById("mapStyleStatus")!.textContent = "Add a Mapbox token below to enable satellite.";
-                document.querySelector<HTMLDetailsElement>("#controlPanel details")!.open = true;
-                tokenInput.focus();
+                document.getElementById("mapStyleStatus")!.textContent = this.googleKey
+                    ? "Loading Google satellite imagery…" : "Add a Mapbox token or Google Maps key to enable satellite.";
+                if (this.googleKey) void this.ensureSatelliteSession().then(() => {
+                    if (!pendingSatellite) return;
+                    basemap.value = "satellite";
+                    applyStyle();
+                }).catch(() => {
+                    document.getElementById("mapStyleStatus")!.textContent = "Google satellite unavailable; add a Mapbox token to use satellite imagery.";
+                });
                 return;
             }
             pendingSatellite = false;
@@ -697,6 +708,7 @@ class GlobeDemo {
             this.syncDistanceStyles();
             this.updateDistanceLayers(this.navigator.getView());
             this.navigator.refresh(true);
+            this.updateGoogleCredits();
             document.getElementById("mapView")!.setAttribute("aria-pressed", String(activeStyle === "osm"));
             document.getElementById("satelliteView")!.setAttribute("aria-pressed", String(activeStyle === "satellite"));
         };
@@ -1174,6 +1186,62 @@ class GlobeDemo {
             this.googleKey = response.ok ? (await response.text()).trim() : "";
         } catch { this.googleKey = ""; }
         this.scheduleGoogleTiles(true);
+        if (this.googleKey && !(document.getElementById("mapboxToken") as HTMLInputElement).value.trim()) {
+            void this.ensureSatelliteSession().then(() => {
+                const basemap = document.getElementById("basemap") as HTMLSelectElement;
+                if (basemap.value === "osm" && HOME_VIEW.basemap === "satellite") {
+                    basemap.value = "satellite";
+                    basemap.dispatchEvent(new Event("change"));
+                }
+            }).catch(() => { /* Google 3D can still load without 2D satellite access. */ });
+        }
+    }
+
+    private ensureSatelliteSession(): Promise<GoogleSatelliteSession> {
+        if (this.satelliteSession && this.satelliteSession.expiry * 1000 > Date.now() + 60000)
+            return Promise.resolve(this.satelliteSession);
+        if (!this.googleKey) return Promise.reject(new Error("Google Maps key unavailable"));
+        return this.satelliteSessionPending ??= RasterGoogleSatellite.openSession(this.googleKey)
+            .then(session => this.satelliteSession = session)
+            .finally(() => { this.satelliteSessionPending = undefined; });
+    }
+
+    private updateGoogleCredits(): void {
+        const satellite = (document.getElementById("basemap") as HTMLSelectElement).value === "satellite"
+            && !!this.satelliteSession && !(document.getElementById("mapboxToken") as HTMLInputElement).value.trim();
+        const photorealistic = !this.googleFarHidden && !!this.googleTiles?.loadedModelTiles.length;
+        const sources = [...(photorealistic ? this.googleTiles?.getAttributions() ?? [] : [])];
+        if (satellite && this.satelliteCopyright) sources.push(this.satelliteCopyright);
+        document.getElementById("googleSources")!.textContent = [...new Set(sources)].join("; ");
+        document.getElementById("googleCredits")!.hidden = !satellite && !photorealistic;
+    }
+
+    private updateSatelliteAttribution(view: GlobeView): void {
+        if (!this.satelliteSession || (document.getElementById("basemap") as HTMLSelectElement).value !== "satellite"
+            || (document.getElementById("mapboxToken") as HTMLInputElement).value.trim()) return;
+        if (Date.now() < this.satelliteAttributionRetryAt) return;
+        const zoom = Math.min(22, Math.max(0, view.zoom));
+        const key = `${Math.round(view.latitude * 20)}/${Math.round(view.longitude * 20)}/${zoom}`;
+        if (key === this.satelliteAttributionKey) return;
+        this.satelliteAttributionKey = key;
+        const latitudeRadius = 15 * 1609.344 / 111320;
+        const longitudeRadius = latitudeRadius / Math.max(0.05, Math.cos(view.latitude * Math.PI / 180));
+        const wrap = (longitude: number) => ((longitude + 180) % 360 + 360) % 360 - 180;
+        const bounds = {
+            north: Math.min(89.9, view.latitude + latitudeRadius), south: Math.max(-89.9, view.latitude - latitudeRadius),
+            east: wrap(view.longitude + longitudeRadius), west: wrap(view.longitude - longitudeRadius),
+        };
+        void RasterGoogleSatellite.viewportCopyright(this.googleKey, this.satelliteSession, bounds, zoom)
+            .then(copyright => {
+                if (this.satelliteAttributionKey !== key) return;
+                this.satelliteCopyright = copyright;
+                this.updateGoogleCredits();
+            }).catch(() => {
+                if (this.satelliteAttributionKey === key) {
+                    this.satelliteAttributionKey = "";
+                    this.satelliteAttributionRetryAt = Date.now() + 5000;
+                }
+            });
     }
 
     private scheduleGoogleTiles(force = false): void {
@@ -1245,7 +1313,7 @@ class GlobeDemo {
                 this.googleTiles?.dispose(); this.googleTiles = undefined;
                 this.googleFarHidden = false;
             }
-            document.getElementById("googleCredits")!.hidden = true;
+            this.updateGoogleCredits();
             this.canvas.dataset.googleTiles = "0";
             this.setPhotorealisticActive(false);
             this.googleStatus(enabled ? retained ? "Google 3D · retained for closer views"
@@ -1342,8 +1410,7 @@ class GlobeDemo {
                 const limited = provider.stats.detailLimitedTiles + provider.stats.sourceLimitedTiles;
                 this.canvas.dataset.googleFullRadiusQuality = limited ? "known-incomplete" : "unverified";
                 this.canvas.dataset.googleForegroundLoads = String(Number(this.canvas.dataset.googleForegroundLoads ?? 0) + 1);
-                document.getElementById("googleSources")!.textContent = provider.getAttributions().join("; ");
-                document.getElementById("googleCredits")!.hidden = loaded.length === 0;
+                this.updateGoogleCredits();
                 this.googleStatus(loaded.length ? `Google 3D · ${loaded.length} tiles${limited
                     ? ` · ${provider.stats.detailLimitedTiles} budget-limited / ${provider.stats.sourceLimitedTiles} source-limited`
                     : " · full-radius quality unverified"}` : "Google 3D · no coverage here");
@@ -1362,6 +1429,7 @@ class GlobeDemo {
     }
 
     private updateDistanceLayers(view: GlobeView): void {
+        this.updateSatelliteAttribution(view);
         if (view.zoom < 8 && !this.distanceLayers.length) return;
         const detailed15MileRadius = (document.getElementById("googleTiles") as HTMLInputElement).checked;
         const plans = globeLODPlan(view.zoom, detailed15MileRadius);
@@ -1443,7 +1511,9 @@ class GlobeDemo {
             raster.doResBoost = globe === this.detailGlobe
                 || globe === this.distanceLayers[this.distanceLayers.length - 1]?.globe;
             globe.setRasterProvider(raster);
-        } else globe.setRasterProvider(new RasterOSM(globe));
+        } else if (style === "satellite" && this.satelliteSession)
+            globe.setRasterProvider(new RasterGoogleSatellite(globe, this.googleKey, this.satelliteSession));
+        else globe.setRasterProvider(new RasterOSM(globe));
     }
 
     private syncDistanceStyles(): void {
