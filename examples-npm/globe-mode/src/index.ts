@@ -314,7 +314,7 @@ class GlobeDemo {
             }
             this.terrainTransition.update(performance.now());
             this.buildingTransition.update(performance.now(), this.googleTiles && !this.googleFarHidden
-                ? (lat, lon) => this.googleCoversLocation(lat, lon) : undefined);
+                ? (lat, lon, bounds) => this.googleCoversFootprint(lat, lon, bounds) : undefined);
             this.sampleBenchmarkPhase("movement+transitions", frameStarted);
             const registrationStarted = performance.now();
             const googleRevision = this.googleTiles?.coverageRevision ?? -1;
@@ -346,7 +346,7 @@ class GlobeDemo {
             if (googleRevision !== this.lastCoverageRevision) {
                 this.lastCoverageRevision = googleRevision;
                 this.refreshBuildingReplacements();
-                this.buildingTransition.update(performance.now(), (lat, lon) => this.googleCoversLocation(lat, lon), true);
+                this.buildingTransition.update(performance.now(), (lat, lon, bounds) => this.googleCoversFootprint(lat, lon, bounds), true);
                 for (const tile of this.landmarks?.loadedModelTiles ?? []) for (const mesh of tile.asset.meshes) {
                     const point = this.detailGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
                     mesh.setEnabled(!this.googleCoversLocation(point.latitude, point.longitude));

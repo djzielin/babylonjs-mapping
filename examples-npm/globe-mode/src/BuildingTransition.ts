@@ -2,7 +2,9 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { GlobeSet } from "babylonjs-mapping";
 
-type Retained = { mesh: Mesh; coordinate: Vector3; source: object };
+type BuildingRange = { latitude: number; longitude: number; south: number; west: number; north: number; east: number; start: number; end: number };
+type Coverage = { ranges: BuildingRange[]; indices: Uint32Array };
+type Retained = { mesh: Mesh; coordinate: Vector3; source: object; coverage?: Coverage; mask?: Uint8Array; ownGeometry?: boolean };
 
 /** Keep the old building tier visible until the replacement tiles finish. */
 export class BuildingTransition {
@@ -34,7 +36,12 @@ export class BuildingTransition {
                 mesh.setEnabled(true);
                 mesh.isPickable = false;
                 mesh.freezeWorldMatrix(source.computeWorldMatrix(true).clone());
-                retained.push({ mesh, coordinate: tile.tileCoords.clone(), source });
+                const coverage = (source.metadata as { overtureCoverage?: Coverage } | null)?.overtureCoverage;
+                // Most outgoing batches still draw every building. Preserve
+                // their shared geometry until coverage actually changes.
+                const mask = coverage && source.getIndices()?.length === coverage.indices.length
+                    ? new Uint8Array(coverage.ranges.length).fill(1) : undefined;
+                retained.push({ mesh, coordinate: tile.tileCoords.clone(), source, coverage, mask });
                 retainedSources.add(source);
             }
         }
@@ -44,7 +51,8 @@ export class BuildingTransition {
         this.nextCheck = 0;
     }
 
-    public update(now: number, googleCovers?: (latitude: number, longitude: number) => boolean, force = false): void {
+    public update(now: number, googleCovers?: (latitude: number, longitude: number,
+        bounds?: { south: number; west: number; north: number; east: number }) => boolean, force = false): void {
         if (!force && now < this.nextCheck) return;
         this.nextCheck = now + 200;
         for (const [globe, retained] of this.previous) {
@@ -55,7 +63,24 @@ export class BuildingTransition {
             const south = Math.max(...tiles.map(tile => tile.tileCoords.y));
             const at = (x: number, y: number) => globe.ourTilesMap.get(new Vector3(x, y, globe.zoom).toString());
             const current = retained.filter(old => {
-                if (googleCovers) {
+                if (old.coverage) {
+                    const { ranges, indices } = old.coverage;
+                    const mask = Uint8Array.from(ranges, range => Number(!googleCovers?.(range.latitude, range.longitude, range)));
+                    const visibleCount = ranges.reduce((count, range, index) => count + (mask[index] ? range.end - range.start : 0), 0);
+                    if (!visibleCount) { old.mesh.dispose(); return false; }
+                    if (!old.mask || old.mask.length !== mask.length || mask.some((value, index) => value !== old.mask![index])) {
+                        if (!old.ownGeometry) { old.mesh.makeGeometryUnique(); old.ownGeometry = true; }
+                        const visibleIndices = new Uint32Array(visibleCount);
+                        let offset = 0;
+                        for (let i = 0; i < ranges.length; i++) if (mask[i]) {
+                            const range = ranges[i];
+                            visibleIndices.set(indices.subarray(range.start, range.end), offset);
+                            offset += range.end - range.start;
+                        }
+                        old.mesh.setIndices(visibleIndices);
+                        old.mask = mask;
+                    }
+                } else if (googleCovers) {
                     const box = old.mesh.getBoundingInfo().boundingBox;
                     if ([box.centerWorld, ...box.vectorsWorld].some(vertex => {
                         if (!Number.isFinite(vertex.lengthSquared()) || vertex.lengthSquared() === 0) return false;

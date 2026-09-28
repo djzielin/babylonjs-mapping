@@ -108,4 +108,38 @@ describe("building detail transitions", () => {
         expect(retained.every(mesh => mesh && !mesh.isDisposed())).toBe(true);
         transition.dispose(); scene.dispose(); engine.dispose();
     });
+
+    it("masks only the Google-covered ranges of a retained Overture batch", () => {
+        const engine = new NullEngine();
+        const scene = new Scene(engine);
+        const globe = new GlobeSet(scene, engine, { backingSurface: false });
+        globe.createGeometry(new Vector2(1, 1), 20, 8);
+        globe.updateRaster(40.7484, -73.9857, 14);
+        const tile = globe.ourTiles[0];
+        tile.mesh.setEnabled(true);
+        const source = MeshBuilder.CreateBox("outgoing Overture batch", {}, scene);
+        source.setParent(tile.mesh);
+        const indices = Uint32Array.from(source.getIndices()!);
+        const half = indices.length / 2;
+        source.metadata = { overtureCoverage: {
+            indices,
+            ranges: [
+                { latitude: 1, longitude: 1, south: 0, west: 0, north: 2, east: 2, start: 0, end: half },
+                { latitude: 3, longitude: 3, south: 2, west: 2, north: 4, east: 4, start: half, end: indices.length },
+            ],
+        } };
+        tile.buildingBatches.push(source);
+        const transition = new BuildingTransition();
+        transition.capture(globe, 15);
+        globe.updateRaster(40.7484, -73.9857, 15);
+        const retained = scene.getMeshByName("previous building detail")!;
+        transition.update(1, latitude => latitude === 1, true);
+        expect(retained.isDisposed()).toBe(false);
+        expect(Array.from(retained.getIndices()!)).toEqual(Array.from(indices.subarray(half)));
+        transition.update(2, undefined, true);
+        expect(Array.from(retained.getIndices()!)).toEqual(Array.from(indices));
+        transition.update(3, () => true, true);
+        expect(retained.isDisposed()).toBe(true);
+        transition.dispose(); scene.dispose(); engine.dispose();
+    });
 });
