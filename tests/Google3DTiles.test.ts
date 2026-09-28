@@ -251,22 +251,68 @@ describe("Google3DTiles", () => {
     const generated: object[] = [];
     (engine as any)._generateMipmaps = (internal: object) => generated.push(internal);
     let internal: object | null = null;
+    let modelRoot: TransformNode | undefined;
+    let modelStarted!: () => void;
+    const started = new Promise<void>(resolve => { modelStarted = resolve; });
     const provider = new Google3DTiles(tileSet, {
       apiKey: "test",
       tilesetLoader: async () => ({ root: { content: { uri: "model.glb" } } }),
       modelTileLoader: async (_url, scene) => {
         const asset = new AssetContainer(scene);
-        asset.rootNodes.push(new TransformNode("google-model", scene));
+        modelRoot = new TransformNode("google-model", scene);
+        asset.rootNodes.push(modelRoot);
         const texture = new RawTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, 5, scene, true);
         internal = texture.getInternalTexture();
         asset.textures.push(texture);
+        modelStarted();
         return { asset, attributions: [] };
       },
     });
-    await provider.load();
+    const loading = provider.load();
+    await started;
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(generated).toEqual([]);
+    expect(provider.loadedModelTiles).toHaveLength(0);
+    expect(modelRoot!.isEnabled()).toBe(false);
     engine.onEndFrameObservable.notifyObservers(engine);
+    await loading;
     expect(generated).toEqual([internal]);
+    expect(provider.loadedModelTiles).toHaveLength(1);
+    expect(modelRoot!.isEnabled()).toBe(true);
+    provider.dispose(); scene.dispose(); engine.dispose();
+  });
+
+  it("keeps the Google parent visible through a replacement's WebGPU upload frame", async () => {
+    const { engine, scene, tileSet } = createTileSet();
+    Object.defineProperty(engine, "isWebGPU", { value: true });
+    (engine as any)._generateMipmaps = vi.fn();
+    let childStarted!: () => void;
+    const started = new Promise<void>(resolve => { childStarted = resolve; });
+    let childRoot: TransformNode | undefined;
+    const provider = new Google3DTiles(tileSet, { apiKey: "test", maximumScreenSpaceError: 1, maxDepth: 0,
+      tilesetLoader: async () => ({ root: { content: { uri: "parent.glb" }, children: [{ content: { uri: "child.glb" } }] } }),
+      modelTileLoader: async url => {
+        const asset = new AssetContainer(scene);
+        const root = new TransformNode(url, scene);
+        asset.rootNodes.push(root);
+        if (url.includes("child.glb")) {
+          childRoot = root;
+          asset.textures.push(new RawTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, 5, scene, true));
+          childStarted();
+        }
+        return { asset, attributions: [] };
+      } });
+    const [parent] = await provider.load();
+    provider.maxDepth = 4;
+    const refining = provider.load();
+    await started;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(parent.root.isEnabled()).toBe(true);
+    expect(childRoot!.isEnabled()).toBe(false);
+    engine.onEndFrameObservable.notifyObservers(engine);
+    await refining;
+    expect(childRoot!.isEnabled()).toBe(true);
+    expect(parent.root.isEnabled()).toBe(false);
     provider.dispose(); scene.dispose(); engine.dispose();
   });
 

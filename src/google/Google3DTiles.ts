@@ -1863,7 +1863,7 @@ export default class Google3DTiles {
             }
         }, () => this.requestPriority(selection.boundingVolume,
             selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity(), selection.geometricError,
-            selection.ancestors?.some(url => this.loadedTiles.has(url)) ?? false), "model").then((model) => {
+            selection.ancestors?.some(url => this.loadedTiles.has(url)) ?? false), "model").then(async (model) => {
             if (!model) {
                 return undefined;
             }
@@ -1893,20 +1893,27 @@ export default class Google3DTiles {
                 if (engine.isWebGPU && texture instanceof Texture && texture.getInternalTexture()?.generateMipMaps)
                     webGpuMipTextures.push(texture);
             }
+            let mipmapsReady: Promise<boolean> | undefined;
             if (webGpuMipTextures.length) {
                 // GLB texture uploads can leave mip levels empty on WebGPU.
                 // The loader callback runs before its upload encoder is submitted;
-                // regenerate after frame end, on the next render encoder, so the
-                // complete source image is available for every mip level.
-                engine.onEndFrameObservable.addOnce(() => {
-                    for (const texture of webGpuMipTextures) {
-                        const internal = texture.getInternalTexture();
-                        if (internal?.generateMipMaps)
-                            (engine as typeof engine & { _generateMipmaps(texture: typeof internal): void })
-                                ._generateMipmaps(internal);
-                    }
-                });
+                // regenerate after frame end. Keep the previous tile visible
+                // until that image data is usable by the replacement model.
+                mipmapsReady = new Promise(resolve => engine.onEndFrameObservable.addOnce(() => {
+                    try {
+                        for (const texture of webGpuMipTextures) {
+                            const internal = texture.getInternalTexture();
+                            if (internal?.generateMipMaps)
+                                (engine as typeof engine & { _generateMipmaps(texture: typeof internal): void })
+                                    ._generateMipmaps(internal);
+                        }
+                        resolve(true);
+                    } catch { resolve(false); }
+                }));
             }
+            // The asset must stay hidden during the WebGPU upload frame. It
+            // can otherwise draw over the old parent with empty mip levels.
+            root.setEnabled(false);
             model.asset.addAllToScene();
             for (const node of model.asset.rootNodes) {
                 node.parent = root;
@@ -1914,6 +1921,12 @@ export default class Google3DTiles {
             const integrationDuration = performance.now() - integrationStarted;
             this.stats.modelIntegrationMs += integrationDuration;
             this.stats.modelIntegrationMaxMs = Math.max(this.stats.modelIntegrationMaxMs, integrationDuration);
+
+            if (mipmapsReady && !await mipmapsReady) {
+                model.asset.dispose();
+                root.dispose();
+                return undefined;
+            }
 
             const result: LoadedGoogle3DTile = {
                 url: selection.url,
@@ -1935,6 +1948,7 @@ export default class Google3DTiles {
                 this.loadedSelections.set(selection.url, selection);
                 return result;
             }
+            root.setEnabled(true);
             this.loadedTiles.set(selection.url, result);
             this.loadedSelections.set(selection.url, selection);
             this.trimVisibleHistory(this.desiredTiles);
