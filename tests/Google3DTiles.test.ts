@@ -902,6 +902,32 @@ it("centers the coverage radius on the viewer when the orbit target is elsewhere
   provider.dispose(); scene.dispose(); engine.dispose();
 });
 
+it("keeps cardinal edge tiles and skips spherical and box volumes outside the 15-mile disk", async () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const camera = new ArcRotateCamera("eye", 0, 1, 1, globe.getSurfacePosition(0, 0), scene);
+  camera.setPosition(globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld)); camera.getViewMatrix(true);
+  const ecef = (latitude: number, longitude: number) => {
+    const lat = latitude * Math.PI / 180, lon = longitude * Math.PI / 180;
+    return [6378137 * Math.cos(lat) * Math.cos(lon),
+      6378137 * Math.cos(lat) * Math.sin(lon), 6378137 * Math.sin(lat)];
+  };
+  const diagonal = ecef(0.19, 0.19);
+  const requests: string[] = [];
+  const provider = new Google3DTiles(globe, { apiKey: "test", coverageRadius: 15 * 1609.344,
+    maxTiles: 8, tilesetLoader: async () => ({ root: { children: [
+      { boundingVolume: { sphere: [...ecef(0, 0.215), 50] }, content: { uri: "edge.glb" } },
+      { boundingVolume: { sphere: [...diagonal, 50] }, content: { uri: "diagonal-sphere.glb" } },
+      { boundingVolume: { box: [...diagonal, 20, 0, 0, 0, 20, 0, 0, 0, 20] },
+        content: { uri: "diagonal-box.glb" } },
+    ] } }), modelTileLoader: createModelLoader(requests) });
+  try {
+    await provider.load();
+    expect(requests.map(url => url.split("/").pop()?.split("?")[0])).toEqual(["edge.glb"]);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("shows nearby models before extending selection to the full coverage radius", async () => {
   const engine = new NullEngine(), scene = new Scene(engine);
   const globe = new GlobeSet(scene, engine, {radius: 60, attribution: false});
