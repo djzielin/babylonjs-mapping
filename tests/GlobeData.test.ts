@@ -591,6 +591,7 @@ describe("terrain encodings and overzoom", () => {
         expect(raised.data[23 * 64 + 22]).toBe(0);
         expect(raised.data[23 * 64 + 26]).toBe(0);
         expect(TerrainRGB.repairIsolatedSpikes({ data: raisedCoast, width: 64, height: 64 }, 11).data[23 * 64 + 22]).toBe(0);
+        expect(TerrainRGB.repairIsolatedSpikes({ data: raisedCoast, width: 64, height: 64 }, 8).data).toBe(raisedCoast);
         const broadHill = new Float32Array(64 * 64).fill(0);
         for (let y = 8; y < 48; y++) for (let x = 8; x < 48; x++) broadHill[y * 64 + x] = 71;
         expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 13).data[25 * 64 + 25]).toBe(71);
