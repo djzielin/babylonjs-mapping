@@ -29,8 +29,16 @@ it('retains independent terrain geometry until matching replacement imagery and 
  expect(disposed).not.toHaveBeenCalled();
  transition.update(1000);expect(snapshot.isDisposed()).toBe(false);
  expect(Array.from(snapshot.getVerticesData(VertexBuffer.PositionKind)!)).toEqual(positions);
- tile.terrainLoaded=true;tile.mesh.material=material;
+ tile.terrainLoaded=true;
+ const replacement=tile.material!;
+ const replacementTexture=new Texture(null,scene);
+ const replacementDisposed=vi.spyOn(replacementTexture,'dispose');
+ vi.spyOn(replacementTexture,'isReady').mockReturnValue(true);
+ replacement.diffuseTexture=replacementTexture;
  transition.update(1300);expect(snapshot.isDisposed()).toBe(true);
+ expect(disposed).toHaveBeenCalledOnce();
+ expect(tile.mesh.material).toBe(replacement);
+ expect(replacementDisposed).not.toHaveBeenCalled();
  transition.dispose();scene.dispose();engine.dispose();
 });
 
