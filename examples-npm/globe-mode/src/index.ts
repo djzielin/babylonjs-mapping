@@ -122,6 +122,7 @@ class GlobeDemo {
     private replacements = new BuildingReplacementIndex();
     private lastCoverageRevision = -1;
     private replacementSignatures = new WeakMap<object, string>();
+    private replacementLandmarkSignature?: string;
     private data: GlobeDataController;
     private elevation = new TerrainRGB();
     private buildings?: BuildingsOverture;
@@ -855,7 +856,13 @@ class GlobeDemo {
         this.replacementCoverageURLs = coverageURLs;
         this.replacementCoverageHidden = this.googleFarHidden;
         const models = this.landmarks?.loadedModelTiles.flatMap(tile => tile.asset.meshes) ?? [];
-        this.replacements.setModels(models.filter((mesh): mesh is import("@babylonjs/core/Meshes/mesh").Mesh => mesh.isEnabled() && mesh.getTotalVertices() > 0) as import("@babylonjs/core/Meshes/mesh").Mesh[]);
+        const landmarkSignature = models.map(mesh => `${mesh.uniqueId}:${mesh.isEnabled()}`).join(",");
+        const landmarksChanged = this.replacementLandmarkSignature !== landmarkSignature;
+        if (landmarksChanged) {
+            this.replacementLandmarkSignature = landmarkSignature;
+            this.replacements.setModels(models.filter((mesh): mesh is import("@babylonjs/core/Meshes/mesh").Mesh =>
+                mesh.isEnabled() && mesh.getTotalVertices() > 0) as import("@babylonjs/core/Meshes/mesh").Mesh[]);
+        }
         // Photorealistic imagery already contains streets. Keep road geometry
         // outside its coverage without repainting red lines over the models.
         if (this.roads) for (const tile of this.detailGlobe.ourTiles)
@@ -877,6 +884,10 @@ class GlobeDemo {
                     math.tile_to_lat(tile.tileCoords.y + 2, z), math.tile_to_lon(tile.tileCoords.x - 1, z),
                     math.tile_to_lat(tile.tileCoords.y - 1, z), math.tile_to_lon(tile.tileCoords.x + 2, z));
             } : undefined);
+            // Batched Overture geometry changes its index mask in place when
+            // Google coverage changes. Rebuilding landmark signatures and
+            // resubmitting every tile is only needed when landmark models change.
+            if (entry.buildings.batchGeometry && !landmarksChanged) continue;
             const positions = models.map(mesh => {
                 const point = entry.globe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
                 return { mesh, latitude: point.latitude, longitude: point.longitude };
@@ -903,7 +914,8 @@ class GlobeDemo {
                 // index mask. Its initial load is already owned by the globe
                 // data controller; cancelling and resubmitting every tile here
                 // can duplicate hundreds of Overture jobs during startup.
-                if (entry.buildings.batchGeometry && previous === undefined) continue;
+                if (entry.buildings.batchGeometry && previous === undefined
+                    && (!models.length || !tile.buildingBatches.length && !tile.buildings.length)) continue;
                 entry.buildings.cancelPendingRequests(tile);
                 if (!entry.buildings.batchGeometry) tile.deleteBuildings();
                 if ((document.getElementById("buildings") as HTMLInputElement).checked) entry.buildings.SubmitLoadTileRequest(tile);
