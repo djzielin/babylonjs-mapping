@@ -1675,6 +1675,22 @@ it("retains coarse unseen models across the configured fifteen-mile radius", asy
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
+it("centers the moving coverage disk on the latest camera position before a render", () => {
+  const engine = new NullEngine(), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, {radius: 60, attribution: false});
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const camera = new ArcRotateCamera("moving disk", 0, 1, 1, globe.getSurfacePosition(0, 0), scene);
+  camera.setPosition(globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld));
+  const provider = new Google3DTiles(globe, {apiKey: "test", coverageRadius: 15 * 1609.344});
+  try {
+    (provider as any).getTileSetBounds();
+    camera.setPosition(globe.getSurfacePosition(0, 0.25, 100 * globe.metresToWorld));
+    const bounds = (provider as any).getTileSetBounds();
+    const center = bounds.circle.center as Vector3;
+    expect(Math.atan2(center.y, center.x) * 180 / Math.PI).toBeCloseTo(0.25, 3);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("spreads nearby prefetch across turn directions when one sector has many tiles", async () => {
   const engine = new NullEngine(), scene = new Scene(engine);
   const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });

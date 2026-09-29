@@ -2335,6 +2335,7 @@ export default class Google3DTiles {
 
         if (coverageRadius) {
             const camera = this.tileSet.scene.activeCamera;
+            camera?.getViewMatrix();
             const eye = camera && this.tileSet.isGlobe
                 ? (this.tileSet as GlobeSet).getSurfaceCoordinates(camera.globalPosition) : undefined;
             const center = eye ? { x: eye.longitude, y: eye.latitude } : this.tileSet.centerCoords;
