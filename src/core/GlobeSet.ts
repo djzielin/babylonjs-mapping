@@ -5,9 +5,12 @@ import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import { Color3, Frustum, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
+import type { Plane } from "@babylonjs/core/Maths/math.js";
 import { Scene } from "@babylonjs/core/scene.js";
 
 import Tile from "./Tile.js";
+import type { TileRequest } from "./TileSet.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import GlobeTileMath from "./GlobeTileMath.js";
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import TileSet from "./TileSet.js";
@@ -64,6 +67,27 @@ export default class GlobeSet extends TileSet {
     private geometryBudgetMs = Infinity;
     private geometryQueue: Tile[] = [];
     private geometryBounds = new WeakMap<Tile, { key: string; center: Vector3; radius: number }>();
+    private getGeographicTileBounds(tile: Tile): { center: Vector3; radius: number } {
+        const key = `${tile.tileCoords}/${this.radius}`;
+        let bounds = this.geometryBounds.get(tile);
+        if (bounds?.key !== key) {
+            const center = this.getTileSurfacePosition(tile.tileCoords);
+            const radius = Math.max(
+                Vector3.Distance(center, this.getTileSurfacePosition(tile.tileCoords, 0, 0)),
+                Vector3.Distance(center, this.getTileSurfacePosition(tile.tileCoords, 1, 1)),
+            );
+            bounds = { key, center, radius };
+            this.geometryBounds.set(tile, bounds);
+        }
+        return bounds;
+    }
+    protected override getRasterRequestPriority(request: TileRequest, camera: Camera, planes: Plane[]): { visible: boolean; distance: number } {
+        const bounds = this.getGeographicTileBounds(request.tile);
+        return {
+            visible: planes.every(plane => plane.dotCoordinate(bounds.center) >= -bounds.radius),
+            distance: Math.max(0, Vector3.Distance(camera.globalPosition, bounds.center) - bounds.radius),
+        };
+    }
     private terrainDisplayZoom = Infinity;
     public get pendingGeometryCount(): number {
         return this.geometryQueue.length;
@@ -105,17 +129,7 @@ export default class GlobeSet extends TileSet {
                 for (let i = 0; i < this.geometryQueue.length; i++) {
                     const candidate = this.geometryQueue[i];
                     if (candidate.mesh.isDisposed()) continue;
-                    const key = `${candidate.tileCoords}/${this.radius}`;
-                    let bounds = this.geometryBounds.get(candidate);
-                    if (bounds?.key !== key) {
-                        const center = this.getTileSurfacePosition(candidate.tileCoords);
-                        const radius = Math.max(
-                            Vector3.Distance(center, this.getTileSurfacePosition(candidate.tileCoords, 0, 0)),
-                            Vector3.Distance(center, this.getTileSurfacePosition(candidate.tileCoords, 1, 1)),
-                        );
-                        bounds = { key, center, radius };
-                        this.geometryBounds.set(candidate, bounds);
-                    }
+                    const bounds = this.getGeographicTileBounds(candidate);
                     const visible = planes.every(plane => plane.dotCoordinate(bounds.center) >= -bounds.radius);
                     const distance = Math.max(0, Vector3.Distance(eye, bounds.center) - bounds.radius);
                     if ((visible && !bestVisible) || (visible === bestVisible && distance < bestDistance)) {

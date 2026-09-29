@@ -2,7 +2,9 @@ import "@babylonjs/core/Culling/ray.js";
 import { debugLog } from "../shared/Diagnostics.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
-import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math.js";
+import { Vector2, Vector3, Color3, Frustum } from "@babylonjs/core/Maths/math.js";
+import type { Plane } from "@babylonjs/core/Maths/math.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
@@ -277,19 +279,31 @@ export default class TileSet {
     /** Bounded parallel raster requests; each frame scans only the active window. */
     public rasterConcurrency = 6;
     private rasterSortAt = 0;
+    private rasterPriorityCamera?: Camera;
+    private rasterPriorityRevision = -1;
     private activeRasterRequests: TileRequest[] = [];
     private waitingRasterRequests: TileRequest[] = [];
+    protected getRasterRequestPriority(request: TileRequest, camera: Camera, _planes: Plane[]): { visible: boolean; distance: number } {
+        return {
+            visible: camera.isInFrustum(request.mesh),
+            distance: Vector3.DistanceSquared(camera.globalPosition, request.mesh.getBoundingInfo().boundingSphere.centerWorld),
+        };
+    }
     public processTileRequests(): void {
         const active = this.activeRasterRequests, waiting = this.waitingRasterRequests;
         active.length = waiting.length = 0;
         for (const request of this.tileRequests) (request.inProgress ? active : waiting).push(request);
         const camera = this.scene.activeCamera;
-        if (camera && performance.now() >= this.rasterSortAt) {
+        camera?.getViewMatrix();
+        const revision = camera?.getTransformationMatrix().updateFlag;
+        if (camera && (performance.now() >= this.rasterSortAt || camera !== this.rasterPriorityCamera || revision !== this.rasterPriorityRevision)) {
             this.rasterSortAt = performance.now() + 100;
-            const distance = new Map(waiting.map(request => [request, Vector3.DistanceSquared(
-                camera.globalPosition, request.mesh.getBoundingInfo().boundingSphere.centerWorld)]));
-            const visible = new Set(waiting.filter(request => camera.isInFrustum(request.mesh)));
-            waiting.sort((a, b) => Number(visible.has(b)) - Number(visible.has(a)) || distance.get(a)! - distance.get(b)!);
+            this.rasterPriorityCamera = camera;
+            this.rasterPriorityRevision = revision!;
+            const planes = Frustum.GetPlanes(camera.getTransformationMatrix());
+            const priority = new Map(waiting.map(request => [request, this.getRasterRequestPriority(request, camera, planes)]));
+            waiting.sort((a, b) => Number(priority.get(b)!.visible) - Number(priority.get(a)!.visible)
+                || priority.get(a)!.distance - priority.get(b)!.distance);
         }
         // Completed downloads must not wait a whole rotation behind unstarted
         // requests. Consume them now and fill their network slots in this frame.
@@ -426,6 +440,7 @@ export default class TileSet {
     */
     public updateRaster(lat: number, lon: number, zoom: number) {
     this.assertGeometrySetup("update raster");
+    this.rasterSortAt = 0;
 
     if (!this.reuseRasterTilesOnUpdate()) this.cancelPendingRasterRequests();
 

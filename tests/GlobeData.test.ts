@@ -407,6 +407,38 @@ describe("seafloor navigation",()=>{
 });
 
 describe("bounded detail streaming", () => {
+    it("ranks imagery by new globe coordinates immediately after a move and turn", () => {
+        const { scene, dispose } = setup();
+        const globe = new GlobeSet(scene, scene.getEngine() as any, {
+            backingSurface: false,
+            geometryBudgetMs: 0.001,
+        });
+        globe.createGeometry(new Vector2(3, 3), 20, 8);
+        const target = globe.getSurfacePosition(35, -79);
+        const camera = new FreeCamera("imagery view", target.scale(1.02), scene);
+        camera.setTarget(target);
+        camera.fov = 0.1;
+        scene.activeCamera = camera;
+        globe.updateRaster(35, -79, 15);
+        globe.rasterConcurrency = 1;
+        const scheduled: string[] = [];
+        vi.spyOn(globe as any, "processNextTileRequest").mockImplementation(() =>
+            scheduled.push((globe as any).tileRequests[0].tileCoords.toString()));
+        const nearest = [...globe.ourTiles].sort((a, b) =>
+            Vector3.DistanceSquared(globe.getTileSurfacePosition(a.tileCoords), target) -
+            Vector3.DistanceSquared(globe.getTileSurfacePosition(b.tileCoords), target))[0];
+        globe.processTileRequests();
+        expect(scheduled[0]).toBe(nearest.tileCoords.toString());
+
+        const turnedTile = globe.ourTiles.at(-1)!;
+        const turnedTarget = globe.getTileSurfacePosition(turnedTile.tileCoords);
+        camera.position.copyFrom(turnedTarget.scale(1.02));
+        camera.setTarget(turnedTarget);
+        globe.processTileRequests();
+        expect(scheduled[1]).toBe(turnedTile.tileCoords.toString());
+        dispose();
+    });
+
     it("builds the patch in the current view before off-screen grid patches", () => {
         const { scene, dispose } = setup();
         let time = 0;
