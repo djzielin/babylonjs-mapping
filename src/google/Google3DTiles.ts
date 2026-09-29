@@ -1990,6 +1990,9 @@ export default class Google3DTiles {
         await Promise.all(Array.from(groups.values()).map(async group => {
             const models = await Promise.all(group.next.map(selection => this.loadTile(selection, origin, generation, false).catch(() => undefined)));
             if (generation !== this.generation) return;
+            // Traversal can replace this demand while models are still
+            // decoding. An obsolete partial batch cannot replace coverage.
+            if (group.next.some(selection => !desired.has(selection.url))) return;
             if (models.some(model => !model)) {
                 // Failed refinement must not remove valid coverage.
                 for (const url of group.previous) {

@@ -1025,6 +1025,41 @@ it("replaces a parent only after the complete child batch is ready", async () =>
   provider.dispose();scene.dispose();engine.dispose();
 });
 
+it("keeps the parent when a replacement batch becomes stale while loading", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  let releaseSlow!: () => void;
+  let startedSlow!: () => void;
+  const slowStarted = new Promise<void>(resolve => { startedSlow = resolve; });
+  const slow = new Promise<void>(resolve => { releaseSlow = resolve; });
+  const provider = new Google3DTiles(tileSet, { apiKey: "test", modelTileLoader: async url => {
+    if (url === "slow.glb") { startedSlow(); await slow; }
+    return { asset: new AssetContainer(scene), attributions: [] };
+  } }) as any;
+  const origin = provider.getOrigin();
+  provider.originStateKey = provider.getOriginStateKey(origin);
+  const parent = { url: "parent.glb", depth: 1, ancestors: [], refine: "REPLACE" };
+  const fast = { url: "fast.glb", depth: 2, ancestors: [parent.url], refine: "REPLACE" };
+  const delayed = { url: "slow.glb", depth: 2, ancestors: [parent.url], refine: "REPLACE" };
+  const parentRoot = new TransformNode("visible parent", scene);
+  provider.loadedTiles.set(parent.url, { url: parent.url, root: parentRoot,
+    asset: new AssetContainer(scene), attributions: [] });
+  provider.loadedSelections.set(parent.url, parent);
+  const desired = new Map([[fast.url, fast], [delayed.url, delayed]]);
+  provider.desiredTiles = desired;
+  try {
+    const replacement = provider.loadReplacementGroups(desired, origin, provider.generation);
+    await slowStarted;
+    await vi.waitFor(() => expect(provider.retainedTiles.has(fast.url)).toBe(true));
+    desired.delete(fast.url);
+    releaseSlow();
+    await replacement;
+    expect(parentRoot.isEnabled()).toBe(true);
+    expect(provider.loadedTiles.has(parent.url)).toBe(true);
+    expect(provider.loadedTiles.has(fast.url)).toBe(false);
+    expect(provider.loadedTiles.has(delayed.url)).toBe(false);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it.each(["parent.glb", "child.glb"])("never draws overlapping Google levels when %s finishes first", async first => {
   const { engine, scene, tileSet } = createTileSet();
   const completions = new Map<string, () => void>();
