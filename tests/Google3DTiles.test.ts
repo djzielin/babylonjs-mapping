@@ -926,6 +926,50 @@ it("replaces a parent only after the complete child batch is ready", async () =>
   provider.dispose();scene.dispose();engine.dispose();
 });
 
+it.each(["parent.glb", "child.glb"])("never draws overlapping Google levels when %s finishes first", async first => {
+  const { engine, scene, tileSet } = createTileSet();
+  const completions = new Map<string, () => void>();
+  const provider = new Google3DTiles(tileSet, { apiKey: "test",
+    modelTileLoader: url => new Promise(resolve => completions.set(url, () => resolve({
+      asset: new AssetContainer(scene), attributions: [],
+    }))),
+  }) as any;
+  const origin = provider.getOrigin();
+  provider.originStateKey = provider.getOriginStateKey(origin);
+  const parent = { url: "parent.glb", depth: 1, ancestors: [] };
+  const child = { url: "child.glb", depth: 2, ancestors: [parent.url] };
+  provider.desiredTiles.set(parent.url, parent);
+  provider.desiredTiles.set(child.url, child);
+  try {
+    const loading = [provider.loadTile(parent, origin, provider.generation),
+      provider.loadTile(child, origin, provider.generation)];
+    await vi.waitFor(() => expect(completions.size).toBe(2));
+    completions.get(first)!();
+    await vi.waitFor(() => expect(provider.loadedModelTiles).toHaveLength(1));
+    const second = first === parent.url ? child.url : parent.url;
+    completions.get(second)!();
+    await Promise.all(loading);
+    expect(provider.loadedModelTiles).toHaveLength(1);
+    expect(provider.loadedModelTiles[0].url).toBe(first);
+    expect(provider.retainedTiles.has(second)).toBe(true);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
+it("removes an interim REPLACE parent from demand when its child frontier arrives", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet, { apiKey: "test", maximumScreenSpaceError: 1 }) as any;
+  provider.rootTileset = { root: { geometricError: 100, content: { uri: "parent.glb" },
+    children: [{ geometricError: 0, content: { uri: "child.glb" } }] } };
+  const parent = provider.getTileURL("parent.glb");
+  const child = provider.getTileURL("child.glb");
+  const desired = new Map([[parent, { url: parent, depth: 0 }]]);
+  try {
+    await provider.selectFrontier(desired, provider.generation, () => {});
+    expect(desired.has(parent)).toBe(false);
+    expect(desired.has(child)).toBe(true);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("retains parent coverage when a replacement model fails", async () => {
   const {engine, scene, tileSet}=createTileSet();
   const provider=new Google3DTiles(tileSet,{apiKey:"test",maximumScreenSpaceError:1,maxDepth:0,

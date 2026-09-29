@@ -320,6 +320,7 @@ export default class Google3DTiles {
     private collectTileContent;
     private retireTile;
     private indexLoadedDescendants;
+    private hasVisibleDescendant;
     /** Commit disjoint replacement subtrees only after every new model is ready. */
     private loadReplacementGroups;
     private loadTile;

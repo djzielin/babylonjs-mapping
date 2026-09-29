@@ -160,6 +160,7 @@ interface GeographicBounds {
 interface TileSelection {
     geometricError?: number;
     hasRefinement?: boolean;
+    refine?: string;
     ancestors?: string[];
     boundingVolume?: Google3DBoundingVolume;
     url: string;
@@ -1314,7 +1315,7 @@ export default class Google3DTiles {
             const hasRefinement = !!tile.children?.length || contents.some(isTilesetContent);
             const selections = contents.filter(content => !isTilesetContent(content)).map(content => ({
                 url: this.authenticateURL(getContentURI(content), responseUrl), depth, ancestors, geometricError: tile.geometricError,
-                hasRefinement,
+                hasRefinement, refine,
                 boundingVolume: tile.boundingVolume,
                 transform: transform.isIdentity() ? undefined : Array.from(transform.m),
             }));
@@ -1681,7 +1682,13 @@ export default class Google3DTiles {
                 }
                 if (node.refine !== "ADD") {
                     frontier.delete(node); track(node, false);
-                    for (const selection of node.selections) activeURLs.delete(selection.url);
+                    for (const selection of node.selections) {
+                        activeURLs.delete(selection.url);
+                        // This parent may have been offered as an interim
+                        // fallback before its complete child branch arrived.
+                        // It is no longer a desired REPLACE tile once refined.
+                        desired.delete(selection.url);
+                    }
                 }
                 else settle(node);
                 next.forEach(child => {
@@ -1823,6 +1830,7 @@ export default class Google3DTiles {
                     url,
                     depth,
                     hasRefinement: !!tile.children?.length || contents.some(isTilesetContent),
+                    refine,
                     boundingVolume: tile.boundingVolume,
                     transform: accumulatedTransform.isIdentity()
                         ? undefined
@@ -1855,6 +1863,13 @@ export default class Google3DTiles {
             }
         }
         return index;
+    }
+
+    private hasVisibleDescendant(url: string): boolean {
+        for (const [loadedUrl, selection] of this.loadedSelections)
+            if (this.loadedTiles.has(loadedUrl) && selection.refine !== "ADD"
+                && selection.ancestors?.includes(url)) return true;
+        return false;
     }
 
     /** Commit disjoint replacement subtrees only after every new model is ready. */
@@ -2060,6 +2075,12 @@ export default class Google3DTiles {
                 this.trimRetainedTiles();
                 return undefined;
             }
+            // Requests decide whether to activate before their downloads start.
+            // A parent or child can become resident while this GLB decodes;
+            // committing the old decision would draw both levels at once.
+            if (activate && selection.refine !== "ADD"
+                && (selection.ancestors?.some(url => this.loadedTiles.has(url))
+                    || (selection.hasRefinement !== false && this.hasVisibleDescendant(selection.url)))) activate = false;
             if (!activate) {
                 root.setEnabled(false);
                 this.retainedTiles.set(selection.url, result);
