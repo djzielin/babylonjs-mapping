@@ -69,8 +69,6 @@ interface LocationPreset {
 
 const GLOBE_RADIUS = 60;
 const DETAIL_RADIUS = 60;
-const GOOGLE_DETAIL_SHOW_ZOOM = 15;
-const GOOGLE_DETAIL_HIDE_ZOOM = 14;
 const HOME_VIEW: LocationPreset = {
     name: "New York · Empire State Building",
     latitude: 40.7484,
@@ -161,9 +159,7 @@ class GlobeDemo {
     private registeredGoogleRevision = -1;
     private replacementCoverageProvider?: Google3DTiles;
     private replacementCoverageURLs = new Set<string>();
-    private replacementCoverageHidden = false;
     private photorealisticActive = false;
-    private googleFarHidden = false;
     private googleLoading = false;
     private googlePassStartedAt = 0;
     private lastGoogleCheck = 0;
@@ -330,7 +326,7 @@ class GlobeDemo {
                 this.depthCamera = this.scene.activeCamera;
             }
             this.terrainTransition.update(performance.now());
-            this.buildingTransition.update(performance.now(), this.googleTiles && !this.googleFarHidden
+            this.buildingTransition.update(performance.now(), this.googleTiles
                 ? (lat, lon, bounds) => this.googleCoversFootprint(lat, lon, bounds) : undefined);
             this.sampleBenchmarkPhase("movement+transitions", frameStarted);
             const registrationStarted = performance.now();
@@ -951,7 +947,7 @@ class GlobeDemo {
     }
 
     private roadOverlapsGoogle(mesh: import("@babylonjs/core/Meshes/mesh").Mesh): boolean {
-        if (!this.googleTiles || this.googleFarHidden) return false;
+        if (!this.googleTiles) return false;
         const bounds = mesh.getBoundingInfo().boundingBox;
         // A road tile can cross several Google model bounds. Testing only its
         // center leaves long lines painted over already loaded city imagery.
@@ -963,11 +959,11 @@ class GlobeDemo {
     }
 
     private googleCoversLocation(latitude: number, longitude: number): boolean {
-        return !this.googleFarHidden && !!this.googleTiles?.coversLocation(latitude, longitude);
+        return !!this.googleTiles?.coversLocation(latitude, longitude);
     }
 
     private googleCoversTile(globe: GlobeSet, tile: Tile): boolean {
-        if (!this.googleTiles || this.googleFarHidden) return false;
+        if (!this.googleTiles) return false;
         const { x, y, z } = tile.tileCoords;
         const math = globe.ourTileMath;
         return this.googleTiles.coversAreaCompletely(
@@ -978,14 +974,13 @@ class GlobeDemo {
     private googleCoversFootprint(latitude: number, longitude: number,
         bounds?: { south: number; west: number; north: number; east: number }): boolean {
         if (this.googleCoversLocation(latitude, longitude)) return true;
-        if (!bounds || !this.googleTiles || this.googleFarHidden) return false;
+        if (!bounds || !this.googleTiles) return false;
         return this.googleTiles.overlapsFootprint(bounds.south, bounds.west, bounds.north, bounds.east);
     }
 
     private refreshBuildingReplacements(): void {
         const coverageURLs = new Set(this.googleTiles?.loadedModelTiles.map(tile => tile.url) ?? []);
-        const sameActiveGoogle = !!this.googleTiles && this.googleTiles === this.replacementCoverageProvider
-            && !this.googleFarHidden && !this.replacementCoverageHidden;
+        const sameActiveGoogle = !!this.googleTiles && this.googleTiles === this.replacementCoverageProvider;
         const coverageOnlyGrows = sameActiveGoogle
             && Array.from(this.replacementCoverageURLs).every(url => coverageURLs.has(url));
         const changedCoverageURLs = sameActiveGoogle ? [
@@ -994,7 +989,6 @@ class GlobeDemo {
         ] : undefined;
         this.replacementCoverageProvider = this.googleTiles;
         this.replacementCoverageURLs = coverageURLs;
-        this.replacementCoverageHidden = this.googleFarHidden;
         const models = this.landmarks?.loadedModelTiles.flatMap(tile => tile.asset.meshes) ?? [];
         const landmarkSignature = models.map(mesh => `${mesh.uniqueId}:${mesh.isEnabled()}`).join(",");
         const landmarksChanged = this.replacementLandmarkSignature !== landmarkSignature;
@@ -1220,7 +1214,7 @@ class GlobeDemo {
     private updateGoogleCredits(): void {
         const satellite = (document.getElementById("basemap") as HTMLSelectElement).value === "satellite"
             && !!this.satelliteSession && !(document.getElementById("mapboxToken") as HTMLInputElement).value.trim();
-        const photorealistic = !this.googleFarHidden && !!this.googleTiles?.loadedModelTiles.length;
+        const photorealistic = !!this.googleTiles?.loadedModelTiles.length;
         const sources = [...(photorealistic ? this.googleTiles?.getAttributions() ?? [] : [])];
         if (satellite && this.satelliteCopyright) sources.push(this.satelliteCopyright);
         document.getElementById("googleSources")!.textContent = [...new Set(sources)].join("; ");
@@ -1267,11 +1261,9 @@ class GlobeDemo {
         const distanceStep = Math.round(Math.log(Math.max(view.altitude, 1e-9)) / Math.log(1.05));
         const positionStep = Math.max(2, Math.min(150, view.altitude / this.detailGlobe.metresToWorld * 0.08));
         const positionKey = `${Math.round(view.latitude * 111320 / positionStep)}/${Math.round(view.longitude * 111320 * Math.cos(view.latitude * Math.PI / 180) / positionStep)}`;
-        // One zoom level of hysteresis keeps a far camera turn from repeatedly
-        // swapping satellite and photogrammetry at the same LOD boundary.
-        const showDetail = view.zoom >= GOOGLE_DETAIL_SHOW_ZOOM
-            || (view.zoom >= GOOGLE_DETAIL_HIDE_ZOOM && !!this.googleTiles && !this.googleFarHidden);
-        const key = enabled && showDetail
+        // Google remains part of the full 15-mile coverage at wide zooms;
+        // its hierarchy chooses coarser models as projected error falls.
+        const key = enabled
             ? `${math.lon_to_tile(view.longitude, view.zoom)}/${math.lat_to_tile(view.latitude, view.zoom)}/${view.zoom}/${quality}/${distanceStep}/${positionKey}` : "";
         const priorityKey = key ? `${bearing}/${distanceStep}/${positionKey}` : "";
         if (priorityKey !== this.googlePriorityKey) {
@@ -1329,26 +1321,12 @@ class GlobeDemo {
             this.googleSelectionBearing = "";
             this.googleTurnPending = false;
             this.googleLoading = false;
-            const retained = enabled && !showDetail && !!this.googleTiles;
-            if (retained && this.googleTiles) {
-                this.googleTiles.cancelPendingLoad();
-                for (const tile of this.googleTiles.loadedModelTiles) tile.root.setEnabled(false);
-                this.googleFarHidden = true;
-            } else {
-                this.googleTiles?.dispose(); this.googleTiles = undefined;
-                this.googleFarHidden = false;
-            }
+            this.googleTiles?.dispose(); this.googleTiles = undefined;
             this.updateGoogleCredits();
             this.canvas.dataset.googleTiles = "0";
             this.setPhotorealisticActive(false);
-            this.googleStatus(enabled ? retained ? "Google 3D · retained for closer views"
-                : "Google 3D · zoom in to street scale" : "Google 3D off");
+            this.googleStatus("Google 3D off");
             return;
-        }
-        if (this.googleFarHidden) {
-            this.googleFarHidden = false;
-            for (const tile of this.googleTiles?.loadedModelTiles ?? []) tile.root.setEnabled(true);
-            this.refreshBuildingReplacements();
         }
         if (!this.googleKey) {
             this.googleLoading = false;
