@@ -2317,6 +2317,9 @@ export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): 
         const nearSurface = [a, b, c].every(index => Math.abs(heights[index] - lowSurface) < 5);
         let oversizedFill = false;
         if (nearSurface) {
+            // Captured Greenpoint waterfront GLBs also contain 80-150 m
+            // near-flat water triangles; the old 150 m cutoff left those as
+            // dark rectangular patches over the ready satellite raster.
             const worldEdgeSquared = (left: number, right: number) => {
                 const l = left * 3, r = right * 3;
                 const dx = positions[l] - positions[r], dy = positions[l + 1] - positions[r + 1],
@@ -2327,7 +2330,7 @@ export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): 
                 return (wx * wx + wy * wy + wz * wz) / (metresToWorld * metresToWorld);
             };
             oversizedFill = Math.max(worldEdgeSquared(a, b), worldEdgeSquared(b, c),
-                worldEdgeSquared(c, a)) > 150 * 150;
+                worldEdgeSquared(c, a)) > 80 * 80;
         }
         if (!deepSkirt && !oversizedFill) {
             if (kept) kept.push(a, b, c);
