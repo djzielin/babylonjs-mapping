@@ -461,10 +461,10 @@ export default class Google3DTiles {
     }
 
     /** Current camera-facing resident quality, sampled independently of the last completed traversal. */
-    public measureVisibleQuality(): { visibleTiles: number; underDetailedTiles: number;
+    public measureVisibleQuality(): { visibleTiles: number; underDetailedTiles: number; missingVisibleTiles: number;
         worstErrorRatio: number; worstDepth: number; worstGeometricError: number } {
         const eye = this.cameraEye();
-        let visibleTiles = 0, underDetailedTiles = 0, worstErrorRatio = 0;
+        let visibleTiles = 0, underDetailedTiles = 0, missingVisibleTiles = 0, worstErrorRatio = 0;
         let worstDepth = 0, worstGeometricError = 0;
         for (const [url, selection] of this.loadedSelections) {
             if (!this.loadedTiles.has(url) || !selection.boundingVolume) continue;
@@ -481,7 +481,14 @@ export default class Google3DTiles {
                 worstGeometricError = selection.geometricError ?? Infinity;
             }
         }
-        return { visibleTiles, underDetailedTiles, worstErrorRatio, worstDepth, worstGeometricError };
+        for (const [url, selection] of this.desiredTiles) {
+            if (this.loadedTiles.has(url) || !selection.boundingVolume) continue;
+            const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+            if (this.allowedGeometricError(selection.boundingVolume, transform, false, eye, true) >= 0)
+                missingVisibleTiles++;
+        }
+        return { visibleTiles, underDetailedTiles, missingVisibleTiles,
+            worstErrorRatio, worstDepth, worstGeometricError };
     }
 
     private coverageKey = "";

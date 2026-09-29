@@ -243,6 +243,7 @@ export default class Google3DTiles {
     measureVisibleQuality(): {
         visibleTiles: number;
         underDetailedTiles: number;
+        missingVisibleTiles: number;
         worstErrorRatio: number;
         worstDepth: number;
         worstGeometricError: number;

@@ -1515,6 +1515,17 @@ it("keeps a newly reached coarse model hidden over raster terrain until detail i
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
+it("counts visible requested models that are still missing from the scene", () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  provider.desiredTiles.set("waiting.glb", { url: "waiting.glb", depth: 4,
+    boundingVolume: { region: [0.2, -0.3, 0.3, -0.2, 0, 100] }, geometricError: 4 });
+  expect(provider.measureVisibleQuality()).toMatchObject({
+    visibleTiles: 0, underDetailedTiles: 0, missingVisibleTiles: 1,
+  });
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
 it("shows a city-block model despite a pessimistic source geometric error", async () => {
   const engine = new NullEngine(), scene = new Scene(engine);
   const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
