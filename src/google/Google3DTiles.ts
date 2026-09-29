@@ -2110,7 +2110,7 @@ export default class Google3DTiles {
             }
             if (this.tileSet.isGlobe) for (const mesh of model.asset.meshes)
                 if (mesh instanceof Mesh) this.stats.coastalSkirtTrianglesRemoved += removeCoastalSkirtTriangles(
-                    mesh, (this.tileSet as GlobeSet).metresToWorld);
+                    mesh, (this.tileSet as GlobeSet).metresToWorld, (this.tileSet as GlobeSet).radius);
             const integrationDuration = performance.now() - integrationStarted;
             this.stats.modelIntegrationMs += integrationDuration;
             this.stats.modelIntegrationMaxMs = Math.max(this.stats.modelIntegrationMaxMs, integrationDuration);
@@ -2350,7 +2350,7 @@ async function defaultTilesetLoader(url: string): Promise<Google3DTileset> {
 }
 
 /** Remove coastal photogrammetry skirts and oversized water fill polygons. */
-export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): number {
+export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number, globeRadius?: number): number {
     const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
     const indices = mesh.getIndices();
     if (!positions || !indices || positions.length < 9 || indices.length < 3 || metresToWorld <= 0
@@ -2366,11 +2366,18 @@ export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): 
     const heights = new Float32Array(positions.length / 3);
     for (let i = 0; i < heights.length; i++) {
         const offset = i * 3;
-        heights[i] = (positions[offset] * matrix[1] + positions[offset + 1] * matrix[5]
-            + positions[offset + 2] * matrix[9] + matrix[13]) / metresToWorld;
+        const x = positions[offset] * matrix[0] + positions[offset + 1] * matrix[4]
+            + positions[offset + 2] * matrix[8] + matrix[12];
+        const y = positions[offset] * matrix[1] + positions[offset + 1] * matrix[5]
+            + positions[offset + 2] * matrix[9] + matrix[13];
+        const z = positions[offset] * matrix[2] + positions[offset + 1] * matrix[6]
+            + positions[offset + 2] * matrix[10] + matrix[14];
+        heights[i] = (globeRadius === undefined ? y : Math.hypot(x, y, z) - globeRadius) / metresToWorld;
     }
     const ordered = Float32Array.from(heights).sort();
-    const lowSurface = ordered[Math.floor(ordered.length * 0.2)];
+    // A small primitive's lower fifth can be its one deep skirt vertex.
+    // Its median is a better estimate of the water surface in that case.
+    const lowSurface = ordered[Math.floor(ordered.length * (ordered.length < 10 ? 0.5 : 0.2))];
     // Restrict the repair to nearly level coastal geometry. The lower fifth
     // represents the sea/ground surface even when buildings dominate a tile.
     if (lowSurface < -15 || lowSurface > 30) return 0;

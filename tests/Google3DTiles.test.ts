@@ -138,6 +138,35 @@ it("removes a small Google water-fill primitive but keeps local coastal surface"
   scene.dispose(); engine.dispose();
 });
 
+it("measures coastal Google skirts radially on a globe", () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const mesh = new Mesh("waterfront on curved globe", scene);
+  const positions = new Float32Array(32 * 3);
+  const setPoint = (index: number, altitude: number, z: number) => {
+    const radius = 60 + altitude * 0.01;
+    positions[index * 3] = Math.sqrt(radius * radius - 35 * 35 - z * z);
+    positions[index * 3 + 1] = 35;
+    positions[index * 3 + 2] = z;
+  };
+  for (let index = 0; index < 30; index++) setPoint(index, 0, index * 0.002);
+  setPoint(30, -40, 0.01);
+  setPoint(31, 30, 0.015);
+  mesh.setVerticesData(VertexBuffer.PositionKind, positions);
+  mesh.setIndices([0, 1, 8, 0, 1, 30, 0, 1, 31]);
+  expect(removeCoastalSkirtTriangles(mesh, 0.01, 60)).toBe(1);
+  expect(Array.from(mesh.getIndices()!)).toEqual([0, 1, 8, 0, 1, 31]);
+  const small = new Mesh("four vertex radial skirt", scene);
+  const compact = new Float32Array(12);
+  compact.set(positions.subarray(0, 9));
+  compact.set(positions.subarray(30 * 3, 31 * 3), 9);
+  small.setVerticesData(VertexBuffer.PositionKind, compact);
+  small.setIndices([0, 1, 2, 0, 1, 3]);
+  expect(removeCoastalSkirtTriangles(small, 0.01, 60)).toBe(1);
+  expect(Array.from(small.getIndices()!)).toEqual([0, 1, 2]);
+  scene.dispose(); engine.dispose();
+});
+
 it("restricts coverage updates to geographic tiles intersecting changed models", () => {
   const {engine,scene,tileSet}=createTileSet();
   const provider=new Google3DTiles(tileSet);
