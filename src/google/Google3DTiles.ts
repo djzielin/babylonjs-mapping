@@ -789,7 +789,10 @@ export default class Google3DTiles {
                 // A nearby offscreen parent may already be prefetched. Show it
                 // immediately on a turn while its complete detail subtree loads.
                 for (const ancestor of [...(selection.ancestors ?? [])].reverse()) {
-                    if (residentAncestors.has(ancestor)) continue;
+                    // Resident children can finish after residentAncestors was
+                    // captured at the start of this pass. Promoting their
+                    // coarse parent now would draw both replacement levels.
+                    if (residentAncestors.has(ancestor) || this.hasVisibleDescendant(ancestor)) continue;
                     const coarse = this.retainedTiles.get(ancestor);
                     const coarseSelection = this.loadedSelections.get(ancestor);
                     if (!coarse || !coarseSelection || !this.acceptableDisplayQuality(coarseSelection)

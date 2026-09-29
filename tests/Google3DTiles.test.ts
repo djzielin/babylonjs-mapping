@@ -982,6 +982,34 @@ it.each(["parent.glb", "child.glb"])("never draws overlapping Google levels when
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
+it("does not promote a cached parent after its finer child becomes resident during selection", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet, { apiKey: "test", maximumScreenSpaceError: 1,
+    tilesetLoader: async () => ({ root: {} }), modelTileLoader: createModelLoader([]),
+  }) as any;
+  const parentRoot = new TransformNode("cached parent", scene);
+  const childRoot = new TransformNode("new child", scene);
+  parentRoot.setEnabled(false);
+  const parent = { url: "parent.glb", depth: 1, ancestors: [], refine: "REPLACE" };
+  const child = { url: "child.glb", depth: 2, ancestors: [parent.url], refine: "REPLACE" };
+  let parentEnabledDuringSelection = false;
+  vi.spyOn(provider, "selectFrontier").mockImplementation(async (_desired, _generation, onStable) => {
+    provider.retainedTiles.set(parent.url, { url: parent.url, root: parentRoot,
+      asset: new AssetContainer(scene), attributions: [] });
+    provider.loadedSelections.set(parent.url, parent);
+    provider.loadedTiles.set(child.url, { url: child.url, root: childRoot,
+      asset: new AssetContainer(scene), attributions: [] });
+    provider.loadedSelections.set(child.url, child);
+    onStable(child);
+    parentEnabledDuringSelection = parentRoot.isEnabled();
+  });
+  try {
+    await provider.load();
+    expect(parentEnabledDuringSelection).toBe(false);
+    expect(childRoot.isEnabled()).toBe(true);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("removes an interim REPLACE parent from demand when its child frontier arrives", async () => {
   const { engine, scene, tileSet } = createTileSet();
   const provider = new Google3DTiles(tileSet, { apiKey: "test", maximumScreenSpaceError: 1 }) as any;
