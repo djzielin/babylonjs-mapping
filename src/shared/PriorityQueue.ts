@@ -6,6 +6,11 @@ export class PriorityQueue<T> {
     public get length(): number { return this.entries.length; }
     public peek(): T | undefined { return this.entries[0]?.value; }
     public clear(): void { this.entries.length = 0; }
+    /** Replace a changed-priority backlog with one linear-time heap build. */
+    public replaceAll(values: Iterable<T>): void {
+        this.entries = Array.from(values, value => ({ value, sequence: this.sequence++ }));
+        this.rebuild();
+    }
     private before(a: number, b: number): boolean {
         const left = this.entries[a], right = this.entries[b];
         return (this.compare(left.value, right.value) || left.sequence - right.sequence) < 0;

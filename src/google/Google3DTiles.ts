@@ -368,18 +368,30 @@ export default class Google3DTiles {
     }
 
     private networkDrainQueued = false;
+    private networkQueueName(waiter: NetworkWaiter): keyof Google3DTiles["networkQueues"] {
+        if (waiter.distance! >= 1e9) return waiter.kind === "hierarchy" ? "offscreenHierarchy" : "offscreenModel";
+        return waiter.kind === "hierarchy" ? "visibleHierarchy" : "visibleModel";
+    }
+
     private networkQueueFor(waiter: NetworkWaiter): PriorityQueue<NetworkWaiter> {
-        if (waiter.distance! >= 1e9) return waiter.kind === "hierarchy"
-            ? this.networkQueues.offscreenHierarchy : this.networkQueues.offscreenModel;
-        return waiter.kind === "hierarchy"
-            ? this.networkQueues.visibleHierarchy : this.networkQueues.visibleModel;
+        return this.networkQueues[this.networkQueueName(waiter)];
     }
 
     private rebuildNetworkQueues(): void {
         if (this.networkQueueRevision !== this.requestPriorityRevision) {
-            for (const queue of Object.values(this.networkQueues)) queue.clear();
-            this.networkPendingInsertions = Array.from(this.networkWaiters);
+            const buckets = {
+                visibleHierarchy: [] as NetworkWaiter[], visibleModel: [] as NetworkWaiter[],
+                offscreenHierarchy: [] as NetworkWaiter[], offscreenModel: [] as NetworkWaiter[],
+            };
+            for (const waiter of this.networkWaiters) {
+                waiter.distance = typeof waiter.priority === "function" ? waiter.priority() : waiter.priority;
+                buckets[this.networkQueueName(waiter)].push(waiter);
+            }
+            for (const name of Object.keys(buckets) as Array<keyof typeof buckets>)
+                this.networkQueues[name].replaceAll(buckets[name]);
+            this.networkPendingInsertions = [];
             this.networkQueueRevision = this.requestPriorityRevision;
+            return;
         }
         for (const waiter of this.networkPendingInsertions) {
             if (!this.networkWaiters.has(waiter)) continue;

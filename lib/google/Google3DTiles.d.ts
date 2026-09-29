@@ -238,6 +238,7 @@ export default class Google3DTiles {
     private drainModelDecode;
     private modelDecodeSlot;
     private networkDrainQueued;
+    private networkQueueName;
     private networkQueueFor;
     private rebuildNetworkQueues;
     private drainNetwork;

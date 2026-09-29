@@ -7,6 +7,8 @@ export declare class PriorityQueue<T> {
     get length(): number;
     peek(): T | undefined;
     clear(): void;
+    /** Replace a changed-priority backlog with one linear-time heap build. */
+    replaceAll(values: Iterable<T>): void;
     private before;
     push(value: T): void;
     shift(): T | undefined;

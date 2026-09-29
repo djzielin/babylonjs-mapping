@@ -26,3 +26,15 @@ it("reorders existing work when the camera priority policy changes", () => {
     eye = 10; queue.rebuild();
     expect([queue.shift(), queue.shift(), queue.shift()]).toEqual([9, 7, 3]);
 });
+
+it("rebuilds a changed camera backlog in one replacement while retaining stable ties", () => {
+    const queue = new PriorityQueue<{ id: string; distance: number }>((a, b) => a.distance - b.distance);
+    queue.push({ id: "stale", distance: 0 });
+    queue.replaceAll([{ id: "far", distance: 9 }, { id: "near first", distance: 1 },
+        { id: "near second", distance: 1 }]);
+    expect(queue.length).toBe(3);
+    expect(queue.peek()?.id).toBe("near first");
+    expect([queue.shift()?.id, queue.shift()?.id, queue.shift()?.id])
+        .toEqual(["near first", "near second", "far"]);
+    expect(queue.peek()).toBeUndefined();
+});
