@@ -111,7 +111,10 @@ export class BuildingTransition {
             const current = retained.filter(old => {
                 if (!old.coverage && googleCovers) {
                     const box = old.mesh.getBoundingInfo().boundingBox;
-                    if ([box.centerWorld, ...box.vectorsWorld].some(vertex => {
+                    // A legacy merged mesh has no per-building ranges to mask.
+                    // Keep it while Google covers only part of its footprint;
+                    // otherwise the uncovered buildings disappear with it.
+                    if ([box.centerWorld, ...box.vectorsWorld].every(vertex => {
                         if (!Number.isFinite(vertex.lengthSquared()) || vertex.lengthSquared() === 0) return false;
                         const point = globe.getSurfaceCoordinates(vertex);
                         return googleCovers(point.latitude, point.longitude);

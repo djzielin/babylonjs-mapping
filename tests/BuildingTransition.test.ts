@@ -115,7 +115,7 @@ describe("building detail transitions", () => {
         transition.dispose();scene.dispose();engine.dispose();
     });
 
-    it("drops retained Overture detail immediately when Google covers it", () => {
+    it("keeps unmasked retained buildings until Google covers their whole mesh", () => {
         const engine = new NullEngine();
         const scene = new Scene(engine);
         const globe = new GlobeSet(scene, engine, { backingSurface: false });
@@ -132,6 +132,10 @@ describe("building detail transitions", () => {
         globe.updateRaster(40.7484, -73.9857, 15);
         transition.update(1);
         const retained = scene.getMeshByName("previous building detail");
+        expect(retained?.isDisposed()).toBe(false);
+        let probes = 0;
+        transition.update(2, () => ++probes === 1, true);
+        expect(probes).toBeGreaterThan(1);
         expect(retained?.isDisposed()).toBe(false);
         transition.update(2, () => true, true);
         expect(retained?.isDisposed()).toBe(true);
