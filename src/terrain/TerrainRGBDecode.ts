@@ -1,5 +1,5 @@
 export type TerrainRGBEncoding = "terrarium" | "mapbox";
-export const TERRAIN_REPAIR_VERSION = 4;
+export const TERRAIN_REPAIR_VERSION = 5;
 
 export function decodeTerrainRGB(pixels: ArrayLike<number>, encoding: TerrainRGBEncoding): Float32Array {
     if (pixels.length % 4) throw new RangeError("Expected RGBA pixels");
@@ -116,6 +116,29 @@ export function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: numb
     if (singles.length) {
         repaired ??= Float32Array.from(data);
         for (const [index, median] of singles) repaired[index] = median;
+    }
+    // Coarse coastal DEMs can contain a short raised spur attached to genuine
+    // higher ground. The connected-component pass sees that ground and keeps
+    // the spur, while the 3x3 pass sees nearby high pixels and keeps each tip.
+    // Compare a wider neighborhood only where the local majority is near sea
+    // level; broad hills remain untouched.
+    if (sourceZoom >= 10 && sourceZoom <= 12 && width >= 5 && height >= 5) {
+        const before = repaired ?? data;
+        const ridges: Array<[number, number]> = [];
+        for (let y = 2; y < height - 2; y++) for (let x = 2; x < width - 2; x++) {
+            const index = y * width + x, center = before[index];
+            if (center < 15 || center > 40) continue;
+            const neighbors: number[] = [];
+            for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++)
+                neighbors.push(before[index + dy * width + dx]);
+            neighbors.sort((a, b) => a - b);
+            const median = neighbors[12];
+            if (median <= 10 && center - median > 8) ridges.push([index, median]);
+        }
+        if (ridges.length) {
+            repaired ??= Float32Array.from(data);
+            for (const [index, median] of ridges) repaired[index] = median;
+        }
     }
     return repaired;
 }

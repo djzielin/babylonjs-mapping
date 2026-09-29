@@ -691,6 +691,25 @@ describe("terrain encodings and overzoom", () => {
         }, 10);
         expect(coarseRepaired.data[30 * 64 + 30]).toBe(2);
         expect(coarseRepaired.data[30 * 64 + 31]).toBe(2);
+        // A real Greenpoint z10 coastal sample has a three-pixel spur of
+        // 16-27 m above surrounding 0-9 m water. It touches higher land, so
+        // the component repair alone leaves the visible vertical fin.
+        const connectedSpur = new Float32Array(64 * 64).fill(2);
+        for (let y = 0; y < 25; y++) for (let x = 25; x <= 36; x++)
+            connectedSpur[y * 64 + x] = 24;
+        for (let y = 25; y <= 31; y++) connectedSpur[y * 64 + 31] = 24;
+        for (let y = 26; y <= 31; y++) connectedSpur[y * 64 + 30] = 8;
+        const repairedSpur = TerrainRGB.repairIsolatedSpikes({
+            data: connectedSpur, width: 64, height: 64,
+        }, 10);
+        expect(repairedSpur.data[29 * 64 + 31]).toBeLessThan(12);
+        expect(repairedSpur.data[30 * 64 + 31]).toBeLessThan(12);
+        const broadCoastalHill = new Float32Array(64 * 64).fill(2);
+        for (let y = 15; y < 35; y++) for (let x = 15; x < 35; x++)
+            broadCoastalHill[y * 64 + x] = 24;
+        expect(TerrainRGB.repairIsolatedSpikes({
+            data: broadCoastalHill, width: 64, height: 64,
+        }, 10).data[25 * 64 + 25]).toBe(24);
         const slopedWaterfront = new Float32Array(64 * 64);
         for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++)
             slopedWaterfront[y * 64 + x] = x < 32 ? 2 : -18;
