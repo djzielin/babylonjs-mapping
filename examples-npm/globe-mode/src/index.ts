@@ -1480,6 +1480,7 @@ class GlobeDemo {
                 : plan.group >= 4 ? 4 : 2;
             layer.data.options.concurrency = detailed15MileRadius && plan.group === 2 ? 8
                 : plan.group === 5 ? 6 : plan.group >= 3 ? 4 : 1;
+            if (layer.buildings) layer.buildings.loadConcurrency = detailed15MileRadius && plan.group === 2 ? 12 : 6;
             // At global zooms use a small valid world window rather than repeating tiles.
             const size = view.zoom < 8 ? 1 : Math.min(plan.size, 2 ** plan.zoom);
             if (layer.globe.ourTiles.length !== size * size) {
@@ -1554,7 +1555,8 @@ class GlobeDemo {
                     && !this.finerOvertureCoverage.get(layer.globe)?.covers(bounds);
                 layer.buildings.onTileResolved = () => this.onFinerOvertureCoverageChanged(layer.globe);
                 layer.buildings.tileCoverageFilter = tile => this.googleCoversTile(layer.globe, tile);
-                layer.buildings.loadConcurrency = 6;
+                layer.buildings.loadConcurrency = (document.getElementById("googleTiles") as HTMLInputElement).checked
+                    && index === 1 ? 12 : 6;
                 layer.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, layer.globe, Number(feature.properties?.height) || 4);
                 layer.buildings.buildingsCreatedPerFrame = 64;
