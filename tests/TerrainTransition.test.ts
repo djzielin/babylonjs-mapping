@@ -107,6 +107,22 @@ it('does not promote a hidden flat tile into a visible terrain fallback',()=>{
  transition.dispose();scene.dispose();engine.dispose();
 });
 
+it('does not capture an enabled raster before its required DEM is ready',()=>{
+ const engine=new NullEngine(),scene=new Scene(engine);
+ const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
+ globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(40.7484,-73.9857,14);
+ globe.setTerrainDisplayRequirement(true);
+ const tile=globe.ourTiles[0];tile.terrainLoaded=false;
+ const material=new StandardMaterial('ready image only',scene),texture=new Texture(null,scene);
+ vi.spyOn(texture,'isReady').mockReturnValue(true);
+ material.diffuseTexture=texture;tile.mesh.material=material;tile.material=material;
+ tile.mesh.setEnabled(true);
+ expect(globe.isTileDisplayReady(tile)).toBe(false);
+ const transition=new TerrainTransition();transition.capture(globe,15);
+ expect(scene.getMeshByName('previous terrain')).toBeNull();
+ transition.dispose();scene.dispose();engine.dispose();
+});
+
 it('does not discard visible fallback terrain when fast movement crosses more than two windows',()=>{
  const engine=new NullEngine(),scene=new Scene(engine);
  const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
@@ -156,6 +172,30 @@ it('holds ready imagery through a basemap change at the same tile coordinates',(
  tile.mesh.setEnabled(true);
  transition.update(1300);
  expect(retained.isDisposed()).toBe(true);
+ transition.dispose();scene.dispose();engine.dispose();
+});
+
+it('retires a terrain-free fallback once replacement imagery is drawable',()=>{
+ const engine=new NullEngine(),scene=new Scene(engine);
+ const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
+ globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(40.7484,-73.9857,14);
+ globe.setTerrainDisplayRequirement(false);
+ const tile=globe.ourTiles[0];tile.terrainLoaded=false;tile.mesh.setEnabled(true);
+ const oldMaterial=new StandardMaterial('old style',scene),oldTexture=new Texture(null,scene);
+ vi.spyOn(oldTexture,'isReady').mockReturnValue(true);
+ oldMaterial.diffuseTexture=oldTexture;tile.mesh.material=oldMaterial;tile.material=oldMaterial;
+ const transition=new TerrainTransition();transition.capture(globe,14,undefined,undefined,true);
+ const fallback=scene.getMeshByName('previous terrain')!;
+ expect(fallback).toBeDefined();
+ globe.setRasterProvider(new RasterOSM(globe));
+ globe.updateRaster(40.7484,-73.9857,14);
+ const newTexture=new Texture(null,scene);
+ vi.spyOn(newTexture,'isReady').mockReturnValue(true);
+ tile.material!.diffuseTexture=newTexture;
+ tile.mesh.setEnabled(true);
+ expect(globe.isTileDisplayReady(tile)).toBe(true);
+ transition.update(1000);
+ expect(fallback.isDisposed()).toBe(true);
  transition.dispose();scene.dispose();engine.dispose();
 });
 

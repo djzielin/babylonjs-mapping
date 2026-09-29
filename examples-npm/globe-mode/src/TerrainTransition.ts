@@ -34,7 +34,7 @@ export class TerrainTransition {
             // Retain only an already renderable surface. In terrain mode a
             // texture may be ready while its flat patch still waits for DEM.
             if (!source.isEnabled() || !source.isVisible || source.visibility <= 0
-                || !globe.isTileGeometryReady(tile) || !original?.diffuseTexture?.isReady()) continue;
+                || !globe.isTileDisplayReady(tile) || !original?.diffuseTexture?.isReady()) continue;
             // Transfer the ready material and texture to the fallback. The
             // recycled tile gets a fresh material in updateRaster().
             const material = original;
@@ -99,8 +99,8 @@ export class TerrainTransition {
                 if ((x1 - x0 + 1) * (y1 - y0 + 1) > globe.ourTiles.length) return true;
                 for (let y = y0; y <= y1 && covered; y++) for (let x = x0; x <= x1; x++) {
                     const tile = globe.ourTilesMap.get(new Vector3(x, y, globe.zoom).toString());
-                    if (!tile?.terrainLoaded || !tile.mesh.isEnabled() || !tile.mesh.isVisible
-                        || tile.mesh.visibility <= 0 || !globe.isTileGeometryReady(tile)
+                    if (!tile || !globe.isTileDisplayReady(tile) || !tile.mesh.isEnabled() || !tile.mesh.isVisible
+                        || tile.mesh.visibility <= 0
                         || !(tile.mesh.material as StandardMaterial)?.diffuseTexture?.isReady()) { covered = false; break; }
                 }
                 if (!covered) return true;
