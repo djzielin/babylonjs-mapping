@@ -5,6 +5,8 @@ export declare class PriorityQueue<T> {
     private sequence;
     constructor(compare: (a: T, b: T) => number);
     get length(): number;
+    peek(): T | undefined;
+    clear(): void;
     private before;
     push(value: T): void;
     shift(): T | undefined;

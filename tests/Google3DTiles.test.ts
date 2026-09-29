@@ -2112,6 +2112,35 @@ it("promotes queued tiles in the new view after a camera turn at the same positi
   provider.dispose(); scene.dispose(); engine.dispose();
 });
 
+it("evaluates the shared network backlog once per camera priority revision", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet) as any;
+  const activeReleases: (() => void)[] = [];
+  const active = Array.from({ length: 48 }, () => provider.networkSlot(() =>
+    new Promise<void>(resolve => activeReleases.push(resolve))));
+  await vi.waitFor(() => expect(activeReleases).toHaveLength(48));
+  const priority = vi.fn(() => 0);
+  const waitingReleases: (() => void)[] = [];
+  let unblock = false;
+  const waiting = Array.from({ length: 128 }, () => provider.networkSlot(() =>
+    unblock ? Promise.resolve() : new Promise<void>(resolve => waitingReleases.push(resolve)), priority));
+  activeReleases[0]();
+  await vi.waitFor(() => expect(waitingReleases).toHaveLength(1));
+  expect(priority).toHaveBeenCalledTimes(128);
+  activeReleases[1]();
+  await vi.waitFor(() => expect(waitingReleases).toHaveLength(2));
+  expect(priority).toHaveBeenCalledTimes(128);
+  provider.reprioritizeRequests();
+  activeReleases[2]();
+  await vi.waitFor(() => expect(waitingReleases).toHaveLength(3));
+  expect(priority).toHaveBeenCalledTimes(254);
+  unblock = true;
+  waitingReleases.forEach(release => release());
+  activeReleases.slice(3).forEach(release => release());
+  await Promise.all([...active, ...waiting]);
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
 it("starts outer-radius requests while visible requests remain queued", async () => {
   const { engine, scene, tileSet } = createTileSet();
   const provider = new Google3DTiles(tileSet) as any;

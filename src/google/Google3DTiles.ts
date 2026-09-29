@@ -180,6 +180,14 @@ interface FrontierTile {
     offscreen: boolean;
 }
 
+interface NetworkWaiter {
+    priority: number | (() => number);
+    kind: "hierarchy" | "model";
+    resume: (offscreen: boolean) => void;
+    sequence: number;
+    distance?: number;
+}
+
 class ChangedTileMap<T> extends Map<string, T> {
     constructor(private readonly changed: (url: string) => void) { super(); }
 
@@ -286,8 +294,16 @@ export default class Google3DTiles {
     private networkActiveHierarchy = 0;
     private networkActiveModel = 0;
     private networkDispatchCount = 0;
-    private networkWaiters: Array<{ priority: number | (() => number); kind: "hierarchy" | "model";
-        resume: (offscreen: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
+    private networkWaiters = new Set<NetworkWaiter>();
+    private networkPendingInsertions: NetworkWaiter[] = [];
+    private networkEnqueueSequence = 0;
+    private networkQueueRevision = -1;
+    private readonly networkQueues = {
+        visibleHierarchy: new PriorityQueue<NetworkWaiter>((a, b) => a.distance! - b.distance! || a.sequence - b.sequence),
+        visibleModel: new PriorityQueue<NetworkWaiter>((a, b) => a.distance! - b.distance! || a.sequence - b.sequence),
+        offscreenHierarchy: new PriorityQueue<NetworkWaiter>((a, b) => a.distance! - b.distance! || a.sequence - b.sequence),
+        offscreenModel: new PriorityQueue<NetworkWaiter>((a, b) => a.distance! - b.distance! || a.sequence - b.sequence),
+    };
     private modelDecodeActive = 0;
     private modelDecodeWaiters: Array<{ priority: () => number; generation: number;
         reuse?: () => boolean; resume: (ready: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
@@ -352,31 +368,54 @@ export default class Google3DTiles {
     }
 
     private networkDrainQueued = false;
+    private networkQueueFor(waiter: NetworkWaiter): PriorityQueue<NetworkWaiter> {
+        if (waiter.distance! >= 1e9) return waiter.kind === "hierarchy"
+            ? this.networkQueues.offscreenHierarchy : this.networkQueues.offscreenModel;
+        return waiter.kind === "hierarchy"
+            ? this.networkQueues.visibleHierarchy : this.networkQueues.visibleModel;
+    }
+
+    private rebuildNetworkQueues(): void {
+        if (this.networkQueueRevision !== this.requestPriorityRevision) {
+            for (const queue of Object.values(this.networkQueues)) queue.clear();
+            this.networkPendingInsertions = Array.from(this.networkWaiters);
+            this.networkQueueRevision = this.requestPriorityRevision;
+        }
+        for (const waiter of this.networkPendingInsertions) {
+            if (!this.networkWaiters.has(waiter)) continue;
+            waiter.distance = typeof waiter.priority === "function" ? waiter.priority() : waiter.priority;
+            this.networkQueueFor(waiter).push(waiter);
+        }
+        this.networkPendingInsertions = [];
+    }
+
     private drainNetwork(): void {
         if (this.networkDrainQueued) return;
         this.networkDrainQueued = true;
         queueMicrotask(() => {
             this.networkDrainQueued = false;
             if (this.networkActive >= 48) return;
-            // Cache geographic comparisons until a new camera generation. A
-            // saturated queue needs no sorting while downloads are in flight.
-            for (const waiter of this.networkWaiters) {
-                if (waiter.evaluatedAt === this.requestPriorityRevision) continue;
-                waiter.distance = typeof waiter.priority === "function" ? waiter.priority() : waiter.priority;
-                waiter.evaluatedAt = this.requestPriorityRevision;
-            }
-            this.networkWaiters.sort((a, b) => a.distance! - b.distance!);
-            let visible = this.networkWaiters.findIndex(waiter => waiter.distance! >= 1e9);
-            if (visible < 0) visible = this.networkWaiters.length;
-            let offscreen = this.networkWaiters.length - visible;
-            while (this.networkActive < 48 && this.networkWaiters.length) {
+            // Reclassify on camera changes. Between turns, enqueue and dispatch
+            // use heaps rather than sorting the entire backlog per free slot.
+            this.rebuildNetworkQueues();
+            const { visibleHierarchy, visibleModel, offscreenHierarchy, offscreenModel } = this.networkQueues;
+            const best = (hierarchy: PriorityQueue<NetworkWaiter>, model: PriorityQueue<NetworkWaiter>) => {
+                const a = hierarchy.peek(), b = model.peek();
+                return !b || a && (a.distance! < b.distance!
+                    || a.distance === b.distance && a.sequence < b.sequence) ? hierarchy : model;
+            };
+            let visible = visibleHierarchy.length + visibleModel.length;
+            let offscreen = offscreenHierarchy.length + offscreenModel.length;
+            while (this.networkActive < 48 && this.networkWaiters.size) {
                 // Give the full disk a small guaranteed share under a long
                 // visible backlog, while leaving nearly every released slot
                 // for the camera-facing quality deficit.
                 const fairBackground = visible > 0 && offscreen > 0
                     && this.networkActiveOffscreen < 4 && this.networkDispatchCount % 8 === 7;
-                let index = fairBackground ? visible : 0;
-                let next = this.networkWaiters[index];
+                let queue = fairBackground ? best(offscreenHierarchy, offscreenModel)
+                    : visible ? best(visibleHierarchy, visibleModel)
+                    : best(offscreenHierarchy, offscreenModel);
+                let next = queue.peek()!;
                 if (this.usesDefaultModelLoader && next.kind === "model") {
                     const outstanding = this.networkActiveModel + this.modelDecodeActive + this.modelDecodeWaiters.length;
                     if (outstanding >= 16) {
@@ -386,9 +425,12 @@ export default class Google3DTiles {
                         // A newly visible quality deficit can exceed the normal
                         // buffer cap after a turn, without unbounded growth.
                         if (outstanding >= 24 || next.distance! >= worstDecode) {
-                            index = this.networkWaiters.findIndex(waiter => waiter.kind === "hierarchy");
-                            if (index < 0) break;
-                            next = this.networkWaiters[index];
+                            const foreground = visibleHierarchy.peek(), background = offscreenHierarchy.peek();
+                            if (!foreground && !background) break;
+                            queue = !background || foreground && (foreground.distance! < background.distance!
+                                || foreground.distance === background.distance && foreground.sequence < background.sequence)
+                                ? visibleHierarchy : offscreenHierarchy;
+                            next = queue.peek()!;
                         }
                     }
                 }
@@ -397,7 +439,8 @@ export default class Google3DTiles {
                 // stationary full-radius queue runs. Visible work always uses
                 // the current priority order and can fill all 48 slots.
                 if (isOffscreen && visible === 0 && this.networkActive >= 46) break;
-                this.networkWaiters.splice(index, 1);
+                queue.shift();
+                this.networkWaiters.delete(next);
                 if (isOffscreen) offscreen--; else visible--;
                 this.networkActive++;
                 if (isOffscreen) this.networkActiveOffscreen++;
@@ -413,7 +456,10 @@ export default class Google3DTiles {
     private async networkSlot<T>(work: (releaseSlot: () => void) => Promise<T>, priority: number | (() => number) = 0,
         kind: "hierarchy" | "model" = "hierarchy"): Promise<T> {
         const offscreen = await new Promise<boolean>(resolve => {
-            this.networkWaiters.push({ priority, kind, resume: resolve });
+            const waiter: NetworkWaiter = { priority, kind, resume: resolve,
+                sequence: this.networkEnqueueSequence++ };
+            this.networkWaiters.add(waiter);
+            this.networkPendingInsertions.push(waiter);
             this.drainNetwork();
         });
         let released = false;

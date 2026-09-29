@@ -225,6 +225,10 @@ export default class Google3DTiles {
     private networkActiveModel;
     private networkDispatchCount;
     private networkWaiters;
+    private networkPendingInsertions;
+    private networkEnqueueSequence;
+    private networkQueueRevision;
+    private readonly networkQueues;
     private modelDecodeActive;
     private modelDecodeWaiters;
     private pendingModelReuseBlocked;
@@ -234,6 +238,8 @@ export default class Google3DTiles {
     private drainModelDecode;
     private modelDecodeSlot;
     private networkDrainQueued;
+    private networkQueueFor;
+    private rebuildNetworkQueues;
     private drainNetwork;
     private networkSlot;
     constructor(tileSet: TileSet, options?: Google3DTilesOptions);
