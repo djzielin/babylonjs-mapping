@@ -185,6 +185,8 @@ export default abstract class Buildings {
     protected handleLoadTileRequest(request: BuildingRequest, requestIndex?: number): void;
     private priorityTile?;
     private priorityTileUntil;
+    private priorityCamera?;
+    private priorityCameraRevision;
     private selectBuildingRequestIndex;
     /** CPU budget for feature creation; individual features are atomic. */
     creationTimeBudgetMs: number;

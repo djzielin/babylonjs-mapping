@@ -8,6 +8,8 @@ export declare class SceneWorkBudget {
     private deadline;
     private nextOrder;
     private eye;
+    private camera?;
+    private cameraRevision;
     private waiting;
     private disposed;
     private fallback?;

@@ -52,6 +52,29 @@ it("keeps stable priorities until the eye moves, then prioritizes the new neares
     clock.mockRestore();
 });
 
+it("reorders waiting preparation when the camera turns in place", async () => {
+    let now = 0, revision = 1, visible = "a";
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const camera = { globalPosition: {x:0,y:0,z:0}, getViewMatrix: () => undefined,
+        getTransformationMatrix: () => ({updateFlag:revision}) };
+    const scene = {activeCamera:camera, onAfterRenderObservable:new Observable(),
+        onDisposeObservable:new Observable()} as unknown as Scene;
+    const budget = new SceneWorkBudget(scene, 1);
+    const order:string[]=[];
+    scene.onAfterRenderObservable.notifyObservers(scene);
+    now = 2;
+    const a = budget.checkpoint(() => visible === "a" ? 0 : 100)!.then(() => {order.push("a");now += 2;});
+    const b = budget.checkpoint(() => visible === "b" ? 0 : 100)!.then(() => {order.push("b");now += 2;});
+    visible = "b";revision++;
+    scene.onAfterRenderObservable.notifyObservers(scene);
+    await b;
+    expect(order).toEqual(["b"]);
+    scene.onAfterRenderObservable.notifyObservers(scene);
+    await a;
+    scene.onDisposeObservable.notifyObservers(scene);
+    clock.mockRestore();
+});
+
 it("runs urgent Google preparation ahead of nearer background building work", async () => {
     let now = 0;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);

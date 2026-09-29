@@ -1,11 +1,35 @@
 import { expect, it, vi } from "vitest";
-import { NullEngine, Scene, Vector2, Vector3, Mesh, Ray, VertexData } from "@babylonjs/core";
+import { NullEngine, Scene, Vector2, Vector3, Mesh, Ray, VertexData, UniversalCamera } from "@babylonjs/core";
+import { SceneWorkBudget } from "../src/shared/SceneWorkBudget";
 import GlobeSet from "../src/core/GlobeSet";
 import { EPSG_Type } from "../src/core/TileMath";
 import { GlobeBuildingBatch } from "../src/buildings/GlobeBuildingBatch";
 import { OvertureTierCoverage } from "../examples-npm/globe-mode/src/OvertureTierCoverage";
 import type { feature } from "../src/buildings/GeoJSON";
 vi.mock("../src/core/Attribution",()=>({default:class {advancedTexture={};addAttribution(){}}}));
+
+it("ranks a visible Overture batch above an off-screen batch at the same distance", async () => {
+    const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
+    const engine=new NullEngine(),scene=new Scene(engine);
+    const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+    globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,14);
+    const tile=globe.ourTiles[0];
+    const camera=new UniversalCamera("viewer",tile.mesh.position.scale(1.00001),scene);
+    let visible=false;
+    vi.spyOn(camera,"isInFrustum").mockImplementation(()=>visible);
+    const provider=new BuildingsOverture(globe,"https://example.invalid/buildings.pmtiles");
+    const priorities:number[]=[];
+    const budget=vi.spyOn(SceneWorkBudget,"forScene").mockReturnValue({checkpoint:(score:()=>number)=>{
+        priorities.push(score());return undefined;
+    }} as SceneWorkBudget);
+    try {
+        const request={tile,tileCoords:tile.tileCoords.clone(),epsgType:EPSG_Type.EPSG_4326};
+        await (provider as any).buildBatch(request,[]);
+        visible=true;
+        await (provider as any).buildBatch(request,[]);
+        expect(priorities[0]-priorities[1]).toBeGreaterThan(1e6);
+    } finally {budget.mockRestore();scene.dispose();engine.dispose();}
+});
 
 it("batches radial walls and roofs while retaining courtyard holes and outward normals",()=>{
     const engine=new NullEngine(),scene=new Scene(engine);
