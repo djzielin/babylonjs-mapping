@@ -35,6 +35,8 @@ export default class GlobeDataController {
     private disposed;
     private refillTimer?;
     private nextPriorityCheck;
+    private priorityCamera?;
+    private priorityRevision;
     private settled;
     private tiles;
     private positionObserver;

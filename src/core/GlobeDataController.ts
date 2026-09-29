@@ -1,5 +1,6 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type GlobeSet from "./GlobeSet.js";
 import type Tile from "./Tile.js";
 import type Buildings from "../buildings/Buildings.js";
@@ -36,6 +37,8 @@ export default class GlobeDataController {
     private disposed = false;
     private refillTimer?: ReturnType<typeof setTimeout>;
     private nextPriorityCheck = 0;
+    private priorityCamera?: Camera;
+    private priorityRevision = -1;
     private settled = false;
     private tiles: Tile[] | undefined;
     private positionObserver;
@@ -51,7 +54,10 @@ export default class GlobeDataController {
             (options.exaggeration ?? 1) < 0
         )
             throw new RangeError("Invalid globe detail options");
-        this.positionObserver = globe.onTilePositionUpdatedObservable.add(() => { this.settled = false; });
+        this.positionObserver = globe.onTilePositionUpdatedObservable.add(() => {
+            this.settled = false;
+            this.nextPriorityCheck = 0;
+        });
         this.observer = globe.scene.onBeforeRenderObservable.add(() =>
             this.update(),
         );
@@ -75,8 +81,13 @@ export default class GlobeDataController {
             }
         const concurrency = this.options.concurrency ?? 4;
         const full = this.stats.active >= concurrency;
-        if (full && performance.now() < this.nextPriorityCheck) return;
         const camera = this.globe.scene.activeCamera;
+        camera?.getViewMatrix();
+        const revision = camera?.getTransformationMatrix().updateFlag;
+        const poseChanged = camera !== this.priorityCamera || revision !== this.priorityRevision;
+        this.priorityCamera = camera ?? undefined;
+        this.priorityRevision = revision ?? -1;
+        if (full && !poseChanged && performance.now() < this.nextPriorityCheck) return;
         const centerX = this.globe.ourTileMath.lon_to_tileExact(this.globe.centerCoords.x, this.globe.zoom);
         const centerY = this.globe.ourTileMath.lat_to_tileExact(this.globe.centerCoords.y, this.globe.zoom);
         const count = 2 ** this.globe.zoom;

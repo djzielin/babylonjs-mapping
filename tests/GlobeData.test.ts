@@ -627,6 +627,25 @@ describe("bounded detail streaming", () => {
             expect(data.stats.active).toBe(0);
         } finally { data.dispose(); dispose(); }
     });
+    it("promotes terrain on a camera move inside the full-queue throttle interval", () => {
+        const { globe, scene, dispose } = setup(5);
+        const first = globe.ourTiles[0], nearby = globe.ourTiles.at(-1)!;
+        const camera = new ArcRotateCamera("throttled eye", 0, 1, 1, globe.getTileSurfacePosition(first.tileCoords), scene);
+        camera.setPosition(globe.getTileSurfacePosition(first.tileCoords).scale(1.00001));
+        const loader = vi.fn((_coords: Vector3) => new Promise<ElevationGrid>(() => {}));
+        const clock = vi.spyOn(performance, "now").mockReturnValue(1000);
+        const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
+        try {
+            data.update();
+            expect(loader.mock.calls[0][0]).toEqual(first.tileCoords);
+            data.update();
+            expect(loader).toHaveBeenCalledTimes(1);
+            camera.setPosition(globe.getTileSurfacePosition(nearby.tileCoords).scale(1.00001));
+            camera.setTarget(globe.getTileSurfacePosition(nearby.tileCoords));
+            data.update();
+            expect(loader.mock.calls[1]?.[0]).toEqual(nearby.tileCoords);
+        } finally { data.dispose(); clock.mockRestore(); dispose(); }
+    });
     it("reports errors once and explicitly retries on invalidation", async () => {
         const { globe, dispose } = setup();
         const loader = vi.fn(async () => {
