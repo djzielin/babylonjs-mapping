@@ -4,6 +4,7 @@ import {
     NullEngine,
     MeshBuilder,
     Scene,
+    Texture,
     Vector2,
     Vector3,
     VertexBuffer,
@@ -68,6 +69,27 @@ const grid = (height: number): ElevationGrid => ({
 });
 
 describe("globe data fidelity", () => {
+    it("keeps an imagery tile behind coarser coverage until its DEM is ready", () => {
+        const { globe, scene, dispose } = setup();
+        globe.setTerrainDisplayRequirement(true);
+        const tile = globe.ourTiles[0];
+        const request = (globe as any).tileRequests[0];
+        const texture = new Texture(null, scene);
+        vi.spyOn(texture, "isReady").mockReturnValue(true);
+        request.texture = texture;
+        request.inProgress = true;
+        globe.processTileRequests();
+        expect(tile.material?.diffuseTexture).toBe(texture);
+        expect(tile.mesh.isEnabled()).toBe(false);
+        globe.setElevationData(tile, [3, 3, 3, 3], 2, 2);
+        expect(tile.mesh.isEnabled()).toBe(true);
+        tile.terrainLoaded = false;
+        globe.setTerrainDisplayRequirement(false);
+        expect(tile.mesh.isEnabled()).toBe(true);
+        globe.setTerrainDisplayRequirement(true);
+        expect(tile.mesh.isEnabled()).toBe(false);
+        dispose();
+    });
     it("keeps ready building batches through a reload until the caller explicitly clears them", () => {
         const { globe, scene, dispose } = setup();
         const tile = globe.ourTiles[0];

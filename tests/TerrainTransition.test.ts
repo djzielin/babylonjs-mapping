@@ -12,6 +12,7 @@ it('retains independent terrain geometry until matching replacement imagery and 
  const material=new StandardMaterial('terrain',scene);const texture=new Texture(null,scene);
  const disposed=vi.spyOn(texture,'dispose');
  vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;tile.mesh.material=material;
+ tile.mesh.setEnabled(true);
  const originalGeometry=tile.mesh.geometry;
  const transition=new TerrainTransition();transition.capture(globe as any,16);
  const snapshot=scene.meshes.find(mesh=>mesh.name==='previous terrain')!;
@@ -62,6 +63,7 @@ it('retains terrain during a same-zoom tile-window move',()=>{
  const tile=globe.ourTiles[0];tile.terrainLoaded=true;
  const material=new StandardMaterial('terrain',scene),texture=new Texture(null,scene);
  vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;tile.mesh.material=material;
+ tile.mesh.setEnabled(true);
  const longitude=globe.ourTileMath.tile_to_lon(globe.ourTiles[0].tileCoords.x+2.5,14);
  const transition=new TerrainTransition();transition.capture(globe,14,40.7484,longitude);
  globe.updateRaster(40.7484,longitude,14);
@@ -80,6 +82,7 @@ it('retains visible imagery while its DEM is still loading',()=>{
  const tile=globe.ourTiles[0];tile.terrainLoaded=false;
  const material=new StandardMaterial('ready imagery',scene),texture=new Texture(null,scene);
  vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;tile.mesh.material=material;
+ tile.mesh.setEnabled(true);
  const transition=new TerrainTransition();transition.capture(globe,15);
  const retained=scene.getMeshByName('previous terrain');
  expect(retained).toBeDefined();
@@ -87,6 +90,20 @@ it('retains visible imagery while its DEM is still loading',()=>{
  transition.update(1);
  expect(retained!.isDisposed()).toBe(false);
  expect(retained!.isEnabled()).toBe(true);
+ transition.dispose();scene.dispose();engine.dispose();
+});
+
+it('does not promote a hidden flat tile into a visible terrain fallback',()=>{
+ const engine=new NullEngine(),scene=new Scene(engine);
+ const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
+ globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(40.7484,-73.9857,14);
+ globe.setTerrainDisplayRequirement(true);
+ const tile=globe.ourTiles[0];
+ const material=new StandardMaterial('ready imagery',scene),texture=new Texture(null,scene);
+ vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;tile.mesh.material=material;
+ expect(tile.mesh.isEnabled()).toBe(false);
+ const transition=new TerrainTransition();transition.capture(globe,15);
+ expect(scene.getMeshByName('previous terrain')).toBeNull();
  transition.dispose();scene.dispose();engine.dispose();
 });
 
@@ -101,6 +118,7 @@ it('does not discard visible fallback terrain when fast movement crosses more th
   const tile=globe.ourTiles[0];tile.terrainLoaded=true;
   const material=new StandardMaterial(`terrain ${step}`,scene),texture=new Texture(null,scene);
   vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;tile.mesh.material=material;
+  tile.mesh.setEnabled(true);
   const longitude=globe.ourTileMath.tile_to_lon(firstX+step+0.5,14);
   transition.capture(globe,14,40.7484,longitude);
   retained.push(scene.meshes.filter(mesh=>mesh.name==='previous terrain').at(-1)!);
@@ -148,6 +166,7 @@ it('keeps raster fallback when a same-zoom regional window grows',()=>{
  const tile=globe.ourTiles[0];tile.terrainLoaded=true;
  const material=new StandardMaterial('ready map',scene),texture=new Texture(null,scene);
  vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;tile.mesh.material=material;
+ tile.mesh.setEnabled(true);
  const transition=new TerrainTransition();transition.capture(globe,12,40.7484,-73.9857,true);
  globe.createGeometry(new Vector2(2,2),20,2);globe.updateRaster(40.7484,-73.9857,12);
  transition.update(1);

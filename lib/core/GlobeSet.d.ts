@@ -45,8 +45,12 @@ export default class GlobeSet extends TileSet {
     private originalElevations;
     private geometryBudgetMs;
     private geometryQueue;
+    private terrainDisplayZoom;
     get pendingGeometryCount(): number;
     isTileGeometryReady(tile: Tile): boolean;
+    isTileDisplayReady(tile: Tile): boolean;
+    /** Hold a raster patch behind existing coarser coverage until its DEM arrives. */
+    setTerrainDisplayRequirement(enabled: boolean, minimumZoom?: number): void;
     private flushGeometry;
     /** Metres of elevation per world unit use a fixed spherical Earth radius. */
     get metresToWorld(): number;

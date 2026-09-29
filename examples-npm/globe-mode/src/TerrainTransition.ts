@@ -31,9 +31,10 @@ export class TerrainTransition {
             if (retainedCoordinates.has(coordinateKey)) continue;
             const source = tile.mesh;
             const original = source.material as StandardMaterial;
-            // Imagery can be visible before its DEM arrives. Preserve that
-            // usable surface until the replacement has both imagery and DEM.
-            if (!original?.diffuseTexture?.isReady()) continue;
+            // Retain only an already renderable surface. In terrain mode a
+            // texture may be ready while its flat patch still waits for DEM.
+            if (!source.isEnabled() || !source.isVisible || source.visibility <= 0
+                || !globe.isTileGeometryReady(tile) || !original?.diffuseTexture?.isReady()) continue;
             // Transfer the ready material and texture to the fallback. The
             // recycled tile gets a fresh material in updateRaster().
             const material = original;

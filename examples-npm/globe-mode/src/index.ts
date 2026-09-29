@@ -508,6 +508,7 @@ class GlobeDemo {
         this.detailGlobe.setRasterProvider(new RasterOSM(this.detailGlobe));
         this.detailGlobe.setOptimizationOptions({ freezeTileWorldMatrices: true, disableTilePicking: true, disableTileCollisions: true });
         this.detailGlobe.createGeometry(new Vector2(5, 5), 20, 16);
+        this.detailGlobe.setTerrainDisplayRequirement((document.getElementById("terrain") as HTMLInputElement).checked);
         for (const tile of this.detailGlobe.ourTiles)
             this.registerTerrain(tile.mesh, 6);
         this.detailGlobe.ourAttribution.advancedTexture.rootContainer.isVisible = false;
@@ -632,8 +633,10 @@ class GlobeDemo {
                         new Array((p + 1) * (p + 1)).fill(0),
                         p,
                     );
+                    tile.terrainLoaded = false;
                 }
             }
+            this.detailGlobe.setTerrainDisplayRequirement(terrain.checked);
             this.data.invalidate(false, buildings.checked);
             this.configureDistanceLayers();
         };
@@ -1465,6 +1468,7 @@ class GlobeDemo {
                     : plan.group >= 4 ? 4 : 2;
                 globe.setRasterProvider(new RasterOSM(globe));
                 globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);
+                globe.setTerrainDisplayRequirement((document.getElementById("terrain") as HTMLInputElement).checked);
                 for (const tile of globe.ourTiles) this.registerTerrain(tile.mesh, plan.group);
                 const data = new GlobeDataController(globe, { elevation: this.elevation.load,
                     concurrency: detailed15MileRadius && plan.group === 2 ? 8
@@ -1574,7 +1578,9 @@ class GlobeDemo {
             layer.lodKey = undefined;
             if (!terrain) for (const tile of layer.globe.ourTiles) {
                 if (layer.globe.isTileGeometryReady(tile)) layer.globe.applyElevationGrid(tile, new Array((layer.globe.meshPrecision + 1) ** 2).fill(0), layer.globe.meshPrecision);
+                tile.terrainLoaded = false;
             }
+            layer.globe.setTerrainDisplayRequirement(terrain);
             if (terrainChanged || buildingsChanged) layer.data.invalidate(!terrainChanged, buildings);
         });
     }

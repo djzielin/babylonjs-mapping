@@ -63,6 +63,7 @@ export default class GlobeSet extends TileSet {
     private originalElevations = new WeakMap<Tile, { key: string; heights: number[] }>();
     private geometryBudgetMs = Infinity;
     private geometryQueue: Tile[] = [];
+    private terrainDisplayZoom = Infinity;
     public get pendingGeometryCount(): number {
         return this.geometryQueue.length;
     }
@@ -71,6 +72,19 @@ export default class GlobeSet extends TileSet {
             this.geometryKeys.get(tile) ===
             `${tile.tileCoords}/${this.radius}/${this.meshPrecision}`
         );
+    }
+    public override isTileDisplayReady(tile: Tile): boolean {
+        return this.isTileGeometryReady(tile) &&
+            (tile.tileCoords.z < this.terrainDisplayZoom || tile.terrainLoaded);
+    }
+    /** Hold a raster patch behind existing coarser coverage until its DEM arrives. */
+    public setTerrainDisplayRequirement(enabled: boolean, minimumZoom = 5): void {
+        if (!Number.isInteger(minimumZoom) || minimumZoom < 0 || minimumZoom > 22)
+            throw new RangeError("Invalid terrain display zoom");
+        this.terrainDisplayZoom = enabled ? minimumZoom : Infinity;
+        for (const tile of this.ourTiles)
+            if (tile.material?.diffuseTexture?.isReady())
+                tile.mesh.setEnabled(this.isTileDisplayReady(tile));
     }
     private flushGeometry(): void {
         const deadline = performance.now() + this.geometryBudgetMs;
@@ -84,7 +98,7 @@ export default class GlobeSet extends TileSet {
             this.updateTileGeometry(tile);
             this.updateEdgeFade(tile);
             if (tile.material?.diffuseTexture?.isReady())
-                tile.mesh.setEnabled(true);
+                tile.mesh.setEnabled(this.isTileDisplayReady(tile));
             processed++;
         }
     }
@@ -378,6 +392,8 @@ export default class GlobeSet extends TileSet {
         tile.elevationHeights = heights;
         tile.terrainLoaded = true;
         this.joinElevationBorders(tile);
+        if (tile.material?.diffuseTexture?.isReady() && this.isTileDisplayReady(tile))
+            tile.mesh.setEnabled(true);
     }
 
     /** Weld shared samples before uploading; no vertical walls are needed between patches. */
