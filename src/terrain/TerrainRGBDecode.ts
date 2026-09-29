@@ -1,5 +1,5 @@
 export type TerrainRGBEncoding = "terrarium" | "mapbox";
-export const TERRAIN_REPAIR_VERSION = 7;
+export const TERRAIN_REPAIR_VERSION = 8;
 
 export function decodeTerrainRGB(pixels: ArrayLike<number>, encoding: TerrainRGBEncoding): Float32Array {
     if (pixels.length % 4) throw new RangeError("Expected RGBA pixels");
@@ -19,6 +19,33 @@ export function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: numb
     if (sourceZoom < 8 || width < 3 || height < 3) return undefined;
     const threshold = 100;
     let repaired: Float32Array | undefined;
+    // Some waterfront source tiles contain adjacent positive and negative
+    // columns hundreds of metres tall. Repair them together before the
+    // component passes erase only the negative side and leave a raised fin.
+    if (width >= 7 && height >= 7) {
+        const corrections: Array<[number, number]> = [];
+        for (let y = 3; y < height - 3; y++) for (let x = 3; x < width - 3; x++) {
+            const index = y * width + x, center = data[index];
+            if (Math.abs(center) <= 100) continue;
+            const neighbors: number[] = [];
+            let nearSea = 0, opposite = false;
+            for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+                const value = data[index + dy * width + dx];
+                neighbors.push(value);
+                if (Math.abs(value) <= 10) nearSea++;
+                if (center > 0 ? value < -100 : value > 100) opposite = true;
+            }
+            if (!opposite || nearSea < 13) continue;
+            neighbors.sort((a, b) => a - b);
+            const median = neighbors[24];
+            if (Math.abs(median) <= 30 && Math.abs(center - median) > 80)
+                corrections.push([index, median]);
+        }
+        if (corrections.length) {
+            repaired = Float32Array.from(data);
+            for (const [index, median] of corrections) repaired[index] = median;
+        }
+    }
     // Terrarium has occasional short runs of invalid deep samples along
     // shallow water. A single-pixel median cannot repair a connected run,
     // which otherwise produces kilometre-deep vertical walls in rivers.

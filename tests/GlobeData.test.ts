@@ -784,6 +784,27 @@ describe("terrain encodings and overzoom", () => {
         deepSea[5 * 11 + 5] = -700;
         expect(TerrainRGB.repairIsolatedSpikes({ data: deepSea, width: 11, height: 11 }, 14).data[60]).toBe(-300);
     });
+    it("removes mixed-sign coastal DEM columns from the NYC z10 source", () => {
+        // Rounded samples around z10/302/384, lon -73.765, lat 40.809.
+        // The source has +942 m beside -497 m in a low waterfront patch.
+        const data = Float32Array.from(`
+            -5 -4 -3 -3 10 1 18 23 22 18 19
+            -4 -3 -3 1 -113 -37 40 21 20 20 22
+            -4 -3 -3 1 119 43 -12 21 23 22 25
+            -4 -3 -3 -3 942 215 -267 34 50 16 25
+            -4 -3 -3 -2 4 340 -497 49 76 8 23
+            -4 -3 -2 -2 3 253 -347 36 58 11 23
+            -4 -3 -2 -2 3 7 37 14 15 19 23
+            -4 -3 -2 -2 -2 -149 137 29 17 17 20
+            -4 -3 -2 -2 -1 -1 1 6 61 2 14
+            -4 -3 -2 -1 -1 -1 -1 4 73 -11 8
+            -4 -3 -2 -1 -1 0 0 2 35 -14 4
+        `.trim().split(/\s+/).map(Number));
+        const repaired = TerrainRGB.repairIsolatedSpikes({ data, width: 11, height: 11 }, 10).data;
+        expect(repaired[5 * 11 + 5]).toBeLessThan(30);
+        expect(repaired[5 * 11 + 6]).toBeGreaterThan(-30);
+        expect(data[5 * 11 + 5]).toBe(253);
+    });
     it("samples the correct ancestor quadrant when overzooming", () => {
         const data = Array.from({ length: 16 }, (_, i) => i);
         const left = TerrainRGB.crop(
