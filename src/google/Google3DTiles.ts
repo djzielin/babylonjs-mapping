@@ -2353,7 +2353,7 @@ async function defaultTilesetLoader(url: string): Promise<Google3DTileset> {
 export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): number {
     const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
     const indices = mesh.getIndices();
-    if (!positions || !indices || positions.length < 90 || indices.length < 3 || metresToWorld <= 0
+    if (!positions || !indices || positions.length < 9 || indices.length < 3 || metresToWorld <= 0
         || !mesh.subMeshes.length || (mesh.geometry?.meshes.length ?? 0) !== 1) return 0;
     const subMeshes = [...mesh.subMeshes].sort((a, b) => a.indexStart - b.indexStart);
     let nextIndex = 0;
@@ -2388,9 +2388,9 @@ export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): 
             const nearSurface = [a, b, c].every(index => Math.abs(heights[index] - lowSurface) < 5);
             let oversizedFill = false;
             if (nearSurface) {
-                // Captured Greenpoint waterfront GLBs also contain 80-150 m
-                // near-flat water triangles; the old 150 m cutoff left those as
-                // dark rectangular patches over the ready satellite raster.
+                // Water fill can be just two triangles in a four-vertex mesh.
+                // Even a 25-80 m patch stands out as a dark block over the
+                // ready satellite water, so do not require a large mesh here.
                 const worldEdgeSquared = (left: number, right: number) => {
                     const l = left * 3, r = right * 3;
                     const dx = positions[l] - positions[r], dy = positions[l + 1] - positions[r + 1],
@@ -2401,7 +2401,7 @@ export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): 
                     return (wx * wx + wy * wy + wz * wz) / (metresToWorld * metresToWorld);
                 };
                 oversizedFill = Math.max(worldEdgeSquared(a, b), worldEdgeSquared(b, c),
-                    worldEdgeSquared(c, a)) > 80 * 80;
+                    worldEdgeSquared(c, a)) > 25 * 25;
             }
             if (!deepSkirt && !oversizedFill) {
                 if (kept) kept.push(a, b, c);

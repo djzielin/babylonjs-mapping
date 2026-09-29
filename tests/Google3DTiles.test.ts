@@ -123,6 +123,21 @@ it("filters coastal triangles in every material submesh without changing their m
   scene.dispose(); engine.dispose();
 });
 
+it("removes a small Google water-fill primitive but keeps local coastal surface", () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const mesh = new Mesh("four vertex water fill", scene);
+  mesh.setVerticesData(VertexBuffer.PositionKind, [0, 0, 0, 40, 0, 0, 0, 0, 40, 40, 0, 40]);
+  mesh.setIndices([0, 1, 2, 1, 3, 2]);
+  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(2);
+  expect(mesh.getIndices()).toHaveLength(0);
+  mesh.setVerticesData(VertexBuffer.PositionKind, [0, 0, 0, 12, 0, 0, 0, 0, 12, 12, 0, 12]);
+  mesh.setIndices([0, 1, 2, 1, 3, 2]);
+  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(0);
+  expect(mesh.getIndices()).toHaveLength(6);
+  scene.dispose(); engine.dispose();
+});
+
 it("restricts coverage updates to geographic tiles intersecting changed models", () => {
   const {engine,scene,tileSet}=createTileSet();
   const provider=new Google3DTiles(tileSet);
