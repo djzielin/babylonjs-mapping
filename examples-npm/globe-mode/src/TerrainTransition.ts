@@ -22,19 +22,20 @@ export class TerrainTransition {
         if (!force && globe.zoom === nextZoom && (!nextCorner || !currentCorner
             || (currentCorner.x === nextCorner.x && currentCorner.y === nextCorner.y))) return;
         const retained: Retained[] = this.previous.get(globe) ?? [];
-        const retainedCoordinates = new Set(retained.map(old => old.coordinate.toString()));
+        const retainedByCoordinate = new Map(retained.map(old => [old.coordinate.toString(), old]));
         for (const tile of globe.ourTiles) {
             if (!force && globe.zoom === nextZoom && nextCorner
                 && tile.tileCoords.x >= nextCorner.x && tile.tileCoords.x < nextCorner.x + globe.numTiles.x
                 && tile.tileCoords.y <= nextCorner.y && tile.tileCoords.y > nextCorner.y - globe.numTiles.y) continue;
             const coordinateKey = tile.tileCoords.toString();
-            if (retainedCoordinates.has(coordinateKey)) continue;
             const source = tile.mesh;
             const original = source.material as StandardMaterial;
             // Retain only an already renderable surface. In terrain mode a
             // texture may be ready while its flat patch still waits for DEM.
             if (!source.isEnabled() || !source.isVisible || source.visibility <= 0
                 || !globe.isTileDisplayReady(tile) || !original?.diffuseTexture?.isReady()) continue;
+            const older = retainedByCoordinate.get(coordinateKey);
+            if (older?.material === original) continue;
             // Transfer the ready material and texture to the fallback. The
             // recycled tile gets a fresh material in updateRaster().
             const material = original;
@@ -63,8 +64,15 @@ export class TerrainTransition {
             // freeze() does another whole-scene markDirty scan. A fresh clone
             // has no cached ready state, so setting its frozen flag is enough.
             material.checkReadyOnlyOnce = true;
-            retained.push({ mesh, material, coordinate: tile.tileCoords.clone() });
-            retainedCoordinates.add(coordinateKey);
+            // A second style change can arrive before update() retires the
+            // first fallback. The newer drawable image owns this coordinate.
+            if (older) {
+                retained.splice(retained.indexOf(older), 1);
+                this.release(older);
+            }
+            const snapshot = { mesh, material, coordinate: tile.tileCoords.clone() };
+            retained.push(snapshot);
+            retainedByCoordinate.set(coordinateKey, snapshot);
         }
         // Movement may expose several previously visited patches before their
         // replacements finish loading. update() retires a patch only after it

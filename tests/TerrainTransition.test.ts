@@ -199,6 +199,31 @@ it('retires a terrain-free fallback once replacement imagery is drawable',()=>{
  transition.dispose();scene.dispose();engine.dispose();
 });
 
+it('keeps the latest drawable style during repeated raster changes',()=>{
+ const engine=new NullEngine(),scene=new Scene(engine);
+ const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
+ globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(40.7484,-73.9857,14);
+ const tile=globe.ourTiles[0];tile.terrainLoaded=true;tile.mesh.setEnabled(true);
+ const makeMaterial=(name:string)=>{
+  const material=new StandardMaterial(name,scene),texture=new Texture(null,scene);
+  vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;
+  return material;
+ };
+ const first=makeMaterial('first');tile.mesh.material=first;tile.material=first;
+ const transition=new TerrainTransition();transition.capture(globe,14,undefined,undefined,true);
+ const firstFallback=scene.getMeshByName('previous terrain')!;
+ globe.setRasterProvider(new RasterOSM(globe));globe.updateRaster(40.7484,-73.9857,14);
+ const second=tile.material!;const secondTexture=new Texture(null,scene);
+ vi.spyOn(secondTexture,'isReady').mockReturnValue(true);second.diffuseTexture=secondTexture;
+ tile.mesh.setEnabled(true);
+ transition.capture(globe,14,undefined,undefined,true);
+ const fallbacks=scene.meshes.filter(mesh=>mesh.name==='previous terrain' && !mesh.isDisposed());
+ expect(firstFallback.isDisposed()).toBe(true);
+ expect(fallbacks).toHaveLength(1);
+ expect(fallbacks[0].material).toBe(second);
+ transition.dispose();scene.dispose();engine.dispose();
+});
+
 it('keeps raster fallback when a same-zoom regional window grows',()=>{
  const engine=new NullEngine(),scene=new Scene(engine);
  const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
