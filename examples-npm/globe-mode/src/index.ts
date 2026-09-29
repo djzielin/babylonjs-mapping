@@ -223,7 +223,7 @@ class GlobeDemo {
         this.reversedDepth = this.engine.isWebGPU && new URLSearchParams(location.search).get("depth") === "reverse"
             && (this.engine as WebGPUEngine)._device.features.has("depth32float-stencil8");
         if (this.reversedDepth) this.engine.useReverseDepthBuffer = true;
-        this.layers = new MapLayerRenderer(this.scene, 7, { logarithmicDepth: !this.reversedDepth });
+        this.layers = new MapLayerRenderer(this.scene, 8, { logarithmicDepth: !this.reversedDepth });
     }
 
     public start(): void {
@@ -277,7 +277,7 @@ class GlobeDemo {
         });
         this.terrainBatcher = new TerrainBatcher(this.scene,
             () => [this.baseGlobe, this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)].map(globe => globe.ourTiles.map(tile => tile.mesh)),
-            (mesh, source) => this.registerTerrain(mesh, 7 - source.renderingGroupId));
+            (mesh, source) => this.registerTerrain(mesh, 8 - source.renderingGroupId));
         document.getElementById("batchTerrain")!.addEventListener("change", () => {
             this.terrainBatcher.enabled = (document.getElementById("batchTerrain") as HTMLInputElement).checked;
         });
@@ -344,7 +344,9 @@ class GlobeDemo {
                     for (const mesh of tile.asset.meshes) {
                         if (this.googleMeshes.has(mesh)) continue;
                         this.googleMeshes.add(mesh);
-                        this.layers.add(mesh, 7);
+                        // Google geometry owns its pixels even if an Overture
+                        // footprint straddles a model-tile boundary.
+                        this.layers.add(mesh, 8);
                         mesh.freezeWorldMatrix();
                         // Newly loaded static materials have no stale bindings to
                         // invalidate. freeze() otherwise scans the entire city.

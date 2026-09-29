@@ -54,7 +54,7 @@ export class TerrainTransition {
             // stencil first and hide ready replacement tiles. Draw fallbacks
             // in the following (coarser) group, after all current tiles and
             // batches at this tier have had a chance to claim their pixels.
-            mesh.renderingGroupId = Math.min(7, source.renderingGroupId + 1);
+            mesh.renderingGroupId = Math.min(8, source.renderingGroupId + 1);
             mesh.visibility = 1;
             mesh.isVisible = true;
             mesh.setEnabled(true);

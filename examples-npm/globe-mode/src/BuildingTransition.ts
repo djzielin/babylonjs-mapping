@@ -80,7 +80,7 @@ export class BuildingTransition {
                         }
                     });
                 }
-                mesh.renderingGroupId = Math.min(7, source.renderingGroupId + 1);
+                mesh.renderingGroupId = Math.min(8, source.renderingGroupId + 1);
                 const coverage = (source.metadata as { overtureCoverage?: Coverage } | null)?.overtureCoverage;
                 // Most outgoing batches still draw every building. Preserve
                 // their shared geometry until coverage actually changes.

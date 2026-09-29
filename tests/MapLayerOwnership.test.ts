@@ -74,6 +74,21 @@ describe("shared map layer ownership", () => {
         expect(far.material.stencil.funcRef).toBeLessThan(near.material.stencil.funcRef);
         renderer.dispose(); scene.dispose(); engine.dispose();
     });
+    it("reserves Google model pixels ahead of Overture and raster geometry", () => {
+        const engine = new NullEngine(); const scene = new Scene(engine);
+        const renderer = new MapLayerRenderer(scene, 8);
+        const google = MeshBuilder.CreateBox("Google", {}, scene);
+        const overture = MeshBuilder.CreateBox("Overture", {}, scene);
+        const raster = MeshBuilder.CreateBox("raster", {}, scene);
+        for (const mesh of [google, overture, raster]) mesh.material = new StandardMaterial(mesh.name, scene);
+        renderer.add(google, 8);
+        renderer.add(overture, 7);
+        renderer.add(raster, 6);
+        expect([google, overture, raster].map(mesh => mesh.renderingGroupId)).toEqual([0, 1, 2]);
+        expect([google, overture, raster].map(mesh => mesh.material!.stencil.funcRef)).toEqual([9, 8, 7]);
+        expect([google, overture, raster].every(mesh => mesh.material!.stencil.func === Constants.GEQUAL)).toBe(true);
+        renderer.dispose(); scene.dispose(); engine.dispose();
+    });
     it("keeps late-loaded terrain and glTF submaterials on the same depth encoding", () => {
         const engine = new NullEngine(); const scene = new Scene(engine);
         engine.getCaps().fragmentDepthSupported = true;
