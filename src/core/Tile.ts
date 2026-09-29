@@ -12,7 +12,7 @@ import type TileSet from "./TileSet.js";
 //import "@babylonjs/inspector";
 
 export default class Tile {
-    public material: StandardMaterial;
+    public material: StandardMaterial | undefined;
     public tileCoords: Vector3;
     public box2D: BoundingBox;
     
@@ -22,11 +22,13 @@ export default class Tile {
     public buildings: TileBuilding[]=[];
     public buildingBatches: Mesh[] = [];
     public mergedBuildingMesh: Mesh | undefined=undefined;
+    /** Coordinate whose Overture batch has completed, including an empty tile. */
+    public buildingsResolvedKey?: string;
 
     //////////////////////////////////
     // TERRAIN 
     //////////////////////////////////
-    public dem: number[];
+    public dem: number[] | Float32Array | Float64Array;
     public demDimensions: Vector2;
     public minHeight: number;
     public maxHeight: number;
@@ -57,6 +59,7 @@ export default class Tile {
     }
 
     public deleteBuildings(){
+        this.buildingsResolvedKey = undefined;
         this.buildingBatches.forEach(mesh => mesh.dispose());
         this.buildingBatches = [];
         for(let m of this.buildings){

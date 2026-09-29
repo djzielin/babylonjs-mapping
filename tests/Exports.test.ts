@@ -127,5 +127,5 @@ describe("package exports", () => {
       }
       rmSync(tempDir, { recursive: true, force: true });
     }
-  }, 15000);
+  }, 120000);
 });

@@ -25,13 +25,15 @@ export class MotionFrameProfile {
         this.previousTime = now;
     }
 
-    summary(moving = false): { samples: number; fps: number; p95: number; low1: number; low01: number } {
+    summary(moving = false): { samples: number; fps: number; p95: number; p999: number; worst: number; low1: number; low01: number } {
         const values = [...(moving ? this.movingIntervals : this.intervals)].sort((a, b) => a - b);
         const rate = (samples: number[]) => samples.length ? 1000 * samples.length / samples.reduce((sum, value) => sum + value, 0) : 0;
         return { samples: values.length, fps: rate(values),
             low1: rate(values.slice(-Math.max(1, Math.ceil(values.length * 0.01)))),
             low01: rate(values.slice(-Math.max(1, Math.ceil(values.length * 0.001)))),
-            p95: values[Math.min(values.length - 1, Math.ceil(values.length * 0.95) - 1)] ?? 0 };
+            p95: values[Math.min(values.length - 1, Math.ceil(values.length * 0.95) - 1)] ?? 0,
+            p999: values[Math.min(values.length - 1, Math.ceil(values.length * 0.999) - 1)] ?? 0,
+            worst: values.at(-1) ?? 0 };
     }
 
     reset(): void {

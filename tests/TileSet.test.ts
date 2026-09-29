@@ -27,6 +27,35 @@ describe("TileSet", () => {
 
 
 describe("TileSet updates", () => {
+  it("keeps a failed imagery tile queued and retries it after a short delay", async () => {
+    const { default: TileSet } = await import("../src/TileSet");
+    const engine = new NullEngine(), scene = new Scene(engine), tiles = new TileSet(scene, engine);
+    tiles.createGeometry(new Vector2(1, 1), 10, 1);
+    tiles.updateRaster(40.73591, -73.96044, 12);
+    const request = (tiles as any).tileRequests[0];
+    const dispose = vi.fn();
+    request.texture = { isReady: () => false, loadingError: true, dispose };
+    request.inProgress = true;
+    const now = vi.spyOn(performance, "now").mockReturnValue(1000);
+    try {
+      tiles.processTileRequests();
+      expect(dispose).toHaveBeenCalledOnce();
+      expect((tiles as any).tileRequests).toContain(request);
+      expect(request.inProgress).toBe(false);
+      expect(request.retryAfter).toBe(1250);
+      expect(tiles.ourTiles[0].mesh.isEnabled()).toBe(false);
+      now.mockReturnValue(1249);
+      tiles.processTileRequests();
+      expect(request.inProgress).toBe(false);
+      now.mockReturnValue(1250);
+      tiles.processTileRequests();
+      expect(request.inProgress).toBe(true);
+      expect(request.texture).not.toBeNull();
+    } finally {
+      now.mockRestore();
+      scene.dispose(); engine.dispose();
+    }
+  });
   it("replaces pending imagery and removes old coordinate mappings", async () => {
     const { default: TileSet } = await import("../src/TileSet");
     const engine = new NullEngine();

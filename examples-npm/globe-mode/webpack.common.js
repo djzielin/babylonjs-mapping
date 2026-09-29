@@ -6,6 +6,9 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 
 const appDirectory = fs.realpathSync(process.cwd());
+const babylonDirectory = fs.existsSync(path.join(appDirectory, 'node_modules/@babylonjs/core'))
+    ? path.join(appDirectory, 'node_modules/@babylonjs')
+    : path.join(appDirectory, '../../node_modules/@babylonjs');
 
 const keyFile = path.join(appDirectory, 'mapbox-key.txt');
 const mapboxToken = process.env.MAPBOX_PUBLIC_TOKEN || process.env.MAPBOX_ACCESS_TOKEN || (fs.existsSync(keyFile) ? fs.readFileSync(keyFile, 'utf8').trim() : '');
@@ -15,7 +18,11 @@ const googleKey = process.env.GOOGLE_MAPS_API_KEY || (googleKeyFile ? fs.readFil
 
 module.exports = {
     resolve: {
-        extensions: ['.ts', '.js']
+        extensions: ['.ts', '.js'],
+        // The linked package can have its own node_modules. Share one Babylon
+        // runtime so engine extension methods reach the same prototype.
+        alias: Object.fromEntries(['core', 'gui', 'loaders'].map(name =>
+            [`@babylonjs/${name}`, path.join(babylonDirectory, name)]))
     },
     output: {
         filename: 'js/babylonBundle.js',

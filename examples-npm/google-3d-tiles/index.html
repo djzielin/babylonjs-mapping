@@ -142,6 +142,7 @@
                 <option value="36.00145,-78.94032" data-camera-alpha="0.25" data-target-height="35" data-camera-radius="150">Duke University · Duke Chapel</option>
                 <option value="40.7484,-73.9857">New York · Empire State Building</option>
                 <option value="35.6938,139.7034">Tokyo · Shinjuku</option>
+                <option value="35.7101,139.8107" data-camera-radius="360" data-target-height="100">Tokyo · Skytree</option>
                 <option value="48.8584,2.2945">Paris · Eiffel Tower</option>
                 <option value="37.8229,-122.4785" data-zoom="16" data-detail="20" data-camera-alpha="-0.35" data-target-height="25">San Francisco · Golden Gate</option>
             </select>
@@ -155,9 +156,12 @@
             <div class="row">
                 <button id="loadButton" type="submit">Load location</button>
                 <button id="resetView" type="button" class="secondary">Reset view</button>
+                <button id="zoomIn" type="button" class="secondary" aria-label="Zoom in">+</button>
+                <button id="zoomOut" type="button" class="secondary" aria-label="Zoom out">−</button>
             </div>
             <div id="status" role="status" aria-live="polite" data-state="idle">Loading configuration…</div>
-            <div class="controls">Drag to orbit · scroll or pinch to zoom</div>
+            <div class="controls">Drag to orbit · Ctrl+drag to pan · scroll or pinch to zoom</div>
+            <a id="compareEarth" href="https://earth.google.com/web/" target="_blank" rel="noopener">Compare this location in Google Earth</a>
         </form>
         <footer class="attribution" id="attribution" hidden aria-label="Map attribution">
             <span id="dataCredits"></span>

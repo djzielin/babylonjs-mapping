@@ -2,10 +2,13 @@ import "@babylonjs/core/Culling/ray.js";
 import { debugLog } from "../shared/Diagnostics.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
-import { Vector2, Vector3, Color3 } from "@babylonjs/core/Maths/math.js";
+import { Vector2, Vector3, Color3, Frustum } from "@babylonjs/core/Maths/math.js";
+import type { Plane } from "@babylonjs/core/Maths/math.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js"
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { TileRasterMaterial } from './TileRasterMaterial.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
@@ -36,6 +39,8 @@ export interface TileRequest {
     mesh: Mesh;
     texture: Texture | null;
     inProgress: boolean;
+    retryAfter?: number;
+    failures?: number;
 }
 
 /**
@@ -72,6 +77,7 @@ export default class TileSet {
     /** Projection hooks shared by all feature and terrain providers. */
     public readonly isGlobe: boolean = false;
     public isTileGeometryReady(_tile: Tile): boolean { return true; }
+    public isTileDisplayReady(tile: Tile): boolean { return this.isTileGeometryReady(tile); }
     public getGeometryMath(): TileMath { return this.ourTileMath; }
     public projectFeatureMesh(_mesh: Mesh): void {}
     public applyElevationGrid(_tile: Tile, _heights: number[], _precision: number): void {}
@@ -187,9 +193,9 @@ export default class TileSet {
             }
 
             if (tile.material) {
-                if (this.optimizationOptions.freezeRasterMaterials) {
+                if (this.optimizationOptions.freezeRasterMaterials && !tile.material.isFrozen) {
                     tile.material.freeze();
-                } else {
+                } else if (!this.optimizationOptions.freezeRasterMaterials && tile.material.isFrozen) {
                     tile.material.unfreeze();
                 }
             }
@@ -273,19 +279,31 @@ export default class TileSet {
     /** Bounded parallel raster requests; each frame scans only the active window. */
     public rasterConcurrency = 6;
     private rasterSortAt = 0;
+    private rasterPriorityCamera?: Camera;
+    private rasterPriorityRevision = -1;
     private activeRasterRequests: TileRequest[] = [];
     private waitingRasterRequests: TileRequest[] = [];
+    protected getRasterRequestPriority(request: TileRequest, camera: Camera, _planes: Plane[]): { visible: boolean; distance: number } {
+        return {
+            visible: camera.isInFrustum(request.mesh),
+            distance: Vector3.DistanceSquared(camera.globalPosition, request.mesh.getBoundingInfo().boundingSphere.centerWorld),
+        };
+    }
     public processTileRequests(): void {
         const active = this.activeRasterRequests, waiting = this.waitingRasterRequests;
         active.length = waiting.length = 0;
         for (const request of this.tileRequests) (request.inProgress ? active : waiting).push(request);
         const camera = this.scene.activeCamera;
-        if (camera && performance.now() >= this.rasterSortAt) {
+        camera?.getViewMatrix();
+        const revision = camera?.getTransformationMatrix().updateFlag;
+        if (camera && (performance.now() >= this.rasterSortAt || camera !== this.rasterPriorityCamera || revision !== this.rasterPriorityRevision)) {
             this.rasterSortAt = performance.now() + 100;
-            const distance = new Map(waiting.map(request => [request, Vector3.DistanceSquared(
-                camera.globalPosition, request.mesh.getBoundingInfo().boundingSphere.centerWorld)]));
-            const visible = new Set(waiting.filter(request => camera.isInFrustum(request.mesh)));
-            waiting.sort((a, b) => Number(visible.has(b)) - Number(visible.has(a)) || distance.get(a)! - distance.get(b)!);
+            this.rasterPriorityCamera = camera;
+            this.rasterPriorityRevision = revision!;
+            const planes = Frustum.GetPlanes(camera.getTransformationMatrix());
+            const priority = new Map(waiting.map(request => [request, this.getRasterRequestPriority(request, camera, planes)]));
+            waiting.sort((a, b) => Number(priority.get(b)!.visible) - Number(priority.get(a)!.visible)
+                || priority.get(a)!.distance - priority.get(b)!.distance);
         }
         // Completed downloads must not wait a whole rotation behind unstarted
         // requests. Consume them now and fill their network slots in this frame.
@@ -296,13 +314,17 @@ export default class TileSet {
         active.length = waiting.length = 0;
         const count = Math.min(this.tileRequests.length, this.rasterConcurrency + activeCount);
         if (count === 0) { this.processNextTileRequest(); return; }
+        let inProgress = activeCount;
         for (let i=0; i<count; i++) {
             const request=this.tileRequests[0];
-            this.processNextTileRequest();
+            const wasActive = request.inProgress;
+            this.processNextTileRequest(inProgress);
+            if (!wasActive && request.inProgress) inProgress++;
+            else if (wasActive && this.tileRequests[0] !== request) inProgress--;
             if (this.tileRequests[0]===request) this.tileRequests.push(this.tileRequests.shift()!);
         }
     }
-    private processNextTileRequest() {
+    private processNextTileRequest(activeCount?: number) {
     if (this.isGeometrySetup == false) {
         return;
     }
@@ -321,7 +343,8 @@ export default class TileSet {
 
     if (request.requestType == TileRequestType.LoadTile) {
         if (request.inProgress == false) {
-            if (this.tileRequests.filter(r => r.inProgress).length >= this.rasterConcurrency) return;
+            if (request.retryAfter !== undefined && performance.now() < request.retryAfter) return;
+            if ((activeCount ?? this.tileRequests.filter(r => r.inProgress).length) >= this.rasterConcurrency) return;
             debugLog(() => [this.prettyName() + "trying to load tile raster: " + request.tileCoords]);
             request.texture = new Texture(request.url, this.scene);
             request.inProgress = true;
@@ -335,32 +358,34 @@ export default class TileSet {
                 if (request.texture.isReady()) {
                     debugLog(() => [this.prettyName() + "tile raster is ready: " + request.tileCoords]);
 
+                    // Configure the texture before a material references it.
+                    // Changing hasAlpha on a bound texture makes Babylon dirty
+                    // every submesh using that material during tile streaming.
+                    request.texture.anisotropicFilteringLevel = this.engine.getCaps().maxAnisotropy;
+                    request.texture.wrapU = Texture.CLAMP_ADDRESSMODE;
+                    request.texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+                    request.texture.hasAlpha = this.hasAlpha;
+
                     const material = request.mesh.material as StandardMaterial;
-                    material.unfreeze();
-
+                    if (material.isFrozen) material.unfreeze();
                     material.diffuseTexture = request.texture;
-                    material.diffuseTexture.anisotropicFilteringLevel = this.engine.getCaps().maxAnisotropy;
-                    material.diffuseTexture.wrapU = Texture.CLAMP_ADDRESSMODE;
-                    material.diffuseTexture.wrapV = Texture.CLAMP_ADDRESSMODE;
-                    material.diffuseTexture.hasAlpha = this.hasAlpha;
 
-                    if (this.optimizationOptions.freezeRasterMaterials) {
+                    if (this.optimizationOptions.freezeRasterMaterials && !material.isFrozen) {
                         material.freeze();
-                    } else {
-                        material.unfreeze();
                     }
 
-                    request.mesh.setEnabled(this.isTileGeometryReady(request.tile)); //show ready geometry
+                    request.mesh.setEnabled(this.isTileDisplayReady(request.tile));
                     this.requestsProcessedSinceCaughtUp++;
                     this.tileRequests.shift(); //pop request off front of queue
                     return;
                 }
                 if (request.texture.loadingError) {
-                    console.warn(this.prettyName() + "error loading texture for tile: " + request.tileCoords);
+                    if (!request.failures) console.warn(this.prettyName() + "error loading texture for tile: " + request.tileCoords);
                     request.texture.dispose();
-
-                    this.requestsProcessedSinceCaughtUp++;
-                    this.tileRequests.shift(); //pop request off front of queue
+                    request.texture = null;
+                    request.inProgress = false;
+                    request.failures = (request.failures ?? 0) + 1;
+                    request.retryAfter = performance.now() + Math.min(8000, 250 * 2 ** Math.min(5, request.failures - 1));
                     return;
                 }
             }
@@ -415,6 +440,7 @@ export default class TileSet {
     */
     public updateRaster(lat: number, lon: number, zoom: number) {
     this.assertGeometrySetup("update raster");
+    this.rasterSortAt = 0;
 
     if (!this.reuseRasterTilesOnUpdate()) this.cancelPendingRasterRequests();
 
@@ -523,7 +549,7 @@ export default class TileSet {
 
     if (tile.material) {
         material = tile.material;
-        material.unfreeze();
+        if (material.isFrozen) material.unfreeze();
 
         const texture = material.diffuseTexture;
 
@@ -532,7 +558,7 @@ export default class TileSet {
         }
     }
     else {
-        material = new StandardMaterial("material" + tileX + "-" + tileY, this.scene);
+        material = new TileRasterMaterial("material" + tileX + "-" + tileY, this.scene);
         material!.specularColor = new Color3(0, 0, 0);
         material.alpha = 1.0;
 

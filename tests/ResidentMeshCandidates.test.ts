@@ -43,8 +43,11 @@ describe("resident mesh candidates", () => {
         front.position.z = 10; back.position.z = -10;
         front.freezeWorldMatrix(); back.freezeWorldMatrix();
         const ready = vi.spyOn(back, "isReady");
+        const frontFrustum = vi.spyOn(front, "isInFrustum");
         installResidentMeshCandidates(scene);
         scene.render();
+        expect(frontFrustum).toHaveBeenCalledTimes(1);
+        expect(front.alwaysSelectAsActiveMesh).toBe(false);
         expect(scene.getActiveMeshCandidates().data).toContain(front);
         expect(scene.getActiveMeshCandidates().data).not.toContain(back);
         expect(ready).not.toHaveBeenCalled();

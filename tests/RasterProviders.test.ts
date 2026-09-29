@@ -3,6 +3,7 @@ import { Vector2 } from "@babylonjs/core/Maths/math";
 
 import RasterMB from "../src/RasterMB";
 import RasterOSM from "../src/RasterOSM";
+import RasterGoogleSatellite from "../src/RasterGoogleSatellite";
 import RasterGEBCO from "../src/RasterGEBCO";
 import RasterWMTS from "../src/RasterWMTS";
 import { RetrievalLocation } from "../src/Retrieval";
@@ -52,6 +53,38 @@ describe("RasterMB", () => {
     expect(raster.getRasterURL(new Vector2(1, 2), 3)).toBe(
       "https://api.mapbox.com/v4/mapbox.satellite/3/1/2@2x.jpg90?sku=101abcDEF42&access_token=pk.test-token",
     );
+  });
+});
+
+describe("RasterGoogleSatellite", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("opens a satellite session and uses it for wrapped raster URLs", async () => {
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({
+      session: "session-test", expiry: String(Math.floor(Date.now() / 1000) + 3600),
+    }) }));
+    vi.stubGlobal("fetch", fetch);
+    const session = await RasterGoogleSatellite.openSession("key-test");
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/v1/createSession?key=key-test"),
+      expect.objectContaining({ method: "POST", body: expect.stringContaining('"mapType":"satellite"') }));
+    const raster = new RasterGoogleSatellite(tileSetStub as never, "key-test", session);
+    const url = new URL(raster.getRasterURL(new Vector2(-1, 99), 2));
+    expect(url.pathname).toBe("/v1/2dtiles/2/3/3");
+    expect(url.searchParams.get("session")).toBe("session-test");
+    expect(url.searchParams.get("key")).toBe("key-test");
+    expect(() => raster.getRasterURL(new Vector2(0, 0), 23)).toThrow(RangeError);
+  });
+
+  it("requests copyright for the actual viewport", async () => {
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ copyright: "Map data ©2026" }) }));
+    vi.stubGlobal("fetch", fetch);
+    const copyright = await RasterGoogleSatellite.viewportCopyright("key-test",
+      { session: "session-test", expiry: Date.now() / 1000 + 3600 },
+      { north: 40.95, south: 40.52, east: -73.7, west: -74.3 }, 12);
+    expect(copyright).toBe("Map data ©2026");
+    const url = new URL(fetch.mock.calls[0][0]);
+    expect(url.pathname).toBe("/tile/v1/viewport");
+    expect(url.searchParams.get("west")).toBe("-74.3");
   });
 });
 

@@ -1,9 +1,12 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
+import { decodeTerrainRGB, repairIsolatedTerrainSpikes, smoothNearSeaLevel, TERRAIN_REPAIR_VERSION } from "./TerrainRGBDecode.js";
+import { TerrainRGBDecodePool } from "./TerrainRGBDecodePool.js";
 
 export interface ElevationGrid {
     data: ArrayLike<number>;
     width: number;
     height: number;
+    repairVersion?: number;
 }
 export type ElevationLoader = (
     coordinates: Vector3,
@@ -15,10 +18,12 @@ export interface TerrainRGBOptions {
     maxZoom?: number;
     cacheSize?: number;
 }
+type PendingGrid = { promise: Promise<ElevationGrid>; controller: AbortController; users: number };
 /** Numeric DEM streaming, including negative ocean depths. No GPU readback. */
 export default class TerrainRGB {
     private cache = new Map<string, ElevationGrid>();
-    private pending = new Map<string, Promise<ElevationGrid>>();
+    private cropped = new Map<string, ElevationGrid>();
+    private pending = new Map<string, PendingGrid>();
     private url: string;
     private encoding: "terrarium" | "mapbox";
     private maxZoom: number;
@@ -43,19 +48,14 @@ export default class TerrainRGB {
         pixels: ArrayLike<number>,
         encoding: "terrarium" | "mapbox",
     ): Float32Array {
-        if (pixels.length % 4) throw new RangeError("Expected RGBA pixels");
-        const heights = new Float32Array(pixels.length / 4);
-        for (let i = 0; i < heights.length; i++) {
-            const r = pixels[i * 4],
-                g = pixels[i * 4 + 1],
-                b = pixels[i * 4 + 2];
-            heights[i] =
-                encoding === "terrarium"
-                    ? r * 256 + g + b / 256 - 32768
-                    : -10000 + (r * 65536 + g * 256 + b) * 0.1;
-        }
-        return heights;
+        return decodeTerrainRGB(pixels, encoding);
     }
+    /** Remove single-pixel DEM pits/ridges without flattening broad terrain or bathymetry. */
+    public static repairIsolatedSpikes(grid: ElevationGrid, sourceZoom: number): ElevationGrid {
+        const repaired = repairIsolatedTerrainSpikes(grid.data, grid.width, grid.height, sourceZoom);
+        return repaired ? { data: repaired, width: grid.width, height: grid.height } : grid;
+    }
+    public static smoothNearSeaLevel = smoothNearSeaLevel;
     /** Resample a child of an overzoomed source without losing its geographic bounds. */
     public static crop(
         grid: ElevationGrid,
@@ -94,6 +94,15 @@ export default class TerrainRGB {
         return { data, width: size, height: size };
     }
     public load: ElevationLoader = async (coords, signal) => {
+        signal.throwIfAborted();
+        const childKey = `${coords.z}/${coords.x}/${coords.y}`;
+        const reused = this.cropped.get(childKey);
+        if (reused?.repairVersion === TERRAIN_REPAIR_VERSION) {
+            this.cropped.delete(childKey);
+            this.cropped.set(childKey, reused);
+            return reused;
+        }
+        if (reused) this.cropped.delete(childKey);
         const z = Math.min(coords.z, this.maxZoom),
             factor = 2 ** (coords.z - z),
             n = 2 ** z;
@@ -105,42 +114,93 @@ export default class TerrainRGB {
             .replace("{y}", String(y));
         signal.throwIfAborted();
         let grid = this.cache.get(url);
+        if (grid && grid.repairVersion !== TERRAIN_REPAIR_VERSION) {
+            this.cache.delete(url);
+            grid = undefined;
+        }
         if (!grid) {
             let pending = this.pending.get(url);
-            if (!pending) {
+            if (!pending || pending.controller.signal.aborted) {
                 // Overzoomed children share one decoded source. A moving caller must
                 // not abort the same request still needed by its neighbours.
-                pending = this.fetchGrid(url).then(grid => {
-                    this.cache.set(url, grid);
-                    while (this.cache.size > this.cacheSize) this.cache.delete(this.cache.keys().next().value!);
+                const controller = new AbortController();
+                let entry!: PendingGrid;
+                const promise = this.fetchGrid(url, z, controller.signal).then(grid => {
+                    if (!controller.signal.aborted) {
+                        this.cache.set(url, grid);
+                        while (this.cache.size > this.cacheSize) this.cache.delete(this.cache.keys().next().value!);
+                    }
                     return grid;
-                }).finally(() => this.pending.delete(url));
+                }).finally(() => {
+                    if (this.pending.get(url) === entry) this.pending.delete(url);
+                });
+                pending = entry = { controller, users: 0, promise };
                 this.pending.set(url, pending);
             }
-            grid = await pending;
+            const entry = pending;
+            entry.users++;
+            let released = false;
+            const release = () => {
+                if (released) return;
+                released = true;
+                entry.users--;
+                if (entry.users === 0 && this.pending.get(url) === entry) entry.controller.abort();
+            };
+            signal.addEventListener("abort", release, { once: true });
+            try { grid = await entry.promise; }
+            finally { signal.removeEventListener("abort", release); release(); }
         }
         signal.throwIfAborted();
         this.cache.delete(url);
         this.cache.set(url, grid);
         while (this.cache.size > this.cacheSize)
             this.cache.delete(this.cache.keys().next().value!);
-        return TerrainRGB.crop(grid, coords, z);
+        const cropped = { ...TerrainRGB.crop(grid, coords, z), repairVersion: TERRAIN_REPAIR_VERSION };
+        if (this.cacheSize) {
+            this.cropped.set(childKey, cropped);
+            while (this.cropped.size > this.cacheSize * 8)
+                this.cropped.delete(this.cropped.keys().next().value!);
+        }
+        return cropped;
     };
-    private async fetchGrid(url: string): Promise<ElevationGrid> {
-        const response = await fetch(url);
+    private async fetchGrid(url: string, sourceZoom: number, signal: AbortSignal): Promise<ElevationGrid> {
+        const response = await fetch(url, { signal });
         if (!response.ok) throw new Error(`Elevation HTTP ${response.status}`);
-        const bitmap = await createImageBitmap(await response.blob(), {
+        const blob = await response.blob();
+        signal.throwIfAborted();
+        const workers = TerrainRGBDecodePool.get();
+        if (workers) try {
+            const grid = await workers.decode(blob, this.encoding, sourceZoom);
+            signal.throwIfAborted();
+            // A worker survives hot updates. Trust its repair only when it
+            // reports the current decoder version; stale workers can miss
+            // moderate coastal spikes without extreme min/max values.
+            const checked = grid.repairVersion === TERRAIN_REPAIR_VERSION
+                ? grid : TerrainRGB.repairIsolatedSpikes(grid, sourceZoom);
+            const smoothed = smoothNearSeaLevel(checked.data, sourceZoom);
+            return { ...checked, data: smoothed ?? checked.data, repairVersion: TERRAIN_REPAIR_VERSION };
+        } catch {
+            signal.throwIfAborted();
+            /* Unsupported workers use the same main-thread decoder. */
+        }
+        const bitmap = await createImageBitmap(blob, {
             colorSpaceConversion: "none", premultiplyAlpha: "none",
         });
         try {
             const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
             const context = canvas.getContext("2d")!;
             context.drawImage(bitmap, 0, 0);
-            return { data: TerrainRGB.decode(context.getImageData(0, 0, bitmap.width, bitmap.height).data, this.encoding),
-                width: bitmap.width, height: bitmap.height };
+            const grid = TerrainRGB.repairIsolatedSpikes({
+                data: TerrainRGB.decode(context.getImageData(0, 0, bitmap.width, bitmap.height).data, this.encoding),
+                width: bitmap.width, height: bitmap.height,
+            }, sourceZoom);
+            const smoothed = smoothNearSeaLevel(grid.data, sourceZoom);
+            signal.throwIfAborted();
+            return { ...grid, data: smoothed ?? grid.data, repairVersion: TERRAIN_REPAIR_VERSION };
         } finally { bitmap.close(); }
     }
     public clearCache(): void {
         this.cache.clear();
+        this.cropped.clear();
     }
 }

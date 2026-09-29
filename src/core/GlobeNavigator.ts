@@ -18,6 +18,7 @@ export interface GlobeNavigatorOptions {
     tilesAcrossViewport?: number;
     /** Minimum time between raster-grid changes while the camera is moving. */
     tileUpdateDelayMs?: number;
+    tileHysteresis?: number;
     /** Set false to use navigation without automatic raster updates. */
     autoUpdateRaster?: boolean;
 }
@@ -59,16 +60,18 @@ interface GlobeFlight {
  */
 export default class GlobeNavigator {
     public readonly onViewChangedObservable = new Observable<GlobeView>();
+    public readonly onBeforeRasterUpdateObservable = new Observable<GlobeView>();
 
     private readonly minZoom: number;
     private readonly maxZoom: number;
     private readonly tilesAcrossViewport: number;
     private readonly tileUpdateDelayMs: number;
+    private readonly tileHysteresis: number;
     private readonly autoUpdateRaster: boolean;
     private readonly renderObserver: Observer<Scene>;
 
     private flight?: GlobeFlight;
-    private lastRasterKey?: string;
+    private lastRasterTile?: { zoom: number; x: number; y: number };
     private lastRasterUpdate = Number.NEGATIVE_INFINITY;
     private lastViewSignature?: string;
     private lastSurfaceHeight = 0;
@@ -77,7 +80,7 @@ export default class GlobeNavigator {
     /** Track an alternate local camera without taking over its input. */
     public setViewSource(camera?: ArcRotateCamera): void {
         this.viewSource = camera;
-        this.lastRasterKey = undefined;
+        this.lastRasterTile = undefined;
         this.lastViewSignature = undefined;
     }
 
@@ -90,6 +93,7 @@ export default class GlobeNavigator {
         this.maxZoom = options.maxZoom ?? 18;
         this.tilesAcrossViewport = options.tilesAcrossViewport ?? 4;
         this.tileUpdateDelayMs = options.tileUpdateDelayMs ?? 150;
+        this.tileHysteresis = options.tileHysteresis ?? 0;
         this.autoUpdateRaster = options.autoUpdateRaster ?? true;
 
         if (!Number.isInteger(this.minZoom) || this.minZoom < 0) {
@@ -103,6 +107,9 @@ export default class GlobeNavigator {
         }
         if (!Number.isFinite(this.tileUpdateDelayMs) || this.tileUpdateDelayMs < 0) {
             throw new RangeError("tileUpdateDelayMs must be zero or greater.");
+        }
+        if (!Number.isInteger(this.tileHysteresis) || this.tileHysteresis < 0) {
+            throw new RangeError("tileHysteresis must be a non-negative integer.");
         }
 
         const minimumAltitude = this.getAltitudeForZoom(this.maxZoom);
@@ -256,15 +263,21 @@ export default class GlobeNavigator {
         );
         const tileX = this.globe.ourTileMath.lon_to_tile(view.longitude, view.zoom);
         const tileY = this.globe.ourTileMath.lat_to_tile(rasterLatitude, view.zoom);
-        const rasterKey = `${view.zoom}/${tileX}/${tileY}`;
+        const previous = this.lastRasterTile;
+        const wrap = 2 ** view.zoom;
+        const deltaX = previous ? Math.abs(tileX - previous.x) : Infinity;
+        const withinWindow = previous?.zoom === view.zoom
+            && Math.min(deltaX, wrap - deltaX) <= this.tileHysteresis
+            && Math.abs(tileY - previous.y) <= this.tileHysteresis;
         const now = Date.now();
 
         if (
-            (forceRasterUpdate || rasterKey !== this.lastRasterKey)
+            (forceRasterUpdate || !withinWindow)
             && (forceRasterUpdate || now - this.lastRasterUpdate >= this.tileUpdateDelayMs)
         ) {
+            this.onBeforeRasterUpdateObservable.notifyObservers(view);
             this.globe.updateRaster(rasterLatitude, view.longitude, view.zoom);
-            this.lastRasterKey = rasterKey;
+            this.lastRasterTile = { zoom: view.zoom, x: tileX, y: tileY };
             this.lastRasterUpdate = now;
         }
 
@@ -299,6 +312,7 @@ export default class GlobeNavigator {
     public dispose(): void {
         this.globe.scene.onBeforeRenderObservable.remove(this.renderObserver);
         this.onViewChangedObservable.clear();
+        this.onBeforeRasterUpdateObservable.clear();
         this.flight = undefined;
     }
 

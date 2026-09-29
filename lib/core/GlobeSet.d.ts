@@ -1,8 +1,11 @@
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
+import type { Plane } from "@babylonjs/core/Maths/math.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import Tile from "./Tile.js";
+import type { TileRequest } from "./TileSet.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import GlobeTileMath from "./GlobeTileMath.js";
 import TileSet from "./TileSet.js";
 export interface GlobeSetOptions {
@@ -45,8 +48,18 @@ export default class GlobeSet extends TileSet {
     private originalElevations;
     private geometryBudgetMs;
     private geometryQueue;
+    private geometryBounds;
+    private getGeographicTileBounds;
+    protected getRasterRequestPriority(request: TileRequest, camera: Camera, planes: Plane[]): {
+        visible: boolean;
+        distance: number;
+    };
+    private terrainDisplayZoom;
     get pendingGeometryCount(): number;
     isTileGeometryReady(tile: Tile): boolean;
+    isTileDisplayReady(tile: Tile): boolean;
+    /** Hold a raster patch behind existing coarser coverage until its DEM arrives. */
+    setTerrainDisplayRequirement(enabled: boolean, minimumZoom?: number): void;
     private flushGeometry;
     /** Metres of elevation per world unit use a fixed spherical Earth radius. */
     get metresToWorld(): number;

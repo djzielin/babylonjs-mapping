@@ -1,5 +1,6 @@
 import { debugLog } from "../shared/Diagnostics.js";
 import { Scene } from "@babylonjs/core/scene.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Color3 } from "@babylonjs/core/Maths/math.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
@@ -153,6 +154,7 @@ export default abstract class Buildings {
     public buildingMeshTransform?: (mesh: Mesh) => void;
     /** Reject a generated footprint before it is registered or merged. */
     public buildingMeshFilter?: (mesh: Mesh) => boolean;
+    public onBuildingCreated(_mesh: Mesh): void {}
     /** Reject unwanted source features before allocating or triangulating meshes. */
     public buildingFeatureFilter?: (feature: GeoJSON.feature, tile: Tile, projection: EPSG_Type | undefined) => boolean;
     public retrievalType: RetrievalType = RetrievalType.IndividualTiles;
@@ -233,9 +235,9 @@ export default abstract class Buildings {
 
     /** Applies the current material optimization setting. */
     public applyOptimizationOptions(): void {
-        if (this.optimizationOptions.freezeMaterials) {
+        if (this.optimizationOptions.freezeMaterials && !this.buildingMaterial.isFrozen) {
             this.buildingMaterial.freeze();
-        } else {
+        } else if (!this.optimizationOptions.freezeMaterials && this.buildingMaterial.isFrozen) {
             this.buildingMaterial.unfreeze();
         }
     }
@@ -597,6 +599,8 @@ export default abstract class Buildings {
 
     private priorityTile?: Tile;
     private priorityTileUntil = 0;
+    private priorityCamera?: Camera;
+    private priorityCameraRevision = -1;
     private selectBuildingRequestIndex(): number | undefined {
         if (this.buildingRequests.length === 0) {
             return undefined;
@@ -619,6 +623,14 @@ export default abstract class Buildings {
             return undefined;
         }
 
+        const activeCamera = this.scene.activeCamera;
+        activeCamera?.getViewMatrix();
+        const revision = activeCamera?.getTransformationMatrix().updateFlag ?? -1;
+        if (activeCamera !== this.priorityCamera || revision !== this.priorityCameraRevision)
+            this.priorityTile = undefined;
+        this.priorityCamera = activeCamera ?? undefined;
+        this.priorityCameraRevision = revision;
+
         // Drain a short run from the nearest tile without rescanning every queued
         // city footprint for each individual extrusion. Reprioritize within 50 ms.
         if (this.priorityTile && performance.now() < this.priorityTileUntil) {
@@ -629,13 +641,13 @@ export default abstract class Buildings {
         this.priorityTile = undefined;
         const loadInProgress = this.buildingRequests.filter(request =>
             request.requestType === BuildingRequestType.LoadTile && request.inProgress).length >= this.loadConcurrency;
-        const activeCamera = this.scene.activeCamera;
         const pendingCreates = new Set<Tile>();
         for (const request of this.buildingRequests) {
             if (request.requestType === BuildingRequestType.CreateBuilding && !request.inProgress) pendingCreates.add(request.tile);
         }
         const considered = new Set<Tile>();
         let bestIndex: number | undefined;
+        let bestVisible = false;
         let bestDistance = Number.POSITIVE_INFINITY;
 
         for (let index = 0; index < this.buildingRequests.length; index++) {
@@ -655,15 +667,19 @@ export default abstract class Buildings {
             considered.add(request.tile);
 
             let distance = 0;
+            let visible = true;
             if (activeCamera) {
                 request.tile.mesh.computeWorldMatrix();
                 const center = request.tile.mesh.getBoundingInfo().boundingSphere.centerWorld;
                 distance = Vector3.DistanceSquared(center, activeCamera.globalPosition);
+                visible = activeCamera.isInFrustum(request.tile.mesh);
             }
 
-            // Strictly less-than preserves queue order when distances tie.
-            if (bestIndex === undefined || distance < bestDistance) {
+            // The immediate view wins; distance breaks ties within each class.
+            if (bestIndex === undefined || (visible && !bestVisible)
+                || (visible === bestVisible && distance < bestDistance)) {
                 bestIndex = index;
+                bestVisible = visible;
                 bestDistance = distance;
             }
         }
@@ -769,6 +785,7 @@ export default abstract class Buildings {
 
                 const allMeshes: Mesh[] = request.tile.getAllBuildingMeshes();
                 if (allMeshes.length > 1) {
+                    const sourceMaterial = allMeshes[0].material ?? this.buildingMaterial;
                     const merged = this.tileSet.isGlobe
                         ? mergeMeshesAtOrigin(allMeshes, request.tile.mesh.getAbsolutePosition())
                         : Mesh.MergeMeshes(allMeshes, true, true);
@@ -776,9 +793,17 @@ export default abstract class Buildings {
 
                     if (merged) {
                         merged.renderingGroupId = allMeshes[0].renderingGroupId;
+                        // MergeMeshes drops the shared material on some Babylon
+                        // versions. Preserve the source appearance and let frozen
+                        // merged tiles participate in WebGPU draw snapshots.
+                        merged.material = sourceMaterial;
                         merged.setParent(request.tile.mesh);
                         merged.name = "all_buildings_merged";
                         this.applyBuildingMeshOptions(merged);
+                        // MergeMeshes may create a new material even when the
+                        // source material was already frozen.
+                        if (this.optimizationOptions.freezeMaterials && merged.material && !merged.material.isFrozen)
+                            merged.material.freeze();
 
                         request.tile.mergedBuildingMesh = merged;
                     } else {

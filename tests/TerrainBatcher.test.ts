@@ -1,8 +1,24 @@
 import { describe, it, expect } from "vitest";
 import { NullEngine, Scene, MeshBuilder, VertexBuffer, Vector3, StandardMaterial, RawTexture, FreeCamera } from "@babylonjs/core";
-import { terrainBatchGeometry, TerrainBatcher } from "../examples-npm/globe-mode/src/TerrainBatcher";
+import { defaultPixelShader } from "@babylonjs/core/Shaders/default.fragment";
+import { defaultPixelShaderWGSL } from "@babylonjs/core/ShadersWGSL/default.fragment";
+import { terrainBatchGeometry, TerrainBatcher, WEBGL_TILE_DIFFUSE_SAMPLE,
+    WEBGPU_TILE_DIFFUSE_SAMPLE, WEBGPU_TILE_ARRAY_SAMPLE } from "../examples-npm/globe-mode/src/TerrainBatcher";
 
 describe("lossless terrain batching", () => {
+    it("replaces Babylon's current diffuse lookup with the correct texture-array layer", () => {
+        const sample = new RegExp(WEBGL_TILE_DIFFUSE_SAMPLE.slice(1), "g");
+        const shader = defaultPixelShader.shader;
+        expect([...shader.matchAll(sample)]).toHaveLength(1);
+        expect(shader.replace(sample, "texture(tileTextures, vec3(vDiffuseUV + uvOffset, vTileLayer))"))
+            .toContain("baseColor=texture(tileTextures, vec3(vDiffuseUV + uvOffset, vTileLayer))");
+    });
+    it("rounds interpolated WebGPU layer IDs before selecting the raster image", () => {
+        const sample = new RegExp(WEBGPU_TILE_DIFFUSE_SAMPLE.slice(1), "g");
+        const shader = defaultPixelShaderWGSL.shader;
+        expect([...shader.matchAll(sample)]).toHaveLength(1);
+        expect(shader.replace(sample, WEBGPU_TILE_ARRAY_SAMPLE)).toContain("i32(round(fragmentInputs.vTileLayer))");
+    });
     it("retains world positions, normals, UVs, colors and triangles in a local origin", () => {
         const engine = new NullEngine({ renderWidth: 32, renderHeight: 32, textureSize: 32, deterministicLockstep: false, lockstepMaxSteps: 4, useHighPrecisionMatrix: true });
         const scene = new Scene(engine);
@@ -51,9 +67,10 @@ describe("lossless terrain batching", () => {
         const material = new StandardMaterial("derived", scene);
         const texture = RawTexture.CreateRGBATexture(new Uint8Array(16), 2, 2, scene);
         batcher.batches.push({ mesh: derived, material, texture, sources: [batcher.snapshot(source)] });
-        batcher.owned.add(source); source.visibility = 0;
+        batcher.owned.add(source); source.isVisible = false;
         engine.onContextLostObservable.notifyObservers(engine);
         expect(source.visibility).toBe(1);
+        expect(source.isVisible).toBe(true);
         expect(source.isDisposed()).toBe(false);
         expect(derived.isDisposed()).toBe(true);
         expect(batcher.owned.size).toBe(0);
@@ -72,16 +89,19 @@ describe("lossless terrain batching", () => {
         sourceMaterial.diffuseTexture = originalTexture; source.material = sourceMaterial;
         const batcher = new TerrainBatcher(scene, () => [], () => {}) as any;
         expect(() => batcher.update()).not.toThrow();
+        batcher.enabled = true;
         const derived = source.clone("derived")!;
         const material = new StandardMaterial("derived", scene);
         const texture = RawTexture.CreateRGBATexture(new Uint8Array(16), 2, 2, scene);
         batcher.batches.push({ mesh: derived, material, texture, sources: [batcher.snapshot(source)] });
-        batcher.owned.add(source); source.visibility = 0;
+        batcher.owned.add(source); source.isVisible = false;
         scene.updateTransformMatrix(); batcher.update();
         expect(derived.isDisposed()).toBe(false);
+        expect(source.isVisible).toBe(false);
         camera.setTarget(new Vector3(0, 0, -10)); scene.updateTransformMatrix(); batcher.update();
         expect(derived.isDisposed()).toBe(true);
         expect(source.visibility).toBe(1);
+        expect(source.isVisible).toBe(true);
         expect(source.isDisposed()).toBe(false);
         expect(sourceMaterial.diffuseTexture).toBe(originalTexture);
         expect(originalTexture.getInternalTexture()).not.toBeNull();
