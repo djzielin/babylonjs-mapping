@@ -725,6 +725,17 @@ describe("terrain encodings and overzoom", () => {
         expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 13).data[25 * 64 + 25]).toBe(71);
         expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 10).data[25 * 64 + 25]).toBe(71);
         expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 15).data[25 * 64 + 25]).toBe(71);
+        const maskedOutlier = new Float32Array(64 * 64).fill(20);
+        maskedOutlier[32 * 64 + 32] = 51;
+        maskedOutlier[31 * 64 + 32] = 49;
+        maskedOutlier[33 * 64 + 32] = 47;
+        maskedOutlier[32 * 64 + 31] = 174;
+        maskedOutlier[32 * 64 + 33] = 104;
+        const repairedOutliers = TerrainRGB.repairIsolatedSpikes({
+            data: maskedOutlier, width: 64, height: 64,
+        }, 12).data;
+        expect(repairedOutliers[32 * 64 + 32]).toBe(20);
+        expect(repairedOutliers[32 * 64 + 31]).toBe(20);
         const regionalCoastalIsland = new Float32Array(64 * 64).fill(0);
         for (let y = 22; y < 37; y++) for (let x = 20; x < 30; x++)
             regionalCoastalIsland[y * 64 + x] = 84;
