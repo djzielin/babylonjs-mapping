@@ -97,11 +97,12 @@ export default class TerrainRGB {
         signal.throwIfAborted();
         const childKey = `${coords.z}/${coords.x}/${coords.y}`;
         const reused = this.cropped.get(childKey);
-        if (reused) {
+        if (reused?.repairVersion === TERRAIN_REPAIR_VERSION) {
             this.cropped.delete(childKey);
             this.cropped.set(childKey, reused);
             return reused;
         }
+        if (reused) this.cropped.delete(childKey);
         const z = Math.min(coords.z, this.maxZoom),
             factor = 2 ** (coords.z - z),
             n = 2 ** z;
@@ -113,6 +114,10 @@ export default class TerrainRGB {
             .replace("{y}", String(y));
         signal.throwIfAborted();
         let grid = this.cache.get(url);
+        if (grid && grid.repairVersion !== TERRAIN_REPAIR_VERSION) {
+            this.cache.delete(url);
+            grid = undefined;
+        }
         if (!grid) {
             let pending = this.pending.get(url);
             if (!pending || pending.controller.signal.aborted) {
@@ -150,7 +155,7 @@ export default class TerrainRGB {
         this.cache.set(url, grid);
         while (this.cache.size > this.cacheSize)
             this.cache.delete(this.cache.keys().next().value!);
-        const cropped = TerrainRGB.crop(grid, coords, z);
+        const cropped = { ...TerrainRGB.crop(grid, coords, z), repairVersion: TERRAIN_REPAIR_VERSION };
         if (this.cacheSize) {
             this.cropped.set(childKey, cropped);
             while (this.cropped.size > this.cacheSize * 8)
@@ -173,7 +178,7 @@ export default class TerrainRGB {
             const checked = grid.repairVersion === TERRAIN_REPAIR_VERSION
                 ? grid : TerrainRGB.repairIsolatedSpikes(grid, sourceZoom);
             const smoothed = smoothNearSeaLevel(checked.data, sourceZoom);
-            return smoothed ? { ...checked, data: smoothed } : checked;
+            return { ...checked, data: smoothed ?? checked.data, repairVersion: TERRAIN_REPAIR_VERSION };
         } catch {
             signal.throwIfAborted();
             /* Unsupported workers use the same main-thread decoder. */
@@ -191,7 +196,7 @@ export default class TerrainRGB {
             }, sourceZoom);
             const smoothed = smoothNearSeaLevel(grid.data, sourceZoom);
             signal.throwIfAborted();
-            return smoothed ? { ...grid, data: smoothed } : grid;
+            return { ...grid, data: smoothed ?? grid.data, repairVersion: TERRAIN_REPAIR_VERSION };
         } finally { bitmap.close(); }
     }
     public clearCache(): void {

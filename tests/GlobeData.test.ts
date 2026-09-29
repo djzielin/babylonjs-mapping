@@ -12,6 +12,7 @@ import GlobeSet from "../src/core/GlobeSet";
 import GlobeNavigator from "../src/core/GlobeNavigator";
 import GlobeDataController from "../src/core/GlobeDataController";
 import TerrainRGB, { type ElevationGrid } from "../src/terrain/TerrainRGB";
+import { TERRAIN_REPAIR_VERSION } from "../src/terrain/TerrainRGBDecode";
 import BuildingsOSM from "../src/buildings/BuildingsOSM";
 import { GeoJSON, type feature } from "../src/buildings/GeoJSON";
 import { EPSG_Type } from "../src/core/TileMath";
@@ -791,7 +792,7 @@ it("coalesces overzoom DEM requests without one caller cancelling its neighbours
     const first = terrain.load(new Vector3(0, 0, 1), cancelled.signal);
     const second = terrain.load(new Vector3(1, 0, 1), new AbortController().signal);
     cancelled.abort();
-    resolve({ data: [0, 1, 2, 3], width: 2, height: 2 });
+    resolve({ data: [0, 1, 2, 3], width: 2, height: 2, repairVersion: TERRAIN_REPAIR_VERSION });
     await expect(first).rejects.toThrow();
     const child = await second;
     expect(child.data[0]).toBe(1);

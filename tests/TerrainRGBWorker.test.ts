@@ -2,6 +2,7 @@ import { expect, it, vi } from "vitest";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import TerrainRGB from "../src/terrain/TerrainRGB.js";
 import { TerrainRGBDecodePool } from "../src/terrain/TerrainRGBDecodePool.js";
+import { TERRAIN_REPAIR_VERSION } from "../src/terrain/TerrainRGBDecode.js";
 
 it("decodes signed terrain pixels in a worker and transfers the exact height grid", async () => {
     const postMessage = vi.fn();
@@ -18,7 +19,7 @@ it("decodes signed terrain pixels in a worker and transfers the exact height gri
         const [grid, options] = postMessage.mock.lastCall!;
         expect(Array.from(grid.data)).toEqual([0, -1]);
         expect([grid.width, grid.height]).toEqual([2, 1]);
-        expect(grid.repairVersion).toBe(4);
+        expect(grid.repairVersion).toBe(TERRAIN_REPAIR_VERSION);
         expect(options.transfer).toEqual([grid.data.buffer]);
         expect(close).toHaveBeenCalledOnce();
     } finally {
@@ -109,6 +110,23 @@ it("repairs a moderate regional ridge returned by a stale worker", async () => {
         worker.mockRestore();
         vi.unstubAllGlobals();
     }
+});
+
+it("refetches terrain when cached grids use an older repair version", async () => {
+    const terrain = new TerrainRGB({ maxZoom: 14 });
+    const stale = { data: new Float32Array(4).fill(59), width: 2, height: 2,
+        repairVersion: TERRAIN_REPAIR_VERSION - 1 };
+    const source = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/14/0/0.png";
+    (terrain as any).cache.set(source, stale);
+    (terrain as any).cropped.set("14/0/0", stale);
+    const fetchGrid = vi.spyOn(terrain as any, "fetchGrid").mockResolvedValue({
+        data: new Float32Array(4).fill(2), width: 2, height: 2,
+        repairVersion: TERRAIN_REPAIR_VERSION,
+    });
+    const grid = await terrain.load(new Vector3(0, 0, 14), new AbortController().signal);
+    expect(fetchGrid).toHaveBeenCalledOnce();
+    expect(Array.from(grid.data)).toEqual(new Array(9).fill(2));
+    expect(grid.repairVersion).toBe(TERRAIN_REPAIR_VERSION);
 });
 
 it("aborts a shared DEM fetch only after every moving tile releases it", async () => {
