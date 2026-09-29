@@ -1115,6 +1115,26 @@ it.each(["parent.glb", "child.glb"])("keeps cached %s hidden while its replaceme
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
+it("does not reactivate a cached Google model from an obsolete camera pass", async () => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet, { apiKey: "test" }) as any;
+  const origin = provider.getOrigin();
+  const selection = { url: "cached.glb", depth: 1, ancestors: [], refine: "REPLACE" };
+  const root = new TransformNode("cached", scene);
+  root.setEnabled(false);
+  provider.retainedTiles.set(selection.url, { url: selection.url, root,
+    asset: new AssetContainer(scene), attributions: [] });
+  provider.loadedSelections.set(selection.url, selection);
+  const oldGeneration = provider.generation;
+  provider.generation++;
+  try {
+    expect(await provider.loadTile(selection, origin, oldGeneration)).toBeUndefined();
+    expect(root.isEnabled()).toBe(false);
+    expect(provider.retainedTiles.has(selection.url)).toBe(true);
+    expect(provider.loadedTiles.has(selection.url)).toBe(false);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("does not promote a cached parent after its finer child becomes resident during selection", async () => {
   const { engine, scene, tileSet } = createTileSet();
   const provider = new Google3DTiles(tileSet, { apiKey: "test", maximumScreenSpaceError: 1,

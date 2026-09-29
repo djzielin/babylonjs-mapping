@@ -2021,7 +2021,8 @@ export default class Google3DTiles {
     }
 
     private loadTile(selection: TileSelection, origin: Google3DTilesOrigin, generation: number, activate = true): Promise<LoadedGoogle3DTile | undefined> {
-        if (generation === this.generation && this.unusableModelURLs.has(selection.url)) return Promise.resolve(undefined);
+        if (generation !== this.generation) return Promise.resolve(undefined);
+        if (this.unusableModelURLs.has(selection.url)) return Promise.resolve(undefined);
         const existing = this.pendingModels.get(selection.url);
         if (existing?.generation === generation) return existing.request;
         if (existing) {
