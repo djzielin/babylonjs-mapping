@@ -1280,13 +1280,15 @@ class GlobeDemo {
         if (key && this.googleTurnPending && !this.googleLoading && !this.googleTimer && this.googleTiles) {
             this.googleTurnPending = false;
             const quality = this.googleTiles.measureVisibleQuality();
-            if (!quality.visibleTiles || quality.underDetailedTiles || quality.missingVisibleTiles) force = true;
+            const ground = this.googleTiles.sampleVisibleSurfaceCoverage();
+            if (!quality.visibleTiles || quality.underDetailedTiles || quality.missingVisibleTiles || ground.missing) force = true;
         }
         if (key && this.googleTurnPending && this.googleLoading && !this.googleTimer
             && this.googleTiles?.tileset && !this.googleTiles.selectingFrontier
             && performance.now() - this.googlePassStartedAt >= 100) {
             const quality = this.googleTiles.measureVisibleQuality();
-            if (!quality.visibleTiles || quality.underDetailedTiles || quality.missingVisibleTiles) {
+            const ground = this.googleTiles.sampleVisibleSurfaceCoverage();
+            if (!quality.visibleTiles || quality.underDetailedTiles || quality.missingVisibleTiles || ground.missing) {
                 this.googleTiles.cancelPendingLoad(true);
                 this.googleTurnPending = false;
                 this.canvas.dataset.googleTurnPreemptions = String(
