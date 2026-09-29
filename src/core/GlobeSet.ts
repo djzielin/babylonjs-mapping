@@ -4,7 +4,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
-import { Color3, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Color3, Frustum, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Scene } from "@babylonjs/core/scene.js";
 
 import Tile from "./Tile.js";
@@ -63,6 +63,7 @@ export default class GlobeSet extends TileSet {
     private originalElevations = new WeakMap<Tile, { key: string; heights: number[] }>();
     private geometryBudgetMs = Infinity;
     private geometryQueue: Tile[] = [];
+    private geometryBounds = new WeakMap<Tile, { key: string; center: Vector3; radius: number }>();
     private terrainDisplayZoom = Infinity;
     public get pendingGeometryCount(): number {
         return this.geometryQueue.length;
@@ -88,12 +89,43 @@ export default class GlobeSet extends TileSet {
     }
     private flushGeometry(): void {
         const deadline = performance.now() + this.geometryBudgetMs;
+        const camera = Number.isFinite(this.geometryBudgetMs) ? this.scene.activeCamera : null;
+        camera?.getViewMatrix();
+        const planes = camera ? Frustum.GetPlanes(camera.getTransformationMatrix()) : null;
+        const eye = camera?.globalPosition;
         let processed = 0;
         while (
             this.geometryQueue.length &&
             (processed === 0 || performance.now() < deadline)
         ) {
-            const tile = this.geometryQueue.shift()!;
+            let nextIndex = 0;
+            if (planes && eye) {
+                let bestVisible = false;
+                let bestDistance = Infinity;
+                for (let i = 0; i < this.geometryQueue.length; i++) {
+                    const candidate = this.geometryQueue[i];
+                    if (candidate.mesh.isDisposed()) continue;
+                    const key = `${candidate.tileCoords}/${this.radius}`;
+                    let bounds = this.geometryBounds.get(candidate);
+                    if (bounds?.key !== key) {
+                        const center = this.getTileSurfacePosition(candidate.tileCoords);
+                        const radius = Math.max(
+                            Vector3.Distance(center, this.getTileSurfacePosition(candidate.tileCoords, 0, 0)),
+                            Vector3.Distance(center, this.getTileSurfacePosition(candidate.tileCoords, 1, 1)),
+                        );
+                        bounds = { key, center, radius };
+                        this.geometryBounds.set(candidate, bounds);
+                    }
+                    const visible = planes.every(plane => plane.dotCoordinate(bounds.center) >= -bounds.radius);
+                    const distance = Math.max(0, Vector3.Distance(eye, bounds.center) - bounds.radius);
+                    if ((visible && !bestVisible) || (visible === bestVisible && distance < bestDistance)) {
+                        nextIndex = i;
+                        bestVisible = visible;
+                        bestDistance = distance;
+                    }
+                }
+            }
+            const tile = this.geometryQueue.splice(nextIndex, 1)[0];
             if (tile.mesh.isDisposed()) continue;
             this.updateTileGeometry(tile);
             this.updateEdgeFade(tile);

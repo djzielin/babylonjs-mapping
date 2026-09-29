@@ -45,6 +45,7 @@ export default class GlobeSet extends TileSet {
     private originalElevations;
     private geometryBudgetMs;
     private geometryQueue;
+    private geometryBounds;
     private terrainDisplayZoom;
     get pendingGeometryCount(): number;
     isTileGeometryReady(tile: Tile): boolean;

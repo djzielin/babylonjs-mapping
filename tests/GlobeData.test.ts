@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
     ArcRotateCamera,
+    FreeCamera,
     NullEngine,
     MeshBuilder,
     Scene,
@@ -406,6 +407,39 @@ describe("seafloor navigation",()=>{
 });
 
 describe("bounded detail streaming", () => {
+    it("builds the patch in the current view before off-screen grid patches", () => {
+        const { scene, dispose } = setup();
+        let time = 0;
+        const clock = vi.spyOn(performance, "now").mockImplementation(() => (time += 3));
+        const globe = new GlobeSet(scene, scene.getEngine() as any, {
+            backingSurface: false,
+            geometryBudgetMs: 1,
+        });
+        globe.createGeometry(new Vector2(3, 3), 20, 8);
+        const target = globe.getSurfacePosition(35, -79);
+        const camera = new FreeCamera("view", target.scale(1.02), scene);
+        camera.setTarget(target);
+        camera.fov = 0.1;
+        scene.activeCamera = camera;
+
+        globe.updateRaster(35, -79, 15);
+        const ready = globe.ourTiles.filter(tile => globe.isTileGeometryReady(tile));
+        expect(ready).toHaveLength(1);
+        const nearest = [...globe.ourTiles].sort((a, b) =>
+            Vector3.DistanceSquared(globe.getTileSurfacePosition(a.tileCoords), target) -
+            Vector3.DistanceSquared(globe.getTileSurfacePosition(b.tileCoords), target))[0];
+        expect(ready[0].tileCoords.toString()).toBe(nearest.tileCoords.toString());
+
+        const turnedTile = globe.ourTiles.at(-1)!;
+        const turnedTarget = globe.getTileSurfacePosition(turnedTile.tileCoords);
+        camera.position.copyFrom(turnedTarget.scale(1.02));
+        camera.setTarget(turnedTarget);
+        (globe as any).flushGeometry();
+        expect(globe.isTileGeometryReady(turnedTile)).toBe(true);
+        clock.mockRestore();
+        dispose();
+    });
+
     it("spreads patch generation across budgets and exposes readiness to loaders", () => {
         const { scene, dispose } = setup();
         let time = 0;
