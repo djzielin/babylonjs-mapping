@@ -45,10 +45,11 @@ describe("globe distance LOD", () => {
             expect(plans.map(p => p.group)).toEqual([1, 2, 3, 4, 5]);
         }
     });
-    it("keeps the moving NYC 15-mile disk inside the Google-mode regional tier", () => {
-        const plan = globeLODPlan(17, true)[1];
-        expect(plan.zoom).toBe(12);
-        expect(plan.size).toBe(10);
+    it.each([17, 18])("keeps the moving NYC 15-mile disk inside the Google-mode regional tier at zoom %s", zoom => {
+        const plan = globeLODPlan(zoom, true)[1];
+        expect(plan.zoom).toBe(13);
+        expect(plan.size).toBe(18);
+        expect(plan.precision).toBe(16);
         for (const movedMiles of [0, 10, 20]) {
             const center = destination(40.7484, -73.9857, 90, movedMiles);
             const c = tile(center.lat, center.lon, plan.zoom);
@@ -59,8 +60,16 @@ describe("globe distance LOD", () => {
                 expect(Math.abs(e.y - c.y)).toBeLessThan(plan.size / 2 - 1);
             }
         }
-        const plans = globeLODPlan(17, true);
+        const plans = globeLODPlan(zoom, true);
+        expect(plans[2].zoom - plans[1].zoom).toBe(1);
+        expect(plans.reduce((tiles, tier) => tiles + tier.size ** 2, 25)).toBeLessThanOrEqual(1400);
         const vertices = plans.reduce((total, p) => total + p.size ** 2 * (p.precision + 1) ** 2, 0);
         expect(vertices).toBeLessThan(800000);
+    });
+    it("keeps regional mesh spacing stable while adding the missing imagery zoom", () => {
+        const previous = globeLODPlan(16, true)[1];
+        const street = globeLODPlan(17, true)[1];
+        expect(previous).toMatchObject({ zoom: 12, size: 10, precision: 32 });
+        expect(2 ** -street.zoom / street.precision).toBe(2 ** -previous.zoom / previous.precision);
     });
 });

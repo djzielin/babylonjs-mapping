@@ -1504,9 +1504,8 @@ class GlobeDemo {
             const previous = layer.key.split("/").map(Number);
             const deltaX = Math.abs(tileX - previous[1]);
             const wrap = 2 ** plan.zoom;
-            // The ten-tile regional window has one tile of radius margin at
-            // NYC. Recenter it on every tile crossing so Shift movement never
-            // lets the 15-mile disk drift beyond that window.
+            // Recenter the regional window on every tile crossing so Shift
+            // movement keeps the full 15-mile disk inside its ready coverage.
             const slack = detailed15MileRadius && plan.group === 2 ? 0 : 1;
             if (previous[0] === plan.zoom && Math.min(deltaX, wrap - deltaX) <= slack
                 && Math.abs(tileY - previous[2]) <= slack) return;
