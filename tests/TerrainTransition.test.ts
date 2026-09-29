@@ -39,7 +39,16 @@ it('retains independent terrain geometry until matching replacement imagery and 
  replacement.diffuseTexture=replacementTexture;
  transition.update(1300);expect(snapshot.isDisposed()).toBe(false);
  tile.mesh.setEnabled(true);
- transition.update(1600);expect(snapshot.isDisposed()).toBe(true);
+ tile.mesh.isVisible=false;
+ transition.update(1600);expect(snapshot.isDisposed()).toBe(false);
+ tile.mesh.isVisible=true;
+ tile.mesh.visibility=0;
+ transition.update(1900);expect(snapshot.isDisposed()).toBe(false);
+ tile.mesh.visibility=1;
+ const geometryReady=vi.spyOn(globe,'isTileGeometryReady').mockReturnValue(false);
+ transition.update(2200);expect(snapshot.isDisposed()).toBe(false);
+ geometryReady.mockRestore();
+ transition.update(2500);expect(snapshot.isDisposed()).toBe(true);
  expect(disposed).toHaveBeenCalledOnce();
  expect(tile.mesh.material).toBe(replacement);
  expect(replacementDisposed).not.toHaveBeenCalled();
