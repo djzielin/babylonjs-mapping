@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ArcRotateCamera, AssetContainer, Matrix, Mesh, NullEngine, RawTexture, Scene, TransformNode, Vector2, Vector3, VertexBuffer } from "@babylonjs/core";
+import { ArcRotateCamera, AssetContainer, Matrix, Mesh, NullEngine, RawTexture, Scene, SubMesh, TransformNode, Vector2, Vector3, VertexBuffer } from "@babylonjs/core";
 
 import Google3DTiles, {
   GOOGLE_3D_TILES_ROOT_URL,
@@ -94,6 +94,32 @@ it("removes deep coastal Google skirts while retaining the surface and building 
   mesh.position.y = 105;
   expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(0);
   expect(Array.from(mesh.getIndices()!)).toEqual(triangles);
+  scene.dispose(); engine.dispose();
+});
+
+it("filters coastal triangles in every material submesh without changing their materials", () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const mesh = new Mesh("coastal multi material", scene);
+  const positions = new Float32Array(32 * 3);
+  for (let i = 0; i < 32; i++) {
+    positions[i * 3] = i % 8;
+    positions[i * 3 + 1] = -5;
+  }
+  positions[28 * 3] = 90;
+  positions[29 * 3 + 1] = -55;
+  positions[30 * 3] = 100;
+  positions[31 * 3 + 1] = 35;
+  mesh.setVerticesData(VertexBuffer.PositionKind, positions);
+  mesh.setIndices([0, 1, 8, 0, 1, 28, 0, 1, 29, 0, 1, 30, 0, 1, 31]);
+  mesh.releaseSubMeshes();
+  new SubMesh(0, 0, 32, 0, 6, mesh);
+  new SubMesh(1, 0, 32, 6, 9, mesh);
+  mesh.position.y = 5;
+  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(3);
+  expect(Array.from(mesh.getIndices()!)).toEqual([0, 1, 8, 0, 1, 31]);
+  expect(mesh.subMeshes.map(subMesh => [subMesh.materialIndex, subMesh.indexStart, subMesh.indexCount]))
+    .toEqual([[0, 0, 3], [1, 3, 3]]);
   scene.dispose(); engine.dispose();
 });
 
