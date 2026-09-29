@@ -1597,27 +1597,23 @@ export default class Google3DTiles {
                 rootSeed = firstContent(this.rootTileset!.root, this.getRootTilesetURL(),
                     0, Matrix.Identity(), "REPLACE").catch(() => []);
             }
-            let settledAtBudget = 0;
             if (count >= budget && queue.length) {
                 const scanStarted = performance.now();
                 const worstResident = takeWorst();
                 if (worstResident) offerEviction(worstResident);
-                this.stats.frontierBudgetScanMs += performance.now() - scanStarted;
-                this.stats.frontierBudgetScanCount++;
                 const refinable: FrontierTile[] = [];
+                // Yielding every 32 items stalls each budgeted expansion for
+                // a render frame, though a complete scan is normally sub-ms.
                 while (queue.length) {
                     const node = queue.shift()!;
                     if (!frontier.has(node)) continue;
                     if (worstResident && node !== worstResident && compare(node, worstResident) < 0)
                         refinable.push(node);
                     else settle(node, true);
-                    if (++settledAtBudget % 32 === 0) {
-                        const pause = workBudget.checkpoint(() => priority(node).distance, 0);
-                        if (pause) await pause;
-                        if (generation !== this.generation) return;
-                    }
                 }
                 refinable.forEach(node => queue.push(node));
+                this.stats.frontierBudgetScanMs += performance.now() - scanStarted;
+                this.stats.frontierBudgetScanCount++;
             }
             const coverage = count >= Math.min(128, budget / 4);
             if (coverage !== preferCoverage) { preferCoverage = coverage; queue.rebuild(); rebuildEvictions(); }
