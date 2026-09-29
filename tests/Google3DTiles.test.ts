@@ -167,6 +167,34 @@ it("measures coastal Google skirts radially on a globe", () => {
   scene.dispose(); engine.dispose();
 });
 
+it("removes a coastal fin lip attached to a discarded deep skirt", () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const mesh = new Mesh("connected coastal fin", scene);
+  const positions = new Float32Array(32 * 3);
+  const point = (index: number, elevation: number) => {
+    const radius = 60 + elevation * 0.01;
+    const z = index * 0.002;
+    positions[index * 3] = Math.sqrt(radius * radius - 35 * 35 - z * z);
+    positions[index * 3 + 1] = 35;
+    positions[index * 3 + 2] = z;
+  };
+  for (let index = 0; index < 32; index++) point(index, 0);
+  point(27, 70); // An unrelated building wall must remain.
+  point(30, -40);
+  point(31, 70);
+  mesh.setVerticesData(VertexBuffer.PositionKind, positions);
+  mesh.setIndices([0, 1, 2, 0, 30, 31, 0, 28, 31, 1, 2, 27]);
+  mesh.releaseSubMeshes();
+  new SubMesh(0, 0, 32, 0, 6, mesh);
+  new SubMesh(1, 0, 32, 6, 6, mesh);
+  expect(removeCoastalSkirtTriangles(mesh, 0.01, 60)).toBe(2);
+  expect(Array.from(mesh.getIndices()!)).toEqual([0, 1, 2, 1, 2, 27]);
+  expect(mesh.subMeshes.map(subMesh => [subMesh.materialIndex, subMesh.indexStart, subMesh.indexCount]))
+    .toEqual([[0, 0, 3], [1, 3, 3]]);
+  scene.dispose(); engine.dispose();
+});
+
 it("restricts coverage updates to geographic tiles intersecting changed models", () => {
   const {engine,scene,tileSet}=createTileSet();
   const provider=new Google3DTiles(tileSet);

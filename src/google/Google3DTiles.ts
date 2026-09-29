@@ -2382,13 +2382,25 @@ export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number, g
     // represents the sea/ground surface even when buildings dominate a tile.
     if (lowSurface < -15 || lowSurface > 30) return 0;
     const cutoff = lowSurface - 25;
+    const worldEdgeSquared = (left: number, right: number) => {
+        const l = left * 3, r = right * 3;
+        const dx = positions[l] - positions[r], dy = positions[l + 1] - positions[r + 1],
+            dz = positions[l + 2] - positions[r + 2];
+        const wx = dx * matrix[0] + dy * matrix[4] + dz * matrix[8];
+        const wy = dx * matrix[1] + dy * matrix[5] + dz * matrix[9];
+        const wz = dx * matrix[2] + dy * matrix[6] + dz * matrix[10];
+        return (wx * wx + wy * wy + wz * wz) / (metresToWorld * metresToWorld);
+    };
     let kept: number[] | undefined;
+    const skirtPeaks = new Set<number>();
     const updatedRanges: Array<{ subMesh: typeof subMeshes[number]; start: number; count: number }> = [];
     for (const subMesh of subMeshes) {
         const start = kept?.length ?? subMesh.indexStart;
         for (let i = subMesh.indexStart; i < subMesh.indexStart + subMesh.indexCount; i += 3) {
             const a = indices[i], b = indices[i + 1], c = indices[i + 2];
             const deepSkirt = heights[a] < cutoff || heights[b] < cutoff || heights[c] < cutoff;
+            if (deepSkirt) for (const vertex of [a, b, c])
+                if (heights[vertex] > lowSurface + 40) skirtPeaks.add(vertex);
             // Google sometimes fills stretches of coastal water with single flat
             // triangles hundreds of metres wide. At street LOD these show as hard
             // dark blocks over the satellite water. The ready raster remains below.
@@ -2398,15 +2410,6 @@ export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number, g
                 // Water fill can be just two triangles in a four-vertex mesh.
                 // Even a 25-80 m patch stands out as a dark block over the
                 // ready satellite water, so do not require a large mesh here.
-                const worldEdgeSquared = (left: number, right: number) => {
-                    const l = left * 3, r = right * 3;
-                    const dx = positions[l] - positions[r], dy = positions[l + 1] - positions[r + 1],
-                        dz = positions[l + 2] - positions[r + 2];
-                    const wx = dx * matrix[0] + dy * matrix[4] + dz * matrix[8];
-                    const wy = dx * matrix[1] + dy * matrix[5] + dz * matrix[9];
-                    const wz = dx * matrix[2] + dy * matrix[6] + dz * matrix[10];
-                    return (wx * wx + wy * wy + wz * wz) / (metresToWorld * metresToWorld);
-                };
                 oversizedFill = Math.max(worldEdgeSquared(a, b), worldEdgeSquared(b, c),
                     worldEdgeSquared(c, a)) > 25 * 25;
             }
@@ -2420,6 +2423,28 @@ export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number, g
             subMesh.indexStart + subMesh.indexCount) - start });
     }
     if (!kept) return 0;
+    if (skirtPeaks.size) {
+        // A clipped deep skirt can leave its upper triangular lip behind.
+        // Remove only tall faces attached to a discarded skirt peak; this
+        // preserves unrelated building walls in the same photogrammetry tile.
+        const cleaned: number[] = [];
+        for (const range of updatedRanges) {
+            const start = cleaned.length;
+            for (let i = range.start; i < range.start + range.count; i += 3) {
+                const a = kept[i], b = kept[i + 1], c = kept[i + 2];
+                const low = Math.min(heights[a], heights[b], heights[c]);
+                const high = Math.max(heights[a], heights[b], heights[c]);
+                const attachedLip = (skirtPeaks.has(a) || skirtPeaks.has(b) || skirtPeaks.has(c))
+                    && low < lowSurface + 15 && high > lowSurface + 40
+                    && high - low > 40
+                    && Math.max(worldEdgeSquared(a, b), worldEdgeSquared(b, c), worldEdgeSquared(c, a)) > 40 * 40;
+                if (!attachedLip) cleaned.push(a, b, c);
+            }
+            range.start = start;
+            range.count = cleaned.length - start;
+        }
+        kept = cleaned;
+    }
     const removed = (indices.length - kept.length) / 3;
     // Update the ranges before Babylon validates them against the shorter
     // index buffer. Preserve each primitive's material and vertex span.
