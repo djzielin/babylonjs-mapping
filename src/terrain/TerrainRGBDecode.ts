@@ -1,5 +1,5 @@
 export type TerrainRGBEncoding = "terrarium" | "mapbox";
-export const TERRAIN_REPAIR_VERSION = 5;
+export const TERRAIN_REPAIR_VERSION = 6;
 
 export function decodeTerrainRGB(pixels: ArrayLike<number>, encoding: TerrainRGBEncoding): Float32Array {
     if (pixels.length % 4) throw new RangeError("Expected RGBA pixels");
@@ -32,8 +32,11 @@ export function repairIsolatedTerrainSpikes(data: ArrayLike<number>, width: numb
         // surroundings is still a conspicuous vertical terrain wall. The
         // coarser tiles keep the higher threshold to retain real hills.
         ...(sourceZoom >= 10 ? [
+            // Regional NYC source tiles include a 146-sample +90 m coastal
+            // island bordered by near-zero terrain. The former 128-sample
+            // cap retained its abrupt wall; broad hills still exceed 192.
             { seed: 20,
-                fringe: 5, limit: sourceZoom >= 14 ? 1024 : 128,
+                fringe: 5, limit: sourceZoom >= 14 ? 1024 : sourceZoom === 12 ? 192 : 128,
                 floor: -10, ceiling: 10, positive: true },
             ...(sourceZoom >= 14 ? [{ seed: 10, fringe: 3, limit: 128,
                 floor: -10, ceiling: 10, positive: true }] : []),
