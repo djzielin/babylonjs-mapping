@@ -255,6 +255,11 @@ export default class Google3DTiles {
         worstDepth: number;
         worstGeometricError: number;
     };
+    /** Probe the current ground view independently of a possibly stale frontier. */
+    sampleVisibleSurfaceCoverage(): {
+        sampled: number;
+        missing: number;
+    };
     private coverageKey;
     private coverageVersion;
     get coverageRevision(): number;
@@ -339,6 +344,6 @@ export default class Google3DTiles {
     private getTileSetBounds;
 }
 /** Remove coastal photogrammetry skirts and oversized water fill polygons. */
-export declare function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number): number;
+export declare function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number, globeRadius?: number): number;
 /** Extracts Google attribution and CESIUM_RTC metadata from a GLB JSON chunk. */
 export declare function parseGoogleGLBMetadata(buffer: ArrayBuffer): GoogleGLBMetadata;

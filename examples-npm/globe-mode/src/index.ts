@@ -189,7 +189,7 @@ class GlobeDemo {
         moving: boolean; fullSpeed: boolean; profile: MotionFrameProfile;
         maxSelectionLagMeters: number; knownIncomplete: boolean; qualitySamples: number;
         qualityFailures: number; maxVisibleErrorRatio: number; maxUnderDetailedTiles: number;
-        maxMissingVisibleTiles: number;
+        maxMissingVisibleTiles: number; maxMissingGroundSamples: number;
         lastQualitySampleAt: number };
     private googleSelectionCenter?: { latitude: number; longitude: number };
     private readonly diagnoseGoogle = new URLSearchParams(location.search).has("diagnoseGoogle");
@@ -262,7 +262,7 @@ class GlobeDemo {
                 moving, fullSpeed, profile: new MotionFrameProfile(30000),
                 maxSelectionLagMeters: 0, knownIncomplete: false, qualitySamples: 0,
                 qualityFailures: 0, maxVisibleErrorRatio: 0, maxUnderDetailedTiles: 0,
-                maxMissingVisibleTiles: 0,
+                maxMissingVisibleTiles: 0, maxMissingGroundSamples: 0,
                 lastQualitySampleAt: -Infinity };
             this.longestAnimationFrame = 0;
             this.longestFrameScript = "unattributed";
@@ -1720,7 +1720,7 @@ class GlobeDemo {
         const phases = [...this.benchmarkPhaseMax].map(([name, duration]) => `${name} ${duration.toFixed(0)} ms`).join(", ");
         document.getElementById("benchmark")!.textContent = "Measure frame pacing";
         document.getElementById("benchmarkResult")!.textContent = message ?? (result
-            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · p99.9 ${result.p999.toFixed(1)} ms · worst ${result.worst.toFixed(1)} ms · selection center lag up to ${((run?.maxSelectionLagMeters ?? 0) / 1000).toFixed(1)} km · visible quality ${run?.qualityFailures ? `FAILED ${run.qualityFailures}/${run.qualitySamples} samples` : "unverified"} (up to ${run?.maxUnderDetailedTiles ?? 0} coarse and ${run?.maxMissingVisibleTiles ?? 0} missing tiles, ${Math.round(run?.maxVisibleErrorRatio ?? 0)}× error) · full-radius quality ${run?.knownIncomplete ? "known incomplete" : "unverified"}; diagnostic only${memory}${longFrame} · phase max: ${phases}` : "");
+            ? `${result.samples} frames · average ${result.fps.toFixed(1)} FPS · 1% low ${result.low1.toFixed(1)} FPS · 0.1% low ${result.low01.toFixed(1)} FPS · p99.9 ${result.p999.toFixed(1)} ms · worst ${result.worst.toFixed(1)} ms · selection center lag up to ${((run?.maxSelectionLagMeters ?? 0) / 1000).toFixed(1)} km · visible quality ${run?.qualityFailures ? `FAILED ${run.qualityFailures}/${run.qualitySamples} samples` : "unverified"} (up to ${run?.maxUnderDetailedTiles ?? 0} coarse, ${run?.maxMissingVisibleTiles ?? 0} missing tiles, ${run?.maxMissingGroundSamples ?? 0} uncovered ground probes, ${Math.round(run?.maxVisibleErrorRatio ?? 0)}× error) · full-radius quality ${run?.knownIncomplete ? "known incomplete" : "unverified"}; diagnostic only${memory}${longFrame} · phase max: ${phases}` : "");
     }
 
     private sampleBenchmarkPhase(name: string, started: number): void {
@@ -1765,10 +1765,13 @@ class GlobeDemo {
             run.lastQualitySampleAt = performance.now();
             run.qualitySamples++;
             const quality = this.googleTiles?.measureVisibleQuality();
-            if (!quality?.visibleTiles || quality.underDetailedTiles > 0 || quality.missingVisibleTiles > 0) run.qualityFailures++;
+            const ground = this.googleTiles?.sampleVisibleSurfaceCoverage();
+            if (!quality?.visibleTiles || quality.underDetailedTiles > 0 || quality.missingVisibleTiles > 0
+                || !!ground?.missing) run.qualityFailures++;
             run.maxVisibleErrorRatio = Math.max(run.maxVisibleErrorRatio, quality?.worstErrorRatio ?? 0);
             run.maxUnderDetailedTiles = Math.max(run.maxUnderDetailedTiles, quality?.underDetailedTiles ?? 0);
             run.maxMissingVisibleTiles = Math.max(run.maxMissingVisibleTiles, quality?.missingVisibleTiles ?? 0);
+            run.maxMissingGroundSamples = Math.max(run.maxMissingGroundSamples, ground?.missing ?? 0);
         }
         const selectionCenter = this.googleTiles?.selectedCoverageCenter ?? this.googleSelectionCenter;
         if (selectionCenter) {

@@ -1697,6 +1697,24 @@ it("counts visible requested models that are still missing from the scene", () =
   provider.dispose(); scene.dispose(); engine.dispose();
 });
 
+it("detects visible ground gaps absent from stale frontier tile counts", () => {
+  const engine = new NullEngine({ renderWidth: 800, renderHeight: 600 }), scene = new Scene(engine);
+  const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
+  globe.createGeometry(new Vector2(1, 1), 20, 2); globe.updateRaster(0, 0, 12);
+  const camera = new ArcRotateCamera("ground probes", 0, 1, 1, globe.getSurfacePosition(0, 0), scene);
+  camera.setPosition(globe.getSurfacePosition(0, 0, 100 * globe.metresToWorld));
+  camera.getViewMatrix(true); camera.getProjectionMatrix(true);
+  const provider = new Google3DTiles(globe, { coverageRadius: 1000, maximumScreenSpaceError: 1 }) as any;
+  const selection = { url: "stale-view.glb", depth: 1, geometricError: 0,
+    boundingVolume: { region: [-0.000001, -0.000001, 0.000001, 0.000001, 0, 50] } };
+  provider.loadedSelections.set(selection.url, selection);
+  provider.loadedTiles.set(selection.url, { url: selection.url,
+    asset: new AssetContainer(scene), root: new TransformNode("resident model", scene) });
+  expect(provider.measureVisibleQuality()).toMatchObject({ visibleTiles: 1, missingVisibleTiles: 0 });
+  expect(provider.sampleVisibleSurfaceCoverage()).toMatchObject({ sampled: 6, missing: 5 });
+  provider.dispose(); scene.dispose(); engine.dispose();
+});
+
 it("shows a city-block model despite a pessimistic source geometric error", async () => {
   const engine = new NullEngine(), scene = new Scene(engine);
   const globe = new GlobeSet(scene, engine, { radius: 60, attribution: false });
