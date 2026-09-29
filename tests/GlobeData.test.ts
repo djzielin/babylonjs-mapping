@@ -14,6 +14,7 @@ import GlobeNavigator from "../src/core/GlobeNavigator";
 import GlobeDataController from "../src/core/GlobeDataController";
 import TerrainRGB, { type ElevationGrid } from "../src/terrain/TerrainRGB";
 import { TERRAIN_REPAIR_VERSION } from "../src/terrain/TerrainRGBDecode";
+import nycWaterfrontEdge from "./fixtures/nyc-waterfront-z12-edge.json";
 import BuildingsOSM from "../src/buildings/BuildingsOSM";
 import { GeoJSON, type feature } from "../src/buildings/GeoJSON";
 import { EPSG_Type } from "../src/core/TileMath";
@@ -804,6 +805,16 @@ describe("terrain encodings and overzoom", () => {
         expect(repaired[5 * 11 + 5]).toBeLessThan(30);
         expect(repaired[5 * 11 + 6]).toBeGreaterThan(-30);
         expect(data[5 * 11 + 5]).toBe(253);
+    });
+    it("removes a short NYC coastal lip at a z12 source tile edge", () => {
+        const { width, height, zoom, data } = nycWaterfrontEdge;
+        const source = Float32Array.from(data.flat());
+        const repaired = TerrainRGB.repairIsolatedSpikes({ data: source, width, height }, zoom).data;
+        expect(source[(height - 1) * width + 7]).toBe(33);
+        expect(source[(height - 1) * width + 8]).toBe(29);
+        expect(repaired[(height - 1) * width + 7]).toBeLessThan(12);
+        expect(repaired[(height - 1) * width + 8]).toBeLessThan(12);
+        expect(repaired[(height - 1) * width + 24]).toBe(source[(height - 1) * width + 24]);
     });
     it("samples the correct ancestor quadrant when overzooming", () => {
         const data = Array.from({ length: 16 }, (_, i) => i);
