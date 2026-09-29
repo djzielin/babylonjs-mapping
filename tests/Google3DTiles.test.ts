@@ -1054,6 +1054,32 @@ it.each(["parent.glb", "child.glb"])("never draws overlapping Google levels when
   } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
 });
 
+it.each(["parent.glb", "child.glb"])("keeps cached %s hidden while its replacement level is visible", async cached => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet, { apiKey: "test" }) as any;
+  const origin = provider.getOrigin();
+  const parent = { url: "parent.glb", depth: 1, ancestors: [], refine: "REPLACE" };
+  const child = { url: "child.glb", depth: 2, ancestors: [parent.url], refine: "REPLACE" };
+  const cachedSelection = cached === parent.url ? parent : child;
+  const visibleSelection = cached === parent.url ? child : parent;
+  const cachedRoot = new TransformNode("cached", scene);
+  const visibleRoot = new TransformNode("visible", scene);
+  cachedRoot.setEnabled(false);
+  provider.retainedTiles.set(cached, { url: cached, root: cachedRoot,
+    asset: new AssetContainer(scene), attributions: [] });
+  provider.loadedSelections.set(cached, cachedSelection);
+  provider.loadedTiles.set(visibleSelection.url, { url: visibleSelection.url, root: visibleRoot,
+    asset: new AssetContainer(scene), attributions: [] });
+  provider.loadedSelections.set(visibleSelection.url, visibleSelection);
+  try {
+    await provider.loadTile(cachedSelection, origin, provider.generation);
+    expect(cachedRoot.isEnabled()).toBe(false);
+    expect(visibleRoot.isEnabled()).toBe(true);
+    expect(provider.retainedTiles.has(cached)).toBe(true);
+    expect(provider.loadedTiles.has(cached)).toBe(false);
+  } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
+});
+
 it("does not promote a cached parent after its finer child becomes resident during selection", async () => {
   const { engine, scene, tileSet } = createTileSet();
   const provider = new Google3DTiles(tileSet, { apiKey: "test", maximumScreenSpaceError: 1,
