@@ -1,5 +1,6 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type GlobeSet from "./GlobeSet.js";
 import type Tile from "./Tile.js";
 import type Buildings from "../buildings/Buildings.js";
@@ -12,6 +13,8 @@ export interface GlobeDataOptions {
     minTerrainZoom?: number;
     minBuildingZoom?: number;
     maxBuildingZoom?: number;
+    minFeatureZoom?: number;
+    maxFeatureZoom?: number;
     concurrency?: number;
     /** Prefer the active camera frustum when streaming large landscape windows. */
     prioritizeVisible?: boolean;
@@ -29,9 +32,13 @@ export default class GlobeDataController {
     private jobs = new Map<Tile, { key: string; abort: AbortController }>();
     private ready = new WeakMap<Tile, string>();
     private terrainReady = new WeakMap<Tile, string>();
+    private retryAt = new WeakMap<Tile, { key: string; after: number; failures: number }>();
     private observer;
     private disposed = false;
     private refillTimer?: ReturnType<typeof setTimeout>;
+    private nextPriorityCheck = 0;
+    private priorityCamera?: Camera;
+    private priorityRevision = -1;
     private settled = false;
     private tiles: Tile[] | undefined;
     private positionObserver;
@@ -47,7 +54,10 @@ export default class GlobeDataController {
             (options.exaggeration ?? 1) < 0
         )
             throw new RangeError("Invalid globe detail options");
-        this.positionObserver = globe.onTilePositionUpdatedObservable.add(() => { this.settled = false; });
+        this.positionObserver = globe.onTilePositionUpdatedObservable.add(() => {
+            this.settled = false;
+            this.nextPriorityCheck = 0;
+        });
         this.observer = globe.scene.onBeforeRenderObservable.add(() =>
             this.update(),
         );
@@ -66,10 +76,18 @@ export default class GlobeDataController {
             ) {
                 job.abort.abort();
                 this.jobs.delete(tile);
+                this.stats.active--;
                 this.stats.cancelled++;
             }
-        if (this.stats.active >= (this.options.concurrency ?? 4)) return;
+        const concurrency = this.options.concurrency ?? 4;
+        const full = this.stats.active >= concurrency;
         const camera = this.globe.scene.activeCamera;
+        camera?.getViewMatrix();
+        const revision = camera?.getTransformationMatrix().updateFlag;
+        const poseChanged = camera !== this.priorityCamera || revision !== this.priorityRevision;
+        this.priorityCamera = camera ?? undefined;
+        this.priorityRevision = revision ?? -1;
+        if (full && !poseChanged && performance.now() < this.nextPriorityCheck) return;
         const centerX = this.globe.ourTileMath.lon_to_tileExact(this.globe.centerCoords.x, this.globe.zoom);
         const centerY = this.globe.ourTileMath.lat_to_tileExact(this.globe.centerCoords.y, this.globe.zoom);
         const count = 2 ** this.globe.zoom;
@@ -79,11 +97,34 @@ export default class GlobeDataController {
             return Math.min(dx, count - dx) ** 2 + (tile.tileCoords.y + 0.5 - centerY) ** 2;
         };
         // Load the area around the viewer before the far corners of large LOD grids.
+        const now = performance.now();
         const candidates = this.globe.ourTiles.filter(tile => !tile.mesh.isDisposed() && this.globe.isTileGeometryReady(tile)
-            && this.ready.get(tile) !== tile.tileCoords.toString() && !this.jobs.has(tile));
+            && this.ready.get(tile) !== tile.tileCoords.toString() && !this.jobs.has(tile)
+            && (this.retryAt.get(tile)?.key !== tile.tileCoords.toString() || this.retryAt.get(tile)!.after <= now));
         if (candidates.length === 0 && this.jobs.size === 0 && this.globe.pendingGeometryCount === 0) {
-            this.settled = true;
+            const delayed = this.globe.ourTiles.map(tile => {
+                const retry = this.retryAt.get(tile);
+                return retry?.key === tile.tileCoords.toString() ? retry : undefined;
+            }).filter((retry): retry is { key: string; after: number; failures: number } => !!retry && retry.after > now);
+            if (!delayed.length) this.settled = true;
+            else if (this.refillTimer === undefined) this.refillTimer = setTimeout(() => {
+                this.refillTimer = undefined;
+                this.update();
+            }, Math.max(0, Math.min(...delayed.map(retry => retry.after)) - now));
             return;
+        }
+        if (full) {
+            this.nextPriorityCheck = performance.now() + 250;
+            // An in-window job remains useful to the full viewable disk. Let one
+            // newly urgent tile start without aborting that useful download.
+            if (candidates.length === 0 || this.stats.active >= concurrency + 1) return;
+            const visible = (tile: Tile) => !!(this.options.prioritizeVisible && camera?.isInFrustum(tile.mesh));
+            const better = (a: Tile, b: Tile) => Number(visible(a)) - Number(visible(b)) || distance(b) - distance(a);
+            const best = candidates.reduce((a, b) => better(a, b) >= 0 ? a : b);
+            const worst = [...this.jobs.keys()].reduce((a, b) => better(a, b) <= 0 ? a : b);
+            const bestVisible = visible(best), worstVisible = visible(worst);
+            if (!((bestVisible && !worstVisible)
+                || (bestVisible === worstVisible && distance(best) * 4 < distance(worst)))) return;
         }
         const distances = new Map(candidates.map(tile => [tile, distance(tile)]));
         const visible = new Set(this.options.prioritizeVisible && camera
@@ -100,7 +141,7 @@ export default class GlobeDataController {
             if (
                 this.ready.get(tile) === key ||
                 this.jobs.has(tile) ||
-                this.stats.active >= (this.options.concurrency ?? 4)
+                this.stats.active >= concurrency + Number(full)
             )
                 continue;
             const abort = new AbortController();
@@ -142,29 +183,35 @@ export default class GlobeDataController {
                 tile.tileCoords.toString() !== key
             )
                 return;
-            if (coords.z >= (this.options.minBuildingZoom ?? 14) && coords.z <= (this.options.maxBuildingZoom ?? Infinity)) {
-                for (const provider of [
-                    this.options.buildings,
-                    ...(this.options.features ?? []),
-                ])
-                    if (provider) {
-                        this.providers.add(provider);
-                        provider.SubmitLoadTileRequest(tile);
-                    }
-            }
+            const submit = (provider: Buildings | undefined) => {
+                if (!provider) return;
+                this.providers.add(provider);
+                provider.SubmitLoadTileRequest(tile);
+            };
+            if (coords.z >= (this.options.minBuildingZoom ?? 14) && coords.z <= (this.options.maxBuildingZoom ?? Infinity))
+                submit(this.options.buildings);
+            if (coords.z >= (this.options.minFeatureZoom ?? this.options.minBuildingZoom ?? 14)
+                && coords.z <= (this.options.maxFeatureZoom ?? this.options.maxBuildingZoom ?? Infinity))
+                for (const provider of this.options.features ?? []) submit(provider);
             this.ready.set(tile, key);
+            this.retryAt.delete(tile);
             this.stats.completed++;
         } catch (error) {
             if (!abort.signal.aborted) {
                 this.stats.failed++;
-                this.ready.set(tile, key);
-                this.onErrorObservable.notifyObservers(
+                const previous = this.retryAt.get(tile);
+                const failures = previous?.key === key ? previous.failures + 1 : 1;
+                this.retryAt.set(tile, { key, failures,
+                    after: performance.now() + Math.min(8000, 250 * 2 ** Math.min(5, failures - 1)) });
+                if (failures === 1) this.onErrorObservable.notifyObservers(
                     error instanceof Error ? error : new Error(String(error)),
                 );
             }
         } finally {
-            if (this.jobs.get(tile)?.abort === abort) this.jobs.delete(tile);
-            this.stats.active--;
+            if (this.jobs.get(tile)?.abort === abort) {
+                this.jobs.delete(tile);
+                this.stats.active--;
+            }
             // Fill the released slot immediately, including when rendering is
             // throttled. update() reprioritizes from the latest camera each time.
             if (!this.disposed && this.refillTimer === undefined) this.refillTimer = setTimeout(() => {
@@ -174,14 +221,17 @@ export default class GlobeDataController {
         }
     }
     /** Explicitly retry failures or reload after changing provider settings. */
-    public invalidate(preserveTerrain = false): void {
+    public invalidate(preserveTerrain = false, preserveBuildings = false): void {
         if (!preserveTerrain) this.terrainReady = new WeakMap();
         this.settled = false;
         for (const job of this.jobs.values()) job.abort.abort();
         this.jobs.clear();
+        this.stats.active = 0;
+        this.nextPriorityCheck = 0;
         this.ready = new WeakMap();
+        this.retryAt = new WeakMap();
         for (const provider of this.providers) provider.cancelPendingRequests();
-        for (const tile of this.globe.ourTiles) tile.deleteBuildings();
+        if (!preserveBuildings) for (const tile of this.globe.ourTiles) tile.deleteBuildings();
     }
     public dispose(): void {
         this.disposed = true;
@@ -189,6 +239,7 @@ export default class GlobeDataController {
         for (const provider of this.providers) provider.cancelPendingRequests();
         for (const job of this.jobs.values()) job.abort.abort();
         this.jobs.clear();
+        this.stats.active = 0;
         this.globe.scene.onBeforeRenderObservable.remove(this.observer);
         this.globe.onTilePositionUpdatedObservable.remove(this.positionObserver);
         this.onErrorObservable.clear();

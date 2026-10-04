@@ -2,6 +2,7 @@ import { AssetContainer } from "@babylonjs/core/assetContainer.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type TileSet from "../core/TileSet.js";
 /** Google Maps Platform Map Tiles API Photorealistic 3D Tiles endpoint. */
 export declare const GOOGLE_3D_TILES_ROOT_URL = "https://tile.googleapis.com/v1/3dtiles/root.json";
@@ -57,9 +58,11 @@ export interface LoadedGoogleModelTile {
     asset: AssetContainer;
     attributions: readonly string[];
     rtcCenter?: Vector3;
+    /** The default GLB loader sets false when decoding produced no drawable mesh. */
+    renderable?: boolean;
 }
 export type GoogleTilesetLoader = (url: string) => Promise<Google3DTileset>;
-export type GoogleModelTileLoader = (url: string, scene: Scene) => Promise<LoadedGoogleModelTile | undefined>;
+export type GoogleModelTileLoader = (url: string, scene: Scene, signal?: AbortSignal) => Promise<LoadedGoogleModelTile | undefined>;
 export interface Google3DTilesOptions {
     /** Google Maps Platform API key. It is appended to every request. */
     apiKey?: string;
@@ -84,8 +87,16 @@ export interface Google3DTilesOptions {
     maximumScreenSpaceError?: number;
     /** Omit budget-limited content above this source error (metres), leaving room for a fallback provider. */
     maximumDisplayGeometricError?: number;
+    /** Maximum projected error ratio for a newly exposed broad Google model. Coarse residents remain until replacement is ready. */
+    maximumInitialErrorRatio?: number;
     /** Stream only bounding volumes intersecting the active camera frustum. */
     cullToCamera?: boolean;
+    /** Demand the same projected quality throughout the coverage disk, including behind the camera. */
+    fullRadiusDemand?: boolean;
+    /** Fixed vertical resolution used for full-radius geometric-error demand. */
+    referenceImageHeight?: number;
+    /** Fixed vertical field of view in radians used for full-radius geometric-error demand. */
+    referenceFovY?: number;
     /** Metres added to ellipsoid heights to match the scene vertical datum. */
     heightOffset?: number;
     /** Multiplier applied to the local vertical axis after loading. */
@@ -126,11 +137,22 @@ export default class Google3DTiles {
     maxTiles: number;
     exaggeration: number;
     coverageRadius?: number;
+    /** Center of the latest geographic frontier admitted during the active load. */
+    selectedCoverageCenter?: {
+        latitude: number;
+        longitude: number;
+    };
     coverageRegion?: Google3DTilesOptions["coverageRegion"];
     maximumGeometricError: number;
     maximumScreenSpaceError?: number;
     maximumDisplayGeometricError?: number;
+    maximumInitialErrorRatio?: number;
     cullToCamera: boolean;
+    fullRadiusDemand: boolean;
+    /** Maximum hierarchy branches inspected in parallel during frontier selection. */
+    maxPendingHierarchy: number;
+    referenceImageHeight: number;
+    referenceFovY: number;
     heightOffset: number;
     readonly stats: {
         hierarchyRequests: number;
@@ -138,41 +160,131 @@ export default class Google3DTiles {
         reusedModels: number;
         detailLimitedTiles: number;
         sourceLimitedTiles: number;
+        visibleDetailLimitedTiles: number;
+        offscreenDetailLimitedTiles: number;
+        visibleSourceLimitedTiles: number;
+        offscreenSourceLimitedTiles: number;
+        rootMs: number;
+        frontierTraversalMs: number;
+        frontierBudgetScanMs: number;
+        frontierBudgetScanCount: number;
+        frontierYieldCount: number;
+        frontierCommitMs: number;
+        replacementMs: number;
+        modelWaitMs: number;
+        loadMs: number;
+        modelFetchMs: number;
+        modelDecodeMs: number;
+        modelIntegrationMs: number;
+        modelIntegrationMaxMs: number;
+        modelFetchCount: number;
+        modelDecodeCount: number;
+        modelDecodeActive: number;
+        peakModelDecodeActive: number;
+        modelDecodeQueued: number;
+        peakModelDecodeQueued: number;
+        reusedDownloadedModels: number;
+        coastalSkirtTrianglesRemoved: number;
+        peakHierarchyActive: number;
+        peakModelActive: number;
+        peakNetworkActive: number;
     };
     origin?: Google3DTilesOrigin;
     private readonly tilesetLoader;
     private readonly modelTileLoader;
+    private readonly usesDefaultModelLoader;
     private rootTileset;
     private rootRequestKey;
+    private rootRequest?;
     private session;
     private readonly externalTilesets;
+    private readonly dirtyCoverageEntries;
     private readonly loadedTiles;
     private retainedTiles;
     private generation;
+    private frontierGeneration;
     private desiredTiles;
     private originStateKey;
+    private originGeneration;
+    private readonly pendingModelUploads;
     private googleAttributionAdded;
+    private attributionCacheValid;
+    private attributionCache;
     private pendingModels;
+    private readonly unusableModelURLs;
+    private activeModelFetches;
+    private lastModelAbortEye?;
     private selectionEye?;
+    private requestEye?;
+    private requestPriorityRevision;
+    private lastPriorityUpdateAt;
+    private readonly movementWaiters;
+    private frustumCache?;
     private frontierCache?;
     private networkActive;
+    private networkActiveOffscreen;
+    private networkActiveHierarchy;
+    private networkActiveModel;
+    private networkDispatchCount;
     private networkWaiters;
+    private networkPendingInsertions;
+    private networkEnqueueSequence;
+    private networkQueueRevision;
+    private readonly networkQueues;
+    private modelDecodeActive;
+    private modelDecodeWaiters;
+    private pendingModelReuseBlocked;
+    private pendingReuseBounds?;
+    private canReusePendingModel;
+    private canDecodeModel;
+    private drainModelDecode;
+    private modelDecodeSlot;
     private networkDrainQueued;
+    private networkQueueName;
+    private networkQueueFor;
+    private rebuildNetworkQueues;
     private drainNetwork;
     private networkSlot;
     constructor(tileSet: TileSet, options?: Google3DTilesOptions);
     /** Content currently attached to the Babylon scene. */
     get loadedModelTiles(): readonly LoadedGoogle3DTile[];
+    /** Current camera-facing resident quality, sampled independently of the last completed traversal. */
+    measureVisibleQuality(): {
+        visibleTiles: number;
+        underDetailedTiles: number;
+        missingVisibleTiles: number;
+        worstErrorRatio: number;
+        worstDepth: number;
+        worstGeometricError: number;
+    };
+    /** Probe the current ground view independently of a possibly stale frontier. */
+    sampleVisibleSurfaceCoverage(): {
+        sampled: number;
+        missing: number;
+    };
     private coverageKey;
     private coverageVersion;
     get coverageRevision(): number;
+    private changedCoverageURLs?;
+    private changedCoverageRevision;
+    private changedCoverageBounds;
+    /** Conservatively test whether changed model bounds can affect a geographic tile. */
+    coverageChangesIntersect(urls: readonly string[], south: number, west: number, north: number, east: number): boolean;
     private coverageIndex;
+    private indexedCoverage;
     private broadCoverage;
     private coverageTests;
+    private footprintEnvelopes;
+    private footprintTests;
     private loadedSelections;
     /** Whether loaded model bounds cover this geographic position. */
     coversLocation(latitude: number, longitude: number): boolean;
+    /** Skip a fallback tile only when one resident model covers its whole sampled footprint. */
+    coversAreaCompletely(south: number, west: number, north: number, east: number): boolean;
+    /** Whether a resident model overlaps a geographic building footprint. */
+    overlapsFootprint(south: number, west: number, north: number, east: number): boolean;
     private coverageTest;
+    private footprintTest;
     /** The last root tileset response, if load() has been called. */
     get tileset(): Google3DTileset | undefined;
     /** The session token discovered in the tileset's child URIs. */
@@ -187,9 +299,15 @@ export default class Google3DTiles {
      */
     getTileURL(uri: string, baseUrl?: string): string;
     /** Cancel queued work while retaining the visible scene and hierarchy cache. */
-    cancelPendingLoad(): void;
+    cancelPendingLoad(preserveDownloadedModels?: boolean): void;
+    /** The active frontier can follow camera movement without discarding its work. */
+    get selectingFrontier(): boolean;
+    /** Reorder queued downloads immediately when the camera moves, without cancelling active requests. */
+    reprioritizeRequests(): void;
     /** Loads content that overlaps the current TileSet. */
-    load(): Promise<readonly LoadedGoogle3DTile[]>;
+    load(selectionRadius?: number | undefined): Promise<readonly LoadedGoogle3DTile[]>;
+    private acceptableDisplayQuality;
+    private acceptableInitialQuality;
     private trimVisibleHistory;
     private trimRetainedTiles;
     /** Prepare a bounded surrounding ring after visible loading has finished. */
@@ -207,6 +325,7 @@ export default class Google3DTiles {
     private loadExternalTileset;
     private cameraEye;
     private tilePriority;
+    private requestPriority;
     private allowedGeometricError;
     /** A complete renderable frontier: refine the largest projected error first.
      * A budget limit leaves a parent in place instead of dropping its siblings.
@@ -215,6 +334,7 @@ export default class Google3DTiles {
     private collectTileContent;
     private retireTile;
     private indexLoadedDescendants;
+    private hasVisibleDescendant;
     /** Commit disjoint replacement subtrees only after every new model is ready. */
     private loadReplacementGroups;
     private loadTile;
@@ -225,5 +345,7 @@ export default class Google3DTiles {
     private updateAttribution;
     private getTileSetBounds;
 }
+/** Remove deep coastal photogrammetry skirts and their attached fins. */
+export declare function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number, globeRadius?: number): number;
 /** Extracts Google attribution and CESIUM_RTC metadata from a GLB JSON chunk. */
 export declare function parseGoogleGLBMetadata(buffer: ArrayBuffer): GoogleGLBMetadata;

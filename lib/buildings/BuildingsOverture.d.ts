@@ -1,3 +1,4 @@
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type Tile from "../core/Tile.js";
 import type TileSet from "../core/TileSet.js";
 import { RetrievalLocation } from "../shared/Retrieval.js";
@@ -18,7 +19,18 @@ export default class BuildingsOverture extends Buildings {
     /** Direct globe batches when doMerge is enabled and no per-mesh filter is installed. */
     batchGeometry: boolean;
     /** Hide covered footprints by updating indices while preserving prepared vertices. */
-    batchVisibilityFilter?: (latitude: number, longitude: number) => boolean;
+    batchVisibilityFilter?: (latitude: number, longitude: number, bounds?: {
+        id?: string;
+        south: number;
+        west: number;
+        north: number;
+        east: number;
+    }) => boolean;
+    /** Notifies a viewer when prepared batch geometry can replace its fallback. */
+    onTileResolved?: (tile: Tile) => void;
+    /** Omit an entire vector tile when loaded imagery already replaces every building in it. */
+    tileCoverageFilter?: (tile: Tile) => boolean;
+    private skippedCoverageTiles;
     private batches;
     private archive;
     private static archives;
@@ -31,7 +43,9 @@ export default class BuildingsOverture extends Buildings {
     protected handleLoadTileRequest(request: BuildingRequest, requestIndex?: number): void;
     private loadTile;
     private buildBatch;
-    updateBatchVisibility(): void;
+    updateBatchVisibility(coverageOnlyGrows?: boolean, shouldUpdateTile?: (tile: Tile) => boolean): void;
+    onBuildingCreated(mesh: Mesh): void;
+    private buildingVisible;
     private updateMeshVisibility;
     private appendLayerFeatures;
     private layerFeatures;

@@ -13,6 +13,11 @@ import { Vector3, Matrix } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 import { Engine } from "@babylonjs/core/Engines/engine";
 
+/** Match Babylon's current StandardMaterial diffuse lookup before GLSL preprocessing. */
+export const WEBGL_TILE_DIFFUSE_SAMPLE = "!TEXRD\\(diffuseSampler,vDiffuseUV\\+uvOffset\\)";
+export const WEBGPU_TILE_DIFFUSE_SAMPLE = "!TEXRD\\(diffuseSampler,diffuseSamplerSampler,fragmentInputs\\.vDiffuseUV\\+uvOffset\\)";
+export const WEBGPU_TILE_ARRAY_SAMPLE = "textureSample(tileTextures, tileTexturesSampler, fragmentInputs.vDiffuseUV + uvOffset, i32(round(fragmentInputs.vTileLayer)));";
+
 class TileTextureArray extends MaterialPluginBase {
     constructor(material: StandardMaterial, private texture: RawTexture2DArray) {
         super(material, "TileTextureArray", 200, {}, true, true);
@@ -27,14 +32,16 @@ class TileTextureArray extends MaterialPluginBase {
             CUSTOM_VERTEX_MAIN_END: "vertexOutputs.vTileLayer = vertexInputs.tileLayer;",
         } : {
             CUSTOM_FRAGMENT_DEFINITIONS: "var tileTextures: texture_2d_array<f32>; var tileTexturesSampler: sampler; varying vTileLayer: f32;",
-            "!TEXRD\\(diffuseSampler,diffuseSamplerSampler,fragmentInputs\\.vDiffuseUV\\+uvOffset\\)": "textureSample(tileTextures, tileTexturesSampler, fragmentInputs.vDiffuseUV + uvOffset, i32(fragmentInputs.vTileLayer));",
+            // Perspective interpolation can produce 0.999999 for a tile whose
+            // vertices all store layer 1. Truncation then samples layer 0.
+            [WEBGPU_TILE_DIFFUSE_SAMPLE]: WEBGPU_TILE_ARRAY_SAMPLE,
         };
         return type === "vertex" ? {
             CUSTOM_VERTEX_DEFINITIONS: "attribute float tileLayer; varying float vTileLayer;",
             CUSTOM_VERTEX_MAIN_END: "vTileLayer = tileLayer;",
         } : {
             CUSTOM_FRAGMENT_DEFINITIONS: "uniform highp sampler2DArray tileTextures; varying float vTileLayer;",
-            "!texture2D\\(diffuseSampler,vDiffuseUV\\+uvOffset\\)": "texture(tileTextures, vec3(vDiffuseUV + uvOffset, vTileLayer));",
+            [WEBGL_TILE_DIFFUSE_SAMPLE]: "texture(tileTextures, vec3(vDiffuseUV + uvOffset, vTileLayer));",
         };
     }
 }
@@ -67,14 +74,16 @@ export function terrainBatchGeometry(meshes: Mesh[]): { vertices: VertexData; la
     return { vertices, layers, origin };
 }
 
-type Source = { mesh: Mesh; texture: Texture; buffers: unknown[]; matrix: number; world: Matrix; visibility: number };
+type Source = { mesh: Mesh; texture: Texture; buffers: unknown[]; matrix: number; world: Matrix; visibility: number; isVisible: boolean };
 type Batch = { mesh: Mesh; material: StandardMaterial; texture: RawTexture2DArray; sources: Source[] };
 
 /** Batch settled raster tiles without resampling their pixels or simplifying their geometry. */
 export class TerrainBatcher {
     private batches: Batch[] = [];
     public lastError = "";
-    public enabled = true;
+    // The texture-array path currently produces visible overlapping imagery
+    // on WebGPU at city zooms. Keep the original tile draws until it is fixed.
+    public enabled = false;
     public get stats(): string { return `${this.batches.length} batches / ${this.owned.size} tiles${this.lastError ? ` / ${this.lastError}` : ""}`; }
     private owned = new Set<Mesh>();
     private busy = false;
@@ -96,7 +105,8 @@ export class TerrainBatcher {
     private snapshot(mesh: Mesh): Source {
         return { mesh, texture: (mesh.material as StandardMaterial).diffuseTexture as Texture,
             buffers: [VertexBuffer.PositionKind, VertexBuffer.NormalKind, VertexBuffer.UVKind, VertexBuffer.ColorKind].map(kind => mesh.getVertexBuffer(kind)),
-            matrix: mesh.computeWorldMatrix().updateFlag, world: mesh.getWorldMatrix().clone(), visibility: mesh.visibility };
+            matrix: mesh.computeWorldMatrix().updateFlag, world: mesh.getWorldMatrix().clone(),
+            visibility: mesh.visibility, isVisible: mesh.isVisible };
     }
     private valid(source: Source): boolean {
         const mesh = source.mesh;
@@ -107,7 +117,7 @@ export class TerrainBatcher {
             // Parenting new buildings can recompute an unchanged terrain matrix.
             source.matrix = world.updateFlag;
         }
-        return mesh.isEnabled() && mesh.isVisible
+        return mesh.isEnabled() && mesh.isVisible === (this.owned.has(mesh) ? false : source.isVisible)
             && (mesh.material as StandardMaterial)?.diffuseTexture === source.texture
             && mesh.getVertexBuffer(VertexBuffer.PositionKind) === source.buffers[0]
             && mesh.getVertexBuffer(VertexBuffer.NormalKind) === source.buffers[1]
@@ -116,10 +126,18 @@ export class TerrainBatcher {
     }
     private release(batch: Batch): void {
         for (const source of batch.sources) {
-            if (!source.mesh.isDisposed()) source.mesh.visibility = source.visibility;
+            if (!source.mesh.isDisposed()) {
+                source.mesh.visibility = source.visibility;
+                source.mesh.isVisible = source.isVisible;
+            }
             this.owned.delete(source.mesh);
         }
         batch.mesh.dispose(); batch.material.dispose(); batch.texture.dispose();
+    }
+    /** Release batches before a caller changes an entire terrain tier's visibility. */
+    public invalidate(): void {
+        this.batches.forEach(batch => this.release(batch));
+        this.batches = [];
     }
     private update(): void {
         if (!this.scene.frustumPlanes) return;
@@ -199,11 +217,20 @@ export class TerrainBatcher {
         texture.getInternalTexture()!._bufferView = null;
         texture.anisotropicFilteringLevel = sources[0].texture.anisotropicFilteringLevel;
         texture.wrapU = texture.wrapV = Texture.CLAMP_ADDRESSMODE;
-        const material = (sources[0].mesh.material as StandardMaterial).clone("batched terrain");
-        material.unfreeze();
-        if (material.diffuseTexture !== sources[0].texture) material.diffuseTexture?.dispose();
-        material.diffuseTexture = sources[0].texture;
-        new TileTextureArray(material, texture);
+        // The cloned batch material has no cached draw wrappers yet. Babylon's
+        // clone setters and unfreeze() otherwise scan every city mesh for each
+        // property while camera movement creates new batches.
+        const scene = this.scene as Scene & { _forceBlockMaterialDirtyMechanism(value: boolean): void };
+        const wasBlocked = scene.blockMaterialDirtyMechanism;
+        let material: StandardMaterial;
+        scene._forceBlockMaterialDirtyMechanism(true);
+        try {
+            material = (sources[0].mesh.material as StandardMaterial).clone("batched terrain");
+            material.checkReadyOnlyOnce = false;
+            if (material.diffuseTexture !== sources[0].texture) material.diffuseTexture?.dispose();
+            material.diffuseTexture = sources[0].texture;
+            new TileTextureArray(material, texture);
+        } finally { scene._forceBlockMaterialDirtyMechanism(wasBlocked); }
         const mesh = new Mesh("batched terrain", this.scene);
         vertices.applyToMesh(mesh);
         mesh.setVerticesData("tileLayer", layers, false, 1);
@@ -227,7 +254,12 @@ export class TerrainBatcher {
         }
         material.checkReadyOnlyOnce = true;
         mesh.setEnabled(true);
-        for (const source of sources) { source.mesh.visibility = 0; this.owned.add(source.mesh); }
+        for (const source of sources) {
+            // visibility=0 still submits depth/stencil draws on some Babylon
+            // backends, producing severe z-fighting with the replacement mesh.
+            source.mesh.isVisible = false;
+            this.owned.add(source.mesh);
+        }
         this.batches.push({ mesh, material, texture, sources });
         this.lastError = "";
     }

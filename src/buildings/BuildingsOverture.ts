@@ -61,7 +61,13 @@ export default class BuildingsOverture extends Buildings {
     /** Direct globe batches when doMerge is enabled and no per-mesh filter is installed. */
     public batchGeometry = false;
     /** Hide covered footprints by updating indices while preserving prepared vertices. */
-    public batchVisibilityFilter?: (latitude: number, longitude: number) => boolean;
+    public batchVisibilityFilter?: (latitude: number, longitude: number,
+        bounds?: { id?: string; south: number; west: number; north: number; east: number }) => boolean;
+    /** Notifies a viewer when prepared batch geometry can replace its fallback. */
+    public onTileResolved?: (tile: Tile) => void;
+    /** Omit an entire vector tile when loaded imagery already replaces every building in it. */
+    public tileCoverageFilter?: (tile: Tile) => boolean;
+    private skippedCoverageTiles = new WeakMap<Tile, string>();
     private batches = new WeakMap<Mesh, { batch: { ranges: GlobeBuildingBatch["ranges"]; indices: Uint32Array }; mask: Uint8Array }>();
     private archive: PMTiles;
     private static archives = new Map<string, PMTiles>();
@@ -83,6 +89,14 @@ export default class BuildingsOverture extends Buildings {
         if (this.excludedTileKeys.has(tile.tileCoords.toString())) {
             return;
         }
+        if (this.tileCoverageFilter?.(tile)) {
+            this.cancelPendingRequests(tile);
+            tile.deleteBuildings();
+            tile.buildingsResolvedKey = tile.tileCoords.toString();
+            this.skippedCoverageTiles.set(tile, tile.buildingsResolvedKey);
+            return;
+        }
+        this.skippedCoverageTiles.delete(tile);
 
         const request: BuildingRequest = {
             requestType: BuildingRequestType.LoadTile,
@@ -114,6 +128,11 @@ export default class BuildingsOverture extends Buildings {
 
     private async loadTile(request: BuildingRequest, requestIndex: number): Promise<void> {
         try {
+            if (this.tileCoverageFilter?.(request.tile)) {
+                this.SubmitLoadTileRequest(request.tile);
+                this.removePendingRequest(requestIndex, request);
+                return;
+            }
             const header = await this.archive.getHeader();
             const z = Math.min(request.tileCoords.z, header.maxZoom);
             const factor = 2 ** (request.tileCoords.z - z);
@@ -198,7 +217,13 @@ export default class BuildingsOverture extends Buildings {
         const regular: feature[] = [];
         const elevations = new Map<string, number>();
         const work = SceneWorkBudget.forScene(globe.scene);
-        const priority = () => Vector3.Distance(request.tile.mesh.getAbsolutePosition(), globe.scene.activeCamera?.globalPosition ?? batch.origin) / globe.metresToWorld;
+        const priority = () => {
+            const camera = globe.scene.activeCamera;
+            camera?.getViewMatrix();
+            const distance = Vector3.Distance(request.tile.mesh.getAbsolutePosition(), camera?.globalPosition ?? batch.origin)
+                / globe.metresToWorld;
+            return camera && !camera.isInFrustum(request.tile.mesh) ? 1e7 + distance : distance;
+        };
         for (const feature of features) {
             if (request.cancelled || !request.tile.tileCoords.equals(request.tileCoords)) return;
             if (this.buildingFeatureFilter && !this.buildingFeatureFilter(feature, request.tile, request.epsgType)) continue;
@@ -246,8 +271,12 @@ export default class BuildingsOverture extends Buildings {
             vertices.applyToMesh(mesh);
             mesh.position.copyFrom(batch.origin);
             mesh.material = this.buildingMaterial;
-            mesh.metadata = { buildingCount: result?.featureCount ?? batch.featureCount };
-            this.batches.set(mesh, { batch: { ranges: result?.ranges ?? batch.ranges, indices: vertices.indices as Uint32Array }, mask: new Uint8Array() });
+            const coverage = { ranges: result?.ranges ?? batch.ranges, indices: vertices.indices as Uint32Array };
+            // The view-transition clone may outlive this tile. Keep the
+            // per-building ranges available so Google coverage can mask only
+            // the replaced buildings in that retained clone.
+            mesh.metadata = { buildingCount: result?.featureCount ?? batch.featureCount, overtureCoverage: coverage };
+            this.batches.set(mesh, { batch: coverage, mask: new Uint8Array() });
             mesh.setParent(request.tile.mesh);
             this.buildingMeshTransform?.(mesh);
             this.applyBuildingMeshOptions(mesh);
@@ -255,20 +284,49 @@ export default class BuildingsOverture extends Buildings {
         // Swap only when the complete new tile is usable.
         request.tile.deleteBuildings();
         if (mesh) { request.tile.buildingBatches.push(mesh); this.updateMeshVisibility(mesh); }
+        request.tile.buildingsResolvedKey = request.tile.tileCoords.toString();
+        this.onTileResolved?.(request.tile);
         if (specialized.length) this.ProcessGeoJSON({ ...request, mergeAfterLoad: false }, { type: "FeatureCollection", features: specialized });
     }
 
-    public updateBatchVisibility(): void {
+    public updateBatchVisibility(coverageOnlyGrows = false, shouldUpdateTile?: (tile: Tile) => boolean): void {
         for (const tile of this.tileSet.ourTiles) {
-            for (const mesh of tile.buildingBatches) this.updateMeshVisibility(mesh);
+            if (shouldUpdateTile && !shouldUpdateTile(tile)) continue;
+            if (this.tileCoverageFilter?.(tile)) {
+                if (this.skippedCoverageTiles.get(tile) !== tile.tileCoords.toString()
+                    || tile.buildingBatches.length || tile.buildings.length) this.SubmitLoadTileRequest(tile);
+                continue;
+            }
+            if (this.skippedCoverageTiles.get(tile) === tile.tileCoords.toString()) this.SubmitLoadTileRequest(tile);
+            for (const mesh of tile.buildingBatches) this.updateMeshVisibility(mesh, coverageOnlyGrows);
             if (this.batchGeometry && this.tileSet.isGlobe) for (const building of tile.buildings) {
-                const point = (this.tileSet as GlobeSet).getSurfaceCoordinates(building.mesh.getBoundingInfo().boundingBox.centerWorld);
-                building.mesh.setEnabled(!this.batchVisibilityFilter || this.batchVisibilityFilter(point.latitude, point.longitude));
+                if (coverageOnlyGrows && !building.mesh.isEnabled(false)) continue;
+                const visible = this.buildingVisible(building.mesh);
+                if (building.mesh.isEnabled(false) !== visible) building.mesh.setEnabled(visible);
             }
         }
     }
 
-    private updateMeshVisibility(mesh: Mesh): void {
+    public override onBuildingCreated(mesh: Mesh): void {
+        if (!this.batchGeometry || !this.batchVisibilityFilter || !this.tileSet.isGlobe) return;
+        mesh.setEnabled(this.buildingVisible(mesh));
+    }
+
+    private buildingVisible(mesh: Mesh): boolean {
+        if (!this.batchVisibilityFilter || !this.tileSet.isGlobe) return true;
+        const globe = this.tileSet as GlobeSet;
+        const box = mesh.getBoundingInfo().boundingBox;
+        const center = globe.getSurfaceCoordinates(box.centerWorld);
+        let south = center.latitude, north = center.latitude, west = center.longitude, east = center.longitude;
+        for (const vertex of box.vectorsWorld) {
+            const point = globe.getSurfaceCoordinates(vertex);
+            south = Math.min(south, point.latitude); north = Math.max(north, point.latitude);
+            west = Math.min(west, point.longitude); east = Math.max(east, point.longitude);
+        }
+        return this.batchVisibilityFilter(center.latitude, center.longitude, { south, west, north, east });
+    }
+
+    private updateMeshVisibility(mesh: Mesh, coverageOnlyGrows = false): void {
         const data = this.batches.get(mesh);
         if (!data || mesh.isDisposed()) return;
         const ranges = data.batch.ranges;
@@ -276,7 +334,8 @@ export default class BuildingsOverture extends Buildings {
         let count = 0, changed = data.mask.length !== mask.length;
         for (let i = 0; i < ranges.length; i++) {
             const range = ranges[i];
-            mask[i] = Number(!this.batchVisibilityFilter || this.batchVisibilityFilter(range.latitude, range.longitude));
+            mask[i] = coverageOnlyGrows && data.mask[i] === 0 && data.mask.length === ranges.length
+                ? 0 : Number(!this.batchVisibilityFilter || this.batchVisibilityFilter(range.latitude, range.longitude, range));
             if (mask[i]) count += range.end - range.start;
             if (mask[i] !== data.mask[i]) changed = true;
         }

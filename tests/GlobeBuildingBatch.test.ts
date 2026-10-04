@@ -1,9 +1,35 @@
 import { expect, it, vi } from "vitest";
-import { NullEngine, Scene, Vector2, Vector3, Mesh, Ray, VertexData } from "@babylonjs/core";
+import { NullEngine, Scene, Vector2, Vector3, Mesh, Ray, VertexData, UniversalCamera } from "@babylonjs/core";
+import { SceneWorkBudget } from "../src/shared/SceneWorkBudget";
 import GlobeSet from "../src/core/GlobeSet";
+import { EPSG_Type } from "../src/core/TileMath";
 import { GlobeBuildingBatch } from "../src/buildings/GlobeBuildingBatch";
+import { OvertureTierCoverage } from "../examples-npm/globe-mode/src/OvertureTierCoverage";
 import type { feature } from "../src/buildings/GeoJSON";
 vi.mock("../src/core/Attribution",()=>({default:class {advancedTexture={};addAttribution(){}}}));
+
+it("ranks a visible Overture batch above an off-screen batch at the same distance", async () => {
+    const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
+    const engine=new NullEngine(),scene=new Scene(engine);
+    const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+    globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,14);
+    const tile=globe.ourTiles[0];
+    const camera=new UniversalCamera("viewer",tile.mesh.position.scale(1.00001),scene);
+    let visible=false;
+    vi.spyOn(camera,"isInFrustum").mockImplementation(()=>visible);
+    const provider=new BuildingsOverture(globe,"https://example.invalid/buildings.pmtiles");
+    const priorities:number[]=[];
+    const budget=vi.spyOn(SceneWorkBudget,"forScene").mockReturnValue({checkpoint:(score:()=>number)=>{
+        priorities.push(score());return undefined;
+    }} as SceneWorkBudget);
+    try {
+        const request={tile,tileCoords:tile.tileCoords.clone(),epsgType:EPSG_Type.EPSG_4326};
+        await (provider as any).buildBatch(request,[]);
+        visible=true;
+        await (provider as any).buildBatch(request,[]);
+        expect(priorities[0]-priorities[1]).toBeGreaterThan(1e6);
+    } finally {budget.mockRestore();scene.dispose();engine.dispose();}
+});
 
 it("batches radial walls and roofs while retaining courtyard holes and outward normals",()=>{
     const engine=new NullEngine(),scene=new Scene(engine);
@@ -48,6 +74,95 @@ it("builds thousands of footprints without allocating a mesh per building",()=>{
     scene.dispose();engine.dispose();
 });
 
+it("uses each footprint bounds when Google detail reaches only its edge",async()=>{
+    const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
+    const engine=new NullEngine(),scene=new Scene(engine);
+    const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+    globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,14);
+    const tile=globe.ourTiles[0];
+    const provider=new BuildingsOverture(globe,"https://example.invalid/buildings.pmtiles");
+    provider.batchGeometry=true;provider.doMerge=true;
+    provider.batchVisibilityFilter=(_lat,_lon,bounds)=>!!bounds && bounds.east<0.0008;
+    const feature={type:"Feature",properties:{height:12},geometry:{type:"Polygon",coordinates:[[[0,0],[0.001,0],[0.001,0.001],[0,0.001],[0,0]]]}} as feature;
+    await (provider as any).buildBatch({tile,tileCoords:tile.tileCoords.clone(),epsgType:EPSG_Type.EPSG_4326},[feature]);
+    expect(tile.buildingBatches).toHaveLength(1);
+    expect(tile.buildingBatches[0].isEnabled(false)).toBe(false);
+    provider.batchVisibilityFilter=(_lat,_lon,bounds)=>!!bounds && bounds.east<0.002;
+    provider.updateBatchVisibility();
+    expect(tile.buildingBatches[0].isEnabled(false)).toBe(true);
+    scene.dispose();engine.dispose();
+});
+
+it("keeps a coarse Overture building until matching finer geometry is ready",async()=>{
+    const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
+    const engine=new NullEngine(),scene=new Scene(engine);
+    const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+    globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,10);
+    const tile=globe.ourTiles[0];
+    const provider=new BuildingsOverture(globe,"https://example.invalid/buildings.pmtiles");
+    provider.batchGeometry=true;provider.doMerge=true;
+    let finer=new OvertureTierCoverage();
+    provider.batchVisibilityFilter=(_lat,_lon,bounds)=>!finer.covers(bounds);
+    const resolved=vi.fn();provider.onTileResolved=resolved;
+    const building={id:"same-building",type:"Feature",properties:{height:12},geometry:{type:"Polygon",coordinates:[
+        [[0,0],[0.001,0],[0.001,0.001],[0,0.001],[0,0]],
+    ]}} as feature;
+    await (provider as any).buildBatch({tile,tileCoords:tile.tileCoords.clone(),epsgType:EPSG_Type.EPSG_4326},[building]);
+    const mesh=tile.buildingBatches[0];
+    expect(resolved).toHaveBeenCalledWith(tile);
+    expect(mesh.isEnabled(false)).toBe(true);
+    const footprint=mesh.metadata.overtureCoverage.ranges[0];
+    expect(footprint.id).toBe(building.id);
+    finer.add({ ...footprint, west: footprint.west + 0.0008 });
+    provider.updateBatchVisibility();
+    expect(mesh.isEnabled(false)).toBe(true);
+    finer.add(footprint);
+    provider.updateBatchVisibility();
+    expect(mesh.isEnabled(false)).toBe(false);
+    finer=new OvertureTierCoverage();
+    provider.updateBatchVisibility();
+    expect(mesh.isEnabled(false)).toBe(true);
+    provider.cancelPendingRequests();scene.dispose();engine.dispose();
+});
+
+it("combines split finer footprints without double-counting overlap",()=>{
+    const coarse={id:"same",south:0,west:0,north:1,east:1};
+    const finer=new OvertureTierCoverage();
+    finer.add({...coarse,id:"other"});
+    finer.add({...coarse,east:0.8});
+    expect(finer.covers(coarse)).toBe(false);
+    finer.add({...coarse,east:0.5});
+    finer.add({...coarse,east:0.5});
+    expect(finer.covers(coarse)).toBe(false);
+    finer.add({...coarse,west:0.5});
+    expect(finer.covers(coarse)).toBe(true);
+});
+
+it("skips a fully Google-covered Overture tile and resumes it when coverage leaves",async()=>{
+    const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
+    const engine=new NullEngine(),scene=new Scene(engine);
+    const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+    globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,14);
+    const tile=globe.ourTiles[0];
+    const provider=new BuildingsOverture(globe,"https://example.invalid/buildings.pmtiles");
+    provider.batchGeometry=true;
+    provider.tileCoverageFilter=()=>false;
+    provider.SubmitLoadTileRequest(tile);
+    expect((provider as any).buildingRequests).toHaveLength(1);
+    const old=new Mesh("old Overture",scene);
+    tile.buildingBatches.push(old);
+    provider.tileCoverageFilter=()=>true;
+    provider.updateBatchVisibility();
+    expect(tile.buildingsResolvedKey).toBe(tile.tileCoords.toString());
+    expect((provider as any).buildingRequests).toHaveLength(0);
+    expect(old.isDisposed()).toBe(true);
+    provider.tileCoverageFilter=()=>false;
+    provider.updateBatchVisibility();
+    expect((provider as any).buildingRequests).toHaveLength(1);
+    provider.cancelPendingRequests();
+    scene.dispose();engine.dispose();
+});
+
 it("atomically replaces a building batch and keeps the old one if work is cancelled",async()=>{
     const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
     const engine=new NullEngine(),scene=new Scene(engine);
@@ -80,11 +195,37 @@ it("atomically replaces a building batch and keeps the old one if work is cancel
     provider.updateBatchVisibility();
     expect(mesh.isEnabled(false)).toBe(false);
     provider.batchVisibilityFilter=()=>true;
+    provider.updateBatchVisibility(true);
+    expect(mesh.isEnabled(false)).toBe(false);
+    provider.updateBatchVisibility(false, () => false);
+    expect(mesh.isEnabled(false)).toBe(false);
     provider.updateBatchVisibility();
     expect(mesh.isEnabled(false)).toBe(true);
     expect(mesh.getVertexBuffer("position")).toBe(vertices);
     expect(Array.from(mesh.getIndices()!)).toEqual(indices);
     expect(tile.buildingBatches[0]).toBe(mesh);
     tile.deleteBuildings();expect(tile.buildingBatches).toHaveLength(0);
+    scene.dispose();engine.dispose();
+});
+
+it("hides a specialized Overture building as soon as covered Google detail exists",async()=>{
+    const {default:BuildingsOverture}=await import("../src/buildings/BuildingsOverture");
+    const engine=new NullEngine(),scene=new Scene(engine);
+    const globe=new GlobeSet(scene,engine,{radius:60,attribution:false});
+    globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,14);
+    const tile=globe.ourTiles[0];
+    const provider=new BuildingsOverture(globe,"https://example.invalid/buildings.pmtiles");
+    provider.batchGeometry=true;provider.doMerge=true;
+    provider.batchVisibilityFilter=()=>false;
+    const feature={type:"Feature",properties:{height:25,roofShape:"gabled",roofHeight:5},geometry:{type:"Polygon",coordinates:[[[0,0],[0.001,0],[0.001,0.001],[0,0.001],[0,0]]]}} as feature;
+    await (provider as any).buildBatch({tile,tileCoords:tile.tileCoords.clone(),epsgType:EPSG_Type.EPSG_4326},[feature]);
+    for(let i=0;i<10 && !tile.buildings.length;i++) provider.processBuildingRequests();
+    expect(tile.buildings).toHaveLength(1);
+    expect(tile.buildings[0].mesh.isEnabled(false)).toBe(false);
+    provider.batchVisibilityFilter=()=>true;
+    provider.updateBatchVisibility(true);
+    expect(tile.buildings[0].mesh.isEnabled(false)).toBe(false);
+    provider.updateBatchVisibility();
+    expect(tile.buildings[0].mesh.isEnabled(false)).toBe(true);
     scene.dispose();engine.dispose();
 });

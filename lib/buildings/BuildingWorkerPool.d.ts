@@ -6,6 +6,7 @@ type Task = {
     priority: () => number;
     resolve: (result: BuildingGeometryResult | undefined) => void;
     reject: (error: Error) => void;
+    distance?: number;
 };
 /** A scene owns a small worker pool; camera movement reprioritizes queued work. */
 export declare class BuildingWorkerPool {

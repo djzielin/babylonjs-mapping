@@ -4,10 +4,13 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
-import { Color3, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
+import { Color3, Frustum, Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
+import type { Plane } from "@babylonjs/core/Maths/math.js";
 import { Scene } from "@babylonjs/core/scene.js";
 
 import Tile from "./Tile.js";
+import type { TileRequest } from "./TileSet.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import GlobeTileMath from "./GlobeTileMath.js";
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import TileSet from "./TileSet.js";
@@ -63,6 +66,29 @@ export default class GlobeSet extends TileSet {
     private originalElevations = new WeakMap<Tile, { key: string; heights: number[] }>();
     private geometryBudgetMs = Infinity;
     private geometryQueue: Tile[] = [];
+    private geometryBounds = new WeakMap<Tile, { key: string; center: Vector3; radius: number }>();
+    private getGeographicTileBounds(tile: Tile): { center: Vector3; radius: number } {
+        const key = `${tile.tileCoords}/${this.radius}`;
+        let bounds = this.geometryBounds.get(tile);
+        if (bounds?.key !== key) {
+            const center = this.getTileSurfacePosition(tile.tileCoords);
+            const radius = Math.max(
+                Vector3.Distance(center, this.getTileSurfacePosition(tile.tileCoords, 0, 0)),
+                Vector3.Distance(center, this.getTileSurfacePosition(tile.tileCoords, 1, 1)),
+            );
+            bounds = { key, center, radius };
+            this.geometryBounds.set(tile, bounds);
+        }
+        return bounds;
+    }
+    protected override getRasterRequestPriority(request: TileRequest, camera: Camera, planes: Plane[]): { visible: boolean; distance: number } {
+        const bounds = this.getGeographicTileBounds(request.tile);
+        return {
+            visible: planes.every(plane => plane.dotCoordinate(bounds.center) >= -bounds.radius),
+            distance: Math.max(0, Vector3.Distance(camera.globalPosition, bounds.center) - bounds.radius),
+        };
+    }
+    private terrainDisplayZoom = Infinity;
     public get pendingGeometryCount(): number {
         return this.geometryQueue.length;
     }
@@ -72,19 +98,53 @@ export default class GlobeSet extends TileSet {
             `${tile.tileCoords}/${this.radius}/${this.meshPrecision}`
         );
     }
+    public override isTileDisplayReady(tile: Tile): boolean {
+        return this.isTileGeometryReady(tile) &&
+            (tile.tileCoords.z < this.terrainDisplayZoom || tile.terrainLoaded);
+    }
+    /** Hold a raster patch behind existing coarser coverage until its DEM arrives. */
+    public setTerrainDisplayRequirement(enabled: boolean, minimumZoom = 5): void {
+        if (!Number.isInteger(minimumZoom) || minimumZoom < 0 || minimumZoom > 22)
+            throw new RangeError("Invalid terrain display zoom");
+        this.terrainDisplayZoom = enabled ? minimumZoom : Infinity;
+        for (const tile of this.ourTiles)
+            if (tile.material?.diffuseTexture?.isReady())
+                tile.mesh.setEnabled(this.isTileDisplayReady(tile));
+    }
     private flushGeometry(): void {
         const deadline = performance.now() + this.geometryBudgetMs;
+        const camera = Number.isFinite(this.geometryBudgetMs) ? this.scene.activeCamera : null;
+        camera?.getViewMatrix();
+        const planes = camera ? Frustum.GetPlanes(camera.getTransformationMatrix()) : null;
+        const eye = camera?.globalPosition;
         let processed = 0;
         while (
             this.geometryQueue.length &&
             (processed === 0 || performance.now() < deadline)
         ) {
-            const tile = this.geometryQueue.shift()!;
+            let nextIndex = 0;
+            if (planes && eye) {
+                let bestVisible = false;
+                let bestDistance = Infinity;
+                for (let i = 0; i < this.geometryQueue.length; i++) {
+                    const candidate = this.geometryQueue[i];
+                    if (candidate.mesh.isDisposed()) continue;
+                    const bounds = this.getGeographicTileBounds(candidate);
+                    const visible = planes.every(plane => plane.dotCoordinate(bounds.center) >= -bounds.radius);
+                    const distance = Math.max(0, Vector3.Distance(eye, bounds.center) - bounds.radius);
+                    if ((visible && !bestVisible) || (visible === bestVisible && distance < bestDistance)) {
+                        nextIndex = i;
+                        bestVisible = visible;
+                        bestDistance = distance;
+                    }
+                }
+            }
+            const tile = this.geometryQueue.splice(nextIndex, 1)[0];
             if (tile.mesh.isDisposed()) continue;
             this.updateTileGeometry(tile);
             this.updateEdgeFade(tile);
             if (tile.material?.diffuseTexture?.isReady())
-                tile.mesh.setEnabled(true);
+                tile.mesh.setEnabled(this.isTileDisplayReady(tile));
             processed++;
         }
     }
@@ -339,15 +399,17 @@ export default class GlobeSet extends TileSet {
             exaggeration < 0
         )
             throw new RangeError("Invalid elevation grid");
-        const dem = Array.from(data);
-        if (
-            dem.some(
-                (v) =>
-                    !Number.isFinite(v) ||
-                    this.radius + v * this.metresToWorld * exaggeration <= 0,
-            )
-        )
-            throw new RangeError("Invalid elevation sample");
+        // TerrainRGB already supplies Float32 samples. Retain that precision
+        // without expanding every source sample into a boxed JS array. Other
+        // callers keep their original double precision.
+        const dem = data instanceof Float32Array ? new Float32Array(data) : new Float64Array(data);
+        let minimum = Infinity, maximum = -Infinity;
+        for (const value of dem) {
+            if (!Number.isFinite(value) || this.radius + value * this.metresToWorld * exaggeration <= 0)
+                throw new RangeError("Invalid elevation sample");
+            minimum = Math.min(minimum, value);
+            maximum = Math.max(maximum, value);
+        }
         tile.dem = dem;
         tile.demDimensions = new Vector2(width, height);
         const heights: number[] = [];
@@ -370,12 +432,14 @@ export default class GlobeSet extends TileSet {
                     (a * (1 - ty) + b * ty) * this.metresToWorld * exaggeration,
                 );
             }
-        tile.minHeight = dem.reduce((a, b) => Math.min(a, b), Infinity);
-        tile.maxHeight = dem.reduce((a, b) => Math.max(a, b), -Infinity);
+        tile.minHeight = minimum;
+        tile.maxHeight = maximum;
         this.originalElevations.set(tile, { key: tile.tileCoords.toString(), heights: heights.slice() });
         tile.elevationHeights = heights;
         tile.terrainLoaded = true;
         this.joinElevationBorders(tile);
+        if (tile.material?.diffuseTexture?.isReady() && this.isTileDisplayReady(tile))
+            tile.mesh.setEnabled(true);
     }
 
     /** Weld shared samples before uploading; no vertical walls are needed between patches. */
@@ -383,15 +447,35 @@ export default class GlobeSet extends TileSet {
         const p = this.meshPrecision, n = p + 1, world = 2 ** this.zoom * p;
         const groups = new Map<string, { tile: Tile; index: number; height: number }[]>();
         const dirty = new Set<Tile>([changed]);
-        for (const tile of this.ourTiles) {
+        const sampleKey = (tile: Tile, x: number, y: number) =>
+            `${((tile.tileCoords.x * p + x) % world + world) % world}/${tile.tileCoords.y * p + y}`;
+        // Only the changed tile's border can have new source elevations. A
+        // neighbour's other borders may have contributors outside this lookup
+        // window, so recomputing them would replace complete corner averages
+        // with partial averages and reopen already joined seams.
+        for (let i = 0; i <= p; i++) {
+            groups.set(sampleKey(changed, i, 0), []);
+            groups.set(sampleKey(changed, i, p), []);
+            groups.set(sampleKey(changed, 0, i), []);
+            groups.set(sampleKey(changed, p, i), []);
+        }
+        // A new DEM only changes seams touching this tile. Look up the eight
+        // neighbours instead of scanning the entire overlapping LOD window.
+        const neighbours = new Set<Tile>([changed]);
+        const coordinate = changed.tileCoords;
+        const tileCount = 2 ** this.zoom;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++)
+            for (const wrap of [-tileCount, 0, tileCount]) {
+                const tile = this.ourTilesMap.get(new Vector3(coordinate.x + dx + wrap, coordinate.y + dy, coordinate.z).toString());
+                if (tile) neighbours.add(tile);
+            }
+        for (const tile of neighbours) {
             const original = this.originalElevations.get(tile);
             if (!tile.terrainLoaded || !original || original.key !== tile.tileCoords.toString() || original.heights.length !== n * n) continue;
             for (let y = 0; y <= p; y++) for (let x = 0; x <= p; x++) {
                 if (x !== 0 && x !== p && y !== 0 && y !== p) continue;
-                const key = `${((tile.tileCoords.x * p + x) % world + world) % world}/${tile.tileCoords.y * p + y}`;
-                const group = groups.get(key) ?? [];
-                group.push({ tile, index: y * n + x, height: original.heights[y * n + x] });
-                groups.set(key, group);
+                const group = groups.get(sampleKey(tile, x, y));
+                if (group) group.push({ tile, index: y * n + x, height: original.heights[y * n + x] });
             }
         }
         for (const group of groups.values()) {
@@ -447,7 +531,9 @@ export default class GlobeSet extends TileSet {
                     positions.push(point.x, point.y, point.z);
                 }
             }
-        if (mesh === tile.mesh) {
+        // The spherical tile geometry already has this topology. Elevation
+        // changes positions and normals, but never its triangles or UVs.
+        if (mesh === tile.mesh && (!mesh.getIndices() || mesh.getTotalVertices() !== (precision + 1) ** 2)) {
             const n = precision + 1;
             const indices: number[] = [],
                 uvs: number[] = [];
@@ -473,7 +559,8 @@ export default class GlobeSet extends TileSet {
         const normals: number[] = [];
         VertexData.ComputeNormals(positions, mesh.getIndices()!, normals);
         mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
-        mesh.refreshBoundingInfo();
+        if (!mesh.getBoundingInfo().isLocked)
+            mesh._refreshBoundingInfo(positions, mesh.geometry?.boundingBias ?? null);
     }
 
     /** Warp already-extruded feature vertices and their LOD meshes once, at load time. */
@@ -516,7 +603,8 @@ export default class GlobeSet extends TileSet {
         VertexData.ComputeNormals(projected, mesh.getIndices()!, normals);
         mesh.setVerticesData(VertexBuffer.NormalKind, normals, true);
         mesh.computeWorldMatrix(true);
-        mesh.refreshBoundingInfo();
+        if (!mesh.getBoundingInfo().isLocked)
+            mesh._refreshBoundingInfo(projected, mesh.geometry?.boundingBias ?? null);
         // A radial detailed mesh must not switch to a planar billboard.
         for (const lod of [...mesh.getLODLevels()]) {
             mesh.removeLODLevel(lod.mesh);
@@ -534,7 +622,12 @@ export default class GlobeSet extends TileSet {
             `${((Math.floor(x) % n) + n) % n}/${Math.floor(y)}`,
         );
         if (!tile?.elevationHeights) return 0;
-        const p = this.meshPrecision,
+        const h = tile.elevationHeights;
+        // Geometry precision can change while a resident tile still carries
+        // the previous grid. Sample that grid until its replacement arrives.
+        const p = Math.sqrt(h.length) - 1;
+        if (!Number.isInteger(p) || p < 1) return 0;
+        const
             sx = (x - Math.floor(x)) * p,
             sy = (y - Math.floor(y)) * p;
         const x0 = Math.floor(sx),
@@ -542,8 +635,7 @@ export default class GlobeSet extends TileSet {
             x1 = Math.min(x0 + 1, p),
             y1 = Math.min(y0 + 1, p),
             tx = sx - x0,
-            ty = sy - y0,
-            h = tile.elevationHeights;
+            ty = sy - y0;
         return (
             (h[y0 * (p + 1) + x0] * (1 - tx) + h[y0 * (p + 1) + x1] * tx) *
                 (1 - ty) +
