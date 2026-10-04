@@ -3,6 +3,7 @@ import { Constants } from "@babylonjs/core/Engines/constants";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { RenderingManager } from "@babylonjs/core/Rendering/renderingManager";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import type { Scene } from "@babylonjs/core/scene";
 import type { GlobeSet, MapLayerRenderer } from "babylonjs-mapping";
@@ -29,7 +30,10 @@ export class TrafficOverlay {
     private readonly aircraftTrail: StandardMaterial;
     private readonly shipWake: StandardMaterial;
 
-    constructor(private readonly scene: Scene, private readonly globe: GlobeSet, private readonly layers: MapLayerRenderer, private readonly status: HTMLElement, private readonly endpoint: () => string) {
+    constructor(private readonly scene: Scene, private readonly globe: GlobeSet, private readonly layers: MapLayerRenderer, private readonly status: HTMLElement, private readonly endpoint: () => string, private readonly symbolRenderingGroup = 9) {
+        // Draw badges after every map layer; coarse fallback terrain renders last.
+        RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, symbolRenderingGroup + 1);
+        scene.setRenderingAutoClearDepthStencil(symbolRenderingGroup, false);
         this.roadMaterials = [new Color3(.91,.47,.40), new Color3(.91,.73,.40), new Color3(.45,.84,.64), new Color3(.47,.53,.58)]
             .map((color, band) => this.markerMaterial(`Road speed band ${band}`, color));
         this.aircraftTrail = this.markerMaterial("Aircraft trail", new Color3(.39,.79,1));
@@ -55,7 +59,7 @@ export class TrafficOverlay {
         const mesh = MeshBuilder.CreateLines(name, { points: outline.map(([x,y]) => new Vector3(x * size / 2, y * size / 2, 0)) }, this.scene);
         mesh.color = kind === "aircraft" ? new Color3(.3,.78,1) : new Color3(.69,.45,1);
         mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
-        mesh.renderingGroupId = 7;
+        mesh.renderingGroupId = this.symbolRenderingGroup;
         if (mesh.material) {
             mesh.material.depthFunction = Constants.ALWAYS;
             mesh.material.disableDepthWrite = true;

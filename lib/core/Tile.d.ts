@@ -8,7 +8,7 @@ import type TileSet from "./TileSet.js";
 export default class Tile {
     mesh: Mesh;
     tileSet: TileSet;
-    material: StandardMaterial;
+    material: StandardMaterial | undefined;
     tileCoords: Vector3;
     box2D: BoundingBox;
     buildings: TileBuilding[];
@@ -16,7 +16,7 @@ export default class Tile {
     mergedBuildingMesh: Mesh | undefined;
     /** Coordinate whose Overture batch has completed, including an empty tile. */
     buildingsResolvedKey?: string;
-    dem: number[];
+    dem: number[] | Float32Array | Float64Array;
     demDimensions: Vector2;
     minHeight: number;
     maxHeight: number;

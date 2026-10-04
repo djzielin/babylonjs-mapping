@@ -47,6 +47,26 @@ function createNavigator() {
 }
 
 describe("GlobeNavigator", () => {
+    it("keeps the raster window steady while the viewer oscillates across an adjacent tile", () => {
+        const { engine, scene, globe, camera, navigator } = createNavigator();
+        navigator.dispose();
+        const stable = new GlobeNavigator(globe, camera, { tileUpdateDelayMs: 0, tileHysteresis: 1 });
+        const updates: number[] = [];
+        stable.onBeforeRasterUpdateObservable.add(view => updates.push(view.longitude));
+        stable.setView(0, 0, { zoom: 4 });
+        camera.alpha += 25 * Math.PI / 180;
+        stable.refresh();
+        expect(globe.centerCoords.x).toBeCloseTo(0);
+        camera.alpha -= 25 * Math.PI / 180;
+        stable.refresh();
+        expect(globe.centerCoords.x).toBeCloseTo(0);
+        camera.alpha += 50 * Math.PI / 180;
+        stable.refresh();
+        expect(globe.centerCoords.x).toBeCloseTo(50);
+        expect(updates).toHaveLength(2);
+        stable.dispose(); scene.dispose(); engine.dispose();
+    });
+
     it("centers LOD on a moving local camera rather than the old orbit target", () => {
         const { engine, scene, globe, navigator } = createNavigator();
         const local = new ArcRotateCamera("local", 0, 1, 0.01, globe.getSurfacePosition(35, -79), scene);

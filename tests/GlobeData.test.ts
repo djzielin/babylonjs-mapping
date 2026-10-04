@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import {
     ArcRotateCamera,
+    FreeCamera,
     NullEngine,
     MeshBuilder,
     Scene,
+    Texture,
     Vector2,
     Vector3,
     VertexBuffer,
@@ -12,6 +14,8 @@ import GlobeSet from "../src/core/GlobeSet";
 import GlobeNavigator from "../src/core/GlobeNavigator";
 import GlobeDataController from "../src/core/GlobeDataController";
 import TerrainRGB, { type ElevationGrid } from "../src/terrain/TerrainRGB";
+import { TERRAIN_REPAIR_VERSION } from "../src/terrain/TerrainRGBDecode";
+import nycWaterfrontEdge from "./fixtures/nyc-waterfront-z12-edge.json";
 import BuildingsOSM from "../src/buildings/BuildingsOSM";
 import { GeoJSON, type feature } from "../src/buildings/GeoJSON";
 import { EPSG_Type } from "../src/core/TileMath";
@@ -67,8 +71,46 @@ const grid = (height: number): ElevationGrid => ({
 });
 
 describe("globe data fidelity", () => {
+    it("keeps an imagery tile behind coarser coverage until its DEM is ready", () => {
+        const { globe, scene, dispose } = setup();
+        globe.setTerrainDisplayRequirement(true);
+        const tile = globe.ourTiles[0];
+        const request = (globe as any).tileRequests[0];
+        const texture = new Texture(null, scene);
+        vi.spyOn(texture, "isReady").mockReturnValue(true);
+        request.texture = texture;
+        request.inProgress = true;
+        globe.processTileRequests();
+        expect(tile.material?.diffuseTexture).toBe(texture);
+        expect(tile.mesh.isEnabled()).toBe(false);
+        globe.setElevationData(tile, [3, 3, 3, 3], 2, 2);
+        expect(tile.mesh.isEnabled()).toBe(true);
+        tile.terrainLoaded = false;
+        globe.setTerrainDisplayRequirement(false);
+        expect(tile.mesh.isEnabled()).toBe(true);
+        globe.setTerrainDisplayRequirement(true);
+        expect(tile.mesh.isEnabled()).toBe(false);
+        dispose();
+    });
+    it("keeps ready building batches through a reload until the caller explicitly clears them", () => {
+        const { globe, scene, dispose } = setup();
+        const tile = globe.ourTiles[0];
+        const ready = MeshBuilder.CreateBox("ready Overture batch", {}, scene);
+        ready.setParent(tile.mesh);
+        tile.buildingBatches.push(ready);
+        const data = new GlobeDataController(globe);
+        data.invalidate(false, true);
+        expect(ready.isDisposed()).toBe(false);
+        expect(tile.buildingBatches).toContain(ready);
+        data.invalidate();
+        expect(ready.isDisposed()).toBe(true);
+        data.dispose(); dispose();
+    });
     it("places a marker sphere at a requested latitude and longitude", () => {
         const { globe, scene, dispose } = setup(1, 40.7484, -73.9857, 17);
+        expect(globe.getSurfacePosition(0, 0).subtract(new Vector3(0, 0, globe.radius)).length()).toBeLessThan(1e-10);
+        expect(globe.getSurfacePosition(0, 90).subtract(new Vector3(-globe.radius, 0, 0)).length()).toBeLessThan(1e-10);
+        expect(globe.getSurfacePosition(90, 0).subtract(new Vector3(0, globe.radius, 0)).length()).toBeLessThan(1e-10);
         const marker = MeshBuilder.CreateSphere("Empire State marker", { diameter: 0.001 }, scene);
         marker.position.copyFrom(globe.getSurfacePosition(40.7484, -73.9857, 100 * globe.metresToWorld));
         const result = globe.getSurfaceCoordinates(Vector3.TransformCoordinates(Vector3.Zero(), marker.computeWorldMatrix(true)));
@@ -149,6 +191,27 @@ describe("globe data fidelity", () => {
         expect(globe.sampleElevation(center.latitude, center.longitude)).toBeCloseTo(120 * globe.metresToWorld, 10);
         dispose();
     });
+    it("stores an independent compact copy of Float32 elevation grids", () => {
+        const { globe, dispose } = setup();
+        const tile = globe.ourTiles[0];
+        const source = new Float32Array([1.25, -2.5, 3.75, 4.5]);
+        globe.setElevationData(tile, source, 2, 2);
+        expect(tile.dem).toBeInstanceOf(Float32Array);
+        expect(Array.from(tile.dem)).toEqual([1.25, -2.5, 3.75, 4.5]);
+        source[0] = 100;
+        expect(tile.dem[0]).toBe(1.25);
+        expect(tile.minHeight).toBe(-2.5);
+        expect(tile.maxHeight).toBe(4.5);
+        globe.setElevationData(tile, [Math.PI, 0, 0, 0], 2, 2);
+        expect(tile.dem).toBeInstanceOf(Float64Array);
+        expect(tile.dem[0]).toBe(Math.PI);
+        const bounds = tile.mesh.getBoundingInfo().boundingBox;
+        for (const point of worldVertices(tile.mesh)) for (const axis of ["x", "y", "z"] as const) {
+            expect(point[axis]).toBeGreaterThanOrEqual(bounds.minimumWorld[axis] - 1e-6);
+            expect(point[axis]).toBeLessThanOrEqual(bounds.maximumWorld[axis] + 1e-6);
+        }
+        dispose();
+    });
     it("preserves building height, pitched roofs and geographic placement above terrain", () => {
         const { globe, scene, dispose } = setup();
         const tile = globe.ourTiles[0];
@@ -193,6 +256,11 @@ describe("globe data fidelity", () => {
         expect(Math.max(...heights)).toBeCloseTo(1100, 2);
         const normals = tile.buildings[0].mesh.getVerticesData(VertexBuffer.NormalKind)!;
         const world = worldVertices(tile.buildings[0].mesh);
+        const bounds = tile.buildings[0].mesh.getBoundingInfo().boundingBox;
+        for (const point of world) for (const axis of ["x", "y", "z"] as const) {
+            expect(point[axis]).toBeGreaterThanOrEqual(bounds.minimumWorld[axis] - 1e-6);
+            expect(point[axis]).toBeLessThanOrEqual(bounds.maximumWorld[axis] + 1e-6);
+        }
         const roofNormals = heights.map((h,i)=>h>1099 ? Vector3.Dot(new Vector3(normals[i*3],normals[i*3+1],normals[i*3+2]),world[i].normalizeToNew()) : -1);
         expect(Math.max(...roofNormals)).toBeGreaterThan(0.1);
         const vertices = tile.buildings[0].mesh.getVerticesData(
@@ -339,6 +407,71 @@ describe("seafloor navigation",()=>{
 });
 
 describe("bounded detail streaming", () => {
+    it("ranks imagery by new globe coordinates immediately after a move and turn", () => {
+        const { scene, dispose } = setup();
+        const globe = new GlobeSet(scene, scene.getEngine() as any, {
+            backingSurface: false,
+            geometryBudgetMs: 0.001,
+        });
+        globe.createGeometry(new Vector2(3, 3), 20, 8);
+        const target = globe.getSurfacePosition(35, -79);
+        const camera = new FreeCamera("imagery view", target.scale(1.02), scene);
+        camera.setTarget(target);
+        camera.fov = 0.1;
+        scene.activeCamera = camera;
+        globe.updateRaster(35, -79, 15);
+        globe.rasterConcurrency = 1;
+        const scheduled: string[] = [];
+        vi.spyOn(globe as any, "processNextTileRequest").mockImplementation(() =>
+            scheduled.push((globe as any).tileRequests[0].tileCoords.toString()));
+        const nearest = [...globe.ourTiles].sort((a, b) =>
+            Vector3.DistanceSquared(globe.getTileSurfacePosition(a.tileCoords), target) -
+            Vector3.DistanceSquared(globe.getTileSurfacePosition(b.tileCoords), target))[0];
+        globe.processTileRequests();
+        expect(scheduled[0]).toBe(nearest.tileCoords.toString());
+
+        const turnedTile = globe.ourTiles.at(-1)!;
+        const turnedTarget = globe.getTileSurfacePosition(turnedTile.tileCoords);
+        camera.position.copyFrom(turnedTarget.scale(1.02));
+        camera.setTarget(turnedTarget);
+        globe.processTileRequests();
+        expect(scheduled[1]).toBe(turnedTile.tileCoords.toString());
+        dispose();
+    });
+
+    it("builds the patch in the current view before off-screen grid patches", () => {
+        const { scene, dispose } = setup();
+        let time = 0;
+        const clock = vi.spyOn(performance, "now").mockImplementation(() => (time += 3));
+        const globe = new GlobeSet(scene, scene.getEngine() as any, {
+            backingSurface: false,
+            geometryBudgetMs: 1,
+        });
+        globe.createGeometry(new Vector2(3, 3), 20, 8);
+        const target = globe.getSurfacePosition(35, -79);
+        const camera = new FreeCamera("view", target.scale(1.02), scene);
+        camera.setTarget(target);
+        camera.fov = 0.1;
+        scene.activeCamera = camera;
+
+        globe.updateRaster(35, -79, 15);
+        const ready = globe.ourTiles.filter(tile => globe.isTileGeometryReady(tile));
+        expect(ready).toHaveLength(1);
+        const nearest = [...globe.ourTiles].sort((a, b) =>
+            Vector3.DistanceSquared(globe.getTileSurfacePosition(a.tileCoords), target) -
+            Vector3.DistanceSquared(globe.getTileSurfacePosition(b.tileCoords), target))[0];
+        expect(ready[0].tileCoords.toString()).toBe(nearest.tileCoords.toString());
+
+        const turnedTile = globe.ourTiles.at(-1)!;
+        const turnedTarget = globe.getTileSurfacePosition(turnedTile.tileCoords);
+        camera.position.copyFrom(turnedTarget.scale(1.02));
+        camera.setTarget(turnedTarget);
+        (globe as any).flushGeometry();
+        expect(globe.isTileGeometryReady(turnedTile)).toBe(true);
+        clock.mockRestore();
+        dispose();
+    });
+
     it("spreads patch generation across budgets and exposes readiness to loaders", () => {
         const { scene, dispose } = setup();
         let time = 0;
@@ -384,13 +517,16 @@ describe("bounded detail streaming", () => {
         expect(loader).toHaveBeenCalledTimes(2);
         globe.updateRaster(-33, 151, 15);
         data.update();
-        expect(pending.every((p) => p.signal.aborted)).toBe(true);
-        pending.forEach((p) => p.resolve(grid(999)));
+        expect(pending.slice(0, 2).every((p) => p.signal.aborted)).toBe(true);
+        expect(loader).toHaveBeenCalledTimes(4);
+        expect(data.stats.active).toBe(2);
+        pending.slice(0, 2).forEach((p) => p.resolve(grid(999)));
         await Promise.resolve();
         await Promise.resolve();
         expect(globe.ourTiles.every((t) => !t.terrainLoaded)).toBe(true);
         data.update();
         expect(loader).toHaveBeenCalledTimes(4);
+        expect(data.stats.active).toBe(2);
         pending.slice(2).forEach((p) => p.resolve(grid(-100)));
         await Promise.resolve();
         await Promise.resolve();
@@ -398,6 +534,30 @@ describe("bounded detail streaming", () => {
         expect(data.stats.active).toBe(0);
         data.dispose();
         dispose();
+    });
+    it("starts the replacement view while aborted requests remain unresolved", async () => {
+        const { globe, dispose } = setup();
+        const pending: Array<{ resolve: (value: ElevationGrid) => void; signal: AbortSignal }> = [];
+        const loader = vi.fn((_c: Vector3, signal: AbortSignal) =>
+            new Promise<ElevationGrid>(resolve => pending.push({ resolve, signal })));
+        const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
+        try {
+            data.update();
+            expect(loader).toHaveBeenCalledTimes(1);
+            data.invalidate();
+            data.update();
+            expect(pending[0].signal.aborted).toBe(true);
+            expect(loader).toHaveBeenCalledTimes(2);
+            expect(data.stats.active).toBe(1);
+            pending[0].resolve(grid(999));
+            await Promise.resolve(); await Promise.resolve();
+            expect(data.stats.active).toBe(1);
+            expect(globe.ourTiles[0].terrainLoaded).toBe(false);
+            pending[1].resolve(grid(25));
+            await Promise.resolve(); await Promise.resolve();
+            expect(data.stats.active).toBe(0);
+            expect(globe.ourTiles[0].terrainLoaded).toBe(true);
+        } finally { data.dispose(); dispose(); }
     });
     it("refills completed downloads without waiting for another rendered frame", async () => {
         vi.useFakeTimers();
@@ -438,6 +598,54 @@ describe("bounded detail streaming", () => {
         try { data.update(); expect(loader.mock.calls[0]?.[0]).toEqual(nearest.tileCoords); }
         finally { data.dispose(); dispose(); }
     });
+    it("promotes newly nearby terrain without cancelling an in-window request", async () => {
+        const { globe, scene, dispose } = setup(5);
+        const first = globe.ourTiles[0], nearby = globe.ourTiles.at(-1)!;
+        const camera = new ArcRotateCamera("moving eye", 0, 1, 1, globe.getSurfacePosition(35, -79), scene);
+        camera.setPosition(first.mesh.getBoundingInfo().boundingSphere.centerWorld.scale(1.00001));
+        camera.getViewMatrix(true);
+        const pending: Array<{ resolve: (value: ElevationGrid) => void; signal: AbortSignal }> = [];
+        const loader = vi.fn((_coords: Vector3, signal: AbortSignal) =>
+            new Promise<ElevationGrid>(resolve => pending.push({ resolve, signal })));
+        const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
+        try {
+            data.update();
+            expect(loader.mock.calls[0][0]).toEqual(first.tileCoords);
+            camera.setPosition(nearby.mesh.getBoundingInfo().boundingSphere.centerWorld.scale(1.00001));
+            camera.getViewMatrix(true);
+            data.update();
+            expect(pending[0].signal.aborted).toBe(false);
+            expect(loader.mock.calls[1][0]).toEqual(nearby.tileCoords);
+            expect(data.stats.active).toBe(2);
+            pending[0].resolve(grid(999));
+            await Promise.resolve(); await Promise.resolve();
+            expect(data.stats.active).toBe(1);
+            expect(first.terrainLoaded).toBe(true);
+            pending[1].resolve(grid(25));
+            await Promise.resolve(); await Promise.resolve();
+            expect(nearby.terrainLoaded).toBe(true);
+            expect(data.stats.active).toBe(0);
+        } finally { data.dispose(); dispose(); }
+    });
+    it("promotes terrain on a camera move inside the full-queue throttle interval", () => {
+        const { globe, scene, dispose } = setup(5);
+        const first = globe.ourTiles[0], nearby = globe.ourTiles.at(-1)!;
+        const camera = new ArcRotateCamera("throttled eye", 0, 1, 1, globe.getTileSurfacePosition(first.tileCoords), scene);
+        camera.setPosition(globe.getTileSurfacePosition(first.tileCoords).scale(1.00001));
+        const loader = vi.fn((_coords: Vector3) => new Promise<ElevationGrid>(() => {}));
+        const clock = vi.spyOn(performance, "now").mockReturnValue(1000);
+        const data = new GlobeDataController(globe, { elevation: loader, concurrency: 1 });
+        try {
+            data.update();
+            expect(loader.mock.calls[0][0]).toEqual(first.tileCoords);
+            data.update();
+            expect(loader).toHaveBeenCalledTimes(1);
+            camera.setPosition(globe.getTileSurfacePosition(nearby.tileCoords).scale(1.00001));
+            camera.setTarget(globe.getTileSurfacePosition(nearby.tileCoords));
+            data.update();
+            expect(loader.mock.calls[1]?.[0]).toEqual(nearby.tileCoords);
+        } finally { data.dispose(); clock.mockRestore(); dispose(); }
+    });
     it("reports errors once and explicitly retries on invalidation", async () => {
         const { globe, dispose } = setup();
         const loader = vi.fn(async () => {
@@ -460,6 +668,20 @@ describe("bounded detail streaming", () => {
         data.dispose();
         dispose();
     });
+    it("automatically retries a transient terrain error without a manual reload", async () => {
+        const { globe, dispose } = setup();
+        const loader = vi.fn().mockRejectedValueOnce(new Error("temporary outage"))
+            .mockResolvedValueOnce(grid(42));
+        const data = new GlobeDataController(globe, { elevation: loader });
+        const error = vi.fn();
+        data.onErrorObservable.add(error);
+        data.update();
+        await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(2), { timeout: 2000 });
+        await vi.waitFor(() => expect(globe.ourTiles[0].terrainLoaded).toBe(true), { timeout: 2000 });
+        expect(error).toHaveBeenCalledOnce();
+        data.dispose();
+        dispose();
+    });
 });
 
 describe("terrain encodings and overzoom", () => {
@@ -473,6 +695,211 @@ describe("terrain encodings and overzoom", () => {
             ),
         ).toEqual([0, -1, 1.5]);
         expect(TerrainRGB.decode([0, 0, 0, 255], "mapbox")[0]).toBe(-10000);
+    });
+    it("repairs isolated pixels and connected DEM pits while retaining broad bathymetry", () => {
+        const width = 11, data = new Float32Array(width * width).fill(10);
+        data[5 * width + 5] = -272;
+        for (let y = 3; y <= 7; y++) data[y * width + 8] = -170;
+        for (let y = 1; y <= 3; y++) for (let x = 1; x <= 3; x++) data[y * width + x] = -180;
+        const source = { data, width, height: width };
+        expect(TerrainRGB.repairIsolatedSpikes(source, 7)).toBe(source);
+        expect(TerrainRGB.repairIsolatedSpikes(source, 8).data[5 * width + 5]).toBe(10);
+        const repaired = TerrainRGB.repairIsolatedSpikes(source, 14);
+        expect(repaired.data[5 * width + 5]).toBe(10);
+        for (let y = 3; y <= 7; y++) expect(repaired.data[y * width + 8]).toBe(10);
+        expect(repaired.data[2 * width + 2]).toBe(10);
+        expect(source.data[5 * width + 5]).toBe(-272);
+        const broad = new Float32Array(64 * 64).fill(0);
+        for (let y = 12; y < 44; y++) for (let x = 12; x < 44; x++) broad[y * 64 + x] = -180;
+        const broadSource = { data: broad, width: 64, height: 64 };
+        expect(TerrainRGB.repairIsolatedSpikes(broadSource, 14)).toBe(broadSource);
+        const impossible = new Float32Array(broad);
+        for (let y = 12; y < 44; y++) for (let x = 12; x < 44; x++) impossible[y * 64 + x] = -20000;
+        for (let y = 12; y < 44; y++) impossible[y * 64 + 44] = -75;
+        expect(TerrainRGB.repairIsolatedSpikes({ data: impossible, width: 64, height: 64 }, 14).data[20 * 64 + 20]).toBe(0);
+        expect(TerrainRGB.repairIsolatedSpikes({ data: impossible, width: 64, height: 64 }, 14).data[20 * 64 + 44]).toBe(0);
+        // Newport's source DEM contained a 3,430-sample pit reaching the tile
+        // edge; its raw adjoining-tile jump exceeded 15 km.
+        const waterfront = new Float32Array(256 * 256).fill(2);
+        for (let y = 0; y < 36; y++) for (let x = 0; x < 96; x++)
+            waterfront[y * 256 + x] = -15400;
+        const repairedWaterfront = TerrainRGB.repairIsolatedSpikes({
+            data: waterfront, width: 256, height: 256,
+        }, 15);
+        expect(repairedWaterfront.data[0]).toBe(2);
+        expect(repairedWaterfront.data[35 * 256 + 95]).toBe(2);
+        expect(waterfront[0]).toBe(-15400);
+        const narrowRiverbank = new Float32Array(64 * 64).fill(2);
+        for (let y = 8; y < 56; y++) narrowRiverbank[y * 64 + 32] = -76;
+        const riverbank = TerrainRGB.repairIsolatedSpikes({ data: narrowRiverbank, width: 64, height: 64 }, 15);
+        expect(riverbank.data[30 * 64 + 32]).toBe(2);
+        const raisedCoast = new Float32Array(64 * 64).fill(0);
+        for (let y = 20; y < 26; y++) for (let x = 20; x < 25; x++) raisedCoast[y * 64 + x] = 71;
+        const raised = TerrainRGB.repairIsolatedSpikes({ data: raisedCoast, width: 64, height: 64 }, 13);
+        expect(raised.data[23 * 64 + 22]).toBe(0);
+        expect(raised.data[23 * 64 + 26]).toBe(0);
+        expect(TerrainRGB.repairIsolatedSpikes({ data: raisedCoast, width: 64, height: 64 }, 11).data[23 * 64 + 22]).toBe(0);
+        expect(TerrainRGB.repairIsolatedSpikes({ data: raisedCoast, width: 64, height: 64 }, 8).data).toBe(raisedCoast);
+        // A Newport z15 source tile leaves a 36 m wall against nearly level
+        // ground when only peaks above the old 40 m threshold are repaired.
+        const lowRidge = new Float32Array(64 * 64).fill(2);
+        for (let y = 20; y < 28; y++) for (let x = 20; x < 27; x++)
+            lowRidge[y * 64 + x] = 36;
+        expect(TerrainRGB.repairIsolatedSpikes({ data: lowRidge, width: 64, height: 64 }, 15)
+            .data[23 * 64 + 23]).toBe(2);
+        expect(TerrainRGB.repairIsolatedSpikes({ data: lowRidge, width: 64, height: 64 }, 13)
+            .data[23 * 64 + 23]).toBe(2);
+        const regionalCoast = new Float32Array(64 * 64).fill(2);
+        regionalCoast[33 * 64 + 34] = 21;
+        expect(TerrainRGB.repairIsolatedSpikes({ data: regionalCoast, width: 64, height: 64 }, 12)
+            .data[33 * 64 + 34]).toBe(2);
+        // The Greenpoint regional DEM has adjacent 29-33 m outliers on its
+        // southern edge; no sample exists below that edge within this tile.
+        const regionalEdge = new Float32Array(64 * 64).fill(6);
+        regionalEdge[63 * 64 + 7] = 33;
+        regionalEdge[63 * 64 + 8] = 29;
+        const repairedEdge = TerrainRGB.repairIsolatedSpikes({ data: regionalEdge, width: 64, height: 64 }, 12);
+        expect(repairedEdge.data[63 * 64 + 7]).toBe(6);
+        expect(repairedEdge.data[63 * 64 + 8]).toBe(6);
+        // A Greenpoint z12 DEM boundary has two 17 m pixels against a 1-4 m
+        // adjoining tile. Welding vertices alone leaves a steep inner lip.
+        const regionalWaterEdge = new Float32Array(64 * 64).fill(4);
+        regionalWaterEdge[18 * 64] = 17;
+        regionalWaterEdge[19 * 64] = 17;
+        const repairedWaterEdge = TerrainRGB.repairIsolatedSpikes({
+            data: regionalWaterEdge, width: 64, height: 64,
+        }, 12);
+        expect(repairedWaterEdge.data[18 * 64]).toBe(4);
+        expect(repairedWaterEdge.data[19 * 64]).toBe(4);
+        const regionalWaterPeak = new Float32Array(64 * 64).fill(1);
+        regionalWaterPeak[32 * 64 + 32] = 20;
+        regionalWaterPeak[32 * 64 + 31] = 13;
+        expect(TerrainRGB.repairIsolatedSpikes({
+            data: regionalWaterPeak, width: 64, height: 64,
+        }, 12).data[32 * 64 + 32]).toBe(1);
+        const regionalGroundPeak = new Float32Array(64 * 64).fill(8);
+        regionalGroundPeak[32 * 64 + 32] = 22;
+        expect(TerrainRGB.repairIsolatedSpikes({
+            data: regionalGroundPeak, width: 64, height: 64,
+        }, 13).data[32 * 64 + 32]).toBe(8);
+        const shortCoastalSeam = new Float32Array(64 * 64).fill(0);
+        for (let y = 15; y < 22; y++) shortCoastalSeam[y * 64 + 15] = 12;
+        for (let y = 32; y < 39; y++) shortCoastalSeam[y * 64 + 32] = -16;
+        const repairedSeam = TerrainRGB.repairIsolatedSpikes({
+            data: shortCoastalSeam, width: 64, height: 64,
+        }, 15);
+        expect(repairedSeam.data[18 * 64 + 15]).toBe(0);
+        expect(repairedSeam.data[35 * 64 + 32]).toBe(0);
+        // Greenpoint's z10 waterfront DEM has a narrow +31 m lip beside
+        // shallow negative water. It must not form a fin while z12 streams.
+        const coarseWaterfront = new Float32Array(64 * 64).fill(2);
+        for (let y = 28; y < 33; y++) coarseWaterfront[y * 64 + 30] = 31;
+        for (let y = 28; y < 33; y++) coarseWaterfront[y * 64 + 31] = -20;
+        const coarseRepaired = TerrainRGB.repairIsolatedSpikes({
+            data: coarseWaterfront, width: 64, height: 64,
+        }, 10);
+        expect(coarseRepaired.data[30 * 64 + 30]).toBe(2);
+        expect(coarseRepaired.data[30 * 64 + 31]).toBe(2);
+        // A real Greenpoint z10 coastal sample has a three-pixel spur of
+        // 16-27 m above surrounding 0-9 m water. It touches higher land, so
+        // the component repair alone leaves the visible vertical fin.
+        const connectedSpur = new Float32Array(64 * 64).fill(2);
+        for (let y = 0; y < 25; y++) for (let x = 25; x <= 36; x++)
+            connectedSpur[y * 64 + x] = 24;
+        for (let y = 25; y <= 31; y++) connectedSpur[y * 64 + 31] = 24;
+        for (let y = 26; y <= 31; y++) connectedSpur[y * 64 + 30] = 8;
+        const repairedSpur = TerrainRGB.repairIsolatedSpikes({
+            data: connectedSpur, width: 64, height: 64,
+        }, 10);
+        expect(repairedSpur.data[29 * 64 + 31]).toBeLessThan(12);
+        expect(repairedSpur.data[30 * 64 + 31]).toBeLessThan(12);
+        const broadCoastalHill = new Float32Array(64 * 64).fill(2);
+        for (let y = 15; y < 35; y++) for (let x = 15; x < 35; x++)
+            broadCoastalHill[y * 64 + x] = 24;
+        expect(TerrainRGB.repairIsolatedSpikes({
+            data: broadCoastalHill, width: 64, height: 64,
+        }, 10).data[25 * 64 + 25]).toBe(24);
+        const slopedWaterfront = new Float32Array(64 * 64);
+        for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++)
+            slopedWaterfront[y * 64 + x] = x < 32 ? 2 : -18;
+        slopedWaterfront[32 * 64 + 31] = 64;
+        slopedWaterfront[32 * 64 + 32] = -83;
+        const slopedRepaired = TerrainRGB.repairIsolatedSpikes({
+            data: slopedWaterfront, width: 64, height: 64,
+        }, 10);
+        expect(slopedRepaired.data[32 * 64 + 32]).toBeGreaterThan(-30);
+        const broadHill = new Float32Array(64 * 64).fill(0);
+        for (let y = 8; y < 48; y++) for (let x = 8; x < 48; x++) broadHill[y * 64 + x] = 71;
+        expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 13).data[25 * 64 + 25]).toBe(71);
+        expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 10).data[25 * 64 + 25]).toBe(71);
+        expect(TerrainRGB.repairIsolatedSpikes({ data: broadHill, width: 64, height: 64 }, 15).data[25 * 64 + 25]).toBe(71);
+        const maskedOutlier = new Float32Array(64 * 64).fill(20);
+        maskedOutlier[32 * 64 + 32] = 51;
+        maskedOutlier[31 * 64 + 32] = 49;
+        maskedOutlier[33 * 64 + 32] = 47;
+        maskedOutlier[32 * 64 + 31] = 174;
+        maskedOutlier[32 * 64 + 33] = 104;
+        const repairedOutliers = TerrainRGB.repairIsolatedSpikes({
+            data: maskedOutlier, width: 64, height: 64,
+        }, 12).data;
+        expect(repairedOutliers[32 * 64 + 32]).toBe(20);
+        expect(repairedOutliers[32 * 64 + 31]).toBe(20);
+        const regionalCoastalIsland = new Float32Array(64 * 64).fill(0);
+        for (let y = 22; y < 37; y++) for (let x = 20; x < 30; x++)
+            regionalCoastalIsland[y * 64 + x] = 84;
+        expect(TerrainRGB.repairIsolatedSpikes({
+            data: regionalCoastalIsland, width: 64, height: 64,
+        }, 12).data[29 * 64 + 25]).toBe(0);
+        expect(TerrainRGB.repairIsolatedSpikes({
+            data: regionalCoastalIsland, width: 64, height: 64,
+        }, 10).data[29 * 64 + 25]).toBe(84);
+        const coarseCoast = new Float32Array(64 * 64).fill(1);
+        for (const [x, y, height] of [[30, 29, 252], [31, 30, 299], [30, 31, 220],
+            [30, 30, -51], [29, 31, -40], [32, 29, -126]]) coarseCoast[y * 64 + x] = height;
+        const coarse = TerrainRGB.repairIsolatedSpikes({ data: coarseCoast, width: 64, height: 64 }, 11);
+        for (let y = 29; y <= 31; y++) for (let x = 29; x <= 32; x++)
+            expect(Math.abs(coarse.data[y * 64 + x] - 1)).toBeLessThan(5);
+        const coastalSamples = new Float32Array([-300, -30, -5, 0, 5, 30, 300]);
+        const coast = TerrainRGB.smoothNearSeaLevel(coastalSamples, 15);
+        expect(coast).toBeDefined();
+        expect(coast![2]).toBeGreaterThan(-5);
+        expect(coast![4]).toBeLessThan(5);
+        expect(coast![0]).toBe(-300);
+        expect(coast![6]).toBe(300);
+        const deepSea = new Float32Array(11 * 11).fill(-300);
+        deepSea[5 * 11 + 5] = -700;
+        expect(TerrainRGB.repairIsolatedSpikes({ data: deepSea, width: 11, height: 11 }, 14).data[60]).toBe(-300);
+    });
+    it("removes mixed-sign coastal DEM columns from the NYC z10 source", () => {
+        // Rounded samples around z10/302/384, lon -73.765, lat 40.809.
+        // The source has +942 m beside -497 m in a low waterfront patch.
+        const data = Float32Array.from(`
+            -5 -4 -3 -3 10 1 18 23 22 18 19
+            -4 -3 -3 1 -113 -37 40 21 20 20 22
+            -4 -3 -3 1 119 43 -12 21 23 22 25
+            -4 -3 -3 -3 942 215 -267 34 50 16 25
+            -4 -3 -3 -2 4 340 -497 49 76 8 23
+            -4 -3 -2 -2 3 253 -347 36 58 11 23
+            -4 -3 -2 -2 3 7 37 14 15 19 23
+            -4 -3 -2 -2 -2 -149 137 29 17 17 20
+            -4 -3 -2 -2 -1 -1 1 6 61 2 14
+            -4 -3 -2 -1 -1 -1 -1 4 73 -11 8
+            -4 -3 -2 -1 -1 0 0 2 35 -14 4
+        `.trim().split(/\s+/).map(Number));
+        const repaired = TerrainRGB.repairIsolatedSpikes({ data, width: 11, height: 11 }, 10).data;
+        expect(repaired[5 * 11 + 5]).toBeLessThan(30);
+        expect(repaired[5 * 11 + 6]).toBeGreaterThan(-30);
+        expect(data[5 * 11 + 5]).toBe(253);
+    });
+    it("removes a short NYC coastal lip at a z12 source tile edge", () => {
+        const { width, height, zoom, data } = nycWaterfrontEdge;
+        const source = Float32Array.from(data.flat());
+        const repaired = TerrainRGB.repairIsolatedSpikes({ data: source, width, height }, zoom).data;
+        expect(source[(height - 1) * width + 7]).toBe(33);
+        expect(source[(height - 1) * width + 8]).toBe(29);
+        expect(repaired[(height - 1) * width + 7]).toBeLessThan(12);
+        expect(repaired[(height - 1) * width + 8]).toBeLessThan(12);
+        expect(repaired[(height - 1) * width + 24]).toBe(source[(height - 1) * width + 24]);
     });
     it("samples the correct ancestor quadrant when overzooming", () => {
         const data = Array.from({ length: 16 }, (_, i) => i);
@@ -517,17 +944,22 @@ it("parks a completed detail queue and wakes it when the globe moves", async () 
 
 it("coalesces overzoom DEM requests without one caller cancelling its neighbours", async () => {
     const terrain = new TerrainRGB({ maxZoom: 0 });
+    const crop = vi.spyOn(TerrainRGB, "crop");
     let resolve!: (grid: ElevationGrid) => void;
     const fetchGrid = vi.spyOn(terrain as any, "fetchGrid").mockImplementation(() => new Promise<ElevationGrid>(done => { resolve = done; }));
     const cancelled = new AbortController();
     const first = terrain.load(new Vector3(0, 0, 1), cancelled.signal);
     const second = terrain.load(new Vector3(1, 0, 1), new AbortController().signal);
     cancelled.abort();
-    resolve({ data: [0, 1, 2, 3], width: 2, height: 2 });
+    resolve({ data: [0, 1, 2, 3], width: 2, height: 2, repairVersion: TERRAIN_REPAIR_VERSION });
     await expect(first).rejects.toThrow();
-    expect((await second).data[0]).toBe(1);
+    const child = await second;
+    expect(child.data[0]).toBe(1);
+    expect(await terrain.load(new Vector3(1, 0, 1), new AbortController().signal)).toBe(child);
     await terrain.load(new Vector3(0, 0, 1), new AbortController().signal);
     expect(fetchGrid).toHaveBeenCalledTimes(1);
+    expect(crop).toHaveBeenCalledTimes(2);
+    crop.mockRestore();
 });
 
 

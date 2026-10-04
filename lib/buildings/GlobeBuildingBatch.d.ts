@@ -11,8 +11,13 @@ export declare class GlobeBuildingBatch {
     readonly indices: number[];
     featureCount: number;
     readonly ranges: {
+        id: string;
         latitude: number;
         longitude: number;
+        south: number;
+        west: number;
+        north: number;
+        east: number;
         start: number;
         end: number;
     }[];

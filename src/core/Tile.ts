@@ -12,7 +12,7 @@ import type TileSet from "./TileSet.js";
 //import "@babylonjs/inspector";
 
 export default class Tile {
-    public material: StandardMaterial;
+    public material: StandardMaterial | undefined;
     public tileCoords: Vector3;
     public box2D: BoundingBox;
     
@@ -28,7 +28,7 @@ export default class Tile {
     //////////////////////////////////
     // TERRAIN 
     //////////////////////////////////
-    public dem: number[];
+    public dem: number[] | Float32Array | Float64Array;
     public demDimensions: Vector2;
     public minHeight: number;
     public maxHeight: number;

@@ -49,6 +49,8 @@ export * as GeoJSON from "./buildings/GeoJSON.js";
 export { default as Raster } from "./raster/Raster.js";
 export { default as RasterMB } from "./raster/RasterMB.js";
 export { default as RasterOSM } from "./raster/RasterOSM.js";
+export { default as RasterGoogleSatellite } from "./raster/RasterGoogleSatellite.js";
+export type { GoogleSatelliteSession } from "./raster/RasterGoogleSatellite.js";
 export {
     default as RasterGEBCO,
     GEBCO_DEFAULT_LAYER,

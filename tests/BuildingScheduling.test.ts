@@ -37,6 +37,28 @@ describe("building scheduling", () => {
         expect(far.mesh.getWorldMatrix().updateFlag).toBe(revision);
         scene.dispose(); engine.dispose();
     });
+    it("promotes a newly visible building tile immediately after a camera turn", () => {
+        const { scene, engine, provider } = setup();
+        const camera = new UniversalCamera("turning camera", Vector3.Zero(), scene);
+        scene.activeCamera = camera;
+        provider.setOptimizationOptions({ prioritizeRequestsByDistance: true });
+        const near = { mesh: MeshBuilder.CreateGround("near hidden", {}, scene) };
+        const far = { mesh: MeshBuilder.CreateGround("far visible", {}, scene) };
+        near.mesh.position.x = 1;
+        far.mesh.position.z = 10;
+        near.mesh.computeWorldMatrix(true); far.mesh.computeWorldMatrix(true);
+        let visible = near.mesh;
+        vi.spyOn(camera, "isInFrustum").mockImplementation(mesh => mesh === visible);
+        provider.setQueue([
+            { tile: near, requestType: BuildingRequestType.CreateBuilding },
+            { tile: far, requestType: BuildingRequestType.CreateBuilding },
+        ]);
+        expect((provider as any).selectBuildingRequestIndex()).toBe(0);
+        visible = far.mesh;
+        camera.rotation.y = 0.4;
+        expect((provider as any).selectBuildingRequestIndex()).toBe(1);
+        scene.dispose(); engine.dispose();
+    });
     it("fills available download slots in one turn, nearest camera first", () => {
         const { scene, engine, provider } = setup();
         scene.activeCamera = new UniversalCamera("camera", Vector3.Zero(), scene);

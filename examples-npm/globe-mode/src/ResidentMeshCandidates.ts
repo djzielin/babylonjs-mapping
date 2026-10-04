@@ -6,7 +6,14 @@ import type { Scene } from "@babylonjs/core/scene";
 export function installResidentMeshCandidates(scene: Scene): () => void {
     const previous = scene.getActiveMeshCandidates;
     const result = { data: [] as AbstractMesh[], length: 0 };
+    const forced: AbstractMesh[] = [];
+    const restore = () => {
+        for (const mesh of forced) mesh.alwaysSelectAsActiveMesh = false;
+        forced.length = 0;
+    };
+    const afterRender = scene.onAfterRenderObservable.add(restore);
     const select = () => {
+        restore();
         const source = previous();
         const camera = scene.activeCamera;
         if (!camera || scene.skipFrustumClipping) return source;
@@ -22,6 +29,12 @@ export function installResidentMeshCandidates(scene: Scene): () => void {
             if (canCull && (!mesh.isVisible || mesh.visibility <= 0
                 || !(mesh.layerMask & camera.layerMask) || !mesh.isEnabled()
                 || !mesh.isInFrustum(scene.frustumPlanes))) continue;
+            if (canCull) {
+                // Babylon would repeat this exact frustum test later in the
+                // same render. Restore the flag before the next selection.
+                mesh.alwaysSelectAsActiveMesh = true;
+                forced.push(mesh);
+            }
             result.data[count++] = mesh;
         }
         result.data.length = result.length = count;
@@ -29,6 +42,8 @@ export function installResidentMeshCandidates(scene: Scene): () => void {
     };
     scene.getActiveMeshCandidates = select;
     const dispose = () => {
+        restore();
+        scene.onAfterRenderObservable.remove(afterRender);
         if (scene.getActiveMeshCandidates === select) scene.getActiveMeshCandidates = previous;
         result.data.length = result.length = 0;
     };

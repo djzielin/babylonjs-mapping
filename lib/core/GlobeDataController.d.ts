@@ -30,9 +30,13 @@ export default class GlobeDataController {
     private jobs;
     private ready;
     private terrainReady;
+    private retryAt;
     private observer;
     private disposed;
     private refillTimer?;
+    private nextPriorityCheck;
+    private priorityCamera?;
+    private priorityRevision;
     private settled;
     private tiles;
     private positionObserver;
@@ -41,6 +45,6 @@ export default class GlobeDataController {
     update(): void;
     private load;
     /** Explicitly retry failures or reload after changing provider settings. */
-    invalidate(preserveTerrain?: boolean): void;
+    invalidate(preserveTerrain?: boolean, preserveBuildings?: boolean): void;
     dispose(): void;
 }

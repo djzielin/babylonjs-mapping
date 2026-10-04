@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FreeCamera, NullEngine, Scene, Vector3 } from "@babylonjs/core";
+import { FreeCamera, MeshBuilder, NullEngine, RenderingManager, Scene, StandardMaterial, Vector3 } from "@babylonjs/core";
 import GlobeSet from "../src/GlobeSet";
 import MapLayerRenderer from "../src/core/MapLayerRenderer";
 import { TrafficOverlay } from "../examples-npm/globe-mode/src/TrafficOverlay";
@@ -19,23 +19,28 @@ const snapshot = (callsign: string) => ({ roads: [], aircraft: [
     { callsign, latitude: 0, longitude: 0, altitudeMeters: 500, heading: null },
 ], ships: [{ name: callsign, latitude: 0, longitude: 180, heading: null }] });
 const response = (callsign: string) => ({ ok: true, json: async () => snapshot(callsign) } as Response);
+const mapMaxLevel = 8;
 
 let engine: NullEngine;
 let scene: Scene;
 let camera: FreeCamera;
+let layers: MapLayerRenderer;
 let overlay: TrafficOverlay;
 let status: HTMLElement;
 let endpoint: string;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+    // Local demo installs can give TrafficOverlay a second Babylon module copy.
+    // Enable its final overlay group in the root copy used by this test's Scene too.
+    RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, mapMaxLevel + 2);
     engine = new NullEngine(); scene = new Scene(engine);
     camera = new FreeCamera("viewer", new Vector3(0, 0, 20), scene);
     const globe = new GlobeSet(scene, engine, { radius: 10 });
-    const layers = new MapLayerRenderer(scene);
+    layers = new MapLayerRenderer(scene, mapMaxLevel);
     status = { textContent: "" } as HTMLElement;
     endpoint = "/first";
-    overlay = new TrafficOverlay(scene, globe, layers, status, () => endpoint);
+    overlay = new TrafficOverlay(scene, globe, layers, status, () => endpoint, mapMaxLevel + 1);
     fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => { overlay.dispose(); scene.dispose(); engine.dispose(); vi.unstubAllGlobals(); });
@@ -47,6 +52,23 @@ function updateCamera(position: Vector3) {
 }
 
 describe("traffic overlay visibility", () => {
+    it("renders badges after the merged globe's coarse fallback terrain", async () => {
+        camera.setTarget(Vector3.Zero());
+        const fallback = MeshBuilder.CreateSphere("Coarse fallback", { diameter: 20 }, scene);
+        fallback.material = new StandardMaterial("Fallback", scene);
+        layers.add(fallback, 0);
+        fetchMock.mockResolvedValue(response("visible"));
+        overlay.setEnabled(true); await overlay.refresh();
+        await scene.whenReadyAsync();
+        const order: number[] = [];
+        scene.onBeforeRenderingGroupObservable.add(info => order.push(info.renderingGroupId));
+        scene.render();
+        const badge = scene.getMeshByName("Aircraft: visible")!;
+        expect(order).toContain(fallback.renderingGroupId);
+        expect(order).toContain(badge.renderingGroupId);
+        expect(order.indexOf(badge.renderingGroupId)).toBeGreaterThan(order.indexOf(fallback.renderingGroupId));
+        expect(scene.getAutoClearDepthStencilSetup(badge.renderingGroupId).autoClear).toBe(false);
+    });
     it("hides far-side symbols and updates their horizon visibility when the camera moves", async () => {
         fetchMock.mockResolvedValue(response("visible"));
         overlay.setEnabled(true); await overlay.refresh();
