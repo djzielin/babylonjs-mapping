@@ -14,6 +14,12 @@ export class BuildingTransition {
     private previous = new Map<GlobeSet, Retained[]>();
     private fallbackMaterials = new Map<Material, { material: Material; users: number }>();
     private nextCheck = 0;
+    private enabled = true;
+
+    public setEnabled(enabled: boolean): void {
+        this.enabled = enabled;
+        if (!enabled) this.dispose();
+    }
 
     public *retainedFootprints(globe: GlobeSet): Generator<BuildingRange> {
         for (const old of this.previous.get(globe) ?? []) {
@@ -24,7 +30,7 @@ export class BuildingTransition {
     }
 
     public capture(globe: GlobeSet, nextZoom: number, latitude?: number, longitude?: number, force = false): void {
-        if (globe.zoom < 10) return;
+        if (!this.enabled || globe.zoom < 10) return;
         const nextCorner = latitude === undefined || longitude === undefined ? undefined : {
             x: globe.ourTileMath.lon_to_tile(longitude, nextZoom) - Math.floor(globe.numTiles.x / 2),
             y: globe.ourTileMath.lat_to_tile(latitude, nextZoom) + Math.floor(globe.numTiles.y / 2),

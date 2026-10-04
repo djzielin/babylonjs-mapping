@@ -617,6 +617,9 @@ class GlobeDemo {
             this.data.options.buildings = buildings.checked
                 ? this.buildings
                 : undefined;
+            // Fallback clones are detached from their source tiles, so clearing
+            // current tile data alone does not hide the previous building view.
+            this.buildingTransition.setEnabled(buildings.checked);
             this.data.options.exaggeration = Number(exaggeration.value);
             document.getElementById("exaggerationValue")!.textContent =
                 exaggeration.value + "×";

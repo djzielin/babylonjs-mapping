@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Constants, MeshBuilder, NullEngine, Scene, Vector2 } from "@babylonjs/core";
 import GlobeSet from "../src/core/GlobeSet";
+import GlobeDataController from "../src/core/GlobeDataController";
 import { BuildingTransition } from "../examples-npm/globe-mode/src/BuildingTransition";
 
 vi.mock("../src/core/Attribution", () => ({
@@ -8,6 +9,66 @@ vi.mock("../src/core/Attribution", () => ({
 }));
 
 describe("building detail transitions", () => {
+    it("clears retained detail and distance-tier buildings when their layer is disabled", () => {
+        const engine = new NullEngine(), scene = new Scene(engine);
+        const transition = new BuildingTransition();
+        const tiers = [12, 14].map(zoom => {
+            const globe = new GlobeSet(scene, engine, { backingSurface: false });
+            globe.createGeometry(new Vector2(1, 1), 20, 8);
+            globe.updateRaster(40.7484, -73.9857, zoom);
+            const tile = globe.ourTiles[0];
+            tile.mesh.setEnabled(true);
+            const source = MeshBuilder.CreateBox(`buildings at zoom ${zoom}`, {}, scene);
+            source.setParent(tile.mesh);
+            const indices = Uint32Array.from(source.getIndices()!);
+            source.metadata = { overtureCoverage: { indices, ranges: [{ id: String(zoom),
+                latitude: 40.7484, longitude: -73.9857, south: 40.748, west: -73.986,
+                north: 40.749, east: -73.985, start: 0, end: indices.length }] } };
+            tile.buildingBatches.push(source);
+            transition.capture(globe, zoom + 1);
+            return { globe, source, data: new GlobeDataController(globe) };
+        });
+        const retained = scene.meshes.filter(mesh => mesh.name === "previous building detail");
+        expect(retained).toHaveLength(2);
+        expect(retained.every(mesh => mesh.isEnabled())).toBe(true);
+        const materialDisposed = vi.spyOn(retained[0].material!, "dispose");
+        transition.setEnabled(false);
+        expect(retained.every(mesh => mesh.isDisposed())).toBe(true);
+        expect(materialDisposed).toHaveBeenCalledOnce();
+        // Transition cleanup owns only its clones, not current provider meshes.
+        expect(tiers.every(({ source }) => !source.isDisposed())).toBe(true);
+        for (const { globe, source, data } of tiers) {
+            data.options.buildings = undefined;
+            data.invalidate(false, false);
+            expect(source.isDisposed()).toBe(true);
+            expect([...transition.retainedFootprints(globe)]).toEqual([]);
+            data.dispose();
+        }
+        transition.update(300);
+        expect(scene.getMeshByName("previous building detail")).toBeNull();
+        transition.dispose(); scene.dispose(); engine.dispose();
+    });
+
+    it("prevents fallback capture while disabled and resumes after re-enabling", () => {
+        const engine = new NullEngine(), scene = new Scene(engine);
+        const globe = new GlobeSet(scene, engine, { backingSurface: false });
+        globe.createGeometry(new Vector2(1, 1), 20, 8);
+        globe.updateRaster(40.7484, -73.9857, 14);
+        const tile = globe.ourTiles[0];
+        tile.mesh.setEnabled(true);
+        const source = MeshBuilder.CreateBox("ready buildings", {}, scene);
+        source.setParent(tile.mesh);
+        tile.buildingBatches.push(source);
+        const transition = new BuildingTransition();
+        transition.setEnabled(false);
+        transition.capture(globe, 15, 40.7484, -73.9857, true);
+        expect(scene.getMeshByName("previous building detail")).toBeNull();
+        transition.setEnabled(true);
+        transition.capture(globe, 15);
+        expect(scene.getMeshByName("previous building detail")?.isEnabled()).toBe(true);
+        transition.dispose(); scene.dispose(); engine.dispose();
+    });
+
     it("shares one stencil fallback material across outgoing building batches", () => {
         const engine = new NullEngine(), scene = new Scene(engine);
         const globe = new GlobeSet(scene, engine, { backingSurface: false });
