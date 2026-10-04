@@ -447,6 +447,18 @@ export default class GlobeSet extends TileSet {
         const p = this.meshPrecision, n = p + 1, world = 2 ** this.zoom * p;
         const groups = new Map<string, { tile: Tile; index: number; height: number }[]>();
         const dirty = new Set<Tile>([changed]);
+        const sampleKey = (tile: Tile, x: number, y: number) =>
+            `${((tile.tileCoords.x * p + x) % world + world) % world}/${tile.tileCoords.y * p + y}`;
+        // Only the changed tile's border can have new source elevations. A
+        // neighbour's other borders may have contributors outside this lookup
+        // window, so recomputing them would replace complete corner averages
+        // with partial averages and reopen already joined seams.
+        for (let i = 0; i <= p; i++) {
+            groups.set(sampleKey(changed, i, 0), []);
+            groups.set(sampleKey(changed, i, p), []);
+            groups.set(sampleKey(changed, 0, i), []);
+            groups.set(sampleKey(changed, p, i), []);
+        }
         // A new DEM only changes seams touching this tile. Look up the eight
         // neighbours instead of scanning the entire overlapping LOD window.
         const neighbours = new Set<Tile>([changed]);
@@ -462,10 +474,8 @@ export default class GlobeSet extends TileSet {
             if (!tile.terrainLoaded || !original || original.key !== tile.tileCoords.toString() || original.heights.length !== n * n) continue;
             for (let y = 0; y <= p; y++) for (let x = 0; x <= p; x++) {
                 if (x !== 0 && x !== p && y !== 0 && y !== p) continue;
-                const key = `${((tile.tileCoords.x * p + x) % world + world) % world}/${tile.tileCoords.y * p + y}`;
-                const group = groups.get(key) ?? [];
-                group.push({ tile, index: y * n + x, height: original.heights[y * n + x] });
-                groups.set(key, group);
+                const group = groups.get(sampleKey(tile, x, y));
+                if (group) group.push({ tile, index: y * n + x, height: original.heights[y * n + x] });
             }
         }
         for (const group of groups.values()) {
