@@ -41,6 +41,7 @@ export class BuildingTransition {
         const retained = this.previous.get(globe) ?? [];
         const retainedSources = new Set(retained.map(old => old.source));
         for (const tile of globe.ourTiles) {
+            if (!tile.tileCoords) continue;
             if (!force && globe.zoom === nextZoom && nextCorner
                 && tile.tileCoords.x >= nextCorner.x && tile.tileCoords.x < nextCorner.x + globe.numTiles.x
                 && tile.tileCoords.y <= nextCorner.y && tile.tileCoords.y > nextCorner.y - globe.numTiles.y) continue;
@@ -108,6 +109,8 @@ export class BuildingTransition {
         this.nextCheck = now + 200;
         for (const [globe, retained] of this.previous) {
             const tiles = globe.ourTiles;
+            // createGeometry() does not assign coordinates until updateRaster().
+            if (tiles.some(tile => !tile.tileCoords)) continue;
             const west = Math.min(...tiles.map(tile => tile.tileCoords.x));
             const east = Math.max(...tiles.map(tile => tile.tileCoords.x));
             const north = Math.min(...tiles.map(tile => tile.tileCoords.y));

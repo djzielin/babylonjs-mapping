@@ -24,6 +24,8 @@ export class TerrainTransition {
         const retained: Retained[] = this.previous.get(globe) ?? [];
         const retainedByCoordinate = new Map(retained.map(old => [old.coordinate.toString(), old]));
         for (const tile of globe.ourTiles) {
+            // createGeometry() leaves new tiles unpositioned until updateRaster().
+            if (!tile.tileCoords) continue;
             if (!force && globe.zoom === nextZoom && nextCorner
                 && tile.tileCoords.x >= nextCorner.x && tile.tileCoords.x < nextCorner.x + globe.numTiles.x
                 && tile.tileCoords.y <= nextCorner.y && tile.tileCoords.y > nextCorner.y - globe.numTiles.y) continue;
@@ -84,6 +86,8 @@ export class TerrainTransition {
         if (now < this.nextCheck) return;
         this.nextCheck = now + 250;
         for (const [globe, retained] of this.previous) {
+            // Keep the old view while a replacement window is being positioned.
+            if (globe.ourTiles.some(tile => !tile.tileCoords)) continue;
             let west = Infinity, east = -Infinity, north = Infinity, south = -Infinity;
             for (const tile of globe.ourTiles) {
                 west = Math.min(west, tile.tileCoords.x);

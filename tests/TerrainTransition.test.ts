@@ -3,7 +3,38 @@ import {NullEngine,Scene,StandardMaterial,Texture,Vector2,Vector3,VertexBuffer} 
 import GlobeSet from '../src/GlobeSet';
 import {TerrainTransition} from '../examples-npm/globe-mode/src/TerrainTransition';
 import RasterOSM from '../src/raster/RasterOSM';
+import {globeLODPlan} from '../examples-npm/globe-mode/src/GlobeLODPlan';
 vi.mock('../src/core/Attribution',()=>({default:class {advancedTexture={};addAttribution(){}}}));
+it.each([true, false])('keeps terrain fallback safe while Google mode %s resizes and repositions its regional window', google => {
+ const engine=new NullEngine(),scene=new Scene(engine);
+ const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
+ const before=globeLODPlan(17,!google)[1],after=globeLODPlan(17,google)[1];
+ // The LOD window dimensions and zooms trigger the production resize path;
+ // two terrain segments are enough to exercise its geometry lifecycle.
+ globe.createGeometry(new Vector2(before.size,before.size),20,2);
+ globe.updateRaster(40.7484,-73.9857,before.zoom);
+ const tile=globe.ourTiles[Math.floor(globe.ourTiles.length/2)];
+ tile.terrainLoaded=true;tile.mesh.setEnabled(true);
+ const material=new StandardMaterial('ready regional terrain',scene),texture=new Texture(null,scene);
+ vi.spyOn(texture,'isReady').mockReturnValue(true);
+ material.diffuseTexture=texture;tile.mesh.material=material;tile.material=material;
+ const transition=new TerrainTransition();
+ transition.capture(globe,after.zoom,40.7484,-73.9857,true);
+ const fallback=scene.getMeshByName('previous terrain')!;
+ expect(fallback).toBeDefined();
+ globe.createGeometry(new Vector2(after.size,after.size),20,2);
+ expect(globe.ourTiles.every(tile=>tile.tileCoords===undefined)).toBe(true);
+ expect.soft(()=>transition.capture(globe,after.zoom,40.7484,-73.9857)).not.toThrow();
+ expect.soft(()=>transition.capture(globe,after.zoom,40.7484,-73.9857,true)).not.toThrow();
+ expect.soft(()=>transition.update(1000)).not.toThrow();
+ expect(fallback.isDisposed()).toBe(false);
+ globe.updateRaster(40.7484,-73.9857,after.zoom);
+ expect(()=>transition.update(1300)).not.toThrow();
+ expect(fallback.isDisposed()).toBe(false);
+ expect(fallback.isEnabled()).toBe(true);
+ transition.dispose();scene.dispose();engine.dispose();
+});
+
 it('retains independent terrain geometry until matching replacement imagery and elevation are ready',()=>{
  const engine=new NullEngine(),scene=new Scene(engine);
  const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
