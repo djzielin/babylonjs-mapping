@@ -3,11 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
-import { fetchNYCRoadSpeeds, fetchOpenSkyAircraft, aisStreamSubscription, parseAISStreamPosition } from '../../lib/traffic/TrafficSources.js';
+import { fetchNYCRoadSpeeds, fetchOpenSkyAircraft } from '../../lib/traffic/TrafficSources.js';
+import { createAISStream } from './ais-stream.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const bounds = [40.52, -74.25, 40.94, -73.68];
-const ships = new Map();
 const cache = { at: 0, roads: [], aircraft: [], errors: {} };
 const port = Number(process.env.PORT || 4173);
 const boundedFetch = (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(20_000) });
@@ -15,7 +15,6 @@ const refreshInterval = process.env.OPENSKY_CLIENT_ID && process.env.OPENSKY_CLI
 let pending;
 let token;
 let tokenExpires = 0;
-let aisRetryMs = 5_000;
 
 async function openSkyToken() {
   const id = process.env.OPENSKY_CLIENT_ID;
@@ -52,37 +51,20 @@ async function refresh() {
   return pending;
 }
 
-function connectAIS() {
-  const key = process.env.AISSTREAM_API_KEY;
-  if (!key) return;
-  const socket = new WebSocket('wss://stream.aisstream.io/v0/stream', { perMessageDeflate: true });
-  socket.on('open', () => {
-    aisRetryMs = 5_000;
-    socket.send(JSON.stringify(aisStreamSubscription(key, bounds)));
-  });
-  socket.on('message', data => {
-    try {
-      const vessel = parseAISStreamPosition(JSON.parse(data.toString()));
-      if (vessel) ships.set(vessel.id, vessel);
-    } catch (error) { console.warn('Invalid AIS message:', error); }
-  });
-  socket.on('error', error => console.warn('AISStream:', error.message));
-  socket.on('close', () => {
-    setTimeout(connectAIS, aisRetryMs);
-    aisRetryMs = Math.min(60_000, aisRetryMs * 2);
-  });
-}
-connectAIS();
+const ais = createAISStream({
+  apiKey: process.env.AISSTREAM_API_KEY,
+  bounds,
+  createSocket: () => new WebSocket('wss://stream.aisstream.io/v0/stream', { perMessageDeflate: true, handshakeTimeout: 20_000 }),
+});
 
 const server = createServer(async (request, response) => {
   const pathname = new URL(request.url, `http://localhost:${port}`).pathname;
   if (pathname === '/api/traffic') {
     await refresh();
-    const now = Date.now();
-    for (const [id, ship] of ships) if (now - ship.observedAt > 10 * 60_000) ships.delete(id);
+    const aisSnapshot = ais.snapshot();
     response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
-    response.end(JSON.stringify({ roads: cache.roads, aircraft: cache.aircraft, ships: [...ships.values()], errors: cache.errors,
-      sources: { roads: 'NYC DOT', aircraft: 'OpenSky', ships: process.env.AISSTREAM_API_KEY ? 'AISStream' : 'AISStream key required' },
+    response.end(JSON.stringify({ roads: cache.roads, aircraft: cache.aircraft, ships: aisSnapshot.ships, errors: { ...cache.errors, ...aisSnapshot.errors },
+      sources: { roads: 'NYC DOT', aircraft: 'OpenSky', ...aisSnapshot.sources },
       updatedAt: cache.at }));
     return;
   }
@@ -94,4 +76,5 @@ const server = createServer(async (request, response) => {
     response.end(contents);
   } catch { response.writeHead(404); response.end('Run npm run build first.'); }
 });
+server.on('close', () => ais.stop());
 server.listen(port, () => console.log(`Traffic demo: http://localhost:${port}`));

@@ -18,7 +18,12 @@ type TrafficSnapshot = {
 /** Small, disposable globe overlay driven by the dedicated traffic demo's API. */
 export class TrafficOverlay {
     private meshes: AbstractMesh[] = [];
+    private symbols: Mesh[] = [];
     private enabled = false;
+    private disposed = false;
+    private requestGeneration = 0;
+    private request?: AbortController;
+    private readonly visibilityObserver;
     private timer?: ReturnType<typeof setInterval>;
     private readonly roadMaterials: StandardMaterial[];
     private readonly aircraftTrail: StandardMaterial;
@@ -31,6 +36,7 @@ export class TrafficOverlay {
         this.aircraftTrail.alpha = .55;
         this.shipWake = this.markerMaterial("Ship wake", new Color3(.7,.54,1));
         this.shipWake.alpha = .55;
+        this.visibilityObserver = scene.onBeforeRenderObservable.add(() => this.updateSymbolVisibility());
     }
 
     private markerMaterial(name: string, color: Color3): StandardMaterial {
@@ -57,7 +63,31 @@ export class TrafficOverlay {
         return mesh;
     }
 
+    private updateSymbolVisibility(): void {
+        const eye = this.scene.activeCamera?.globalPosition;
+        if (!eye) return;
+        const radiusSquared = this.globe.radius ** 2;
+        for (const symbol of this.symbols) {
+            // Badges render over local terrain, but must never shine through Earth.
+            // Test the whole sight line so aircraft above the limb remain visible.
+            const direction = symbol.position.subtract(eye);
+            const lengthSquared = direction.lengthSquared();
+            const t = lengthSquared ? -Vector3.Dot(eye, direction) / lengthSquared : 0;
+            const blocked = t > 0 && t < 1 &&
+                eye.add(direction.scale(t)).lengthSquared() < radiusSquared * (1 - 1e-12);
+            symbol.setEnabled(!blocked);
+        }
+    }
+
+    private cancelRequest(): void {
+        this.requestGeneration++;
+        this.request?.abort();
+        this.request = undefined;
+    }
+
     setEnabled(enabled: boolean): void {
+        if (this.disposed) return;
+        this.cancelRequest();
         this.enabled = enabled;
         if (this.timer) clearInterval(this.timer);
         this.timer = undefined;
@@ -73,6 +103,7 @@ export class TrafficOverlay {
     private clear(): void {
         for (const mesh of this.meshes) mesh.dispose();
         this.meshes.length = 0;
+        this.symbols.length = 0;
     }
 
     private surface(latitude: number, longitude: number, clearanceMeters: number): Vector3 {
@@ -116,6 +147,7 @@ export class TrafficOverlay {
             mesh.position.copyFrom(this.surface(aircraft.latitude, aircraft.longitude, altitude));
             mesh.isPickable = false;
             this.meshes.push(mesh);
+            this.symbols.push(mesh);
         }
         if (aircraftTrails.length) {
             const trails = Mesh.MergeMeshes(aircraftTrails, true, true);
@@ -141,6 +173,7 @@ export class TrafficOverlay {
             mesh.position.copyFrom(this.surface(ship.latitude, ship.longitude, 120));
             mesh.isPickable = false;
             this.meshes.push(mesh);
+            this.symbols.push(mesh);
         }
         if (shipWakes.length) {
             const wakes = Mesh.MergeMeshes(shipWakes, true, true);
@@ -152,25 +185,38 @@ export class TrafficOverlay {
             }
         }
         const errors = Object.values(data.errors ?? {});
+        this.updateSymbolVisibility();
         this.status.textContent = `NYC road links ${data.roads.length} · aircraft ${data.aircraft.length} · vessels ${data.ships.length}${errors.length ? ` · ${errors.join(" · ")}` : ""}${data.sources?.ships === "AISStream key required" ? " · AIS key required" : ""}`;
     }
 
     async refresh(): Promise<void> {
+        if (!this.enabled || this.disposed) return;
+        this.cancelRequest();
+        const generation = this.requestGeneration;
         const url = this.endpoint();
         if (!url) { this.status.textContent = "Enter the traffic API URL to show live feeds"; return; }
+        const request = new AbortController();
+        this.request = request;
+        const isCurrent = () => this.enabled && !this.disposed &&
+            generation === this.requestGeneration && url === this.endpoint();
         this.status.textContent = "Loading traffic feeds…";
         try {
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: request.signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json() as TrafficSnapshot;
-            if (this.enabled) this.draw(data);
+            if (isCurrent()) this.draw(data);
         } catch (error) {
-            if (this.enabled) this.status.textContent = `Traffic feeds unavailable: ${String(error)}`;
+            if (isCurrent()) this.status.textContent = `Traffic feeds unavailable: ${String(error)}`;
+        } finally {
+            if (this.request === request) this.request = undefined;
         }
     }
 
     dispose(): void {
+        if (this.disposed) return;
         this.setEnabled(false);
+        this.disposed = true;
+        this.scene.onBeforeRenderObservable.remove(this.visibilityObserver);
         for (const material of this.roadMaterials) material.dispose();
         this.aircraftTrail.dispose();
         this.shipWake.dispose();

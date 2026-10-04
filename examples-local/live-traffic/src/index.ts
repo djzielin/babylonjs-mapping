@@ -12,6 +12,7 @@ import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import { TileSet, RasterOSM, EPSG_Type } from '../../../lib/index.js';
 import type { AircraftPosition, RoadSpeed, VesselPosition } from '../../../lib/index.js';
 import { drawTrafficIcon, trailingPoint } from '../../../examples-shared/TrafficIcon';
+import { LiveTrafficController } from './LiveTrafficController';
 
 type Snapshot = { roads: RoadSpeed[]; aircraft: AircraftPosition[]; ships: VesselPosition[]; errors?: Record<string,string>; sources?: Record<string,string>; updatedAt?: number };
 const sample: Snapshot = {
@@ -127,30 +128,20 @@ draw(sample);
 engine.runRenderLoop(()=>scene.render());
 window.addEventListener('resize',()=>engine.resize());
 
-let mode: 'sample'|'live' = 'sample';
-async function updateLive(): Promise<void> {
-  if (mode !== 'live') return;
-  const status = document.getElementById('status')!;
-  status.textContent = 'Loading live data…';
-  try {
-    const response = await fetch('/api/traffic');
-    if (!response.ok) throw new Error(`Demo server returned ${response.status}`);
-    const data = await response.json() as Snapshot;
-    if (mode !== 'live') return;
-    draw(data);
-    const failures = Object.values(data.errors ?? {});
-    status.textContent = failures.length ? failures.join(' · ') : data.sources?.ships === 'AISStream key required' ? 'Live · AIS key needed for ships' : 'Live data';
-  } catch (error) { status.textContent = `Live feed unavailable: ${String(error)}`; }
-}
+const traffic = new LiveTrafficController<Snapshot>({
+  sample,
+  fetch: signal => fetch('/api/traffic', { signal }),
+  draw,
+  setStatus: status => { document.getElementById('status')!.textContent = status; },
+});
 document.getElementById('sample')!.addEventListener('click',()=>{
-  mode='sample'; draw(sample);
+  traffic.showSample();
   document.getElementById('sample')!.classList.add('active'); document.getElementById('live')!.classList.remove('active');
   document.getElementById('sample')!.setAttribute('aria-pressed','true'); document.getElementById('live')!.setAttribute('aria-pressed','false');
-  document.getElementById('status')!.textContent='Sample data';
 });
 document.getElementById('live')!.addEventListener('click',()=>{
-  mode='live'; document.getElementById('live')!.classList.add('active'); document.getElementById('sample')!.classList.remove('active');
+  document.getElementById('live')!.classList.add('active'); document.getElementById('sample')!.classList.remove('active');
   document.getElementById('live')!.setAttribute('aria-pressed','true'); document.getElementById('sample')!.setAttribute('aria-pressed','false');
-  void updateLive();
+  void traffic.showLive();
 });
-setInterval(()=>void updateLive(),60_000);
+setInterval(()=>void traffic.refresh(),60_000);
