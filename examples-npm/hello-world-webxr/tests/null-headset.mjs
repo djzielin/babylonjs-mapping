@@ -185,7 +185,8 @@ try {
     console.log(`Quest 3 null headset passed: stereo frames, head tracking, two controllers, snap turn, teleport, three re-entries, interruptions, entry recovery, ${buildings} buildings.`);
     await page.close();
 
-    const desktop = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const desktop = page;
     desktop.on('pageerror', error => errors.push(error.stack));
     await desktop.addInitScript(() => Object.defineProperty(navigator, 'xr', { value: undefined }));
     await desktop.route('https://overturemaps-extras-us-west-2.s3.amazonaws.com/**', route => route.fulfill({ status: 503, body: 'Unavailable' }));
