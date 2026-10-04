@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FreeCamera, MeshBuilder, NullEngine, RenderingManager, Scene, StandardMaterial, Vector3 } from "@babylonjs/core";
+import { FreeCamera, Matrix, MeshBuilder, NullEngine, RenderingManager, Scene, StandardMaterial, Vector3 } from "@babylonjs/core";
 import GlobeSet from "../src/GlobeSet";
 import MapLayerRenderer from "../src/core/MapLayerRenderer";
+import { trailingPoint } from "../examples-shared/TrafficIcon";
 import { TrafficOverlay } from "../examples-npm/globe-mode/src/TrafficOverlay";
 
 vi.mock("../src/core/Attribution", () => ({ default: class {
@@ -52,6 +53,33 @@ function updateCamera(position: Vector3) {
 }
 
 describe("traffic overlay visibility", () => {
+    it("aligns aircraft and ship noses with geographic travel as the globe camera moves", async () => {
+        const latitude = 40.7, longitude = -74;
+        const data = { roads: [], aircraft: [{ callsign: "east", latitude, longitude, altitudeMeters: 500, heading: 90 }],
+            ships: [{ name: "south", latitude, longitude, heading: 180 }] };
+        fetchMock.mockResolvedValue({ ok: true, json: async () => data });
+        overlay.setEnabled(true); await overlay.refresh();
+        const globe = new GlobeSet(scene, engine, { radius: 10 });
+        const origin = globe.getSurfacePosition(latitude, longitude);
+        for (const eye of [origin.scale(2), origin.scale(2).add(new Vector3(5, 3, 1))]) {
+            camera.position.copyFrom(eye); camera.setTarget(origin);
+            scene.updateTransformMatrix(true);
+            scene.onBeforeRenderObservable.notifyObservers(scene);
+            for (const [name, heading, distance, altitude] of [["Aircraft: east", 90, .018, 500], ["Ship: south", 180, .01, 120]] as const) {
+                const mesh = scene.getMeshByName(name)!;
+                const behind = trailingPoint(latitude, longitude, heading, distance);
+                const viewport = camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight());
+                const project = (position: Vector3) => Vector3.Project(position, Matrix.IdentityReadOnly, scene.getTransformMatrix(), viewport);
+                const center = project(mesh.position);
+                const tail = project(globe.getSurfacePosition(behind.latitude, behind.longitude, altitude * globe.metresToWorld));
+                const nose = project(Vector3.TransformCoordinates(new Vector3(0, .01, 0), mesh.computeWorldMatrix(true)));
+                const travel = center.subtract(tail).normalize();
+                const facing = nose.subtract(center).normalize();
+                expect(facing.x * travel.x + facing.y * travel.y).toBeGreaterThan(.999);
+            }
+        }
+    });
+
     it("renders badges after the merged globe's coarse fallback terrain", async () => {
         camera.setTarget(Vector3.Zero());
         const fallback = MeshBuilder.CreateSphere("Coarse fallback", { diameter: 20 }, scene);

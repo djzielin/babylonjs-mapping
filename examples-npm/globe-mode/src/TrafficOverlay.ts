@@ -9,6 +9,8 @@ import type { Scene } from "@babylonjs/core/scene";
 import type { GlobeSet, MapLayerRenderer } from "babylonjs-mapping";
 import { trailingPoint } from "../../../examples-shared/TrafficIcon";
 
+import { orientTrafficIcon } from "../../../examples-shared/TrafficIconOrientation";
+
 type TrafficSnapshot = {
     roads: { name: string; speedMph: number | null; path: { latitude: number; longitude: number }[] }[];
     aircraft: { callsign: string; latitude: number; longitude: number; altitudeMeters: number | null; heading: number | null }[];
@@ -20,6 +22,7 @@ type TrafficSnapshot = {
 export class TrafficOverlay {
     private meshes: AbstractMesh[] = [];
     private symbols: Mesh[] = [];
+    private movingIcons: { mesh: Mesh; behind: Vector3 }[] = [];
     private enabled = false;
     private disposed = false;
     private requestGeneration = 0;
@@ -56,7 +59,7 @@ export class TrafficOverlay {
         const outline = kind === "aircraft"
             ? [[0,-1], [.16,-.22], [.9,.24], [.9,.4], [.15,.2], [.12,.74], [.36,.92], [.36,1], [0,.86], [-.36,1], [-.36,.92], [-.12,.74], [-.15,.2], [-.9,.4], [-.9,.24], [-.16,-.22], [0,-1]]
             : [[0,-1], [.58,-.3], [.45,.65], [0,.95], [-.45,.65], [-.58,-.3], [0,-1]];
-        const mesh = MeshBuilder.CreateLines(name, { points: outline.map(([x,y]) => new Vector3(x * size / 2, y * size / 2, 0)) }, this.scene);
+        const mesh = MeshBuilder.CreateLines(name, { points: outline.map(([x,y]) => new Vector3(x * size / 2, -y * size / 2, 0)) }, this.scene);
         mesh.color = kind === "aircraft" ? new Color3(.3,.78,1) : new Color3(.69,.45,1);
         mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
         mesh.renderingGroupId = this.symbolRenderingGroup;
@@ -70,6 +73,7 @@ export class TrafficOverlay {
     private updateSymbolVisibility(): void {
         const eye = this.scene.activeCamera?.globalPosition;
         if (!eye) return;
+        for (const { mesh, behind } of this.movingIcons) orientTrafficIcon(mesh, behind);
         const radiusSquared = this.globe.radius ** 2;
         for (const symbol of this.symbols) {
             // Badges render over local terrain, but must never shine through Earth.
@@ -108,6 +112,7 @@ export class TrafficOverlay {
         for (const mesh of this.meshes) mesh.dispose();
         this.meshes.length = 0;
         this.symbols.length = 0;
+        this.movingIcons.length = 0;
     }
 
     private surface(latitude: number, longitude: number, clearanceMeters: number): Vector3 {
@@ -149,6 +154,10 @@ export class TrafficOverlay {
             }
             const mesh = this.symbol(`Aircraft: ${aircraft.callsign}`, "aircraft", .027);
             mesh.position.copyFrom(this.surface(aircraft.latitude, aircraft.longitude, altitude));
+            if (aircraft.heading !== null) {
+                const behind = trailingPoint(aircraft.latitude, aircraft.longitude, aircraft.heading, .018);
+                this.movingIcons.push({ mesh, behind: this.surface(behind.latitude, behind.longitude, altitude) });
+            }
             mesh.isPickable = false;
             this.meshes.push(mesh);
             this.symbols.push(mesh);
@@ -175,6 +184,10 @@ export class TrafficOverlay {
             }
             const mesh = this.symbol(`Ship: ${ship.name}`, "ship", .025);
             mesh.position.copyFrom(this.surface(ship.latitude, ship.longitude, 120));
+            if (ship.heading !== null) {
+                const behind = trailingPoint(ship.latitude, ship.longitude, ship.heading, .01);
+                this.movingIcons.push({ mesh, behind: this.surface(behind.latitude, behind.longitude, 120) });
+            }
             mesh.isPickable = false;
             this.meshes.push(mesh);
             this.symbols.push(mesh);

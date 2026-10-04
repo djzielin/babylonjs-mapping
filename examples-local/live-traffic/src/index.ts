@@ -12,6 +12,7 @@ import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import { TileSet, RasterOSM, EPSG_Type } from '../../../lib/index.js';
 import type { AircraftPosition, RoadSpeed, VesselPosition } from '../../../lib/index.js';
 import { drawTrafficIcon, trailingPoint } from '../../../examples-shared/TrafficIcon';
+import { orientTrafficIcon } from '../../../examples-shared/TrafficIconOrientation';
 import { LiveTrafficController } from './LiveTrafficController';
 
 type Snapshot = { roads: RoadSpeed[]; aircraft: AircraftPosition[]; ships: VesselPosition[]; errors?: Record<string,string>; sources?: Record<string,string>; updatedAt?: number };
@@ -49,6 +50,10 @@ map.setRasterProvider(new RasterOSM(map));
 map.createGeometry(new Vector2(8,8), 24, 2);
 map.updateRaster(40.73, -73.97, 11);
 const overlay: AbstractMesh[] = [];
+const movingIcons: { mesh: Mesh; behind: Vector3 }[] = [];
+scene.onBeforeRenderObservable.add(() => {
+  for (const { mesh, behind } of movingIcons) orientTrafficIcon(mesh, behind);
+});
 
 function point(latitude: number, longitude: number, height = 0.5): Vector3 {
   const position = map.ourTileMath.EPSG_to_Game(new Vector2(longitude,latitude), EPSG_Type.EPSG_4326);
@@ -83,6 +88,7 @@ const shipMaterial = iconMaterial('ship');
 function draw(snapshot: Snapshot): void {
   for (const mesh of overlay) mesh.dispose();
   overlay.length = 0;
+  movingIcons.length = 0;
   const roadBands: Mesh[][] = [[],[],[],[]];
   for (const road of snapshot.roads) {
     const points = road.path.map(p=>point(p.latitude,p.longitude,.8));
@@ -107,6 +113,10 @@ function draw(snapshot: Snapshot): void {
     mesh.position = point(aircraft.latitude,aircraft.longitude,height);
     mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
     mesh.material = planeMaterial;
+    if (aircraft.heading !== null) {
+      const behind = trailingPoint(aircraft.latitude,aircraft.longitude,aircraft.heading,.025);
+      movingIcons.push({ mesh, behind: point(behind.latitude,behind.longitude,height) });
+    }
     overlay.push(mesh);
   }
   for (const ship of snapshot.ships) {
@@ -119,6 +129,10 @@ function draw(snapshot: Snapshot): void {
     mesh.position = point(ship.latitude,ship.longitude,2.2);
     mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
     mesh.material = shipMaterial;
+    if (ship.heading !== null) {
+      const behind = trailingPoint(ship.latitude,ship.longitude,ship.heading,.016);
+      movingIcons.push({ mesh, behind: point(behind.latitude,behind.longitude,2.2) });
+    }
     overlay.push(mesh);
   }
   for (const [id,count] of [['road-count',snapshot.roads.length],['air-count',snapshot.aircraft.length],['ship-count',snapshot.ships.length]] as const)
