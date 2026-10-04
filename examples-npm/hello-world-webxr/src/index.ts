@@ -52,7 +52,8 @@ signText.color = "white";
 signText.fontSize = 40;
 signTexture.addControl(signText);
 
-engine.runRenderLoop(() => scene.render());
+const renderScene = () => scene.render();
+engine.runRenderLoop(renderScene);
 window.addEventListener("resize", () => engine.resize());
 
 async function loadBuildings(): Promise<void> {
@@ -90,22 +91,39 @@ async function setupXR(): Promise<void> {
     });
     xrExperience = xr;
     xr.baseExperience.camera.minZ = 0.02;
+    let entering = false;
     xr.baseExperience.onStateChangedObservable.add(state => {
         help.hidden = state === WebXRState.IN_XR;
-        enterButton.disabled = state !== WebXRState.NOT_IN_XR;
+        enterButton.disabled = entering || state !== WebXRState.NOT_IN_XR;
         if (state === WebXRState.NOT_IN_XR) status.textContent = "VR ready. Select Enter VR to return.";
     });
     enterButton.disabled = false;
     status.textContent = "VR ready. Select Enter VR to explore the campus.";
     enterButton.addEventListener("click", async () => {
+        if (entering || xr.baseExperience.state !== WebXRState.NOT_IN_XR) return;
+        entering = true;
         enterButton.disabled = true;
         try {
             await xr.baseExperience.enterXRAsync("immersive-vr", "local-floor", xr.renderTarget);
         } catch (error) {
+            // Babylon resets its state after an entry failure, but an allocated
+            // session can still be active if reference-space or layer setup failed.
+            if (xr.baseExperience.sessionManager.inXRSession) {
+                // Ending a partially initialized session restarts Babylon's loop.
+                // Cancel the desktop frame first so retry cannot create two loops.
+                engine.stopRenderLoop(renderScene);
+                try {
+                    await xr.baseExperience.sessionManager.exitXRAsync();
+                } finally {
+                    engine.runRenderLoop(renderScene);
+                }
+            }
             help.hidden = false;
-            enterButton.disabled = false;
             status.textContent = "Could not enter VR. Check headset permissions and try again.";
             console.error("Unable to enter VR", error);
+        } finally {
+            entering = false;
+            enterButton.disabled = xr.baseExperience.state !== WebXRState.NOT_IN_XR;
         }
     });
 }

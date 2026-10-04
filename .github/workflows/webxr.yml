@@ -1,0 +1,65 @@
+name: WebXR simulator
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - hello-world-immersive-webxr
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  webxr:
+    name: Quest simulator acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build and pack current library
+        run: |
+          npm ci
+          npm run build
+          npm pack --pack-destination "${RUNNER_TEMP}"
+
+      - name: Install WebXR demo dependencies
+        working-directory: examples-npm/hello-world-webxr
+        run: |
+          set -euo pipefail
+          package_tarball="$(find "${RUNNER_TEMP}" -maxdepth 1 -name 'babylonjs-mapping-*.tgz' -print -quit)"
+          test -n "${package_tarball}"
+          npm install "${package_tarball}" --no-save --no-package-lock --no-audit --no-fund
+
+      - name: Build WebXR demo
+        working-directory: examples-npm/hello-world-webxr
+        run: npm run build
+
+      - name: Install Chromium
+        working-directory: examples-npm/hello-world-webxr
+        run: npx playwright install --with-deps chromium
+
+      - name: Run WebXR simulator acceptance
+        working-directory: examples-npm/hello-world-webxr
+        run: |
+          set -euo pipefail
+          mkdir -p test-results
+          npm run test:xr 2>&1 | tee test-results/webxr-simulator.log
+
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webxr-simulator-evidence
+          path: examples-npm/hello-world-webxr/test-results/
+          if-no-files-found: warn
