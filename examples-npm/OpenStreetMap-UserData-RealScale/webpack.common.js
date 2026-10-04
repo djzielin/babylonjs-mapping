@@ -1,3 +1,4 @@
+const CopyPublicAssets = require('../../examples-shared/copy-public-assets.cjs');
 const path = require('path');
 const fs = require('fs');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
@@ -20,6 +21,7 @@ module.exports = {
         rules: [{
                 test: /\.(js|mjs|jsx|ts|tsx)$/,
                 loader: 'source-map-loader',
+                exclude: /node_modules/,
                 enforce: 'pre',
             },
             { //per https://stackoverflow.com/questions/70964723/webpack-5-in-ceate-react-app-cant-resolve-not-fully-specified-routes
@@ -41,6 +43,7 @@ module.exports = {
         ]
     },
     plugins: [
+        new CopyPublicAssets(),
         new CleanWebpackPlugin(),
         new HtmlWebpackPlugin({
             inject: true,

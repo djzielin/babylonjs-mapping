@@ -1,0 +1,23 @@
+import {it,expect,vi} from 'vitest';
+import {NullEngine,Scene,StandardMaterial,Texture,Vector2,Vector3,VertexBuffer} from '@babylonjs/core';
+import GlobeSet from '../src/GlobeSet';
+import {TerrainTransition} from '../examples-npm/globe-mode/src/TerrainTransition';
+vi.mock('../src/core/Attribution',()=>({default:class {advancedTexture={};addAttribution(){}}}));
+it('retains independent terrain geometry until matching replacement imagery and elevation are ready',()=>{
+ const engine=new NullEngine(),scene=new Scene(engine);
+ const globe=new GlobeSet(scene,engine,{radius:60,attribution:false,backingSurface:false});
+ globe.createGeometry(new Vector2(1,1),20,2);globe.updateRaster(0,0,17);
+ const tile=globe.ourTiles[0];tile.terrainLoaded=true;
+ const material=new StandardMaterial('terrain',scene);const texture=new Texture(null,scene);
+ vi.spyOn(texture,'isReady').mockReturnValue(true);material.diffuseTexture=texture;tile.mesh.material=material;
+ const transition=new TerrainTransition();transition.capture(globe as any,16);
+ const snapshot=scene.meshes.find(mesh=>mesh.name==='previous terrain')!;
+ expect(snapshot).toBeDefined();expect(snapshot.geometry).not.toBe(tile.mesh.geometry);
+ const positions=Array.from(snapshot.getVerticesData(VertexBuffer.PositionKind)!);
+ globe.updateRaster(0,0,16);tile.terrainLoaded=false;
+ transition.update(1000);expect(snapshot.isDisposed()).toBe(false);
+ expect(Array.from(snapshot.getVerticesData(VertexBuffer.PositionKind)!)).toEqual(positions);
+ tile.terrainLoaded=true;tile.mesh.material=material;
+ transition.update(1300);expect(snapshot.isDisposed()).toBe(true);
+ transition.dispose();scene.dispose();engine.dispose();
+});

@@ -1,3 +1,4 @@
+import { debugLog } from "../shared/Diagnostics.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Color3 } from "@babylonjs/core/Maths/math.js";
@@ -104,12 +105,21 @@ interface GeoFileLoaded {
 }
 
 export default abstract class Buildings {
+    private static sceneBudgets = new WeakMap<Scene, { limit: number; frame: number; spent: number }>();
+    /** Share a CPU generation budget across every building provider in a scene. */
+    public static setSceneCreationTimeBudget(scene: Scene, milliseconds: number): void {
+        if (!Number.isFinite(milliseconds) || milliseconds <= 0) throw new RangeError("Invalid scene building budget");
+        Buildings.sceneBudgets.set(scene, { limit: milliseconds, frame: -1, spent: 0 });
+    }
+    public get pendingRequestCount(): number { return this.buildingRequests.length; }
+
 
     //things the user might be interested in changing
     /** Directory or URL prefix used for local cached building assets. */
     public localPathPrefix = "map_cache/";
     public exaggeration = 1.0;
     public doMerge = false;
+    public loadConcurrency = 1;
     /**
      * Optional per-feature rectangle billboards for distant buildings.
      * LOD is disabled by default and should be configured before generation.
@@ -143,6 +153,8 @@ export default abstract class Buildings {
     public buildingMeshTransform?: (mesh: Mesh) => void;
     /** Reject a generated footprint before it is registered or merged. */
     public buildingMeshFilter?: (mesh: Mesh) => boolean;
+    /** Reject unwanted source features before allocating or triangulating meshes. */
+    public buildingFeatureFilter?: (feature: GeoJSON.feature, tile: Tile, projection: EPSG_Type | undefined) => boolean;
     public retrievalType: RetrievalType = RetrievalType.IndividualTiles;
 
     protected buildingRequests: BuildingRequest[] = [];
@@ -326,9 +338,9 @@ export default abstract class Buildings {
     }
 
     /** Invalidate queued and in-flight feature work when replacing a layer. */
-    public cancelPendingRequests(): void {
-        for (const request of this.buildingRequests) request.cancelled = true;
-        this.buildingRequests = [];
+    public cancelPendingRequests(tile?: Tile): void {
+        for (const request of this.buildingRequests) if (!tile || request.tile === tile) request.cancelled = true;
+        this.buildingRequests = this.buildingRequests.filter(request => !request.cancelled);
     }
 
     public abstract SubmitLoadTileRequest(tile: Tile): void;
@@ -344,6 +356,7 @@ export default abstract class Buildings {
         const detectedEpsgType = request.epsgType ?? GeoJSON.detectProjection(topLevel);
         for (const f of topLevel.features) {
             if (request.sourceTileCoords && request.sourceTileCoords.z < request.tileCoords.z && !this.featureBelongsToTile(f, request.tileCoords, detectedEpsgType)) continue;
+            if (this.buildingFeatureFilter && !this.buildingFeatureFilter(f, request.tile, detectedEpsgType)) continue;
             const brequest: BuildingRequest = {
                 requestType: BuildingRequestType.CreateBuilding,
                 tile: request.tile,
@@ -364,10 +377,11 @@ export default abstract class Buildings {
                 this.enqueueMergeRequest(request);
             }
         }
-        console.log(this.prettyName() + addedBuildings + " building generation requests queued for tile: " + request.tile.tileCoords);
+        debugLog(() => [this.prettyName() + addedBuildings + " building generation requests queued for tile: " + request.tile.tileCoords]);
     }
 
     private featureBelongsToTile(feature: GeoJSON.feature, coords: Vector3, epsg?: EPSG_Type): boolean {
+        if (!feature.geometry) return false;
         let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
         const stack:unknown[]=[feature.geometry?.coordinates];
         while(stack.length) {
@@ -504,7 +518,7 @@ export default abstract class Buildings {
         }
 
         if (this.isURLLoaded(request.url)) { //is the file already cached?
-            console.log(this.prettyName() + "using cached GeoJSON for tile: " + request.tileCoords);
+            debugLog(() => [this.prettyName() + "using cached GeoJSON for tile: " + request.tileCoords]);
             const topLevel = this.getFeatures(request.url);
             if (topLevel) {
                 this.processLoadedGeoJSON(request, topLevel, requestIndex);
@@ -515,12 +529,12 @@ export default abstract class Buildings {
             return;
         }
 
-        console.log(this.prettyName() + "trying to fetch tile: " + request.tileCoords);
+        debugLog(() => [this.prettyName() + "trying to fetch tile: " + request.tileCoords]);
         request.inProgress = true;
 
         fetch(request.url).then(async (res) => {
             if (res.status == 200) {
-                console.log(this.prettyName() + "fetch completed for buildings for tile: " + request.tileCoords);
+                debugLog(() => [this.prettyName() + "fetch completed for buildings for tile: " + request.tileCoords]);
 
                 const text = await res.text();
                 if (text.length > 0) {
@@ -548,7 +562,7 @@ export default abstract class Buildings {
             }
 
             if (this.isPaginationEndResponse(request, res)) {
-                console.log(this.prettyName() + "pagination has no more pages after: " + request.tileCoords);
+                debugLog(() => [this.prettyName() + "pagination has no more pages after: " + request.tileCoords]);
                 this.enqueueMergeRequest(request);
                 this.removePendingRequest(requestIndex, request);
                 return;
@@ -556,8 +570,8 @@ export default abstract class Buildings {
 
             if (isRetryableStatus(res.status) && (request.retryCount ?? 0) < this.maxRetries) {
                 request.retryCount = (request.retryCount ?? 0) + 1;
-                console.log("Error code:" + res.status + " while requesting tile: " + request.tileCoords);
-                console.log("but we will try again!");
+                debugLog(() => ["Error code:" + res.status + " while requesting tile: " + request.tileCoords]);
+                debugLog(() => ["but we will try again!"]);
                 this.enqueueBuildingRequest(request); //let's try again? maybe there should be a maximum number of retries?
                 request.inProgress=false;
                 this.timeStart=Date.now();
@@ -581,6 +595,8 @@ export default abstract class Buildings {
         return;
     }
 
+    private priorityTile?: Tile;
+    private priorityTileUntil = 0;
     private selectBuildingRequestIndex(): number | undefined {
         if (this.buildingRequests.length === 0) {
             return undefined;
@@ -603,10 +619,22 @@ export default abstract class Buildings {
             return undefined;
         }
 
-        const loadInProgress = this.buildingRequests.some((request) =>
-            request.requestType === BuildingRequestType.LoadTile && request.inProgress,
-        );
+        // Drain a short run from the nearest tile without rescanning every queued
+        // city footprint for each individual extrusion. Reprioritize within 50 ms.
+        if (this.priorityTile && performance.now() < this.priorityTileUntil) {
+            const index = this.buildingRequests.findIndex(request => request.tile === this.priorityTile
+                && !request.inProgress && request.requestType === BuildingRequestType.CreateBuilding);
+            if (index >= 0) return index;
+        }
+        this.priorityTile = undefined;
+        const loadInProgress = this.buildingRequests.filter(request =>
+            request.requestType === BuildingRequestType.LoadTile && request.inProgress).length >= this.loadConcurrency;
         const activeCamera = this.scene.activeCamera;
+        const pendingCreates = new Set<Tile>();
+        for (const request of this.buildingRequests) {
+            if (request.requestType === BuildingRequestType.CreateBuilding && !request.inProgress) pendingCreates.add(request.tile);
+        }
+        const considered = new Set<Tile>();
         let bestIndex: number | undefined;
         let bestDistance = Number.POSITIVE_INFINITY;
 
@@ -619,19 +647,16 @@ export default abstract class Buildings {
                 continue;
             }
             if (request.requestType === BuildingRequestType.MergeAllBuildingsOnTile) {
-                const hasPendingCreate = this.buildingRequests.some((candidate) =>
-                    candidate.requestType === BuildingRequestType.CreateBuilding &&
-                    !candidate.inProgress &&
-                    candidate.tile === request.tile,
-                );
-                if (hasPendingCreate) {
-                    continue;
-                }
+                if (pendingCreates.has(request.tile)) continue;
             }
+            // Requests on one tile have the same distance. Preserve their queue order,
+            // and never recompute a tile's world matrix once per pending feature.
+            if (considered.has(request.tile)) continue;
+            considered.add(request.tile);
 
             let distance = 0;
             if (activeCamera) {
-                request.tile.mesh.computeWorldMatrix(true);
+                request.tile.mesh.computeWorldMatrix();
                 const center = request.tile.mesh.getBoundingInfo().boundingSphere.centerWorld;
                 distance = Vector3.DistanceSquared(center, activeCamera.globalPosition);
             }
@@ -643,19 +668,35 @@ export default abstract class Buildings {
             }
         }
 
+        if (bestIndex !== undefined && this.buildingRequests[bestIndex].requestType === BuildingRequestType.CreateBuilding) {
+            this.priorityTile = this.buildingRequests[bestIndex].tile;
+            this.priorityTileUntil = performance.now() + 50;
+        }
         return bestIndex;
     }
 
     /** CPU budget for feature creation; individual features are atomic. */
     public creationTimeBudgetMs = 4;
-    public processBuildingRequests() {
+    public processBuildingRequests(): void {
+        const budget = Buildings.sceneBudgets.get(this.scene);
+        const start = performance.now();
+        if (budget) {
+            const frame = this.scene.getFrameId();
+            if (budget.frame !== frame) { budget.frame = frame; budget.spent = 0; }
+            if (this.buildingRequests.length && budget.spent >= budget.limit) return;
+        }
+        const remaining = budget ? Math.max(0, budget.limit - budget.spent) : this.creationTimeBudgetMs;
+        try { this.processBuildingRequestsWithinBudget(start + Math.min(this.creationTimeBudgetMs, remaining)); }
+        finally { if (budget) budget.spent += performance.now() - start; }
+    }
+    private processBuildingRequestsWithinBudget(deadline: number): void {
         if (this.sleepRequested) { //lets take a nap for a bit (when we get a 500 server error)
             const timeDiff=Date.now()-this.timeStart;
 
 
             if(timeDiff>this.sleepDuration){
-                console.log("done sleeping after: " + timeDiff);
-                console.log("building request queue length: " + this.buildingRequests.length);
+                debugLog(() => ["done sleeping after: " + timeDiff]);
+                debugLog(() => ["building request queue length: " + this.buildingRequests.length]);
                 this.sleepRequested=false;
             } else{
                 return;
@@ -664,14 +705,13 @@ export default abstract class Buildings {
 
         if (this.buildingRequests.length == 0) {
             if (this.requestsProcessedSinceCaughtUp > 0) {
-                console.log(this.prettyName() + "caught up on all building generation requests! (processed " + this.requestsProcessedSinceCaughtUp + " requests)");
+                debugLog(() => [this.prettyName() + "caught up on all building generation requests! (processed " + this.requestsProcessedSinceCaughtUp + " requests)"]);
                 this.requestsProcessedSinceCaughtUp = 0;
                 this.onCaughtUpObservable.notifyObservers(true);
             }
             return;
         }
 
-        const deadline = performance.now() + this.creationTimeBudgetMs;
         for (let i = 0; i < this.buildingsCreatedPerFrame; i++) { //process certain number of requests per frame
             if (i > 0 && performance.now() >= deadline) return;
             //console.log("requests remaining in queue: " + this.buildingRequests.length);
@@ -694,7 +734,7 @@ export default abstract class Buildings {
             if (request.requestType == BuildingRequestType.LoadTile) {
 
                 this.handleLoadTileRequest(request, rIndex);
-                return;
+                continue;
             }
 
             if (request.requestType == BuildingRequestType.CreateBuilding) {
@@ -724,17 +764,11 @@ export default abstract class Buildings {
             if (request.requestType == BuildingRequestType.MergeAllBuildingsOnTile) {
                 this.removePendingRequest(rIndex);
 
-                console.log(this.prettyName() + "processing merge request for tile: " + request.tileCoords);
+                debugLog(() => [this.prettyName() + "processing merge request for tile: " + request.tileCoords]);
                 //console.log("  number of buildings in merge: " + request.tile.buildings.length);
 
-                if (request.tile.buildings.length > 1) {
-                    for (let b of request.tile.buildings) {
-                        if (b.mesh.isReady() == false) {
-                            console.error(this.prettyName() + "ERROR: Mesh not ready!");
-                        }
-                    }
-                    //console.log("about to do big merge");
-                    const allMeshes: Mesh[] = request.tile.getAllBuildingMeshes();
+                const allMeshes: Mesh[] = request.tile.getAllBuildingMeshes();
+                if (allMeshes.length > 1) {
                     const merged = this.tileSet.isGlobe
                         ? mergeMeshesAtOrigin(allMeshes, request.tile.mesh.getAbsolutePosition())
                         : Mesh.MergeMeshes(allMeshes, true, true);
@@ -751,7 +785,7 @@ export default abstract class Buildings {
                         console.error(this.prettyName() + "ERROR: unable to merge meshes!");
                     }
                 } else {
-                    console.log(this.prettyName() + "not enough meshes to merge: " + request.tile.buildings.length);
+                    debugLog(() => [this.prettyName() + "not enough meshes to merge: " + request.tile.buildings.length]);
                 }
 
                 return;
@@ -761,17 +795,17 @@ export default abstract class Buildings {
 
     public generateBuildings() {
         this.tileSet.assertRasterSetup("generate buildings");
-        console.log(this.prettyName() + "user would like to generate buildings for all tiles in tileset");
+        debugLog(() => [this.prettyName() + "user would like to generate buildings for all tiles in tileset"]);
 
         if (this.retrievalType == RetrievalType.IndividualTiles) {
-            console.log("we are going to issue a seperate request for each tile");
+            debugLog(() => ["we are going to issue a seperate request for each tile"]);
             for (const t of this.tileSet.ourTiles) {
                 this.SubmitLoadTileRequest(t);
-                console.log(this.prettyName() + "submitting geojson load request for tile: " + t.tileCoords);
+                debugLog(() => [this.prettyName() + "submitting geojson load request for tile: " + t.tileCoords]);
             }
         }
         if (this.retrievalType == RetrievalType.AllData) {
-            console.log("lets see if we can get all data pulled down at once");
+            debugLog(() => ["lets see if we can get all data pulled down at once"]);
             this.SubmitLoadAllRequest();
         }
     }

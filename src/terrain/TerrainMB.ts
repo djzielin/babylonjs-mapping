@@ -1,3 +1,4 @@
+import { debugLog } from "../shared/Diagnostics.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { Vector2 } from "@babylonjs/core/Maths/math.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
@@ -6,7 +7,7 @@ import type { FloatArray } from "@babylonjs/core/types.js";
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
-import type Tile from '../core/Tile';
+import type Tile from '../core/Tile.js';
 import type TileSet from "../core/TileSet.js";
 import TerrainRGB from "./TerrainRGB.js";
 import type GlobeSet from "../core/GlobeSet.js";
@@ -38,7 +39,7 @@ export default class TerrainMB {
     private GetAsyncTexture (url: string) : Promise<Texture> {
         return new Promise((resolve, reject) => {
             const texture = new Texture(url, this.scene, true, false, Texture.NEAREST_SAMPLINGMODE, function() {
-                console.log("loading texture success!");
+                debugLog(() => ["loading texture success!"]);
                 resolve(texture);
             }, function(message) {
                 texture.dispose();
@@ -408,8 +409,8 @@ export default class TerrainMB {
 
             heightDEM.push(height);
         }
-        console.log("  terrain ranges from : " + minHeight.toFixed(2) + " to " + maxHeight.toFixed(2));
-        console.log("  height delta: " + (maxHeight - minHeight).toFixed(2));
+        debugLog(() => ["  terrain ranges from : " + minHeight.toFixed(2) + " to " + maxHeight.toFixed(2)]);
+        debugLog(() => ["  height delta: " + (maxHeight - minHeight).toFixed(2)]);
 
         tile.dem = heightDEM;
         tile.minHeight = minHeight;

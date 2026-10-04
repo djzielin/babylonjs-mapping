@@ -1,6 +1,6 @@
 import { Vector2, Vector4 } from "@babylonjs/core/Maths/math.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
-import Tile from './Tile';
+import Tile from './Tile.js';
 import TileSet from "./TileSet.js";
 export declare enum EPSG_Type {
     EPSG_3857 = 0,

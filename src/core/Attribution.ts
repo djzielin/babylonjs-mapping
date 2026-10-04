@@ -1,10 +1,13 @@
+import { MAPBOX_LOGO } from "./MapboxLogo.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/index.js";
-import { Button, Control, StackPanel } from "@babylonjs/gui/2D/controls/index.js";
+import { Button, Control, StackPanel, TextBlock } from "@babylonjs/gui/2D/controls/index.js";
 
 export default class Attribution {
      public advancedTexture: AdvancedDynamicTexture;
 
+    private buttonGoogle: Button;
+    private googleDataAttribution: TextBlock;
     private readonly attributionList = new Set<string>();
     private ourRightPanel: StackPanel;
     private ourLeftPanel: StackPanel;
@@ -34,6 +37,9 @@ export default class Attribution {
         this.attributionList.add(provider);
 
         switch (provider) {
+            case "GOOGLE":
+                this.addAttributionGoogle();
+                break;
             case "MB":
                 this.addAttribution("OSM");
                 this.addAttribution("MBMODEL");
@@ -59,11 +65,60 @@ export default class Attribution {
         }
     }
 
+    /** Updates the sorted data credits returned by Google's 3D Tiles. */
+    public setGoogleAttributions(attributions: readonly string[]): void {
+        if (!this.googleDataAttribution) {
+            this.googleDataAttribution = new TextBlock("google data attribution");
+            this.googleDataAttribution.width = "100%";
+            this.googleDataAttribution.paddingLeft = "12px";
+            this.googleDataAttribution.paddingRight = "12px";
+            this.googleDataAttribution.textWrapping = true;
+            this.googleDataAttribution.resizeToFit = true;
+            this.googleDataAttribution.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            this.googleDataAttribution.top = "-28px";
+            this.googleDataAttribution.outlineWidth = 3;
+            this.googleDataAttribution.outlineColor = "#07101c";
+            this.googleDataAttribution.height = "25px";
+            this.googleDataAttribution.color = "white";
+            this.googleDataAttribution.alpha = 0.9;
+            this.googleDataAttribution.fontSize = "11px";
+            this.googleDataAttribution.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            this.googleDataAttribution.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+            this.advancedTexture.addControl(this.googleDataAttribution);
+        }
+        this.googleDataAttribution.text = attributions.length > 0
+            ? attributions.join("; ")
+            : "";
+    }
+    
+    private addAttributionGoogle() {
+        if (this.buttonGoogle) return;
+        this.buttonGoogle = Button.CreateSimpleButton("button_google", "Google Maps");
+        this.buttonGoogle.width = "100px";
+        this.buttonGoogle.height = "25px";
+        this.buttonGoogle.color = "white";
+        this.buttonGoogle.alpha = 0.9;
+        this.buttonGoogle.thickness = 0;
+        this.buttonGoogle.fontSize = "16px";
+        this.buttonGoogle.fontFamily = "Arial, sans-serif";
+        this.buttonGoogle.background = "";
+        this.buttonGoogle.onPointerUpObservable.add(function () {
+            window.open("https://developers.google.com/maps/documentation/tile/policies");
+        });
+
+        this.ourRightPanel.addControl(this.buttonGoogle);
+    }
+
+
     private addLink(name: string, label: string, width: number, url: string): void {
         const button = Button.CreateSimpleButton(name, label);
         button.width = `${width}px`;
         button.height = "25px";
-        button.color = "blue";
+        button.color = "white";
+        if (button.textBlock) {
+            button.textBlock.outlineWidth = 3;
+            button.textBlock.outlineColor = "#07101c";
+        }
         button.alpha = 0.75;
         button.thickness = 0;
         button.fontSize = "12px";
@@ -73,7 +128,7 @@ export default class Attribution {
     }
 
     private addMapboxLogo(): void {
-        const logo = Button.CreateImageOnlyButton("button_logo", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Mapbox_logo_2019.svg/320px-Mapbox_logo_2019.svg.png");
+        const logo = Button.CreateImageOnlyButton("button_logo", MAPBOX_LOGO);
         logo.width = "99px";
         logo.height = "30px";
         logo.paddingBottom = logo.paddingTop = logo.paddingLeft = logo.paddingRight = "5px";

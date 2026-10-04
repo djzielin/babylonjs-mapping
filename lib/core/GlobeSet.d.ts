@@ -1,4 +1,4 @@
-import { Engine } from "@babylonjs/core/Engines/engine.js";
+import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import { Scene } from "@babylonjs/core/scene.js";
@@ -55,7 +55,7 @@ export default class GlobeSet extends TileSet {
     private backingMesh?;
     private polarCapMeshes;
     private attributionEnabled;
-    constructor(scene: Scene, engine: Engine, options?: GlobeSetOptions);
+    constructor(scene: Scene, engine: AbstractEngine, options?: GlobeSetOptions);
     /** Radius of the globe in Babylon world units. */
     get radius(): number;
     set radius(value: number);

@@ -20,8 +20,8 @@ export interface coordinateReferenceSystem {
 export interface feature {
     "id": string;
     "type": string;
-    "properties": any;
-    "geometry": geometry;
+    "properties": Record<string, unknown> | null;
+    "geometry": geometry | null;
 }
 export interface propertiesOSM {
     "name": string;

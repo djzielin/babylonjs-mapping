@@ -47,5 +47,8 @@ jobs:
             }
           '
 
+      - name: Verify packaged ESM and bundler consumers
+        run: npm run test:consumer
+
       - name: Dry-run publish
         run: npm publish --dry-run --ignore-scripts

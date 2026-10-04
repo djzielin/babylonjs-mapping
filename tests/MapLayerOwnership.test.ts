@@ -1,3 +1,4 @@
+import Tile from "../src/core/Tile";
 import { describe, expect, it, vi } from "vitest";
 import { MeshBuilder, NullEngine, Scene, StandardMaterial, PBRMaterial, MultiMaterial, VertexBuffer, Vector3 } from "@babylonjs/core";
 import { Constants } from "@babylonjs/core/Engines/constants";
@@ -20,6 +21,19 @@ describe("shared map layer ownership", () => {
         expect(index.keepFootprint(footprint)).toBe(true);
         footprint.position.setAll(0); model.dispose();
         expect(index.keepFootprint(footprint)).toBe(true);
+        scene.dispose(); engine.dispose();
+    });
+    it("avoids testing every landmark for each city footprint", () => {
+        const engine = new NullEngine(); const scene = new Scene(engine);
+        const models = Array.from({ length: 512 }, (_, i) => {
+            const mesh = MeshBuilder.CreateBox("landmark", { size: 1 }, scene);
+            mesh.position.x = i * 10;
+            return mesh;
+        });
+        const index = new BuildingReplacementIndex(); index.setModels(models);
+        const bounds = models.map(mesh => vi.spyOn(mesh, "getWorldMatrix"));
+        expect(index.keepPoint(new Vector3(0, 0, 0))).toBe(false);
+        expect(bounds.reduce((sum, spy) => sum + spy.mock.calls.length, 0)).toBeLessThan(10);
         scene.dispose(); engine.dispose();
     });
     it("preserves depth between tiers and reserves covered pixels for the finer tier", () => {
@@ -116,4 +130,38 @@ describe("shared map layer ownership", () => {
         expect(landscapeTerrainLOD(64, 100)).toEqual({ precisions: [48, 32, 16, 8, 4, 2, 0], distances: [100, 250, 800, 1100, 1400, 1650, 1900] });
         expect(landscapeTerrainLOD(32, 16000).distances[0]).toBe(128000);
     });
+});
+
+
+it("merges later building pages without reusing disposed source meshes", () => {
+    const engine = new NullEngine(); const scene = new Scene(engine);
+    const first = MeshBuilder.CreateBox("first", {}, scene);
+    const second = MeshBuilder.CreateBox("second", {}, scene);
+    const origin = new Vector3(45, 35, 20);
+    const merged = mergeMeshesAtOrigin([first, second], origin)!;
+    const third = MeshBuilder.CreateBox("third", {}, scene);
+    const tile = { buildings: [{ mesh: first }, { mesh: second }, { mesh: third }], mergedBuildingMesh: merged };
+    const sources = Tile.prototype.getAllBuildingMeshes.call(tile as never);
+    expect(sources).toEqual([third, merged]);
+    const expectedVertices = third.getTotalVertices() + merged.getTotalVertices();
+    const complete = mergeMeshesAtOrigin(sources, origin)!;
+    expect(complete.getTotalVertices()).toBe(expectedVertices);
+    expect(complete.isDisposed()).toBe(false);
+    scene.dispose(); engine.dispose();
+});
+
+
+it("leaves settled material state alone and configures replacement materials", () => {
+    const engine = new NullEngine(); const scene = new Scene(engine);
+    const renderer = new MapLayerRenderer(scene);
+    const mesh = MeshBuilder.CreateBox("tile", {}, scene);
+    const material = mesh.material = new StandardMaterial("first", scene);
+    renderer.add(mesh, 6);
+    const setter = vi.spyOn(material.stencil, "funcRef", "set");
+    for (let i = 0; i < 100; i++) scene.onBeforeRenderObservable.notifyObservers(scene);
+    expect(setter).not.toHaveBeenCalled();
+    mesh.material = new StandardMaterial("replacement", scene);
+    scene.onBeforeRenderObservable.notifyObservers(scene);
+    expect(mesh.material.stencil.funcRef).toBe(7);
+    renderer.dispose(); scene.dispose(); engine.dispose();
 });

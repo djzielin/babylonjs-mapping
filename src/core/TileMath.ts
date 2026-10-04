@@ -1,7 +1,8 @@
+import { debugLog } from "../shared/Diagnostics.js";
 import { Vector2, Vector4 } from "@babylonjs/core/Maths/math.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.js";
 import { BoundingBox } from "@babylonjs/core/Culling/boundingBox.js";
-import Tile from './Tile';
+import Tile from './Tile.js';
 import TileSet from "./TileSet.js";
 
 export enum EPSG_Type{
@@ -212,23 +213,23 @@ export default class TileMath {
     }
 
     public computeBBOX_4326(tileCoords:Vector3): Vector4{
-        console.log("In computeBBOX_4326!");
-        console.log("   looking at tile: " + tileCoords);
+        debugLog(() => ["In computeBBOX_4326!"]);
+        debugLog(() => ["   looking at tile: " + tileCoords]);
     
         const tileBottomLeft=tileCoords.add(new Vector3(0,1,0));
-        console.log("   proposed bottom left: " + tileBottomLeft);
+        debugLog(() => ["   proposed bottom left: " + tileBottomLeft]);
 
         const bottomLeft=this.tile_to_lonlat(tileBottomLeft);
-        console.log("   result: " + bottomLeft);
+        debugLog(() => ["   result: " + bottomLeft]);
 
         const tileUpperRight=tileCoords.add(new Vector3(1,0,0));
-        console.log("   proposed upper right: " + tileUpperRight);
+        debugLog(() => ["   proposed upper right: " + tileUpperRight]);
 
         const topRight=this.tile_to_lonlat(tileUpperRight);
-        console.log("   result: " + topRight);
+        debugLog(() => ["   result: " + topRight]);
 
         const finalResult = new Vector4(bottomLeft.y, bottomLeft.x, topRight.y, topRight.x); //note the swapped y,x and to get lat,lon ordering   
-        console.log("   final result: " + finalResult);
+        debugLog(() => ["   final result: " + finalResult]);
         return finalResult;
     }
 
@@ -239,7 +240,7 @@ export default class TileMath {
             return new Vector4(0,0,0,0);
         }
 
-        console.log("In computeBBOX_4326_Tileset!");
+        debugLog(() => ["In computeBBOX_4326_Tileset!"]);
 
         const tile: Tile=this.tileSet.ourTiles[0];
 
@@ -263,17 +264,17 @@ export default class TileMath {
         bottom++;
 
         const tileBottomLeft=new Vector3(left,bottom,zoom);
-        console.log("  tile bottom left: " + tileBottomLeft);
+        debugLog(() => ["  tile bottom left: " + tileBottomLeft]);
         const bottomLeft=this.tile_to_lonlat(tileBottomLeft);
-        console.log("    lon lat result: " + bottomLeft);
+        debugLog(() => ["    lon lat result: " + bottomLeft]);
 
         const tileTopRight=new Vector3(right,top,zoom);
-        console.log("  tile top right: " + tileTopRight);
+        debugLog(() => ["  tile top right: " + tileTopRight]);
         const topRight=this.tile_to_lonlat(tileTopRight);
-        console.log("    lon lat result: " + topRight);
+        debugLog(() => ["    lon lat result: " + topRight]);
 
         const finalResult = new Vector4(bottomLeft.y, bottomLeft.x, topRight.y, topRight.x); //note the swapped y,x and to get lat,lon ordering   
-        console.log("  final result: " + finalResult);
+        debugLog(() => ["  final result: " + finalResult]);
         return finalResult;
     }
 
@@ -294,7 +295,7 @@ export default class TileMath {
     //https://wiki.openstreetmap.org/wiki/Zoom_levels
     //Stile = C ∙ cos(latitude) / 2^zoomlevel
     public computeTileRealWidthMeters(lat: number, zoom: number): number {
-        console.log("tryign to compute tile width for lat: " + lat);
+        debugLog(() => ["tryign to compute tile width for lat: " + lat]);
 
         const C = 40075016.686;
         const latRadians = lat * Math.PI / 180.0;
@@ -311,15 +312,15 @@ export default class TileMath {
             zoom = this.tileSet.zoom;
         }
 
-        console.log("computing corner tile for: " + pos);
+        debugLog(() => ["computing corner tile for: " + pos]);
 
         let cornerTile = this.EPSG_to_Tile(pos, epsg, zoom);
-        console.log("center tile: " + cornerTile);
+        debugLog(() => ["center tile: " + cornerTile]);
 
         cornerTile.x -= Math.floor(this.tileSet.numTiles.x / 2); //use floor to handle odd tileset sizes
         cornerTile.y += Math.floor(this.tileSet.numTiles.y / 2);
 
-        console.log("corner tile: " + cornerTile);
+        debugLog(() => ["corner tile: " + cornerTile]);
 
         return cornerTile;
     }
@@ -331,14 +332,14 @@ export default class TileMath {
         }
 
         const tileMeters = this.computeTileRealWidthMeters(this.tileSet.centerCoords.y, this.tileSet.zoom);
-        console.log("tile (real world) width in meters: " + tileMeters);
+        debugLog(() => ["tile (real world) width in meters: " + tileMeters]);
 
         const tileWorldMeters = this.tileSet.tileWidth; //passed in a parameter in the constructor
 
-        console.log("tile (in game) width in meteres: " + tileWorldMeters);
+        debugLog(() => ["tile (in game) width in meteres: " + tileWorldMeters]);
 
         const result = tileWorldMeters / tileMeters;
-        console.log("scale of tile (in game) (1.0 would be true size): " + result);
+        debugLog(() => ["scale of tile (in game) (1.0 would be true size): " + result]);
 
         return result;
     }
@@ -397,7 +398,7 @@ export default class TileMath {
         }
 
         let skuToken: string = [TOKEN_VERSION, SKU_ID, sessionRandomizer].join('');
-        console.log("computed mapbox sku: " + skuToken);
+        debugLog(() => ["computed mapbox sku: " + skuToken]);
 
         return skuToken;
     }

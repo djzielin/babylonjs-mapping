@@ -14,9 +14,15 @@ jobs:
       fail-fast: false
       matrix:
         example:
+          - examples-local/billboard-test
           - examples-local/hello-world
+          - examples-local/line-test
           - examples-local/local-load
+          - examples-local/math-test
+          - examples-local/mouse-latlon
           - examples-local/multisource
+          - examples-local/point-test
+          - examples-local/wmts-local
 
     steps:
       - name: Check out repository

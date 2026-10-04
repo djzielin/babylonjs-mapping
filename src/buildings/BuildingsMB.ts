@@ -1,6 +1,6 @@
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { AssetContainer } from "@babylonjs/core/assetContainer.js";
-import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader.js";
+import { LoadAssetContainerAsync } from "@babylonjs/core/Loading/sceneLoader.js";
 import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
@@ -8,6 +8,7 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
 import type TileSet from "../core/TileSet.js";
 import { EPSG_Type } from "../core/TileMath.js";
 
+let nextModelId = 0;
 const DEFAULT_SOURCE_ZOOM = 14;
 const DEFAULT_TILE_EXTENT = 8192;
 const DEFAULT_TILESET = "mapbox.mapbox-3dbuildings-v1";
@@ -36,13 +37,10 @@ async function defaultModelTileLoader(
         throw new Error(`Unable to load Mapbox model tile (${response.status} ${response.statusText}).`);
     }
 
-    const file = new File(
-        [await response.arrayBuffer()],
-        "mapbox-model-tile.glb",
-        { type: "model/gltf-binary" },
-    );
     await import("@babylonjs/loaders/glTF/index.js");
-    return SceneLoader.LoadAssetContainerAsync("", file, scene, undefined, ".glb");
+    return LoadAssetContainerAsync(new Uint8Array(await response.arrayBuffer()), scene, {
+        pluginExtension: ".glb", name: `mapbox-model-${nextModelId++}.glb`,
+    });
 }
 
 /**

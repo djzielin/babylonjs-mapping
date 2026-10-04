@@ -6,7 +6,7 @@ import Raster from "../src/Raster";
 
 vi.mock("../src/core/Attribution", () => ({
     default: class AttributionStub {
-        public advancedTexture = {};
+        public advancedTexture = { layer: { isEnabled: true } };
         public addAttribution = vi.fn();
     },
 }));
@@ -154,6 +154,7 @@ describe("GlobeSet", () => {
         expect(scene.getMeshByName("globe north polar cap")).toBeNull();
         globe.updateRaster(0, 0, 2);
         expect(globe.ourAttribution.addAttribution).not.toHaveBeenCalled();
+        expect(globe.ourAttribution.advancedTexture.layer?.isEnabled).toBe(false);
 
         scene.dispose();
         engine.dispose();

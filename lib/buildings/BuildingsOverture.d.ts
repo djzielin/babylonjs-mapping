@@ -15,12 +15,24 @@ export declare function resolveLatestOvertureBuildingsURL(baseURL?: string): Pro
 export default class BuildingsOverture extends Buildings {
     /** Tile coordinate keys to omit, useful when a finer building tier covers them. */
     excludedTileKeys: Set<string>;
+    /** Direct globe batches when doMerge is enabled and no per-mesh filter is installed. */
+    batchGeometry: boolean;
+    /** Hide covered footprints by updating indices while preserving prepared vertices. */
+    batchVisibilityFilter?: (latitude: number, longitude: number) => boolean;
+    private batches;
     private archive;
+    private static archives;
+    private static encoded;
+    private static decoded;
     constructor(tileSet: TileSet, archiveURL: string, retrievalLocation?: RetrievalLocation);
     SubmitLoadTileRequest(tile: Tile): void;
     SubmitLoadAllRequest(): void;
     generateBuildings(): void;
     protected handleLoadTileRequest(request: BuildingRequest, requestIndex?: number): void;
     private loadTile;
+    private buildBatch;
+    updateBatchVisibility(): void;
+    private updateMeshVisibility;
     private appendLayerFeatures;
+    private layerFeatures;
 }

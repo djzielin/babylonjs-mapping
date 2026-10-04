@@ -3,6 +3,8 @@ export { default as Buildings, BuildingRequestType } from "./buildings/Buildings
 export type { BuildingLODOptions, BuildingOptimizationOptions, BuildingPerformanceStats, BuildingRequest, } from "./buildings/Buildings.js";
 export { default as BuildingsMB } from "./buildings/BuildingsMB.js";
 export type { LoadedMapboxModelTile, MapboxModelTileLoader, } from "./buildings/BuildingsMB.js";
+export { default as Google3DTiles, GOOGLE_3D_TILES_ROOT_URL, parseGoogleGLBMetadata, } from "./google/Google3DTiles.js";
+export type { Google3DBoundingVolume, Google3DTile, Google3DTileContent, Google3DTilesOrigin, Google3DTilesOptions, Google3DTileset, GoogleGLBMetadata, GoogleModelTileLoader, GoogleTilesetLoader, LoadedGoogle3DTile, LoadedGoogleModelTile, } from "./google/Google3DTiles.js";
 export { default as BuildingsOSM } from "./buildings/BuildingsOSM.js";
 export { default as BuildingsVectorTile, MAPBOX_STREETS_ROAD_LAYER, MAPBOX_STREETS_VECTOR_TILE_URL, } from "./buildings/BuildingsVectorTile.js";
 export type { VectorTileDataLoader, VectorTileDecoder, } from "./buildings/BuildingsVectorTile.js";
@@ -34,3 +36,5 @@ export type { GlobeDataOptions } from './core/GlobeDataController.js';
 export { default as MapLayerRenderer } from "./core/MapLayerRenderer.js";
 export { default as BuildingReplacementIndex } from "./buildings/BuildingReplacementIndex.js";
 export { landscapeTerrainLOD } from "./terrain/LandscapeLOD.js";
+export { setMappingDebugLogger } from "./shared/Diagnostics.js";
+export type { MappingDebugLogger } from "./shared/Diagnostics.js";

@@ -24,8 +24,6 @@ import { Control } from "@babylonjs/gui/2D/controls/control";
 
 //import { AdvancedDynamicTexture } from "@babylonjs/gui/2D";
 import "@babylonjs/core/Materials/standardMaterial"
-import "@babylonjs/inspector";
-import '@babylonjs/core/Debug/debugLayer';
 
 import { RasterMB, TileSet } from "babylonjs-mapping";
 
@@ -80,7 +78,7 @@ class Game {
 
         const text = await res.text();
      
-        this.mapboxKey=text;
+        this.mapboxKey=text.trim();
     }
 
     public setupHelpText() {
@@ -104,7 +102,7 @@ class Game {
     private async createScene() {
         this.scene.clearColor = new Color4(135 / 255, 206 / 255, 235 / 255, 1.0);
 
-        var camera = new UniversalCamera("camera1", new Vector3(130, 50, 0), this.scene); //grand canyon
+        const camera = new UniversalCamera("camera1", new Vector3(130, 50, 0), this.scene); //grand canyon
 
         camera.setTarget(Vector3.Zero());
         camera.attachControl(this.canvas, true);
@@ -113,8 +111,8 @@ class Game {
         camera.angularSensibility = 8000;
         
         //from https://doc.babylonjs.com/divingDeeper/environment/skybox
-        var skybox = MeshBuilder.CreateBox("skyBox", { size: 1000.0 }, this.scene);
-        var skyboxMaterial = new StandardMaterial("skyBox", this.scene);
+        const skybox = MeshBuilder.CreateBox("skyBox", { size: 1000.0 }, this.scene);
+        const skyboxMaterial = new StandardMaterial("skyBox", this.scene);
         skyboxMaterial.backFaceCulling = false;
         skyboxMaterial.reflectionTexture = new CubeTexture("textures/TropicalSunnyDay", this.scene);
         //skyboxMaterial.reflectionTexture = new CubeTexture("textures/skybox", scene);
@@ -123,10 +121,10 @@ class Game {
         skyboxMaterial.specularColor = new Color3(0, 0, 0);
         skybox.material = skyboxMaterial;
                 
-        var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
+        const light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.5;
 
-        var light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
+        const light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         light2.intensity=0.5;        
 
         this.ourTS = new TileSet(this.scene,this.engine);
@@ -142,16 +140,20 @@ class Game {
 
         this.ourTS.updateRaster(36.10054279295824, -112.11265952053303, zoom); //grand canyon
 
-        await this.ourTS.generateTerrain(1.0);
-        this.ourTS.setupTerrainLOD(
-            [16, 4, 1, 0],
-            [this.maxPrecision * 2, this.maxPrecision * 4, this.maxPrecision * 8, this.maxPrecision * 16],
-        );
-        console.log("all terrain ready!");
+        void this.ourTS.generateTerrain(1.0).then(() => {
+            this.ourTS.setupTerrainLOD(
+                [16, 4, 1, 0],
+                [this.maxPrecision * 2, this.maxPrecision * 4, this.maxPrecision * 8, this.maxPrecision * 16],
+            );
+        }).catch(() => console.warn("Terrain unavailable; check the Mapbox key and reload."));
 
-        // Show the debug scene explorer and object inspector
-        // You should comment this out when you build your final program 
-        this.scene.debugLayer.show();
+        if (new URLSearchParams(location.search).has("inspector")) {
+            void import("@babylonjs/inspector").then(({ ShowInspector }) => {
+                if (this.scene.isDisposed) return;
+                const inspector = ShowInspector(this.scene);
+                this.scene.onDisposeObservable.addOnce(() => { void inspector.dispose(); });
+            }).catch(error => console.error("Unable to load inspector", error));
+        }
 
         this.setupHelpText();
     }
@@ -166,5 +168,5 @@ class Game {
 /******* End of the Game class ******/
 
 // start the game
-var game = new Game();
+const game = new Game();
 game.start();

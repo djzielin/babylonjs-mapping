@@ -1,22 +1,6 @@
 {
-	"compilerOptions": {
-        "module": "ESNext",
-		"target": "ES5",
-		"moduleResolution": "node",
-		"strict": true,
-		"noImplicitAny": true,
-        "noImplicitReturns": true,
-        "noImplicitThis": true,
-        "strictNullChecks": true,
-        "strictFunctionTypes": true,
-        "skipLibCheck": true,
-		"preserveConstEnums":true,
-		"sourceMap": true,
-		//"watch": false,
-		"strictPropertyInitialization": false,
-		"allowSyntheticDefaultImports":true
-	},
-	"files": [
-		"src/index.ts"
-	]
+  "extends": "../../tsconfig.examples.json",
+  "files": [
+    "src/index.ts"
+  ]
 }

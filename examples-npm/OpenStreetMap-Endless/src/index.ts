@@ -22,7 +22,6 @@ import { TextBlock } from "@babylonjs/gui/2D/controls/textBlock";
 import { Control } from "@babylonjs/gui/2D/controls/control";
 
 import "@babylonjs/core/Materials/standardMaterial"
-import "@babylonjs/inspector";
 
 import { BuildingsOSM, RasterOSM, TileSet } from "babylonjs-mapping";
 
@@ -87,7 +86,7 @@ class Game {
         }
 
         const text = await res.text();
-        return text;
+        return text.trim();
     }
 
     public setupHelpText() {
@@ -122,10 +121,10 @@ class Game {
         this.camera.angularSensibility = 8000;
 
 
-        var light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
+        const light = new HemisphericLight("light", new Vector3(0, 1, 0), this.scene);
         light.intensity = 0.5;
 
-        var light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
+        const light2 = new DirectionalLight("DirectionalLight", new Vector3(0, -1, 1), this.scene);
         light2.intensity = 0.5;
         light2.parent = this.camera;
 
@@ -148,13 +147,20 @@ class Game {
         const mapboxKey = await this.getKey("mapbox-key.txt");
         if (mapboxKey) {
             this.ourTS.ourTerrainMB.accessToken = mapboxKey;
-            await this.ourTS.generateTerrain(1.0);
-            this.terrainEnabled = true;
+            void this.ourTS.generateTerrain(1.0).then(() => {
+                this.terrainEnabled = true;
+            }).catch(() => console.warn("Terrain unavailable; continuing with the flat map."));
         }
 
         // Show the debug scene explorer and object inspector
         // You should comment this out when you build your final program
-        this.scene.debugLayer.show();
+        if (new URLSearchParams(location.search).has("inspector")) {
+            void import("@babylonjs/inspector").then(({ ShowInspector }) => {
+                if (this.scene.isDisposed) return;
+                const inspector = ShowInspector(this.scene);
+                this.scene.onDisposeObservable.addOnce(() => { void inspector.dispose(); });
+            }).catch(error => console.error("Unable to load inspector", error));
+        }
         this.setupHelpText();
 
         this.scene.onKeyboardObservable.add((e: KeyboardInfo) => {
@@ -227,5 +233,5 @@ class Game {
 /******* End of the Game class ******/
 
 // start the game
-var game = new Game();
+const game = new Game();
 game.start();

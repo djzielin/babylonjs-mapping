@@ -1,3 +1,4 @@
+import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
 import type GlobeSet from "./GlobeSet.js";
 import type Tile from "./Tile.js";
@@ -10,6 +11,7 @@ export interface GlobeDataOptions {
     features?: Buildings[];
     minTerrainZoom?: number;
     minBuildingZoom?: number;
+    maxBuildingZoom?: number;
     concurrency?: number;
     /** Prefer the active camera frustum when streaming large landscape windows. */
     prioritizeVisible?: boolean;
@@ -26,8 +28,13 @@ export default class GlobeDataController {
     };
     private jobs = new Map<Tile, { key: string; abort: AbortController }>();
     private ready = new WeakMap<Tile, string>();
+    private terrainReady = new WeakMap<Tile, string>();
     private observer;
     private disposed = false;
+    private refillTimer?: ReturnType<typeof setTimeout>;
+    private settled = false;
+    private tiles: Tile[] | undefined;
+    private positionObserver;
     private providers = new Set<Buildings>();
     constructor(
         public readonly globe: GlobeSet,
@@ -40,12 +47,18 @@ export default class GlobeDataController {
             (options.exaggeration ?? 1) < 0
         )
             throw new RangeError("Invalid globe detail options");
+        this.positionObserver = globe.onTilePositionUpdatedObservable.add(() => { this.settled = false; });
         this.observer = globe.scene.onBeforeRenderObservable.add(() =>
             this.update(),
         );
     }
     public update(): void {
         if (this.disposed) return;
+        if (this.tiles !== this.globe.ourTiles) {
+            this.tiles = this.globe.ourTiles;
+            this.settled = false;
+        }
+        if (this.settled) return;
         for (const [tile, job] of this.jobs)
             if (
                 tile.mesh.isDisposed() ||
@@ -56,20 +69,26 @@ export default class GlobeDataController {
                 this.stats.cancelled++;
             }
         if (this.stats.active >= (this.options.concurrency ?? 4)) return;
+        const camera = this.globe.scene.activeCamera;
         const centerX = this.globe.ourTileMath.lon_to_tileExact(this.globe.centerCoords.x, this.globe.zoom);
         const centerY = this.globe.ourTileMath.lat_to_tileExact(this.globe.centerCoords.y, this.globe.zoom);
         const count = 2 ** this.globe.zoom;
         const distance = (tile: Tile) => {
+            if (camera) return Vector3.DistanceSquared(camera.globalPosition, tile.mesh.getBoundingInfo().boundingSphere.centerWorld);
             const dx = Math.abs(tile.tileCoords.x + 0.5 - centerX);
             return Math.min(dx, count - dx) ** 2 + (tile.tileCoords.y + 0.5 - centerY) ** 2;
         };
         // Load the area around the viewer before the far corners of large LOD grids.
         const candidates = this.globe.ourTiles.filter(tile => !tile.mesh.isDisposed() && this.globe.isTileGeometryReady(tile)
             && this.ready.get(tile) !== tile.tileCoords.toString() && !this.jobs.has(tile));
-        const camera = this.globe.scene.activeCamera;
+        if (candidates.length === 0 && this.jobs.size === 0 && this.globe.pendingGeometryCount === 0) {
+            this.settled = true;
+            return;
+        }
+        const distances = new Map(candidates.map(tile => [tile, distance(tile)]));
         const visible = new Set(this.options.prioritizeVisible && camera
             ? candidates.filter(tile => camera.isInFrustum(tile.mesh)) : candidates);
-        candidates.sort((a, b) => Number(visible.has(b)) - Number(visible.has(a)) || distance(a) - distance(b));
+        candidates.sort((a, b) => Number(visible.has(b)) - Number(visible.has(a)) || distances.get(a)! - distances.get(b)!);
         for (const tile of candidates) {
             if (
                 !tile.tileCoords ||
@@ -98,7 +117,7 @@ export default class GlobeDataController {
         const coords = tile.tileCoords.clone();
         try {
             if (
-                this.options.elevation &&
+                this.options.elevation && this.terrainReady.get(tile) !== key &&
                 coords.z >= (this.options.minTerrainZoom ?? 5)
             ) {
                 const grid = await this.options.elevation(coords, abort.signal);
@@ -115,6 +134,7 @@ export default class GlobeDataController {
                     grid.height,
                     this.options.exaggeration ?? 1,
                 );
+                this.terrainReady.set(tile, key);
             }
             if (
                 abort.signal.aborted ||
@@ -122,7 +142,7 @@ export default class GlobeDataController {
                 tile.tileCoords.toString() !== key
             )
                 return;
-            if (coords.z >= (this.options.minBuildingZoom ?? 14)) {
+            if (coords.z >= (this.options.minBuildingZoom ?? 14) && coords.z <= (this.options.maxBuildingZoom ?? Infinity)) {
                 for (const provider of [
                     this.options.buildings,
                     ...(this.options.features ?? []),
@@ -145,10 +165,18 @@ export default class GlobeDataController {
         } finally {
             if (this.jobs.get(tile)?.abort === abort) this.jobs.delete(tile);
             this.stats.active--;
+            // Fill the released slot immediately, including when rendering is
+            // throttled. update() reprioritizes from the latest camera each time.
+            if (!this.disposed && this.refillTimer === undefined) this.refillTimer = setTimeout(() => {
+                this.refillTimer = undefined;
+                this.update();
+            }, 0);
         }
     }
     /** Explicitly retry failures or reload after changing provider settings. */
-    public invalidate(): void {
+    public invalidate(preserveTerrain = false): void {
+        if (!preserveTerrain) this.terrainReady = new WeakMap();
+        this.settled = false;
         for (const job of this.jobs.values()) job.abort.abort();
         this.jobs.clear();
         this.ready = new WeakMap();
@@ -157,10 +185,12 @@ export default class GlobeDataController {
     }
     public dispose(): void {
         this.disposed = true;
+        clearTimeout(this.refillTimer);
         for (const provider of this.providers) provider.cancelPendingRequests();
         for (const job of this.jobs.values()) job.abort.abort();
         this.jobs.clear();
         this.globe.scene.onBeforeRenderObservable.remove(this.observer);
+        this.globe.onTilePositionUpdatedObservable.remove(this.positionObserver);
         this.onErrorObservable.clear();
     }
 }
