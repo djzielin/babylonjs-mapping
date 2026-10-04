@@ -84,8 +84,8 @@ it("removes deep coastal Google skirts while retaining the surface and building 
   const triangles = [0, 1, 8, 0, 1, 28, 0, 1, 29, 0, 1, 30, 0, 1, 31];
   mesh.setIndices(triangles);
   mesh.position.y = 5;
-  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(3);
-  expect(Array.from(mesh.getIndices()!)).toEqual([0, 1, 8, 0, 1, 31]);
+  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(1);
+  expect(Array.from(mesh.getIndices()!)).toEqual([0, 1, 8, 0, 1, 28, 0, 1, 29, 0, 1, 31]);
   mesh.setIndices(triangles);
   mesh.subMeshes.push(mesh.subMeshes[0]);
   expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(0);
@@ -116,21 +116,34 @@ it("filters coastal triangles in every material submesh without changing their m
   new SubMesh(0, 0, 32, 0, 6, mesh);
   new SubMesh(1, 0, 32, 6, 9, mesh);
   mesh.position.y = 5;
-  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(3);
-  expect(Array.from(mesh.getIndices()!)).toEqual([0, 1, 8, 0, 1, 31]);
+  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(1);
+  expect(Array.from(mesh.getIndices()!)).toEqual([0, 1, 8, 0, 1, 28, 0, 1, 30, 0, 1, 31]);
   expect(mesh.subMeshes.map(subMesh => [subMesh.materialIndex, subMesh.indexStart, subMesh.indexCount]))
-    .toEqual([[0, 0, 3], [1, 3, 3]]);
+    .toEqual([[0, 0, 6], [1, 6, 6]]);
   scene.dispose(); engine.dispose();
 });
 
-it("removes a small Google water-fill primitive but keeps local coastal surface", () => {
+it.each([0, 10, 30])("preserves unclassified flat 40 m surfaces at %s m altitude", altitude => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const mesh = new Mesh("roof or pavement without water classification", scene);
+  mesh.setVerticesData(VertexBuffer.PositionKind, [0, altitude, 0, 40, altitude, 0,
+    0, altitude, 40, 40, altitude, 40]);
+  const triangles = [0, 1, 2, 1, 3, 2];
+  mesh.setIndices(triangles);
+  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(0);
+  expect(Array.from(mesh.getIndices()!)).toEqual(triangles);
+  scene.dispose(); engine.dispose();
+});
+
+it("preserves flat Google primitives without a water classification", () => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
   const mesh = new Mesh("four vertex water fill", scene);
   mesh.setVerticesData(VertexBuffer.PositionKind, [0, 0, 0, 40, 0, 0, 0, 0, 40, 40, 0, 40]);
   mesh.setIndices([0, 1, 2, 1, 3, 2]);
-  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(2);
-  expect(mesh.getIndices()).toHaveLength(0);
+  expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(0);
+  expect(mesh.getIndices()).toHaveLength(6);
   mesh.setVerticesData(VertexBuffer.PositionKind, [0, 0, 0, 12, 0, 0, 0, 0, 12, 12, 0, 12]);
   mesh.setIndices([0, 1, 2, 1, 3, 2]);
   expect(removeCoastalSkirtTriangles(mesh, 1)).toBe(0);
@@ -247,6 +260,28 @@ it("suppresses an Overture footprint when a resident Google tile clips its edge"
   (provider as any).loadedTiles.delete("edge");
   expect(provider.overlapsFootprint(40.74,-73.991,40.741,-73.99)).toBe(false);
   provider.dispose();scene.dispose();engine.dispose();
+});
+
+it.each([179.9991, -179.9992])("finds resident footprint coverage at longitude %s across the antimeridian", longitude => {
+  const { engine, scene, tileSet } = createTileSet();
+  const provider = new Google3DTiles(tileSet);
+  const radians = Math.PI / 180;
+  (provider as any).loadedSelections.set("date-line", {
+    url: "date-line", depth: 1,
+    boundingVolume: { region: [longitude * radians, 0.0002 * radians,
+      (longitude + 0.0001) * radians, 0.0008 * radians, 0, 1000] },
+  });
+  (provider as any).loadedTiles.set("date-line", {});
+  try {
+    expect(provider.overlapsFootprint(0, 179.999, 0.001, -179.999)).toBe(true);
+    expect(provider.overlapsFootprint(0, 179.999, 0.001, 180.001)).toBe(true);
+    expect(provider.overlapsFootprint(0, 179.5, 0.01, -179.5)).toBe(true);
+    expect(provider.overlapsFootprint(0.002, 179.999, 0.003, -179.999)).toBe(false);
+    expect(provider.overlapsFootprint(0, -0.001, 0.001, 0.001)).toBe(false);
+  } finally {
+    (provider as any).loadedTiles.clear();
+    provider.dispose(); scene.dispose(); engine.dispose();
+  }
 });
 
 it("keeps Overture outside a narrow rotated Google box despite its loose geographic envelope", () => {
@@ -444,6 +479,53 @@ describe("Google3DTiles", () => {
     expect(childRoot!.isEnabled()).toBe(true);
     expect(parent.root.isEnabled()).toBe(false);
     provider.dispose(); scene.dispose(); engine.dispose();
+  });
+
+  it.each([
+    ["dispose", false], ["dispose", true],
+    ["change origin", false], ["change origin", true],
+    ["dispose and reload", false], ["dispose and reload", true],
+  ])("discards a pending WebGPU upload after %s (frame completed: %s)", async (interruption, frameComplete) => {
+    const { engine, scene, tileSet } = createTileSet();
+    Object.defineProperty(engine, "isWebGPU", { value: true });
+    (engine as any)._generateMipmaps = vi.fn();
+    let asset!: AssetContainer;
+    let modelRoot!: TransformNode;
+    const tileset: Google3DTileset = { root: { content: { uri: "upload.glb" } } };
+    const provider = new Google3DTiles(tileSet, { apiKey: "test",
+      tilesetLoader: async () => tileset,
+      modelTileLoader: async () => {
+        asset = new AssetContainer(scene);
+        modelRoot = new TransformNode("pending upload", scene);
+        asset.rootNodes.push(modelRoot);
+        asset.textures.push(new RawTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, 5, scene, true));
+        return { asset, attributions: [] };
+      } });
+    const loading = provider.load();
+    await vi.waitFor(() => expect(modelRoot?.parent).toBeInstanceOf(TransformNode));
+    const root = modelRoot.parent as TransformNode;
+    const disposed = vi.spyOn(asset, "dispose");
+    try {
+      // Exercise both cancellation without another frame and the race after
+      // the upload resolves but before its async continuation can commit.
+      if (frameComplete) engine.onEndFrameObservable.notifyObservers(engine);
+      tileset.root = {};
+      if (interruption === "change origin") {
+        provider.origin = { latitude: 1, longitude: 1 };
+        await provider.load();
+      } else {
+        provider.dispose();
+        if (interruption === "dispose and reload") await provider.load();
+      }
+      await loading;
+      expect(disposed).toHaveBeenCalledOnce();
+      expect(root.isDisposed()).toBe(true);
+      expect(provider.loadedModelTiles).toHaveLength(0);
+      expect((provider as any).retainedTiles.size).toBe(0);
+      expect((provider as any).loadedSelections.size).toBe(0);
+      engine.onEndFrameObservable.notifyObservers(engine);
+      expect((engine as any)._generateMipmaps).toHaveBeenCalledTimes(frameComplete ? 1 : 0);
+    } finally { provider.dispose(); scene.dispose(); engine.dispose(); }
   });
 
   it("retains the Google parent if replacement mip generation fails", async () => {

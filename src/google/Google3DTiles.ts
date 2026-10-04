@@ -275,6 +275,8 @@ export default class Google3DTiles {
     private frontierGeneration = -1;
     private desiredTiles = new Map<string, TileSelection>();
     private originStateKey = "";
+    private originGeneration = 0;
+    private readonly pendingModelUploads = new Set<() => void>();
     private googleAttributionAdded = false;
     private attributionCacheValid = false;
     private attributionCache: string[] = [];
@@ -715,11 +717,13 @@ export default class Google3DTiles {
                     right >= queryLeft && left <= queryRight))
                 && this.footprintTest(selection)(south, west, north, east);
         };
-        const minX = Math.floor(west * 1000), maxX = Math.floor(east * 1000);
         const minY = Math.floor(south * 1000), maxY = Math.floor(north * 1000);
-        if ((maxX - minX + 1) * (maxY - minY + 1) <= 4096) {
-            for (let x = minX; x <= maxX; x++) for (let y = minY; y <= maxY; y++)
-                for (const selection of this.coverageIndex.get(`${x}/${y}`) ?? []) if (overlaps(selection)) return true;
+        const ranges = queryLongitudes.map(([left, right]) => [Math.floor(left * 1000), Math.floor(right * 1000)]);
+        const cells = ranges.reduce((sum, [minX, maxX]) => sum + (maxX - minX + 1) * (maxY - minY + 1), 0);
+        if (cells <= 4096) {
+            for (const [minX, maxX] of ranges)
+                for (let x = minX; x <= maxX; x++) for (let y = minY; y <= maxY; y++)
+                    for (const selection of this.coverageIndex.get(`${x}/${y}`) ?? []) if (overlaps(selection)) return true;
         } else {
             for (const selection of this.loadedSelections.values())
                 if (this.loadedTiles.has(selection.url) && overlaps(selection)) return true;
@@ -2049,6 +2053,7 @@ export default class Google3DTiles {
         generation: number,
         activate = true,
     ): Promise<LoadedGoogle3DTile | undefined> {
+        const originGeneration = this.originGeneration;
         const loaded = this.loadedTiles.get(selection.url);
         if (loaded) {
             return loaded;
@@ -2104,7 +2109,7 @@ export default class Google3DTiles {
                 return undefined;
             }
             const integrationStarted = performance.now();
-            if (this.getOriginStateKey(origin) !== this.originStateKey) {
+            if (originGeneration !== this.originGeneration || this.getOriginStateKey(origin) !== this.originStateKey) {
                 model.asset.dispose();
                 return undefined;
             }
@@ -2130,17 +2135,26 @@ export default class Google3DTiles {
                 // The loader callback runs before its upload encoder is submitted;
                 // regenerate after frame end. Keep the previous tile visible
                 // until that image data is usable by the replacement model.
-                mipmapsReady = new Promise(resolve => engine.onEndFrameObservable.addOnce(() => {
-                    try {
-                        for (const texture of webGpuMipTextures) {
-                            const internal = texture.getInternalTexture();
-                            if (internal?.generateMipMaps)
-                                (engine as typeof engine & { _generateMipmaps(texture: typeof internal): void })
-                                    ._generateMipmaps(internal);
-                        }
-                        resolve(true);
-                    } catch { resolve(false); }
-                }));
+                mipmapsReady = new Promise(resolve => {
+                    const finish = (ready: boolean) => {
+                        engine.onEndFrameObservable.remove(observer);
+                        this.pendingModelUploads.delete(cancel);
+                        resolve(ready);
+                    };
+                    const cancel = () => finish(false);
+                    const observer = engine.onEndFrameObservable.addOnce(() => {
+                        try {
+                            for (const texture of webGpuMipTextures) {
+                                const internal = texture.getInternalTexture();
+                                if (internal?.generateMipMaps)
+                                    (engine as typeof engine & { _generateMipmaps(texture: typeof internal): void })
+                                        ._generateMipmaps(internal);
+                            }
+                            finish(true);
+                        } catch { finish(false); }
+                    });
+                    this.pendingModelUploads.add(cancel);
+                });
             }
             // The asset must stay hidden during the WebGPU upload frame. It
             // can otherwise draw over the old parent with empty mip levels.
@@ -2158,6 +2172,13 @@ export default class Google3DTiles {
 
             if (mipmapsReady && !await mipmapsReady) {
                 if (generation === this.generation) this.unusableModelURLs.add(selection.url);
+                model.asset.dispose();
+                root.dispose();
+                return undefined;
+            }
+            // The origin or provider lifetime can change during the upload
+            // frame, including a reset back to the same geographic origin.
+            if (originGeneration !== this.originGeneration || this.getOriginStateKey(origin) !== this.originStateKey) {
                 model.asset.dispose();
                 root.dispose();
                 return undefined;
@@ -2286,6 +2307,8 @@ export default class Google3DTiles {
     }
 
     private disposeLoadedTiles(): void {
+        this.originGeneration++;
+        for (const cancel of this.pendingModelUploads) cancel();
         for (const { controller } of this.activeModelFetches.values()) controller.abort();
         this.frontierCache = undefined;
         for (const tile of this.retainedTiles.values()) {
@@ -2391,7 +2414,7 @@ async function defaultTilesetLoader(url: string): Promise<Google3DTileset> {
     return response.json() as Promise<Google3DTileset>;
 }
 
-/** Remove coastal photogrammetry skirts and oversized water fill polygons. */
+/** Remove deep coastal photogrammetry skirts and their attached fins. */
 export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number, globeRadius?: number): number {
     const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
     const indices = mesh.getIndices();
@@ -2443,19 +2466,9 @@ export function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number, g
             const deepSkirt = heights[a] < cutoff || heights[b] < cutoff || heights[c] < cutoff;
             if (deepSkirt) for (const vertex of [a, b, c])
                 if (heights[vertex] > lowSurface + 40) skirtPeaks.add(vertex);
-            // Google sometimes fills stretches of coastal water with single flat
-            // triangles hundreds of metres wide. At street LOD these show as hard
-            // dark blocks over the satellite water. The ready raster remains below.
-            const nearSurface = [a, b, c].every(index => Math.abs(heights[index] - lowSurface) < 5);
-            let oversizedFill = false;
-            if (nearSurface) {
-                // Water fill can be just two triangles in a four-vertex mesh.
-                // Even a 25-80 m patch stands out as a dark block over the
-                // ready satellite water, so do not require a large mesh here.
-                oversizedFill = Math.max(worldEdgeSquared(a, b), worldEdgeSquared(b, c),
-                    worldEdgeSquared(c, a)) > 25 * 25;
-            }
-            if (!deepSkirt && !oversizedFill) {
+            // Flat geometry alone cannot identify water: roofs, pavement and
+            // genuine water fill can have identical heights and edge lengths.
+            if (!deepSkirt) {
                 if (kept) kept.push(a, b, c);
             } else {
                 if (!kept) kept = Array.from(indices).slice(0, i);

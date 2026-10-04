@@ -205,6 +205,8 @@ export default class Google3DTiles {
     private frontierGeneration;
     private desiredTiles;
     private originStateKey;
+    private originGeneration;
+    private readonly pendingModelUploads;
     private googleAttributionAdded;
     private attributionCacheValid;
     private attributionCache;
@@ -343,7 +345,7 @@ export default class Google3DTiles {
     private updateAttribution;
     private getTileSetBounds;
 }
-/** Remove coastal photogrammetry skirts and oversized water fill polygons. */
+/** Remove deep coastal photogrammetry skirts and their attached fins. */
 export declare function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number, globeRadius?: number): number;
 /** Extracts Google attribution and CESIUM_RTC metadata from a GLB JSON chunk. */
 export declare function parseGoogleGLBMetadata(buffer: ArrayBuffer): GoogleGLBMetadata;

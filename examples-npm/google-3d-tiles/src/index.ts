@@ -6,6 +6,7 @@ import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 
 import { EPSG_Type, Google3DTiles, RasterOSM, TileSet } from "babylonjs-mapping";
+import { googleTilesOptions } from "./GoogleTilesOptions";
 
 class Google3DTilesDemo {
     private readonly canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
@@ -130,11 +131,8 @@ class Google3DTilesDemo {
                 this.googleTiles?.dispose();
                 this.setLocation();
                 this.loadedLocation = location;
-                this.googleTiles = new Google3DTiles(this.tileSet, {
-                    apiKey: this.apiKey,
-                    maxDepth: Math.min(18, Number(this.qualityInput.value)),
-                    maxTiles: 512,
-                });
+                this.googleTiles = new Google3DTiles(this.tileSet,
+                    googleTilesOptions(this.apiKey, Number(this.qualityInput.value)));
             }
             const provider = this.googleTiles!;
             const targetDepth = Number(this.qualityInput.value);
