@@ -60,10 +60,3 @@ jobs:
           mkdir -p test-results
           npm run test:xr 2>&1 | tee test-results/webxr-simulator.log
 
-      - name: Upload simulator evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: webxr-simulator-evidence
-          path: examples-npm/hello-world-webxr/test-results/
-          if-no-files-found: warn

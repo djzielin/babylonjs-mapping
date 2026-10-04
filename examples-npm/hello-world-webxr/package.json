@@ -4,10 +4,10 @@
   "description": "Explore a miniature Duke campus map in immersive WebXR or on desktop",
   "main": "index.ts",
   "dependencies": {
-    "@babylonjs/core": "^9.26.0",
-    "@babylonjs/gui": "^9.26.0",
+    "@babylonjs/core": "9.26.0",
+    "@babylonjs/gui": "9.26.0",
     "babylonjs-mapping": "^1.1.44",
-    "@babylonjs/loaders": "^9.26.0"
+    "@babylonjs/loaders": "9.26.0"
   },
   "devDependencies": {
     "@types/earcut": "^3.0.0",

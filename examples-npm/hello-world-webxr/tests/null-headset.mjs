@@ -36,6 +36,12 @@ try {
     page.on('pageerror', error => { errors.push(error.stack); console.error(error.stack); });
     await page.addInitScript({ path: runtime });
     await page.addInitScript(() => {
+        // IWER 2.3 passes the transform object to its matrix-based space constructor.
+        // Keep this compatibility shim in the simulator; real WebXR takes the transform.
+        const offsetSpace = IWER.XRReferenceSpace.prototype.getOffsetReferenceSpace;
+        IWER.XRReferenceSpace.prototype.getOffsetReferenceSpace = function (transform) {
+            return offsetSpace.call(this, transform.matrix);
+        };
         window.nullHeadset = new IWER.XRDevice(IWER.metaQuest3, { stereoEnabled: true });
         nullHeadset.installRuntime({ forceInstall: true });
         nullHeadset.position.set(0, 1.6, 0);
