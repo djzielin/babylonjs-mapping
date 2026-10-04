@@ -1485,7 +1485,8 @@ class GlobeDemo {
             if (layer.buildings) layer.buildings.loadConcurrency = detailed15MileRadius && plan.group === 2 ? 12 : 6;
             // At global zooms use a small valid world window rather than repeating tiles.
             const size = view.zoom < 8 ? 1 : Math.min(plan.size, 2 ** plan.zoom);
-            if (layer.globe.ourTiles.length !== size * size) {
+            const resized = layer.globe.ourTiles.length !== size * size;
+            if (resized) {
                 this.terrainTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude, true);
                 this.buildingTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude, true);
                 layer.globe.createGeometry(new Vector2(size, size), 20, plan.precision);
@@ -1513,8 +1514,12 @@ class GlobeDemo {
             if (previous[0] === plan.zoom && Math.min(deltaX, wrap - deltaX) <= slack
                 && Math.abs(tileY - previous[2]) <= slack) return;
             const key = `${plan.zoom}/${tileX}/${tileY}`;
-            this.terrainTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude);
-            this.buildingTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude);
+            // Resizing already captured the outgoing view. The new geometry
+            // has no tile coordinates until updateRaster() positions it below.
+            if (!resized) {
+                this.terrainTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude);
+                this.buildingTransition.capture(layer.globe, plan.zoom, view.latitude, view.longitude);
+            }
             layer.key = key;
             layer.globe.updateRaster(view.latitude, view.longitude, plan.zoom);
             if (plan.zoom <= 14) this.onFinerOvertureCoverageChanged(layer.globe);

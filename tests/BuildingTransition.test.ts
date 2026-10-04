@@ -9,6 +9,33 @@ vi.mock("../src/core/Attribution", () => ({
 }));
 
 describe("building detail transitions", () => {
+    it("keeps building fallback safe before a resized regional window receives coordinates", () => {
+        const engine = new NullEngine(), scene = new Scene(engine);
+        const globe = new GlobeSet(scene, engine, { backingSurface: false });
+        globe.createGeometry(new Vector2(1, 1), 20, 2);
+        globe.updateRaster(40.7484, -73.9857, 13);
+        const tile = globe.ourTiles[0];
+        tile.mesh.setEnabled(true);
+        const source = MeshBuilder.CreateBox("ready regional buildings", {}, scene);
+        source.setParent(tile.mesh);
+        tile.buildingBatches.push(source);
+        const transition = new BuildingTransition();
+        transition.capture(globe, 10, 40.7484, -73.9857, true);
+        const fallback = scene.getMeshByName("previous building detail")!;
+        expect(fallback).toBeDefined();
+        globe.createGeometry(new Vector2(2, 2), 20, 2);
+        expect(globe.ourTiles.every(tile => tile.tileCoords === undefined)).toBe(true);
+        expect.soft(() => transition.capture(globe, 10, 40.7484, -73.9857)).not.toThrow();
+        expect.soft(() => transition.capture(globe, 13, 40.7484, -73.9857)).not.toThrow();
+        expect.soft(() => transition.update(1000)).not.toThrow();
+        expect(fallback.isDisposed()).toBe(false);
+        globe.updateRaster(40.7484, -73.9857, 10);
+        expect(() => transition.update(1300)).not.toThrow();
+        expect(fallback.isDisposed()).toBe(false);
+        expect(fallback.isEnabled()).toBe(true);
+        transition.dispose(); scene.dispose(); engine.dispose();
+    });
+
     it("clears retained detail and distance-tier buildings when their layer is disabled", () => {
         const engine = new NullEngine(), scene = new Scene(engine);
         const transition = new BuildingTransition();
