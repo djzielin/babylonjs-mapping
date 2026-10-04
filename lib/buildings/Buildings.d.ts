@@ -114,6 +114,7 @@ export default abstract class Buildings {
     buildingMeshTransform?: (mesh: Mesh) => void;
     /** Reject a generated footprint before it is registered or merged. */
     buildingMeshFilter?: (mesh: Mesh) => boolean;
+    onBuildingCreated(_mesh: Mesh): void;
     /** Reject unwanted source features before allocating or triangulating meshes. */
     buildingFeatureFilter?: (feature: GeoJSON.feature, tile: Tile, projection: EPSG_Type | undefined) => boolean;
     retrievalType: RetrievalType;
@@ -184,6 +185,8 @@ export default abstract class Buildings {
     protected handleLoadTileRequest(request: BuildingRequest, requestIndex?: number): void;
     private priorityTile?;
     private priorityTileUntil;
+    private priorityCamera?;
+    private priorityCameraRevision;
     private selectBuildingRequestIndex;
     /** CPU budget for feature creation; individual features are atomic. */
     creationTimeBudgetMs: number;

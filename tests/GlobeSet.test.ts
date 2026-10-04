@@ -32,6 +32,71 @@ function createGlobe(options?: ConstructorParameters<typeof GlobeSet>[2]) {
 }
 
 describe("GlobeSet", () => {
+    it.each([-79, -180])("preserves four-way corners when a nearby flat tile reloads at longitude %s", longitude => {
+        const { engine, scene, globe } = createGlobe({ backingSurface: false });
+        globe.createGeometry(new Vector2(3, 3), 20, 2);
+        globe.updateRaster(35, longitude, 15);
+        const minX = Math.min(...globe.ourTiles.map(tile => tile.tileCoords.x));
+        const minY = Math.min(...globe.ourTiles.map(tile => tile.tileCoords.y));
+        const tileAt = (x: number, y: number) => globe.ourTiles.find(tile =>
+            tile.tileCoords.x === minX + x && tile.tileCoords.y === minY + y)!;
+        const load = (x: number, y: number, height: number) =>
+            globe.setElevationData(tileAt(x, y), [height, height, height, height], 2, 2);
+        for (const tile of globe.ourTiles) globe.setElevationData(tile, [0, 0, 0, 0], 2, 2);
+        load(0, 0, 100);
+        const p = globe.meshPrecision, n = p + 1;
+        const corners = () => [
+            tileAt(0, 0).elevationHeights![p * n + p],
+            tileAt(1, 0).elevationHeights![p * n],
+            tileAt(0, 1).elevationHeights![p],
+            tileAt(1, 1).elevationHeights![0],
+        ].map(height => height / globe.metresToWorld);
+        expect(corners()).toEqual([25, 25, 25, 25]);
+
+        // The reload's neighbours include only the eastern pair of corner
+        // contributors. Their remote corner must retain the four-way average.
+        load(2, 0, 0);
+        expect(corners()).toEqual([25, 25, 25, 25]);
+        load(0, 2, 0);
+        load(2, 2, 0);
+        expect(corners()).toEqual([25, 25, 25, 25]);
+
+        // A change which touches this corner must still update all four tiles.
+        load(0, 0, 200);
+        expect(corners()).toEqual([50, 50, 50, 50]);
+        scene.dispose(); engine.dispose();
+    });
+
+    it.each([false, true])("keeps complete border averages throughout a larger DEM window load (%s)", reverse => {
+        const { engine, scene, globe } = createGlobe({ backingSurface: false });
+        globe.createGeometry(new Vector2(3, 3), 20, 2);
+        globe.updateRaster(35, -79, 15);
+        const tiles = [...globe.ourTiles];
+        if (reverse) tiles.reverse();
+        const sources = new Map<GlobeSet["ourTiles"][number], number>();
+        const p = globe.meshPrecision, n = p + 1;
+        for (const [tileIndex, tile] of tiles.entries()) {
+            const height = (tileIndex + 1) * 10;
+            sources.set(tile, height);
+            globe.setElevationData(tile, [height, height, height, height], 2, 2);
+            const groups = new Map<string, { source: number; actual: number }[]>();
+            for (const [loaded, source] of sources) {
+                for (let y = 0; y <= p; y++) for (let x = 0; x <= p; x++) {
+                    if (x !== 0 && x !== p && y !== 0 && y !== p) continue;
+                    const key = `${loaded.tileCoords.x * p + x}/${loaded.tileCoords.y * p + y}`;
+                    const group = groups.get(key) ?? [];
+                    group.push({ source, actual: loaded.elevationHeights![y * n + x] / globe.metresToWorld });
+                    groups.set(key, group);
+                }
+            }
+            for (const group of groups.values()) {
+                const average = group.reduce((sum, item) => sum + item.source, 0) / group.length;
+                for (const item of group) expect(item.actual).toBeCloseTo(average, 10);
+            }
+        }
+        scene.dispose(); engine.dispose();
+    });
+
     it("feathers the outer boundary while keeping the interior opaque", () => {
         const { engine, scene, globe } = createGlobe({ radius: 25, edgeFadeTiles: 1 });
         globe.createGeometry(new Vector2(3, 3), 20, 4);

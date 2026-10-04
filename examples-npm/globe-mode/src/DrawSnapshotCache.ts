@@ -10,6 +10,7 @@ type DrawState = {
     worldVersion: number; visibility: number; group: number; mask: number;
     index: unknown; buffers: Record<string, unknown>; effects: readonly unknown[]; textures: readonly unknown[];
 };
+type StaticGroup = { center: Vector3; radius: number; view: number; visible: boolean };
 export class DrawSnapshotCache {
     private recorded = new Map<Mesh, DrawState>();
     private immutableMaterials = new WeakSet<NonNullable<Mesh["material"]>>();
@@ -30,7 +31,29 @@ export class DrawSnapshotCache {
     private view = new Float64Array(16);
     private viewRevision = 0;
     private camera?: Scene["activeCamera"];
-    private culling = new WeakMap<Mesh, { view: number; world: number; position: unknown; expanded: boolean; visible: boolean }>();
+    private culling = new WeakMap<Mesh, { view: number; world: number; position: unknown; expanded: boolean }>();
+    private staticGroups = new WeakMap<Mesh, StaticGroup>();
+    /** A conservative first pass for the frozen meshes in one model tile. */
+    public registerStaticGroup(meshes: readonly AbstractMesh[]): void {
+        const drawable = meshes.filter((mesh): mesh is Mesh => mesh.isWorldMatrixFrozen && !!(mesh as Mesh).subMeshes?.length);
+        if (drawable.length < 2) return;
+        const min = new Vector3(Infinity, Infinity, Infinity);
+        const max = new Vector3(-Infinity, -Infinity, -Infinity);
+        for (const mesh of drawable) {
+            const sphere = mesh.getBoundingInfo().boundingSphere;
+            const c = sphere.centerWorld, r = sphere.radiusWorld;
+            min.x = Math.min(min.x, c.x - r); min.y = Math.min(min.y, c.y - r); min.z = Math.min(min.z, c.z - r);
+            max.x = Math.max(max.x, c.x + r); max.y = Math.max(max.y, c.y + r); max.z = Math.max(max.z, c.z + r);
+        }
+        const center = Vector3.Center(min, max);
+        let radius = 0;
+        for (const mesh of drawable) {
+            const sphere = mesh.getBoundingInfo().boundingSphere;
+            radius = Math.max(radius, Vector3.Distance(center, sphere.centerWorld) + sphere.radiusWorld);
+        }
+        const group: StaticGroup = { center, radius, view: -1, visible: true };
+        for (const mesh of drawable) this.staticGroups.set(mesh, group);
+    }
     public get stats(): string { return `${this.recorded.size} cached / ${this.enabledMeshes.size} enabled / ${this.scene.meshes.length} resident meshes · ${this.captures} captures / ${this.replays} replays${this.blocked ? ` / ${this.blocked}` : ""} · cache ${this.cpuMs.toFixed(2)} ms`; }
     constructor(private scene: Scene, private engine: WebGPUEngine) {
         engine.snapshotRenderingMode = 1;
@@ -74,15 +97,29 @@ export class DrawSnapshotCache {
         this.recorded.clear();
     }
     private state(mesh: Mesh, previous?: DrawState): DrawState | undefined {
-        const material = mesh.material;
+        // Babylon renders meshes without an explicit material with the scene
+        // default. Treat that actual draw material as a stable cache resource.
+        const material = mesh.material ?? this.scene.defaultMaterial;
+        if (!mesh.material && !material.isFrozen) material.freeze();
         if (!mesh.isWorldMatrixFrozen || !material?.isFrozen || mesh.skeleton || mesh.morphTargetManager
-            || mesh.hasInstances || mesh.hasThinInstances || mesh.isAnInstance || mesh.billboardMode) return undefined;
-        const selected = mesh.getLOD(this.scene.activeCamera!) as Mesh | null;
+            || mesh.hasInstances || mesh.hasThinInstances || mesh.isAnInstance || mesh.billboardMode) {
+            const reason = !mesh.isWorldMatrixFrozen ? "world matrix" : !material?.isFrozen ? `material ${material?.getClassName() ?? "none"}`
+                : mesh.skeleton ? "skeleton" : mesh.morphTargetManager ? "morph target"
+                    : mesh.hasInstances || mesh.hasThinInstances || mesh.isAnInstance ? "instances" : "billboard";
+            this.blocked = `${mesh.name}: ${reason}`;
+            return undefined;
+        }
+        const selected = mesh.hasLODLevels ? mesh.getLOD(this.scene.activeCamera!) as Mesh | null : mesh;
         const geometry = selected?.geometry ?? mesh.geometry;
-        const buffers = geometry?.getVertexBuffers() ?? {};
-        const index = geometry?.getIndexBuffer();
         const worldVersion = mesh.getWorldMatrix().updateFlag;
         const immutable = this.immutableMaterials.has(material);
+        if (immutable && previous && previous.selected === selected && previous.material === material
+            && previous.geometry === geometry && previous.worldVersion === worldVersion
+            && previous.visibility === mesh.visibility && previous.group === mesh.renderingGroupId
+            && previous.mask === mesh.layerMask && !mesh.hasLODLevels && material.isFrozen
+            && (selected ?? mesh).subMeshes.length === previous.effects.length) return previous;
+        const buffers = geometry?.getVertexBuffers() ?? {};
+        const index = geometry?.getIndexBuffer();
         const textures = immutable && previous ? undefined : material.getActiveTextures();
         if (previous && previous.selected === selected && previous.material === material && previous.geometry === geometry
             && previous.worldVersion === worldVersion && previous.visibility === mesh.visibility
@@ -97,14 +134,21 @@ export class DrawSnapshotCache {
             if (same && textures) for (let i = 0; i < textures.length; i++) if (textures[i].getInternalTexture() !== previous.textures[i]) { same = false; break; }
             if (same) return previous;
         }
-        if (!mesh.isReady(true) || (selected && !selected.isReady(true))) return undefined;
+        if (!mesh.isReady(true) || (selected && !selected.isReady(true))) {
+            this.blocked = `${mesh.name}: preparing shaders`;
+            return undefined;
+        }
         const activeTextures = textures ?? material.getActiveTextures();
-        if (activeTextures.some(texture => !texture.isReady())) return undefined;
+        if (activeTextures.some(texture => !texture.isReady())) {
+            this.blocked = `${mesh.name}: loading textures`;
+            return undefined;
+        }
         return { selected, material, geometry, worldVersion, visibility: mesh.visibility,
             group: mesh.renderingGroupId, mask: mesh.layerMask, index, buffers: { ...buffers }, effects: (selected ?? mesh).subMeshes.map(sub => sub.effect), textures: activeTextures.map(texture => texture.getInternalTexture()) };
     }
     private enabled(mesh: AbstractMesh): boolean {
-        return mesh.isEnabled() && mesh.isVisible && mesh.visibility > 0
+        // enabledMeshes follows effective state, including parent changes.
+        return mesh.isVisible && mesh.visibility > 0
             && !!(mesh.layerMask & this.scene.activeCamera!.layerMask);
     }
     private prepare(): void {
@@ -136,6 +180,23 @@ export class DrawSnapshotCache {
             }
             const world = mesh.getWorldMatrix().updateFlag;
             const position = mesh.getVertexBuffer("position");
+            const recorded = this.recorded.get(mesh);
+            const group = mesh.isWorldMatrixFrozen ? this.staticGroups.get(mesh) : undefined;
+            if (group) {
+                if (group.view !== this.viewRevision) {
+                    // Include the farthest member's possible 2% view margin.
+                    const margin = (Vector3.Distance(camera.globalPosition, group.center) + group.radius) * 0.02;
+                    group.visible = true;
+                    for (const plane of scene.frustumPlanes) if (plane.dotCoordinate(group.center) < -group.radius - margin) {
+                        group.visible = false; break;
+                    }
+                    group.view = this.viewRevision;
+                }
+                if (!group.visible) {
+                    if (recorded) reuse = false;
+                    continue;
+                }
+            }
             let cull = this.culling.get(mesh);
             if (!cull || cull.view !== this.viewRevision || cull.world !== world || cull.position !== position || !mesh.isWorldMatrixFrozen) {
                 const bounds = mesh.getBoundingInfo().boundingSphere;
@@ -143,18 +204,17 @@ export class DrawSnapshotCache {
                 let expanded = true;
                 for (const plane of scene.frustumPlanes) if (plane.dotCoordinate(bounds.centerWorld) < -bounds.radiusWorld - margin) { expanded = false; break; }
                 if (!cull) {
-                    cull = { view: this.viewRevision, world, position, expanded, visible: false };
+                    cull = { view: this.viewRevision, world, position, expanded };
                     this.culling.set(mesh, cull);
                 }
                 cull.view = this.viewRevision; cull.world = world; cull.position = position;
-                cull.expanded = expanded; cull.visible = mesh.isInFrustum(scene.frustumPlanes);
+                cull.expanded = expanded;
             }
-            const recorded = this.recorded.get(mesh);
             if (!cull.expanded && !recorded) continue;
             const state = this.state(mesh, recorded);
-            if (state === undefined) { this.blocked = mesh.name; this.invalidate(); return; }
+            if (state === undefined) { this.blocked ||= mesh.name; this.invalidate(); return; }
             if (recorded !== undefined && recorded !== state) reuse = false;
-            if (recorded === undefined && cull.visible) reuse = false;
+            if (recorded === undefined && cull.expanded && reuse && mesh.isInFrustum(scene.frustumPlanes)) reuse = false;
             if (cull.expanded) { expanded.push(mesh); states.push(state); }
         }
         for (const mesh of this.recorded.keys()) if (mesh.isDisposed()) reuse = false;

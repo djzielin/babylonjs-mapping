@@ -2,6 +2,8 @@ import "@babylonjs/core/Culling/ray.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.js";
+import type { Plane } from "@babylonjs/core/Maths/math.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture.js";
@@ -26,6 +28,8 @@ export interface TileRequest {
     mesh: Mesh;
     texture: Texture | null;
     inProgress: boolean;
+    retryAfter?: number;
+    failures?: number;
 }
 /**
  * Describes a tile that was recycled by moveAllTiles().
@@ -56,6 +60,7 @@ export default class TileSet {
     /** Projection hooks shared by all feature and terrain providers. */
     readonly isGlobe: boolean;
     isTileGeometryReady(_tile: Tile): boolean;
+    isTileDisplayReady(tile: Tile): boolean;
     getGeometryMath(): TileMath;
     projectFeatureMesh(_mesh: Mesh): void;
     applyElevationGrid(_tile: Tile, _heights: number[], _precision: number): void;
@@ -130,8 +135,14 @@ export default class TileSet {
     /** Bounded parallel raster requests; each frame scans only the active window. */
     rasterConcurrency: number;
     private rasterSortAt;
+    private rasterPriorityCamera?;
+    private rasterPriorityRevision;
     private activeRasterRequests;
     private waitingRasterRequests;
+    protected getRasterRequestPriority(request: TileRequest, camera: Camera, _planes: Plane[]): {
+        visible: boolean;
+        distance: number;
+    };
     processTileRequests(): void;
     private processNextTileRequest;
     getAdvancedDynamicTexture(): AdvancedDynamicTexture;
