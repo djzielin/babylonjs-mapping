@@ -69,7 +69,7 @@ try {
         };
     });
     page.on('console', message => { if (message.type() === 'error') console.error(message.text()); });
-    await page.goto(url);
+    await page.goto(url + '?legacy=1');
     console.log('Loaded demo');
     await page.waitForFunction(() => !document.querySelector('#enter-vr').disabled);
     await page.waitForFunction(() => helloWorldWebXR.map.ourTiles.every(tile => tile.material?.diffuseTexture?.isReady()), null, { timeout: 90000 });
@@ -196,7 +196,7 @@ try {
     desktop.on('pageerror', error => errors.push(error.stack));
     await desktop.addInitScript(() => Object.defineProperty(navigator, 'xr', { value: undefined }));
     await desktop.route('https://overturemaps-extras-us-west-2.s3.amazonaws.com/**', route => route.fulfill({ status: 503, body: 'Unavailable' }));
-    await desktop.goto(url);
+    await desktop.goto(url + '?legacy=1');
     await desktop.waitForFunction(() => document.querySelector('#xr-status').textContent.includes('VR unavailable'));
     await desktop.waitForFunction(() => document.querySelector('#building-status').textContent.includes('Buildings unavailable'));
     assert.equal(await desktop.isDisabled('#enter-vr'), true);
@@ -212,6 +212,16 @@ try {
     assert.deepEqual(errors, []);
     await writeFile(resolve(results, 'acceptance.json'), JSON.stringify({ simulator: 'IWER Quest 3', physicalHeadsetTested: false, buildings, ...evidence, desktopFallback: true, desktopMovement: true, pageErrors: errors }, null, 2));
     console.log('Desktop fallback and unavailable building service passed.');
+    await desktop.route('**/google-key.txt', route => route.fulfill({ status: 503, body: 'Unavailable' }));
+    await desktop.goto(url);
+    await desktop.waitForFunction(() => document.querySelector('#building-status').textContent.includes('Google tiles unavailable'));
+    assert.equal(await desktop.evaluate(() => document.querySelector('canvas').dataset.googleTiles), '0');
+    assert.equal(await desktop.evaluate(() => helloWorldWebXR.scene.activeCamera.name), 'desktop');
+    assert.equal(await desktop.isDisabled('#enter-vr'), true);
+    await desktop.waitForFunction(() => helloWorldWebXR.map.ourTiles.every(tile => tile.material?.diffuseTexture?.isReady()), null, { timeout: 90000 });
+    assert.deepEqual(errors, []);
+    console.log('Default Google demo unavailable-configuration fallback passed.');
+
 } catch (error) {
     if (page && !page.isClosed()) await page.screenshot({ path: resolve(results, 'failure.png') }).catch(() => {});
     throw error;
