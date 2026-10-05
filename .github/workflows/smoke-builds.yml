@@ -44,13 +44,11 @@ jobs:
       - name: Install example dependencies
         working-directory: ${{ matrix.example }}
         run: |
-          BABYLON_VERSION=$(node -p "require('../../package-lock.json').packages['node_modules/@babylonjs/core'].version")
-          npm install --no-save --package-lock=false \
-            "@babylonjs/core@$BABYLON_VERSION" \
-            "@babylonjs/gui@$BABYLON_VERSION" \
-            "@babylonjs/loaders@$BABYLON_VERSION" \
-            "@babylonjs/inspector@$BABYLON_VERSION" \
-            "@babylonjs/materials@$BABYLON_VERSION"
+          set -euo pipefail
+          # Source imports and the example must use the same Babylon declarations.
+          babylon_version="$(node -p "require('../../node_modules/@babylonjs/core/package.json').version")"
+          mapfile -t babylon_packages < <(node -e 'const p=require("./package.json"); for(const name of Object.keys({...p.dependencies,...p.devDependencies})) if(name.startsWith("@babylonjs/")) console.log(name+"@"+process.argv[1]);' "${babylon_version}")
+          npm install "${babylon_packages[@]}" --no-save --no-package-lock --no-audit --no-fund
 
       - name: Build example
         working-directory: ${{ matrix.example }}

@@ -1,0 +1,261 @@
+import assert from 'node:assert/strict';
+import { googleFixture } from './google-fixture.mjs';
+const googleRun = process.argv.includes('--google');
+import { createServer } from 'node:http';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { dirname, resolve, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+// npm run build && npx playwright install chromium && npm run test:xr
+// A null headset: Meta's IWER Quest 3 profile, with no physical XR hardware.
+const require = createRequire(import.meta.url);
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const runtime = resolve(dirname(require.resolve('iwer')), '../build/iwer.min.js');
+const results = resolve(root, 'test-results');
+await mkdir(results, { recursive: true });
+const server = createServer(async (request, response) => {
+    try {
+        const pathname = new URL(request.url, 'http://localhost').pathname;
+        const file = resolve(root, 'dist', '.' + (pathname === '/' ? '/index.html' : pathname));
+        if (!file.startsWith(resolve(root, 'dist') + '/')) throw new Error('Invalid path');
+        response.setHeader('Content-Type', extname(file) === '.js' ? 'text/javascript' : 'text/html');
+        response.end(await readFile(file));
+    } catch { response.writeHead(404).end(); }
+});
+await new Promise(done => server.listen(0, '127.0.0.1', done));
+const url = `http://127.0.0.1:${server.address().port}`;
+let browser;
+let page;
+try {
+    // Keep the same software renderer when Chromium makes its context XR-compatible.
+    // Otherwise a GPU switch can lose IWER's context during the first frames.
+    browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+    page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    page.setDefaultTimeout(30000);
+    if (googleRun) {
+        const fixture = googleFixture();
+        await page.route('**/google-key.txt', route => route.fulfill({ body: 'functional-test-not-a-secret' }));
+        await page.route('https://tile.googleapis.com/**', route => {
+            const path = new URL(route.request().url()).pathname;
+            if (path.endsWith('/root.json')) return route.fulfill({ json: fixture.tileset });
+            if (path.endsWith('/fixture.glb')) return route.fulfill({ body: fixture.glb, contentType: 'model/gltf-binary' });
+            return route.abort();
+        });
+    }
+    const errors = [];
+    page.on('pageerror', error => { errors.push(error.stack); console.error(error.stack); });
+    await page.addInitScript({ path: runtime });
+    await page.addInitScript(() => {
+        // IWER 2.3 passes the transform object to its matrix-based space constructor.
+        // Keep this compatibility shim in the simulator; real WebXR takes the transform.
+        const offsetSpace = IWER.XRReferenceSpace.prototype.getOffsetReferenceSpace;
+        IWER.XRReferenceSpace.prototype.getOffsetReferenceSpace = function (transform) {
+            return offsetSpace.call(this, transform.matrix);
+        };
+        window.nullHeadset = new IWER.XRDevice(IWER.metaQuest3, { stereoEnabled: true });
+        nullHeadset.installRuntime({ forceInstall: true });
+        nullHeadset.position.set(0, 1.6, 0);
+        window.endedSessions = 0;
+        window.visibilityChanges = [];
+        const requestSession = navigator.xr.requestSession.bind(navigator.xr);
+        navigator.xr.requestSession = async (...args) => {
+            if (window.rejectNextSession) {
+                window.rejectNextSession = false;
+                throw new DOMException('Test permission denial', 'NotAllowedError');
+            }
+            const session = await requestSession(...args);
+            window.testSession = session;
+            session.addEventListener('end', () => window.endedSessions++);
+            session.addEventListener('visibilitychange', () => visibilityChanges.push(session.visibilityState));
+            window.testFrames = 0;
+            const space = await session.requestReferenceSpace('local-floor');
+            const frame = (_, xrFrame) => {
+                window.testFrames++;
+                window.testEyes = xrFrame.getViewerPose(space)?.views.map(view => view.eye);
+                session.requestAnimationFrame(frame);
+            };
+            session.requestAnimationFrame(frame);
+            return session;
+        };
+    });
+    page.on('console', message => { if (message.type() === 'error') console.error(message.text()); });
+    await page.goto(url + (googleRun ? '' : '?legacy=1'));
+    console.log('Loaded demo');
+    await page.waitForFunction(() => !document.querySelector('#enter-vr').disabled);
+    if (googleRun) {
+        await page.waitForFunction(() => Number(document.querySelector('canvas').dataset.googleTiles) > 0);
+        assert.equal(await page.evaluate(() => helloWorldWebXR.map.ourAttribution.advancedTexture.rootContainer.isVisible), true);
+        const credits = await page.locator('#map-credits').textContent();
+        assert.ok(credits.includes('Google Maps') && credits.includes('Mock fixture') && credits.includes('Copyright test contributors'));
+    } else {
+        await page.waitForFunction(() => helloWorldWebXR.map.ourTiles.every(tile => tile.material?.diffuseTexture?.isReady()), null, { timeout: 90000 });
+        await page.waitForFunction(() => document.querySelector('#building-status').textContent === 'Buildings ready.', null, { timeout: 90000 });
+    }
+    const buildings = await page.evaluate(google => google ? Number(document.querySelector('canvas').dataset.googleTiles) : helloWorldWebXR.map.ourTiles.reduce((n, tile) => n + tile.buildings.length, 0), googleRun);
+    assert.ok(buildings > 0);
+    console.log(`${googleRun ? 'Google API fixture' : 'Raster'} and ${buildings} ${googleRun ? 'model tiles' : 'buildings'} ready`);
+    await page.screenshot({ path: resolve(results, 'desktop-campus.png') });
+    await page.evaluate(() => window.rejectNextSession = true);
+    await page.click('#enter-vr');
+    await page.waitForFunction(() => document.querySelector('#xr-status').textContent.includes('Could not enter VR'));
+    assert.equal(await page.isDisabled('#enter-vr'), false);
+    // Fail after requestSession succeeds, when Babylon has allocated a session.
+    await page.evaluate(() => {
+        const target = helloWorldWebXR.xrExperience.renderTarget;
+        const initialize = target.initializeXRLayerAsync;
+        target.initializeXRLayerAsync = async function (...args) {
+            target.initializeXRLayerAsync = initialize;
+            throw new Error('Test layer initialization failure');
+        };
+    });
+    await page.click('#enter-vr');
+    await page.waitForFunction(() => endedSessions === 1 && !helloWorldWebXR.xrExperience.baseExperience.sessionManager.inXRSession && !document.querySelector('#enter-vr').disabled);
+    assert.equal(await page.evaluate(() => helloWorldWebXR.scene.activeCamera.name), 'desktop');
+    console.log('Permission denial and allocated-session cleanup passed');
+    await page.click('#enter-vr');
+    console.log('Requested immersive session');
+    await page.waitForFunction(() => window.testFrames > 10 && helloWorldWebXR.xrExperience.input.controllers.length === 2);
+    assert.deepEqual(await page.evaluate(() => testEyes), ['left', 'right']);
+    await page.waitForFunction(() => helloWorldWebXR.scene.activeCamera.rigCameras.length === 2);
+    assert.equal(await page.isHidden('#help'), true);
+    console.log('Stereo and controllers ready');
+    const before = await page.evaluate(() => helloWorldWebXR.scene.activeCamera.position.asArray());
+    await page.evaluate(() => nullHeadset.position.x += 0.25);
+    await page.waitForFunction(x => Math.abs(helloWorldWebXR.scene.activeCamera.position.x - x - 0.25) < 0.01, before[0]);
+    await page.waitForFunction(() => helloWorldWebXR.xrExperience.input.controllers.every(c => c.motionController));
+    console.log('Head tracking passed');
+    for (const visibility of ['visible-blurred', 'hidden', 'visible']) {
+        await page.evaluate(state => nullHeadset.updateVisibilityState(state), visibility);
+        await page.waitForFunction(state => visibilityChanges.includes(state), visibility);
+    }
+    const resumeFrames = await page.evaluate(() => testFrames);
+    await page.waitForFunction(before => testFrames > before + 5, resumeFrames);
+    assert.equal(await page.isHidden('#help'), true);
+    await page.evaluate(() => nullHeadset.controllers.right.connected = false);
+    await page.waitForFunction(() => helloWorldWebXR.xrExperience.input.controllers.length === 1);
+    await page.evaluate(() => nullHeadset.controllers.right.connected = true);
+    await page.waitForFunction(() => helloWorldWebXR.xrExperience.input.controllers.length === 2 && helloWorldWebXR.xrExperience.input.controllers.every(c => c.motionController));
+    console.log('Visibility interruption and controller reconnect passed');
+    const rotation = await page.evaluate(() => helloWorldWebXR.scene.activeCamera.rotationQuaternion.asArray());
+    await page.evaluate(() => nullHeadset.controllers.right.updateAxes('thumbstick', 1, 0));
+    await page.waitForFunction(previous => helloWorldWebXR.scene.activeCamera.rotationQuaternion.asArray().some((v, i) => Math.abs(v - previous[i]) > 0.1), rotation).catch(async error => {
+        console.log(JSON.stringify(await page.evaluate(() => ({
+            rotation: helloWorldWebXR.scene.activeCamera.rotationQuaternion.asArray(),
+            frames: testFrames, visibility: testSession.visibilityState,
+            teleportAttached: helloWorldWebXR.xrExperience.teleportation.attached,
+            controllers: helloWorldWebXR.xrExperience.input.controllers.map(c => ({ id: c.uniqueId, axes: c.motionController.getComponentOfType('thumbstick').axes, observers: c.motionController.getComponentOfType('thumbstick').onAxisValueChangedObservable.observers.length })),
+            teleportControllers: Object.keys(helloWorldWebXR.xrExperience.teleportation._controllers),
+            states: Object.values(helloWorldWebXR.xrExperience.teleportation._controllers).map(c => c.teleportationState),
+        })), null, 2));
+        throw error;
+    });
+    await page.evaluate(() => nullHeadset.controllers.right.updateAxes('thumbstick', 0, 0));
+    await page.waitForFunction(() => helloWorldWebXR.xrExperience.input.controllers.find(c => c.inputSource.handedness === 'right').motionController.getComponentOfType('thumbstick').axes.x === 0);
+    console.log('Snap turn passed');
+    // Return to the initial heading before aiming the right controller at the map.
+    await page.evaluate(() => {
+        helloWorldWebXR.scene.activeCamera.rotationQuaternion.set(0, 0, 0, 1);
+        nullHeadset.controllers.right.position.set(0.25, 1.2, -0.3);
+        nullHeadset.controllers.right.quaternion.set(-Math.sin(Math.PI / 8), 0, 0, Math.cos(Math.PI / 8));
+        nullHeadset.controllers.right.updateAxes('thumbstick', 0, -1);
+    });
+    await page.waitForFunction(() => helloWorldWebXR.xrExperience.teleportation.teleportationTargetMesh.isVisible).catch(async error => {
+        console.log(await page.evaluate(() => {
+            const xr = helloWorldWebXR.xrExperience;
+            return {camera: xr.baseExperience.camera.position.asArray(), controllers: xr.input.controllers.map(c => ({id:c.uniqueId, position:c.pointer.position.asArray(), rotation:c.pointer.rotationQuaternion.asArray(), axes:c.motionController.getComponentOfType('thumbstick').axes})), teleport: Object.keys(xr.teleportation), target:xr.teleportation.teleportationTargetMesh.position.asArray()};
+        }));
+        await page.screenshot({path: resolve(root, 'test-results/teleport-failure.png')});
+        throw error;
+    });
+    console.log('Teleport target visible');
+    const teleportStart = await page.evaluate(() => helloWorldWebXR.scene.activeCamera.position.asArray());
+    await page.evaluate(() => nullHeadset.controllers.right.updateAxes('thumbstick', 0, 0));
+    await page.waitForFunction(start => Math.hypot(helloWorldWebXR.scene.activeCamera.position.x - start[0], helloWorldWebXR.scene.activeCamera.position.z - start[2]) > 0.2, teleportStart);
+    console.log('Teleport movement passed');
+    if (googleRun) await assertGoogleCredits();
+    await page.evaluate(() => nullHeadset.quaternion.set(-Math.sin(Math.PI / 12), 0, 0, Math.cos(Math.PI / 12)));
+    await page.waitForFunction(() => Math.abs(helloWorldWebXR.scene.activeCamera.rotationQuaternion.x) > 0.2);
+    await page.screenshot({ path: resolve(root, 'test-results/null-headset-stereo.png') });
+    for (let cycle = 0; cycle < 3; cycle++) {
+        if (cycle === 0) {
+            await page.evaluate(() => nullHeadset.controllers.right.updateAxes('thumbstick', 0, -1));
+            await page.waitForFunction(() => helloWorldWebXR.xrExperience.teleportation.teleportationTargetMesh.isVisible);
+        }
+        // End directly as a headset/browser interruption, including while hidden.
+        if (cycle === 1) {
+            await page.evaluate(() => nullHeadset.updateVisibilityState('hidden'));
+            await page.waitForFunction(() => testSession.visibilityState === 'hidden');
+        }
+        await page.evaluate(() => testSession.end());
+        await page.waitForFunction(() => helloWorldWebXR.scene.activeCamera.name === 'desktop' && !document.querySelector('#help').hidden && !document.querySelector('#enter-vr').disabled && helloWorldWebXR.xrExperience.input.controllers.length === 0);
+        assert.equal(await page.evaluate(() => helloWorldWebXR.xrExperience.teleportation.teleportationTargetMesh.isVisible), false);
+        await page.evaluate(() => {
+            nullHeadset.controllers.right.updateAxes('thumbstick', 0, 0);
+            nullHeadset.updateVisibilityState('visible');
+        });
+        await page.click('#enter-vr');
+        await page.waitForFunction(() => testFrames > 5 && document.querySelector('#help').hidden && helloWorldWebXR.xrExperience.input.controllers.length === 2);
+        if (googleRun) await assertGoogleCredits();
+        console.log(`Exit/re-entry cycle ${cycle + 1} passed`);
+    }
+    async function assertGoogleCredits() {
+        assert.equal(await page.evaluate(() => {
+            const panel = helloWorldWebXR.googleCreditPanel;
+            const camera = helloWorldWebXR.scene.activeCamera;
+            panel.computeWorldMatrix(true);
+            const text = panel.material.emissiveTexture.getDescendants().find(control => control.name === 'google immersive credits').text;
+            return panel.parent === camera && panel.isVisible && !panel.isPickable && panel.renderingGroupId === 3 && panel.alwaysSelectAsActiveMesh && panel.position.z > 0 && panel.material.disableDepthWrite && text.includes('Google Maps') && text.includes('Mock fixture') && text.includes('Copyright test contributors');
+        }), true);
+    }
+    await page.evaluate(() => helloWorldWebXR.xrExperience.baseExperience.exitXRAsync());
+    await page.waitForFunction(() => helloWorldWebXR.scene.activeCamera.name === 'desktop' && !document.querySelector('#enter-vr').disabled && !document.querySelector('#help').hidden);
+    assert.equal(await page.evaluate(() => helloWorldWebXR.scene.activeCamera.inputs.attachedToElement), true);
+    assert.deepEqual(errors, []);
+    const evidence = await page.evaluate(() => ({
+        rasterTiles: helloWorldWebXR.map.ourTiles.length,
+        rasterReady: helloWorldWebXR.map.ourTiles.every(tile => tile.material?.diffuseTexture?.isReady()),
+        endedSessions, visibilityChanges,
+    }));
+    console.log(`Quest 3 null headset passed: stereo frames, head tracking, two controllers, snap turn, teleport, three re-entries, interruptions, entry recovery, ${buildings} ${googleRun ? 'authored fixture model tiles' : 'buildings'}.`);
+    await page.close();
+
+    page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const desktop = page;
+    desktop.on('pageerror', error => errors.push(error.stack));
+    await desktop.addInitScript(() => Object.defineProperty(navigator, 'xr', { value: undefined }));
+    await desktop.route('https://overturemaps-extras-us-west-2.s3.amazonaws.com/**', route => route.fulfill({ status: 503, body: 'Unavailable' }));
+    await desktop.goto(url + '?legacy=1');
+    await desktop.waitForFunction(() => document.querySelector('#xr-status').textContent.includes('VR unavailable'));
+    await desktop.waitForFunction(() => document.querySelector('#building-status').textContent.includes('Buildings unavailable'));
+    assert.equal(await desktop.isDisabled('#enter-vr'), true);
+    assert.equal(await desktop.evaluate(() => helloWorldWebXR.scene.activeCamera.name), 'desktop');
+    await desktop.waitForFunction(() => helloWorldWebXR.map.ourTiles.every(tile => tile.material?.diffuseTexture?.isReady()), null, { timeout: 90000 });
+    await desktop.screenshot({ path: resolve(results, 'desktop-fallback.png') });
+    const desktopStart = await desktop.evaluate(() => helloWorldWebXR.scene.activeCamera.position.asArray());
+    await desktop.locator('#renderCanvas').focus();
+    await desktop.keyboard.down('ArrowUp');
+    try {
+        await desktop.waitForFunction(start => helloWorldWebXR.scene.activeCamera.position.asArray().some((value, index) => Math.abs(value - start[index]) > 0.05), desktopStart);
+    } finally { await desktop.keyboard.up('ArrowUp'); }
+    assert.deepEqual(errors, []);
+    await writeFile(resolve(results, 'acceptance.json'), JSON.stringify({ simulator: 'IWER Quest 3', contentMode: googleRun ? 'authored Google API fixture (functional only)' : 'OSM/Overture', physicalHeadsetTested: false, buildings, ...evidence, desktopFallback: true, desktopMovement: true, pageErrors: errors }, null, 2));
+    console.log('Desktop fallback and unavailable building service passed.');
+    await desktop.route('**/google-key.txt', route => route.fulfill({ status: 503, body: 'Unavailable' }));
+    await desktop.goto(url);
+    await desktop.waitForFunction(() => document.querySelector('#building-status').textContent.includes('Google tiles unavailable'));
+    assert.equal(await desktop.evaluate(() => document.querySelector('canvas').dataset.googleTiles), '0');
+    assert.equal(await desktop.evaluate(() => helloWorldWebXR.scene.activeCamera.name), 'desktop');
+    assert.equal(await desktop.isDisabled('#enter-vr'), true);
+    await desktop.waitForFunction(() => helloWorldWebXR.map.ourTiles.every(tile => tile.material?.diffuseTexture?.isReady()), null, { timeout: 90000 });
+    assert.deepEqual(errors, []);
+    console.log('Default Google demo unavailable-configuration fallback passed.');
+
+} catch (error) {
+    if (page && !page.isClosed()) await page.screenshot({ path: resolve(results, 'failure.png') }).catch(() => {});
+    throw error;
+} finally {
+    await browser?.close();
+    await new Promise(done => server.close(done));
+}

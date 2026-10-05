@@ -6,6 +6,7 @@ import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 
 import { EPSG_Type, Google3DTiles, RasterOSM, TileSet } from "babylonjs-mapping";
+import { optimizeStaticGoogleModels } from "../../../examples-shared/static-google-models";
 import { googleTilesOptions } from "./GoogleTilesOptions";
 
 class Google3DTilesDemo {
@@ -153,6 +154,8 @@ class Google3DTilesDemo {
                 this.setStatus("error", "The hierarchy loaded, but no model tiles matched this area.");
                 return;
             }
+
+            optimizeStaticGoogleModels(loaded);
 
             // Google terrain uses ellipsoid heights, which can be below the
             // flat raster plane. Hide that plane so it cannot cut through models.
