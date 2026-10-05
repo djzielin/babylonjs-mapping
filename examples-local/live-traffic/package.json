@@ -1,0 +1,19 @@
+{
+  "name": "babylonjs-mapping-live-traffic-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "webpack --mode production",
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^9.26.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "ts-loader": "^9.5.4",
+    "typescript": "~6.0.3",
+    "webpack": "^5.110.3",
+    "webpack-cli": "^7.2.3"
+  }
+}

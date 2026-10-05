@@ -17,6 +17,7 @@ jobs:
           - examples-local/billboard-test
           - examples-local/hello-world
           - examples-local/line-test
+          - examples-local/live-traffic
           - examples-local/local-load
           - examples-local/math-test
           - examples-local/mouse-latlon

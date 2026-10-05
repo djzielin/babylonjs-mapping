@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "paths": { "@babylonjs/core/*": ["../../node_modules/@babylonjs/core/*"] },
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["src/index.ts"]
+}
