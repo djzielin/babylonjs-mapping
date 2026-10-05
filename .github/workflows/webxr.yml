@@ -59,4 +59,5 @@ jobs:
           set -euo pipefail
           mkdir -p test-results
           npm run test:xr 2>&1 | tee test-results/webxr-simulator.log
+          npm run test:xr:google 2>&1 | tee test-results/webxr-google-simulator.log
 

@@ -1,3 +1,4 @@
+import { Constants } from "@babylonjs/core/Engines/constants";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
 import "@babylonjs/core/Engines/Extensions/engine.query";
@@ -69,6 +70,40 @@ signText.color = "white";
 signText.fontSize = 40;
 signTexture.addControl(signText);
 
+// A compact camera-relative panel keeps full Google credits visible after
+// head turns and teleportation; the fullscreen provider credits remain visible too.
+export const googleCreditPanel = googleCandidate
+    ? MeshBuilder.CreatePlane("google-credits", { width: 1.2, height: 0.14 }, scene)
+    : undefined;
+let googleCreditText: TextBlock | undefined;
+if (googleCreditPanel) {
+    googleCreditPanel.parent = camera;
+    googleCreditPanel.position.set(0, -0.39, 0.8);
+    googleCreditPanel.isVisible = false;
+    googleCreditPanel.isPickable = false;
+    googleCreditPanel.alwaysSelectAsActiveMesh = true;
+    googleCreditPanel.renderingGroupId = 3;
+    const texture = AdvancedDynamicTexture.CreateForMesh(googleCreditPanel, 2048, 240);
+    texture.background = "#15232b";
+    googleCreditText = new TextBlock("google immersive credits");
+    googleCreditText.color = "white";
+    googleCreditText.fontSize = 32;
+    googleCreditText.textWrapping = true;
+    texture.addControl(googleCreditText);
+    const material = googleCreditPanel.material as StandardMaterial;
+    material.disableDepthWrite = true;
+    material.depthFunction = Constants.ALWAYS;
+    scene.onActiveCameraChanged.add(() => { googleCreditPanel.parent = scene.activeCamera; });
+}
+
+function showGoogleCredits(): void {
+    const credits = "Google Maps · " + googleTiles!.getAttributions().join("; ");
+    signText.text = "DUKE CHAPEL · GOOGLE 3D TILES\nThumbstick: teleport / snap turn · Headset menu: exit\n" + credits;
+    document.getElementById("map-credits")!.textContent = credits;
+    googleCreditText!.text = credits;
+    googleCreditPanel!.isVisible = true;
+}
+
 const renderScene = () => scene.render();
 engine.runRenderLoop(renderScene);
 window.addEventListener("resize", () => engine.resize());
@@ -100,9 +135,7 @@ async function loadGoogleTiles(): Promise<void> {
         const overview = await googleTiles.load();
         if (overview.length) {
             for (const tile of map.ourTiles) tile.mesh.isVisible = false;
-            map.ourAttribution.advancedTexture.rootContainer.isVisible = false;
-            signText.text = "DUKE CHAPEL · GOOGLE 3D TILES\nThumbstick: teleport / snap turn · Headset menu: exit\n" + googleTiles.getAttributions().join("; ");
-            document.getElementById("map-credits")!.textContent = googleTiles.getAttributions().join("; ");
+            showGoogleCredits();
             buildingStatus.textContent = `${overview.length} overview tiles visible; refining detail…`;
         }
         googleTiles.maxDepth = 32;
@@ -111,9 +144,7 @@ async function loadGoogleTiles(): Promise<void> {
         optimizeStaticGoogleModels(loaded);
         for (const model of loaded) for (const mesh of model.asset.meshes) mesh.isPickable = false;
         for (const tile of map.ourTiles) tile.mesh.isVisible = false;
-        map.ourAttribution.advancedTexture.rootContainer.isVisible = false;
-        signText.text = "DUKE CHAPEL · GOOGLE 3D TILES\nThumbstick: teleport / snap turn · Headset menu: exit\n" + googleTiles.getAttributions().join("; ");
-        document.getElementById("map-credits")!.textContent = googleTiles.getAttributions().join("; ");
+        showGoogleCredits();
         canvas.dataset.googleTiles = String(loaded.length);
         buildingStatus.textContent = `${loaded.length} Google model tiles ready.`;
     } catch {

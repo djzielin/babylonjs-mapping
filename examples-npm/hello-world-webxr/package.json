@@ -26,7 +26,8 @@
   "scripts": {
     "start": "npx webpack-dev-server --config webpack.config-dev.js",
     "build": "npx webpack --config webpack.config-prod.js",
-    "test:xr": "node tests/null-headset.mjs"
+    "test:xr": "node tests/null-headset.mjs",
+    "test:xr:google": "node tests/null-headset.mjs --google"
   },
   "author": "David J. Zielinski. original template by Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>",
   "license": "CC BY-NC-SA 4.0"

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { googleFixture } from './google-fixture.mjs';
+const googleRun = process.argv.includes('--google');
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -32,6 +34,16 @@ try {
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
     page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     page.setDefaultTimeout(30000);
+    if (googleRun) {
+        const fixture = googleFixture();
+        await page.route('**/google-key.txt', route => route.fulfill({ body: 'functional-test-not-a-secret' }));
+        await page.route('https://tile.googleapis.com/**', route => {
+            const path = new URL(route.request().url()).pathname;
+            if (path.endsWith('/root.json')) return route.fulfill({ json: fixture.tileset });
+            if (path.endsWith('/fixture.glb')) return route.fulfill({ body: fixture.glb, contentType: 'model/gltf-binary' });
+            return route.abort();
+        });
+    }
     const errors = [];
     page.on('pageerror', error => { errors.push(error.stack); console.error(error.stack); });
     await page.addInitScript({ path: runtime });
@@ -69,14 +81,21 @@ try {
         };
     });
     page.on('console', message => { if (message.type() === 'error') console.error(message.text()); });
-    await page.goto(url + '?legacy=1');
+    await page.goto(url + (googleRun ? '' : '?legacy=1'));
     console.log('Loaded demo');
     await page.waitForFunction(() => !document.querySelector('#enter-vr').disabled);
-    await page.waitForFunction(() => helloWorldWebXR.map.ourTiles.every(tile => tile.material?.diffuseTexture?.isReady()), null, { timeout: 90000 });
-    await page.waitForFunction(() => document.querySelector('#building-status').textContent === 'Buildings ready.', null, { timeout: 90000 });
-    const buildings = await page.evaluate(() => helloWorldWebXR.map.ourTiles.reduce((n, tile) => n + tile.buildings.length, 0));
+    if (googleRun) {
+        await page.waitForFunction(() => Number(document.querySelector('canvas').dataset.googleTiles) > 0);
+        assert.equal(await page.evaluate(() => helloWorldWebXR.map.ourAttribution.advancedTexture.rootContainer.isVisible), true);
+        const credits = await page.locator('#map-credits').textContent();
+        assert.ok(credits.includes('Google Maps') && credits.includes('Mock fixture') && credits.includes('Copyright test contributors'));
+    } else {
+        await page.waitForFunction(() => helloWorldWebXR.map.ourTiles.every(tile => tile.material?.diffuseTexture?.isReady()), null, { timeout: 90000 });
+        await page.waitForFunction(() => document.querySelector('#building-status').textContent === 'Buildings ready.', null, { timeout: 90000 });
+    }
+    const buildings = await page.evaluate(google => google ? Number(document.querySelector('canvas').dataset.googleTiles) : helloWorldWebXR.map.ourTiles.reduce((n, tile) => n + tile.buildings.length, 0), googleRun);
     assert.ok(buildings > 0);
-    console.log(`Raster and ${buildings} buildings ready`);
+    console.log(`${googleRun ? 'Google API fixture' : 'Raster'} and ${buildings} ${googleRun ? 'model tiles' : 'buildings'} ready`);
     await page.screenshot({ path: resolve(results, 'desktop-campus.png') });
     await page.evaluate(() => window.rejectNextSession = true);
     await page.click('#enter-vr');
@@ -155,6 +174,7 @@ try {
     await page.evaluate(() => nullHeadset.controllers.right.updateAxes('thumbstick', 0, 0));
     await page.waitForFunction(start => Math.hypot(helloWorldWebXR.scene.activeCamera.position.x - start[0], helloWorldWebXR.scene.activeCamera.position.z - start[2]) > 0.2, teleportStart);
     console.log('Teleport movement passed');
+    if (googleRun) await assertGoogleCredits();
     await page.evaluate(() => nullHeadset.quaternion.set(-Math.sin(Math.PI / 12), 0, 0, Math.cos(Math.PI / 12)));
     await page.waitForFunction(() => Math.abs(helloWorldWebXR.scene.activeCamera.rotationQuaternion.x) > 0.2);
     await page.screenshot({ path: resolve(root, 'test-results/null-headset-stereo.png') });
@@ -177,7 +197,17 @@ try {
         });
         await page.click('#enter-vr');
         await page.waitForFunction(() => testFrames > 5 && document.querySelector('#help').hidden && helloWorldWebXR.xrExperience.input.controllers.length === 2);
+        if (googleRun) await assertGoogleCredits();
         console.log(`Exit/re-entry cycle ${cycle + 1} passed`);
+    }
+    async function assertGoogleCredits() {
+        assert.equal(await page.evaluate(() => {
+            const panel = helloWorldWebXR.googleCreditPanel;
+            const camera = helloWorldWebXR.scene.activeCamera;
+            panel.computeWorldMatrix(true);
+            const text = panel.material.emissiveTexture.getDescendants().find(control => control.name === 'google immersive credits').text;
+            return panel.parent === camera && panel.isVisible && !panel.isPickable && panel.renderingGroupId === 3 && panel.alwaysSelectAsActiveMesh && panel.position.z > 0 && panel.material.disableDepthWrite && text.includes('Google Maps') && text.includes('Mock fixture') && text.includes('Copyright test contributors');
+        }), true);
     }
     await page.evaluate(() => helloWorldWebXR.xrExperience.baseExperience.exitXRAsync());
     await page.waitForFunction(() => helloWorldWebXR.scene.activeCamera.name === 'desktop' && !document.querySelector('#enter-vr').disabled && !document.querySelector('#help').hidden);
@@ -188,7 +218,7 @@ try {
         rasterReady: helloWorldWebXR.map.ourTiles.every(tile => tile.material?.diffuseTexture?.isReady()),
         endedSessions, visibilityChanges,
     }));
-    console.log(`Quest 3 null headset passed: stereo frames, head tracking, two controllers, snap turn, teleport, three re-entries, interruptions, entry recovery, ${buildings} buildings.`);
+    console.log(`Quest 3 null headset passed: stereo frames, head tracking, two controllers, snap turn, teleport, three re-entries, interruptions, entry recovery, ${buildings} ${googleRun ? 'authored fixture model tiles' : 'buildings'}.`);
     await page.close();
 
     page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -210,7 +240,7 @@ try {
         await desktop.waitForFunction(start => helloWorldWebXR.scene.activeCamera.position.asArray().some((value, index) => Math.abs(value - start[index]) > 0.05), desktopStart);
     } finally { await desktop.keyboard.up('ArrowUp'); }
     assert.deepEqual(errors, []);
-    await writeFile(resolve(results, 'acceptance.json'), JSON.stringify({ simulator: 'IWER Quest 3', physicalHeadsetTested: false, buildings, ...evidence, desktopFallback: true, desktopMovement: true, pageErrors: errors }, null, 2));
+    await writeFile(resolve(results, 'acceptance.json'), JSON.stringify({ simulator: 'IWER Quest 3', contentMode: googleRun ? 'authored Google API fixture (functional only)' : 'OSM/Overture', physicalHeadsetTested: false, buildings, ...evidence, desktopFallback: true, desktopMovement: true, pageErrors: errors }, null, 2));
     console.log('Desktop fallback and unavailable building service passed.');
     await desktop.route('**/google-key.txt', route => route.fulfill({ status: 503, body: 'Unavailable' }));
     await desktop.goto(url);
