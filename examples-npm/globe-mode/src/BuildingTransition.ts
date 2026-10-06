@@ -12,7 +12,7 @@ type Retained = { mesh: Mesh; coordinate: Vector3; source: object; coverage?: Co
 /** Keep the old building tier visible until the replacement tiles finish. */
 export class BuildingTransition {
     private previous = new Map<GlobeSet, Retained[]>();
-    private fallbackMaterials = new Map<Material, { material: Material; users: number }>();
+    private fallbackMaterials = new Map<Material, Map<number, { material: Material; users: number }>>();
     private nextCheck = 0;
     private enabled = true;
     constructor(private maximumGroup = 8) {}
@@ -65,16 +65,19 @@ export class BuildingTransition {
                 // Retained detail fills only their unclaimed pixels, before
                 // a coarser current tier gets a chance to cover it.
                 const sourceMaterial = source.material ?? globe.scene.defaultMaterial;
-                let fallback = this.fallbackMaterials.get(sourceMaterial);
+                const priority = Math.max(8, sourceMaterial.stencil.funcRef);
+                let byPriority = this.fallbackMaterials.get(sourceMaterial);
+                if (!byPriority) this.fallbackMaterials.set(sourceMaterial, byPriority = new Map());
+                let fallback = byPriority.get(priority);
                 if (!fallback) {
                     const material = sourceMaterial.clone("retained building material");
                     if (material) {
                         material.stencil.enabled = true;
                         material.stencil.func = Constants.GREATER;
-                        material.stencil.funcRef = Math.max(8, sourceMaterial.stencil.funcRef);
+                        material.stencil.funcRef = priority;
                         material.stencil.opStencilDepthPass = Constants.REPLACE;
                         fallback = { material, users: 0 };
-                        this.fallbackMaterials.set(sourceMaterial, fallback);
+                        byPriority.set(priority, fallback);
                     }
                 }
                 if (fallback) {
@@ -83,7 +86,8 @@ export class BuildingTransition {
                     const shared = fallback;
                     mesh.onDisposeObservable.addOnce(() => {
                         if (--shared.users === 0) {
-                            this.fallbackMaterials.delete(sourceMaterial);
+                            byPriority!.delete(priority);
+                            if (!byPriority!.size) this.fallbackMaterials.delete(sourceMaterial);
                             shared.material.dispose();
                         }
                     });

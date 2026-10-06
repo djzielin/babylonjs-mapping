@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Constants, MeshBuilder, NullEngine, Scene, Vector2 } from "@babylonjs/core";
+import { Constants, MeshBuilder, NullEngine, Scene, StandardMaterial, Vector2 } from "@babylonjs/core";
 import GlobeSet from "../src/core/GlobeSet";
 import GlobeDataController from "../src/core/GlobeDataController";
 import { BuildingTransition } from "../examples-npm/globe-mode/src/BuildingTransition";
@@ -9,6 +9,29 @@ vi.mock("../src/core/Attribution", () => ({
 }));
 
 describe("building detail transitions", () => {
+    it("preserves each retained tier when a provider reuses its material at a new zoom", () => {
+        const engine = new NullEngine(), scene = new Scene(engine);
+        const globe = new GlobeSet(scene, engine, { backingSurface: false });
+        globe.createGeometry(new Vector2(1, 1), 20, 2);
+        globe.updateRaster(40.7484, -73.9857, 14);
+        const material = new StandardMaterial("provider material", scene);
+        const transition = new BuildingTransition(20);
+        for (const priority of [17, 13]) {
+            const source = MeshBuilder.CreateBox("ready buildings", {}, scene);
+            source.material = material;
+            material.stencil.funcRef = priority;
+            source.renderingGroupId = 21 - priority;
+            globe.ourTiles[0].buildingBatches.push(source);
+            transition.capture(globe, 10, undefined, undefined, true);
+        }
+        const retained = scene.meshes.filter(mesh => mesh.name === "previous building detail");
+        expect(retained.map(mesh => mesh.material!.stencil.funcRef)).toEqual([17, 13]);
+        expect(retained.map(mesh => mesh.renderingGroupId)).toEqual([5, 9]);
+        const disposeSource = vi.spyOn(material, "dispose");
+        transition.dispose();
+        expect(disposeSource).not.toHaveBeenCalled();
+        scene.dispose(); engine.dispose();
+    });
     it("keeps building fallback safe before a resized regional window receives coordinates", () => {
         const engine = new NullEngine(), scene = new Scene(engine);
         const globe = new GlobeSet(scene, engine, { backingSurface: false });
