@@ -12,6 +12,7 @@ import "@babylonjs/core/Engines/AbstractEngine/abstractEngine.timeQuery";
 import "@babylonjs/core/Engines/Extensions/engine.query";
 import { EngineInstrumentation } from "@babylonjs/core/Instrumentation/engineInstrumentation";
 import { SceneInstrumentation } from "@babylonjs/core/Instrumentation/sceneInstrumentation";
+import { holdGoogleStageForCapture } from "./GoogleStageCapture";
 import { RenderingManager } from "@babylonjs/core/Rendering/renderingManager";
 import { TerrainBatcher } from "./TerrainBatcher";
 import { installResidentMeshCandidates } from "./ResidentMeshCandidates";
@@ -60,6 +61,7 @@ import {
 } from "babylonjs-mapping";
 
 declare const DEMO_MAPBOX_TOKEN: string;
+declare const DEMO_GOOGLE_KEY: string;
 
 interface LocationPreset {
     name: string;
@@ -166,6 +168,7 @@ class GlobeDemo {
     private geoidModule?: Promise<typeof import("egm96-universal")>;
     private googleRetryAt = 0;
     private demoStartedAt = 0;
+    private setupStageTimings: Record<string, number> = {};
     private buildingPriorityFrame = -1;
     private buildingPriorityCenter = Vector3.Zero();
     private buildings?: BuildingsOverture;
@@ -270,11 +273,30 @@ class GlobeDemo {
 
     public start(): void {
         this.demoStartedAt = performance.now();
-        this.geoidModule = import("egm96-universal");
-        void this.geoidModule.catch(() => undefined);
-        // Start the small local credential read while the scene is constructed.
-        const googleKeyResponse = fetch("google-key.txt", { cache: "no-store" });
-        void googleKeyResponse.catch(() => undefined);
+        this.setupStageTimings = {};
+        this.markSetupStage("start");
+        const configuredGoogleKey = DEMO_GOOGLE_KEY.trim();
+        if (configuredGoogleKey) {
+            this.googleKey = configuredGoogleKey;
+            this.googleKeyRead = true;
+            this.markSetupStage("keyConfigured");
+        }
+        this.markSetupStage("geoidImportStarted");
+        this.geoidModule = import("egm96-universal").then(module => {
+            this.markSetupStage("geoidReady");
+            return module;
+        });
+        void this.geoidModule.catch(() => this.markSetupStage("geoidFailed"));
+        // Keep the public key-file fallback when no browser key was configured.
+        let googleKeyResponse: Promise<Response> | undefined;
+        if (!configuredGoogleKey) {
+            this.markSetupStage("googleKeyFetchStarted");
+            googleKeyResponse = fetch("google-key.txt", { cache: "no-store" }).then(response => {
+                this.markSetupStage("googleKeyResponseObserved");
+                return response;
+            });
+            void googleKeyResponse.catch(() => undefined);
+        }
         // Prepare the generic plugin while terrain is loading. Static Google
         // atlases do not need a Draco worker initialization barrier.
         if (!googleStartupTuning(location.search).fastStaticModels)
@@ -282,7 +304,9 @@ class GlobeDemo {
         (document.getElementById("mapboxToken") as HTMLInputElement).value = DEMO_MAPBOX_TOKEN;
         if (DEMO_MAPBOX_TOKEN && HOME_VIEW.basemap)
             (document.getElementById("basemap") as HTMLSelectElement).value = HOME_VIEW.basemap;
+        this.markSetupStage("createSceneStarted");
         this.createScene();
+        this.markSetupStage("createSceneFinished");
         if (this.reversedDepth) {
             // Float reverse depth preserves near-surface precision without
             // writing fragment depth, so hidden geometry can fail depth early.
@@ -329,13 +353,18 @@ class GlobeDemo {
             }
             document.getElementById("benchmark")!.textContent = "Stop measurement";
         });
+        this.markSetupStage("terrainBatcherStarted");
         this.terrainBatcher = new TerrainBatcher(this.scene,
             () => [this.baseGlobe, this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)].map(globe => globe.ourTiles.map(tile => tile.mesh)),
             (mesh, source) => this.registerTerrain(mesh, 8 - source.renderingGroupId));
+        this.markSetupStage("terrainBatcherFinished");
         document.getElementById("batchTerrain")!.addEventListener("change", () => {
             this.terrainBatcher.enabled = (document.getElementById("batchTerrain") as HTMLInputElement).checked;
         });
+        this.markSetupStage("locationControlsStarted");
         this.setupLocationControls();
+        this.markSetupStage("locationControlsFinished");
+        this.markSetupStage("addressSearchStarted");
         setupAddressSearch(result => {
             this.exitInspection();
             if (this.tourTimer) {
@@ -348,17 +377,24 @@ class GlobeDemo {
             (document.getElementById("locationPreset") as HTMLSelectElement).selectedIndex = -1;
             this.navigator.flyTo(result.latitude, result.longitude, { zoom: result.zoom, durationMs: 1400 });
         }, () => (document.getElementById("mapboxToken") as HTMLInputElement).value);
+        this.markSetupStage("addressSearchFinished");
+        this.markSetupStage("pointerNavigationStarted");
         this.setupPointerNavigation();
+        this.markSetupStage("pointerNavigationFinished");
+        this.markSetupStage("dataControlsStarted");
         this.setupDataControls();
+        this.markSetupStage("dataControlsFinished");
         if (DEMO_MAPBOX_TOKEN && HOME_VIEW.basemap)
             document.getElementById("basemap")!.dispatchEvent(new Event("change"));
         if (DEMO_MAPBOX_TOKEN) {
             (document.getElementById("roads") as HTMLInputElement).checked = true;
             document.getElementById("roads")!.dispatchEvent(new Event("change"));
         }
+        this.markSetupStage("trafficOverlayStarted");
         this.trafficOverlay = new TrafficOverlay(this.scene, this.detailGlobe, this.layers,
             document.getElementById("trafficStatus")!,
             () => (document.getElementById("trafficApi") as HTMLInputElement).value.trim(), MAP_MAX_LEVEL + 1);
+        this.markSetupStage("trafficOverlayFinished");
         document.getElementById("trafficFeeds")!.addEventListener("change", event =>
             this.trafficOverlay?.setEnabled((event.target as HTMLInputElement).checked));
         document.getElementById("trafficApi")!.addEventListener("change", () => {
@@ -547,6 +583,14 @@ class GlobeDemo {
             this.engine.resize();
             this.navigator.refresh(true);
         });
+        this.markSetupStage("synchronousSetupFinished");
+    }
+
+    /** First observations only, all measured from the unchanged start() clock. */
+    private markSetupStage(stage: string): void {
+        if (this.setupStageTimings[stage] !== undefined) return;
+        this.setupStageTimings[stage] = performance.now() - this.demoStartedAt;
+        this.canvas.dataset.setupStageTimings = JSON.stringify(this.setupStageTimings);
     }
 
     private registerTerrain(mesh: import("@babylonjs/core/Meshes/abstractMesh").AbstractMesh, level: number): void {
@@ -1265,10 +1309,21 @@ class GlobeDemo {
     }
 
     private async readGoogleKey(pendingResponse?: Promise<Response>): Promise<void> {
-        try {
-            const response = await (pendingResponse ?? fetch("google-key.txt", { cache: "no-store" }));
-            this.googleKey = response.ok ? (await response.text()).trim() : "";
-        } catch { this.googleKey = ""; }
+        this.markSetupStage("googleKeyReadStarted");
+        const configuredGoogleKey = DEMO_GOOGLE_KEY.trim();
+        if (configuredGoogleKey) {
+            this.googleKey = configuredGoogleKey;
+            this.markSetupStage("keyConfigured");
+            this.markSetupStage("googleKeyParsed");
+        } else {
+            try {
+                const response = await (pendingResponse ?? fetch("google-key.txt", { cache: "no-store" }));
+                this.markSetupStage("googleKeyResponseRead");
+                this.googleKey = response.ok ? (await response.text()).trim() : "";
+                this.markSetupStage("googleKeyParsed");
+            } catch { this.googleKey = ""; }
+        }
+        this.markSetupStage("googleKeySettled");
         this.googleKeyRead = true;
         this.scheduleGoogleTiles(true);
         if (this.googleKey && !(document.getElementById("mapboxToken") as HTMLInputElement).value.trim()) {
@@ -1433,16 +1488,21 @@ class GlobeDemo {
             void this.runStartup();
             return;
         }
+        this.markSetupStage("googleTimerScheduled");
         this.googleTimer = setTimeout(async () => {
+            this.markSetupStage("googleTimerFired");
             this.googleTimer = undefined;
             if (generation !== this.googleGeneration) return;
+            this.markSetupStage("googleGeoidWaitStarted");
             const { meanSeaLevel } = await (this.geoidModule ??= import("egm96-universal"));
+            this.markSetupStage("googleGeoidWaitFinished");
             if (generation !== this.googleGeneration) return;
             const currentView = this.navigator.getView();
             const startupTuning = googleStartupTuning(location.search);
             this.canvas.dataset.googleStartupTuning = JSON.stringify(startupTuning);
             const freshProvider = !this.googleTiles;
             if (freshProvider) this.googleStartupClearanceAdjusted = false;
+            this.markSetupStage("googleProviderStarted");
             const provider = this.googleTiles ??= new Google3DTiles(this.detailGlobe, {
                 apiKey: this.googleKey,
                 origin: { latitude: currentView.latitude, longitude: currentView.longitude },
@@ -1462,6 +1522,7 @@ class GlobeDemo {
                 coverageRadius: GOOGLE_COVERAGE_RADIUS,
                 heightOffset: -meanSeaLevel(currentView.latitude, currentView.longitude),
             });
+            this.markSetupStage("googleProviderFinished");
             provider.maxDepth = quality === "auto" || quality === "32" ? 64 : Number(quality);
             // Select the area around the viewer first. A city-wide required
             // region sent thousands of hierarchy requests before nearby models
@@ -1557,19 +1618,24 @@ class GlobeDemo {
                 if (provider) {
                     // Keep the first barrier's CPU and service requests focused
                     // on terrain and the complete recognizable baseline.
+                    this.markSetupStage("googleCoverageInvoked");
                     coverageWork = this.loadGoogleStage(provider, "coverage", signal, terrainReady);
                     void coverageWork.catch(() => undefined);
                 }
                 return terrainReady;
             },
             coverage: provider ? signal => coverageWork ?? this.loadGoogleStage(provider, "coverage", signal) : undefined,
-            immediate: provider ? signal => this.loadGoogleStage(provider, "immediate", signal) : undefined,
+            immediate: provider ? async signal => {
+                await holdGoogleStageForCapture("coverage", signal);
+                await this.loadGoogleStage(provider, "immediate", signal);
+            } : undefined,
             allowGoogleFailure: true,
             onTransition: snapshot => this.onLoadingTransition(snapshot),
             // Releasing vector admissions happens in onTransition before this
             // full-radius refinement starts. The two streams share stage four.
             background: provider ? signal => refinement = (async () => {
                     signal.throwIfAborted();
+                    await holdGoogleStageForCapture("immediate", signal);
                     // Keep the source-fine immediate tiles. The rest of the
                     // disk refines to a practical overview while Overture
                     // fills medium-distance buildings in parallel.
@@ -1614,11 +1680,13 @@ class GlobeDemo {
                 signal.throwIfAborted();
                 const workStarted = performance.now();
                 const statsBefore = { ...provider.stats };
+                if (stage === "coverage") this.markSetupStage("googleCoverageLoadCalled");
                 await provider.load(GOOGLE_COVERAGE_RADIUS, { ...this.googleStartupDemand(), stage,
                     publicationBarrier, publicationSignal: publicationBarrier ? signal : undefined,
                     deferModelPreparationUntilPublication: stage === "coverage" && !!publicationBarrier
                         && new URLSearchParams(location.search).get("tilePrepareEarly") !== "1" });
                 signal.throwIfAborted();
+                if (stage === "coverage") this.markSetupStage("googleCoverageLoadFinished");
                 const result = provider.lastLoadResult;
                 const workEnded = performance.now();
                 const statsAfter = { ...provider.stats };
