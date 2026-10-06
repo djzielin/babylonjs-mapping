@@ -950,13 +950,18 @@ it("coalesces overzoom DEM requests without one caller cancelling its neighbours
     const cancelled = new AbortController();
     const first = terrain.load(new Vector3(0, 0, 1), cancelled.signal);
     const second = terrain.load(new Vector3(1, 0, 1), new AbortController().signal);
+    expect(terrain.loadingProgress).toMatchObject({ sourceActive: 1, sourceChildren: 2,
+        sourceRequests: 1, sharedSourceRequests: 1, peakSourceActive: 1 });
     cancelled.abort();
+    expect(terrain.loadingProgress).toMatchObject({ sourceActive: 1, sourceChildren: 1 });
     resolve({ data: [0, 1, 2, 3], width: 2, height: 2, repairVersion: TERRAIN_REPAIR_VERSION });
     await expect(first).rejects.toThrow();
     const child = await second;
     expect(child.data[0]).toBe(1);
     expect(await terrain.load(new Vector3(1, 0, 1), new AbortController().signal)).toBe(child);
     await terrain.load(new Vector3(0, 0, 1), new AbortController().signal);
+    expect(terrain.loadingProgress).toMatchObject({ sourceActive: 0, sourceChildren: 0,
+        sourceRequests: 1, childCacheHits: 1, sourceCacheHits: 1 });
     expect(fetchGrid).toHaveBeenCalledTimes(1);
     expect(crop).toHaveBeenCalledTimes(2);
     crop.mockRestore();

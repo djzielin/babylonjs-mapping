@@ -15,6 +15,7 @@ const cleanup: (() => void)[] = [];
 afterEach(() => {
     for (const dispose of cleanup.splice(0).reverse()) dispose();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
 });
 
@@ -53,6 +54,85 @@ function featureQueue(scene: Scene, maxPendingRequests: number) {
 }
 
 describe("staged globe data loading", () => {
+    it("uses coalesced browser tasks to drain warm terrain without a nested timer per tile", async () => {
+        vi.useFakeTimers();
+        const { globe } = setup();
+        const posted: (() => void)[] = [], close = vi.fn();
+        class Channel {
+            port1 = { onmessage: undefined as (() => void) | undefined, close };
+            port2 = { postMessage: () => posted.push(() => this.port1.onmessage?.()), close };
+        }
+        vi.stubGlobal("window", { addEventListener() {}, removeEventListener() {} });
+        vi.stubGlobal("MessageChannel", Channel);
+        const elevation = vi.fn(async () => grid);
+        const data = controller(globe, { elevation, concurrency: 1, featuresEnabled: false });
+        const timer = vi.spyOn(globalThis, "setTimeout");
+        data.update();
+        await Promise.resolve(); await Promise.resolve();
+        expect(posted).toHaveLength(1);
+        while (posted.length) {
+            posted.shift()!();
+            await Promise.resolve(); await Promise.resolve();
+        }
+        expect(elevation).toHaveBeenCalledTimes(4);
+        expect(data.isTerrainReady).toBe(true);
+        expect(timer).not.toHaveBeenCalled();
+        expect(data.stats.postedRefills).toBe(4);
+        expect(data.stats.timerRefills).toBe(0);
+        data.dispose();
+        expect(close).toHaveBeenCalledTimes(2);
+    });
+
+    it("retains terrain retry delays when immediate browser refills use posted tasks", async () => {
+        vi.useFakeTimers();
+        vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+        const { globe } = setup(1), posted: (() => void)[] = [];
+        class Channel {
+            port1 = { onmessage: undefined as (() => void) | undefined, close() {} };
+            port2 = { postMessage: () => posted.push(() => this.port1.onmessage?.()), close() {} };
+        }
+        vi.stubGlobal("window", { addEventListener() {}, removeEventListener() {} });
+        vi.stubGlobal("MessageChannel", Channel);
+        const elevation = vi.fn().mockRejectedValueOnce(new Error("temporary terrain failure")).mockResolvedValue(grid);
+        const data = controller(globe, { elevation, featuresEnabled: false });
+        data.update(); await Promise.resolve(); await Promise.resolve();
+        posted.shift()!();
+        await vi.advanceTimersByTimeAsync(249);
+        expect(elevation).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(2);
+        expect(elevation).toHaveBeenCalledTimes(2);
+        while (posted.length) posted.shift()!();
+        expect(data.isTerrainReady).toBe(true);
+    });
+
+    it("fills unused terrain concurrency with bounded geometry tasks while source downloads are pending", async () => {
+        vi.useFakeTimers();
+        let time = 0;
+        vi.spyOn(performance, "now").mockImplementation(() => (time += 3));
+        const { globe } = setup(3, 1), posted: (() => void)[] = [];
+        class Channel {
+            port1 = { onmessage: undefined as (() => void) | undefined, close() {} };
+            port2 = { postMessage: () => posted.push(() => this.port1.onmessage?.()), close() {} };
+        }
+        vi.stubGlobal("window", { addEventListener() {}, removeEventListener() {} });
+        vi.stubGlobal("MessageChannel", Channel);
+        const elevation = vi.fn(() => new Promise<ElevationGrid>(() => {}));
+        const data = controller(globe, { elevation, concurrency: 4, featuresEnabled: false });
+        data.update();
+        expect(elevation).toHaveBeenCalledTimes(2);
+        expect(globe.pendingGeometryCount).toBe(7);
+        expect(posted).toHaveLength(1);
+        posted.shift()!();
+        expect(elevation).toHaveBeenCalledTimes(3);
+        expect(globe.pendingGeometryCount).toBe(6);
+        posted.shift()!();
+        expect(elevation).toHaveBeenCalledTimes(4);
+        expect(globe.pendingGeometryCount).toBe(5);
+        expect(posted).toHaveLength(0);
+        expect(data.stats.active).toBe(4);
+        expect(data.stats.postedRefills).toBe(2);
+    });
+
     it("advances budgeted geometry and DEM without rendering while honoring a disabled controller", async () => {
         vi.useFakeTimers();
         let time = 0;

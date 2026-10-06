@@ -4,9 +4,9 @@ export const MIN_GLOBE_BUILDING_ZOOM = 10;
  * At street zoom, Google mode gives the moving 15-mile disk z13 imagery and
  * terrain, with equivalent ground-sample spacing to the former z12 grid.
  */
-export function globeLODPlan(detailZoom: number, detailed15MileRadius = false) {
+export function globeLODPlan(detailZoom: number, detailed15MileRadius = false, backgroundTerrainEnabled = true) {
     const streetRegion = detailed15MileRadius && detailZoom >= 17;
-    return [
+    const plans = [
         { zoom: Math.max(3, Math.min(8, detailZoom - 5)), size: 8, precision: 16, group: 1 },
         { zoom: Math.max(3, Math.min(streetRegion ? 13 : detailed15MileRadius ? 12 : 10,
             detailZoom - (streetRegion ? 3 : 4))),
@@ -16,4 +16,8 @@ export function globeLODPlan(detailZoom: number, detailed15MileRadius = false) {
         { zoom: Math.max(3, Math.min(16, detailZoom - 2)), size: 24, precision: 16, group: 4 },
         { zoom: Math.max(3, detailZoom - 1), size: 12, precision: 32, group: 5 },
     ];
+    // Allocate only the regional disk during Google startup. Disabled data
+    // controllers do not stop GlobeSet's render-driven geometry preparation.
+    return detailed15MileRadius && !backgroundTerrainEnabled
+        ? plans.map(plan => plan.group === 2 ? plan : { ...plan, size: 1, precision: 1 }) : plans;
 }

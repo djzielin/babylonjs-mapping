@@ -17,6 +17,15 @@ const destination = (lat: number, lon: number, bearing: number, miles: number) =
 };
 
 describe("globe distance LOD", () => {
+    it("defers background geometry while retaining the entire required regional disk", () => {
+        const full = globeLODPlan(17, true);
+        const startup = globeLODPlan(17, true, false);
+        expect(startup[1]).toEqual(full[1]);
+        expect(startup.map(tier => tier.group)).toEqual(full.map(tier => tier.group));
+        expect(startup.filter(tier => tier.group !== 2).every(tier => tier.size === 1 && tier.precision === 1)).toBe(true);
+        expect(startup.reduce((count, tier) => count + tier.size ** 2, 25)).toBe(353);
+        expect(globeLODPlan(17, false, false)).toEqual(globeLODPlan(17, false));
+    });
     it.each([14, 16, 18])("keeps Mount Fuji within the regional terrain window from Tokyo at zoom %s", zoom => {
         const region = globeLODPlan(zoom)[1];
         const tokyo = tile(35.6812, 139.7671, region.zoom);

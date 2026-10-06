@@ -8,6 +8,9 @@ vi.mock("../src/core/Attribution", () => ({
     default: class AttributionStub {
         public advancedTexture = { layer: { isEnabled: true } };
         public addAttribution = vi.fn();
+        public constructor(_scene: Scene, deferred = false) {
+            this.advancedTexture.layer.isEnabled = !deferred;
+        }
     },
 }));
 

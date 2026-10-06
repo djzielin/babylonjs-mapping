@@ -148,6 +148,8 @@ export default class GlobeDataController {
         completed: 0,
         cancelled: 0,
         failed: 0,
+        postedRefills: 0,
+        timerRefills: 0,
     };
     private jobs = new Map<Tile, { key: string; abort: AbortController }>();
     private ready = new WeakMap<Tile, string>();
@@ -158,6 +160,8 @@ export default class GlobeDataController {
     private observer;
     private disposed = false;
     private refillTimer?: ReturnType<typeof setTimeout>;
+    private refillChannel?: MessageChannel;
+    private refillQueued = false;
     private nextPriorityCheck = 0;
     private priorityCamera?: Camera;
     private priorityRevision = -1;
@@ -187,7 +191,8 @@ export default class GlobeDataController {
     /** Number of current tiles still waiting for geometry or required elevation. */
     public get pendingTerrainCount(): number {
         return this.globe.ourTiles.reduce((count, tile) => count + Number(!tile.mesh.isDisposed()
-            && (!this.globe.isTileGeometryReady(tile) || this.needsTerrain(tile, tile.tileCoords.toString()))), 0);
+            && (!this.globe.isTileGeometryReady(tile) || this.globe.hasPendingElevationData(tile)
+                || this.needsTerrain(tile, tile.tileCoords.toString()))), 0);
     }
     public get isTerrainReady(): boolean { return this.pendingTerrainCount === 0; }
     public setEnabled(enabled: boolean): void {
@@ -237,6 +242,9 @@ export default class GlobeDataController {
             this.tiles = this.globe.ourTiles;
             this.settled = false;
         }
+        // Posted refills coalesce all child completions from one source promise.
+        // Finish useful in-flight terrain even if new admissions were paused.
+        if (this.globe.pendingElevationCount > 0) this.globe.flushElevationData();
         if (this.options.enabled !== false && this.globe.pendingGeometryCount > 0) {
             this.globe.prepareGeometry();
             this.settled = false;
@@ -279,12 +287,15 @@ export default class GlobeDataController {
         };
         // Load the area around the viewer before the far corners of large LOD grids.
         const now = performance.now();
-        const candidates = this.globe.ourTiles.filter(tile => !tile.mesh.isDisposed() && this.globe.isTileGeometryReady(tile)
-            && (this.needsTerrain(tile, tile.tileCoords.toString())
-                || (this.options.featuresEnabled !== false && this.options.featureFilter?.(tile) !== false
-                    && this.ready.get(tile) !== tile.tileCoords.toString()
-                    && this.queuedFeatures.get(tile) !== tile.tileCoords.toString())) && !this.jobs.has(tile)
-            && (this.retryAt.get(tile)?.key !== tile.tileCoords.toString() || this.retryAt.get(tile)!.after <= now));
+        const candidates: Tile[] = [];
+        for (const tile of this.globe.ourTiles) {
+            if (tile.mesh.isDisposed() || !this.globe.isTileGeometryReady(tile) || this.jobs.has(tile)) continue;
+            const key = tile.tileCoords.toString(), retry = this.retryAt.get(tile);
+            if (retry?.key === key && retry.after > now) continue;
+            if (this.needsTerrain(tile, key) || (this.options.featuresEnabled !== false
+                && this.ready.get(tile) !== key && this.queuedFeatures.get(tile) !== key
+                && this.options.featureFilter?.(tile) !== false)) candidates.push(tile);
+        }
         if (candidates.length === 0 && this.jobs.size === 0 && this.globe.pendingGeometryCount === 0) {
             const delayed = this.globe.ourTiles.map(tile => {
                 const retry = this.retryAt.get(tile);
@@ -333,6 +344,10 @@ export default class GlobeDataController {
             this.stats.active++;
             void this.load(tile, key, abort);
         }
+        // A source download must not leave unused controller slots waiting for
+        // the next render/poll to prepare their geometry. Fill the requested
+        // window with bounded slices, then resume when a DEM slot is released.
+        if (this.globe.pendingGeometryCount > 0 && this.stats.active < concurrency) this.scheduleRefill();
     }
     private async load(
         tile: Tile,
@@ -358,6 +373,7 @@ export default class GlobeDataController {
                     grid.width,
                     grid.height,
                     this.options.exaggeration ?? 1,
+                    true,
                 );
                 this.terrainReady.set(tile, key);
             }
@@ -446,8 +462,26 @@ export default class GlobeDataController {
         );
     }
     private scheduleRefill(): void {
-        if (!this.disposed && this.refillTimer === undefined) this.refillTimer = setTimeout(() => {
+        if (this.disposed) return;
+        // Nested browser timers are clamped to at least four milliseconds.
+        // A regional window can need hundreds of geometry/DEM refill slices;
+        // posted tasks yield to rendering without paying that delay per tile.
+        if (typeof window !== "undefined" && typeof MessageChannel !== "undefined") {
+            if (this.refillQueued) return;
+            if (!this.refillChannel) {
+                this.refillChannel = new MessageChannel();
+                this.refillChannel.port1.onmessage = () => {
+                    this.refillQueued = false;
+                    if (!this.disposed) { this.stats.postedRefills++; this.update(); }
+                };
+            }
+            this.refillQueued = true;
+            this.refillChannel.port2.postMessage(null);
+            return;
+        }
+        if (this.refillTimer === undefined) this.refillTimer = setTimeout(() => {
             this.refillTimer = undefined;
+            this.stats.timerRefills++;
             this.update();
         }, 0);
     }
@@ -470,6 +504,11 @@ export default class GlobeDataController {
     public dispose(): void {
         this.disposed = true;
         clearTimeout(this.refillTimer);
+        this.refillChannel?.port1.close();
+        this.refillChannel?.port2.close();
+        // The globe can outlive its streaming controller. Do not strand DEM
+        // data recorded just before its posted upload callback was cancelled.
+        if (this.globe.pendingElevationCount > 0) this.globe.flushElevationData();
         this.options.featureQueue?.cancel(this);
         for (const provider of this.providers) provider.cancelPendingRequests();
         for (const job of this.jobs.values()) job.abort.abort();

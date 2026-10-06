@@ -75,6 +75,18 @@ export interface Google3DLoadOptions {
     coverageNearGeometricError?: number;
     /** Ground radius of tighter baseline demand, in metres; defaults to 750 when a near error is supplied. */
     coverageNearRadius?: number;
+    /** Optional strict source-error target for the central core, independently of the near/far targets. */
+    coverageCoreGeometricError?: number;
+    /** Ground radius of the strict central core, in metres; defaults to 100 when a core error is supplied. */
+    coverageCoreRadius?: number;
+    /** Download/decode now, but publish models only after this promise resolves (for example terrain readiness). */
+    publicationBarrier?: Promise<unknown>;
+    /** Cancels an unresolved publication barrier and its unpublished model work. */
+    publicationSignal?: AbortSignal;
+    /** With a publication barrier, fetch bodies now but defer native model decoding until the barrier opens. */
+    deferModelPreparationUntilPublication?: boolean;
+    /** Optional decoded atlas preview edge for distant refinable coverage models; full source remains the default. */
+    coverageAtlasMaxSize?: number;
 }
 export interface Google3DLoadResult {
     stage: Google3DLoadingStage;
@@ -109,6 +121,16 @@ export interface Google3DLoadResult {
     nearCoverageQualityComplete: boolean;
     coverageQualityMissingTiles: number;
     coverageNearQualityMissingTiles: number;
+    coverageCoreQualityMissingTiles: number;
+    /** Up to sixteen source-error bands, with distance-tier counts, for measuring startup demand. */
+    geometricErrorHistogram: Array<{
+        geometricError?: number;
+        selectedTiles: number;
+        loadedTiles: number;
+        coreTiles: number;
+        nearTiles: number;
+        immediateTiles: number;
+    }>;
     /** Complete visible frontier at the requested quality, without download, source, or budget limits. */
     detailComplete: boolean;
     /** Immediate frontier is visible at the display limit or the best available source quality, without budget limits. */
@@ -157,6 +179,18 @@ export interface Google3DTilesOptions {
     referenceImageHeight?: number;
     /** Fixed vertical field of view in radians used for full-radius geometric-error demand. */
     referenceFovY?: number;
+    /** Concurrent native GLB decodes, including asynchronous texture/geometry preparation; defaults to 2. */
+    maxConcurrentModelDecodes?: number;
+    /** Concurrent hierarchy/model requests sharing the priority queue; defaults to 48. */
+    maxConcurrentRequests?: number;
+    /** Native models fetching or awaiting decode; defaults to 16, with up to 50% extra for newly urgent work. */
+    maxBufferedModels?: number;
+    /** Shared CPU preparation slice for coverage/immediate passes in milliseconds; defaults to 1. */
+    startupTraversalSliceMs?: number;
+    /** Opt in to direct preparation of supported static Google GLBs; unsupported formats use the native loader. */
+    fastStaticModels?: boolean;
+    /** Opt in to the compatible opaque-unlit material subset in the static loader; native PBR remains the default. */
+    lightweightUnlitMaterials?: boolean;
     /** Metres added to ellipsoid heights to match the scene vertical datum. */
     heightOffset?: number;
     /** Multiplier applied to the local vertical axis after loading. */
@@ -217,12 +251,23 @@ export default class Google3DTiles {
     maxPendingHierarchy: number;
     referenceImageHeight: number;
     referenceFovY: number;
+    maxConcurrentModelDecodes: number;
+    maxConcurrentRequests: number;
+    maxBufferedModels: number;
+    startupTraversalSliceMs: number;
+    fastStaticModels: boolean;
+    lightweightUnlitMaterials: boolean;
     heightOffset: number;
     readonly stats: {
         hierarchyRequests: number;
         hierarchyRetries: number;
+        rootResponseFingerprint: number;
         modelRequests: number;
         reusedModels: number;
+        networkQueueRebuilds: number;
+        networkPriorityEvaluations: number;
+        hierarchyQueuePriorityChecks: number;
+        hierarchyQueuePriorityChanges: number;
         obsoleteModelRequests: number;
         obsoleteHierarchyRequests: number;
         detailLimitedTiles: number;
@@ -244,7 +289,36 @@ export default class Google3DTiles {
         modelDecodeMs: number;
         modelIntegrationMs: number;
         modelIntegrationMaxMs: number;
+        modelFetchHeaderMs: number;
+        modelFetchBodyMs: number;
+        fastParseMs: number;
+        fastCreationMs: number;
+        fastMaterialMs: number;
+        fastGeometryMs: number;
+        fastAtlasUpdateMs: number;
+        fastAtlasReadyMs: number;
+        fastAtlasBitmapMs: number;
+        modelResponsePositiveMaxAgeCount: number;
+        modelResponseMaxAgeMinSeconds: number;
+        modelResponseMaxAgeMaxSeconds: number;
+        modelResourceTimingReadableCount: number;
+        modelResourceTimingUnavailableCount: number;
+        modelResourceTimingOpaqueCount: number;
+        modelResourceZeroTransferCount: number;
+        modelResourceTransferBytes: number;
+        modelResourceEncodedBytes: number;
+        coveragePreviewCandidateModels: number;
+        coveragePreviewModels: number;
+        coveragePreviewTextures: number;
+        coveragePreviewSelectedMaxSize: number;
+        coveragePreviewSourceMaxSize: number;
+        coveragePreviewDecodedMaxSize: number;
         modelFetchCount: number;
+        modelFetchBytes: number;
+        staticContainerModels: number;
+        fastModelCount: number;
+        genericModelCount: number;
+        lightweightMaterialCount: number;
         modelDecodeCount: number;
         modelDecodeActive: number;
         peakModelDecodeActive: number;
@@ -258,6 +332,7 @@ export default class Google3DTiles {
     };
     origin?: Google3DTilesOrigin;
     private readonly tilesetLoader;
+    private static readonly startupWorkBudgets;
     private readonly modelTileLoader;
     private readonly usesDefaultModelLoader;
     private rootTileset;
@@ -265,8 +340,12 @@ export default class Google3DTiles {
     private rootRequest?;
     private session;
     private readonly externalTilesets;
+    private readonly hierarchyPriorities;
     private readonly externalTilesetDemand;
+    private preparationEpoch;
+    private readonly preparationWaiters;
     private readonly dirtyCoverageEntries;
+    private readonly attributionCounts;
     private readonly loadedTiles;
     private retainedTiles;
     private generation;
@@ -275,6 +354,9 @@ export default class Google3DTiles {
     private originStateKey;
     private originGeneration;
     private readonly pendingModelUploads;
+    private publicationGate?;
+    private publicationQueued;
+    private preparationQueued;
     private googleAttributionAdded;
     private attributionCacheValid;
     private attributionCache;
@@ -311,6 +393,9 @@ export default class Google3DTiles {
     private stageCoverageGeometricError;
     private stageCoverageNearGeometricError?;
     private stageCoverageNearRadius;
+    private stageCoverageCoreGeometricError?;
+    private stageCoverageCoreRadius;
+    private stageCoverageAtlasMaxSize?;
     private coverageQualityEye?;
     private readonly coverageDistances;
     private loadingPhase;
@@ -345,6 +430,8 @@ export default class Google3DTiles {
         decodeActive: number;
         decodeQueued: number;
         uploadQueued: number;
+        publicationQueued: number;
+        preparationQueued: number;
     };
     /** Current camera-facing resident quality, sampled independently of the last completed traversal. */
     measureVisibleQuality(): {
@@ -403,6 +490,14 @@ export default class Google3DTiles {
     get selectingFrontier(): boolean;
     /** Reorder queued downloads immediately when the camera moves, without cancelling active requests. */
     reprioritizeRequests(): void;
+    /** Warm only the full-radius baseline JSON hierarchy. No GLBs, publication, stage, or readiness changes. */
+    prepareCoverageHierarchy(selectionRadius?: number | undefined, options?: Google3DLoadOptions, signal?: AbortSignal): Promise<void>;
+    /** Warm nearby detail JSON while baseline models load, retaining the same full-radius baseline policy. */
+    prepareImmediateHierarchy(selectionRadius?: number | undefined, options?: Google3DLoadOptions, signal?: AbortSignal): Promise<void>;
+    private prepareHierarchy;
+    private startupWorkBudget;
+    private configurePublication;
+    private awaitPublication;
     /**
      * Loads content overlapping selectionRadius while reusing the hierarchy and resident models.
      * Startup can await load(radius, {stage: "coverage"}), then load(radius,

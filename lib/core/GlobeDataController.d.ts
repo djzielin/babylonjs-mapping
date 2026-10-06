@@ -73,6 +73,8 @@ export default class GlobeDataController {
         completed: number;
         cancelled: number;
         failed: number;
+        postedRefills: number;
+        timerRefills: number;
     };
     private jobs;
     private ready;
@@ -83,6 +85,8 @@ export default class GlobeDataController {
     private observer;
     private disposed;
     private refillTimer?;
+    private refillChannel?;
+    private refillQueued;
     private nextPriorityCheck;
     private priorityCamera?;
     private priorityRevision;

@@ -3,6 +3,7 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { PassPostProcess } from "@babylonjs/core/PostProcesses/passPostProcess";
 import type { WebGPURenderTargetWrapper } from "@babylonjs/core/Engines/WebGPU/webgpuRenderTargetWrapper";
 import { DracoCompression } from "@babylonjs/core/Meshes/Compression/dracoCompression";
+import { DracoDecoder } from "@babylonjs/core/Meshes/Compression/dracoDecoder";
 import { lookFromEye, moveEye, alignEyeHorizon } from "./FirstPersonNavigation";
 import { TerrainTransition } from "./TerrainTransition";
 import { BuildingTransition } from "./BuildingTransition";
@@ -19,6 +20,7 @@ import { MotionFrameProfile } from "./MotionFrameProfile";
 import { globeLODPlan, MIN_GLOBE_BUILDING_ZOOM } from "./GlobeLODPlan";
 import { GlobeLoadingQueue, type GlobeLoadingSnapshot } from "./GlobeLoadingQueue";
 import { sampleGoogleSurfaceElevation } from "./GoogleCameraClearance";
+import { googleStartupTuning } from "./GoogleStartupTuning";
 import { setupAddressSearch } from "./AddressSearch";
 import { TrafficOverlay } from "./TrafficOverlay";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
@@ -77,13 +79,17 @@ const DETAIL_RADIUS = 60;
 const MAP_MAX_LEVEL = 8;
 const GOOGLE_COVERAGE_RADIUS = 15 * 1609.344;
 const GOOGLE_DETAIL_RADIUS = 300;
+const GOOGLE_TERRAIN_BOOTSTRAP_ZOOM = 10;
 // The close view needs building shapes before the fine-detail barrier. Spend
 // more detail there while keeping city-wide coverage practical to download.
-// Google's nominal 128 m level is 128.4076 m. Avoid needlessly descending
-// another level throughout the disk while preserving the tighter near cap.
-const GOOGLE_BASELINE_ERROR = 129;
+// Overview tiles cover the distant disk first. The local tiers below retain
+// recognizable streets/buildings and the landmark's closer geometry.
+const GOOGLE_BASELINE_ERROR = 257;
+const GOOGLE_REFINEMENT_ERROR = 129;
 const GOOGLE_BASELINE_NEAR_RADIUS = 750;
-const GOOGLE_BASELINE_NEAR_ERROR = 16;
+const GOOGLE_BASELINE_NEAR_ERROR = 17;
+const GOOGLE_BASELINE_CORE_RADIUS = 100;
+const GOOGLE_BASELINE_CORE_ERROR = 16;
 const GOOGLE_TILE_BUDGET = 4096;
 const GOOGLE_REPLACEMENT_ERROR = 33;
 const HOME_VIEW: LocationPreset = {
@@ -150,10 +156,14 @@ class GlobeDemo {
     // Regional meshes sample much less densely than the source DEM. Four z13
     // neighbors share one z12 download without reducing mesh resolution.
     private regionalElevation = new TerrainRGB({ maxZoom: 12, cacheSize: 128 });
+    // z10 DEM pixels are still finer than the z13 regional mesh's 16-step
+    // vertex spacing. Upgrade source detail after the Google startup barriers.
+    private regionalBootstrapElevation = new TerrainRGB({ maxZoom: GOOGLE_TERRAIN_BOOTSTRAP_ZOOM, cacheSize: 32 });
     private loadingQueue = new GlobeLoadingQueue();
     private featureQueue: GlobeFeatureQueue;
     private backgroundReleased = false;
     private googleKeyRead = false;
+    private geoidModule?: Promise<typeof import("egm96-universal")>;
     private googleRetryAt = 0;
     private demoStartedAt = 0;
     private buildingPriorityFrame = -1;
@@ -173,6 +183,7 @@ class GlobeDemo {
     private googleKey = "";
     private satelliteSession?: GoogleSatelliteSession;
     private satelliteSessionPending?: Promise<GoogleSatelliteSession>;
+    private automaticSatellitePending = false;
     private satelliteCopyright = "";
     private satelliteAttributionKey = "";
     private satelliteAttributionRetryAt = 0;
@@ -233,7 +244,10 @@ class GlobeDemo {
             stencil: true,
             adaptToDeviceRatio: true,
         });
-        DracoCompression.DefaultNumWorkers = Math.min(8, Math.max(1, Math.floor(navigator.hardwareConcurrency / 2) || 1));
+        const decoderWorkers = Math.min(8, Math.max(1, Math.floor(navigator.hardwareConcurrency / 2) || 1));
+        DracoCompression.DefaultNumWorkers = decoderWorkers;
+        DracoDecoder.DefaultConfiguration.numWorkers = decoderWorkers;
+        this.canvas.dataset.googleDracoWorkers = String(decoderWorkers);
         RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, 8);
         this.scene = new Scene(this.engine);
         this.featureQueue = new GlobeFeatureQueue(this.scene, { maxPendingRequests: 8 });
@@ -256,6 +270,15 @@ class GlobeDemo {
 
     public start(): void {
         this.demoStartedAt = performance.now();
+        this.geoidModule = import("egm96-universal");
+        void this.geoidModule.catch(() => undefined);
+        // Start the small local credential read while the scene is constructed.
+        const googleKeyResponse = fetch("google-key.txt", { cache: "no-store" });
+        void googleKeyResponse.catch(() => undefined);
+        // Prepare the generic plugin while terrain is loading. Static Google
+        // atlases do not need a Draco worker initialization barrier.
+        if (!googleStartupTuning(location.search).fastStaticModels)
+            void import("@babylonjs/loaders/glTF/index").catch(() => undefined);
         (document.getElementById("mapboxToken") as HTMLInputElement).value = DEMO_MAPBOX_TOKEN;
         if (DEMO_MAPBOX_TOKEN && HOME_VIEW.basemap)
             (document.getElementById("basemap") as HTMLSelectElement).value = HOME_VIEW.basemap;
@@ -353,7 +376,7 @@ class GlobeDemo {
             this.trafficOverlay?.dispose();
             this.googleTiles?.dispose(); this.scene.dispose(); this.engine.dispose();
         }, { once: true });
-        void this.readGoogleKey();
+        void this.readGoogleKey(googleKeyResponse);
         document.getElementById("googleTiles")!.addEventListener("change", () => {
             this.updateDistanceLayers(this.navigator.getView());
             if (!this.googleKey && (document.getElementById("googleTiles") as HTMLInputElement).checked) void this.readGoogleKey();
@@ -438,6 +461,10 @@ class GlobeDemo {
                 const gpuTimes = [...this.gpuTimes].sort((a, b) => a - b);
                 const gpuMs = gpuTimes[Math.floor(gpuTimes.length * 0.5)] ?? 0;
                 const motion = this.framePacing.summary(true);
+                this.canvas.dataset.documentHasFocus = String(document.hasFocus());
+                this.canvas.dataset.documentVisibility = document.visibilityState;
+                this.canvas.dataset.renderFPS = String(this.engine.getFps());
+                this.canvas.dataset.renderCpuMedianMs = String(times[Math.floor(times.length * 0.5)] ?? 0);
                 document.getElementById("renderProfile")!.textContent =
                     `CPU render p50 ${times[Math.floor(times.length * 0.5)]?.toFixed(2)} ms · p95 ${times[Math.floor(times.length * 0.95)]?.toFixed(2)} ms · GPU p50 ${gpuMs.toFixed(2)} ms · moving ${motion.fps.toFixed(0)} FPS / 1% ${motion.low1.toFixed(0)} / 0.1% ${motion.low01.toFixed(0)} / p95 ${motion.p95.toFixed(2)} ms (${motion.samples} frames) · mesh evaluation ${this.sceneProfile.activeMeshesEvaluationTimeCounter.average.toFixed(2)} ms · draw ${this.sceneProfile.renderTimeCounter.average.toFixed(2)} ms · render targets ${this.sceneProfile.renderTargetsRenderTimeCounter.average.toFixed(2)} ms · ${this.sceneProfile.drawCallsCounter.current} draws · ${this.terrainBatcher.stats}${this.drawSnapshot ? ` · ${this.drawSnapshot.stats}` : ""}`;
                 const gpuInfo = this.engine.getInfo();
@@ -558,10 +585,9 @@ class GlobeDemo {
         this.detailGlobe.setTerrainDisplayRequirement((document.getElementById("terrain") as HTMLInputElement).checked);
         for (const tile of this.detailGlobe.ourTiles)
             this.registerTerrain(tile.mesh, 6);
-        this.detailGlobe.ourAttribution.advancedTexture.rootContainer.isVisible = false;
         this.data = new GlobeDataController(this.detailGlobe, {
             elevation: this.elevation.load,
-            concurrency: 4,
+            concurrency: 32,
             prioritizeVisible: true,
             minTerrainZoom: 5,
             minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14,
@@ -747,6 +773,7 @@ class GlobeDemo {
         let activeStyle = "osm";
         let pendingSatellite = false;
         const applyStyle = () => {
+            this.automaticSatellitePending = false;
             if (basemap.value === "satellite" && !tokenInput.value.trim() && !this.satelliteSession) {
                 pendingSatellite = true;
                 basemap.value = activeStyle;
@@ -779,6 +806,7 @@ class GlobeDemo {
         basemap.addEventListener("change", applyStyle);
         for (const [id, style] of [["mapView", "osm"], ["satelliteView", "satellite"]]) {
             document.getElementById(id)!.addEventListener("click", () => {
+                this.automaticSatellitePending = false;
                 if (style === activeStyle) {
                     pendingSatellite = false;
                     document.getElementById("mapStyleStatus")!.textContent = "";
@@ -1236,22 +1264,33 @@ class GlobeDemo {
         document.getElementById("googleStatus")!.textContent = message;
     }
 
-    private async readGoogleKey(): Promise<void> {
+    private async readGoogleKey(pendingResponse?: Promise<Response>): Promise<void> {
         try {
-            const response = await fetch("google-key.txt", { cache: "no-store" });
+            const response = await (pendingResponse ?? fetch("google-key.txt", { cache: "no-store" }));
             this.googleKey = response.ok ? (await response.text()).trim() : "";
         } catch { this.googleKey = ""; }
         this.googleKeyRead = true;
         this.scheduleGoogleTiles(true);
         if (this.googleKey && !(document.getElementById("mapboxToken") as HTMLInputElement).value.trim()) {
-            void this.ensureSatelliteSession().then(() => {
-                const basemap = document.getElementById("basemap") as HTMLSelectElement;
-                if (basemap.value === "osm" && HOME_VIEW.basemap === "satellite") {
-                    basemap.value = "satellite";
-                    basemap.dispatchEvent(new Event("change"));
-                }
-            }).catch(() => { /* Google 3D can still load without 2D satellite access. */ });
+            // The automatic 2D switch duplicates imagery underneath Google's
+            // 3D coverage and competes for the same service during startup.
+            if (!this.backgroundReleased && (document.getElementById("googleTiles") as HTMLInputElement).checked)
+                this.automaticSatellitePending = true;
+            else this.applyAutomaticSatellite();
         }
+    }
+
+    private applyAutomaticSatellite(): void {
+        this.automaticSatellitePending = true;
+        void this.ensureSatelliteSession().then(() => {
+            if (!this.automaticSatellitePending) return;
+            this.automaticSatellitePending = false;
+            const basemap = document.getElementById("basemap") as HTMLSelectElement;
+            if (basemap.value === "osm" && HOME_VIEW.basemap === "satellite") {
+                basemap.value = "satellite";
+                basemap.dispatchEvent(new Event("change"));
+            }
+        }).catch(() => { this.automaticSatellitePending = false; });
     }
 
     private ensureSatelliteSession(): Promise<GoogleSatelliteSession> {
@@ -1397,15 +1436,23 @@ class GlobeDemo {
         this.googleTimer = setTimeout(async () => {
             this.googleTimer = undefined;
             if (generation !== this.googleGeneration) return;
-            const { meanSeaLevel } = await import("egm96-universal");
+            const { meanSeaLevel } = await (this.geoidModule ??= import("egm96-universal"));
             if (generation !== this.googleGeneration) return;
             const currentView = this.navigator.getView();
+            const startupTuning = googleStartupTuning(location.search);
+            this.canvas.dataset.googleStartupTuning = JSON.stringify(startupTuning);
             const freshProvider = !this.googleTiles;
             if (freshProvider) this.googleStartupClearanceAdjusted = false;
             const provider = this.googleTiles ??= new Google3DTiles(this.detailGlobe, {
                 apiKey: this.googleKey,
                 origin: { latitude: currentView.latitude, longitude: currentView.longitude },
                 maxTiles: GOOGLE_TILE_BUDGET,
+                maxConcurrentModelDecodes: startupTuning.decodes,
+                maxBufferedModels: startupTuning.buffer,
+                maxConcurrentRequests: startupTuning.requests,
+                fastStaticModels: startupTuning.fastStaticModels,
+                lightweightUnlitMaterials: new URLSearchParams(location.search).get("tileMaterial") === "standard",
+                startupTraversalSliceMs: 16,
                 maximumDisplayGeometricError: 33,
                 maximumInitialErrorRatio: 2,
                 cullToCamera: true,
@@ -1429,7 +1476,7 @@ class GlobeDemo {
             provider.maximumDisplayGeometricError = 33;
             provider.maximumInitialErrorRatio = 2;
             provider.maxTiles = GOOGLE_TILE_BUDGET;
-            provider.maxPendingHierarchy = 32;
+            provider.maxPendingHierarchy = this.backgroundReleased ? 32 : 128;
             if (!freshProvider && this.backgroundReleased) this.configureGoogleRefinement(provider);
             this.googleLoading = true;
             this.googleTurnPending = false;
@@ -1503,9 +1550,19 @@ class GlobeDemo {
 
     private async runStartup(provider?: Google3DTiles): Promise<void> {
         let refinement: Promise<void> | undefined;
+        let coverageWork: Promise<void> | undefined;
         await this.loadingQueue.run({
-            terrain: signal => this.waitForStartupTerrain(signal),
-            coverage: provider ? signal => this.loadGoogleStage(provider, "coverage", signal) : undefined,
+            terrain: signal => {
+                const terrainReady = this.waitForStartupTerrain(signal);
+                if (provider) {
+                    // Keep the first barrier's CPU and service requests focused
+                    // on terrain and the complete recognizable baseline.
+                    coverageWork = this.loadGoogleStage(provider, "coverage", signal, terrainReady);
+                    void coverageWork.catch(() => undefined);
+                }
+                return terrainReady;
+            },
+            coverage: provider ? signal => coverageWork ?? this.loadGoogleStage(provider, "coverage", signal) : undefined,
             immediate: provider ? signal => this.loadGoogleStage(provider, "immediate", signal) : undefined,
             allowGoogleFailure: true,
             onTransition: snapshot => this.onLoadingTransition(snapshot),
@@ -1530,29 +1587,56 @@ class GlobeDemo {
     }
 
     private configureGoogleRefinement(provider: Google3DTiles): void {
-        provider.maximumDisplayGeometricError = GOOGLE_BASELINE_ERROR;
+        provider.maxConcurrentModelDecodes = 4;
+        provider.maxBufferedModels = 32;
+        provider.maxConcurrentRequests = 48;
+        provider.maxPendingHierarchy = 32;
+        provider.startupTraversalSliceMs = 1;
+        provider.maximumDisplayGeometricError = GOOGLE_REFINEMENT_ERROR;
         provider.maximumScreenSpaceError = (provider.maximumScreenSpaceError ?? 1) * 4;
         provider.referenceImageHeight = 1080;
     }
 
-    private async loadGoogleStage(provider: Google3DTiles, stage: "coverage" | "immediate", signal: AbortSignal): Promise<void> {
+    private googleStartupDemand() {
+        return { detailRadius: GOOGLE_DETAIL_RADIUS, coverageGeometricError: GOOGLE_BASELINE_ERROR,
+            coverageAtlasMaxSize: new URLSearchParams(location.search).get("tileAtlas") === "1024" ? 1024 : undefined,
+            coverageCoreRadius: GOOGLE_BASELINE_CORE_RADIUS, coverageCoreGeometricError: GOOGLE_BASELINE_CORE_ERROR,
+            coverageNearRadius: GOOGLE_BASELINE_NEAR_RADIUS, coverageNearGeometricError: GOOGLE_BASELINE_NEAR_ERROR };
+    }
+
+    private async loadGoogleStage(provider: Google3DTiles, stage: "coverage" | "immediate", signal: AbortSignal,
+        publicationBarrier?: Promise<unknown>): Promise<void> {
         const cancel = () => provider.cancelPendingLoad(true);
         signal.addEventListener("abort", cancel, { once: true });
+        const attempts: unknown[] = [];
         try {
             for (let attempt = 0; attempt < 3; attempt++) {
                 signal.throwIfAborted();
-                await provider.load(GOOGLE_COVERAGE_RADIUS, { stage, detailRadius: GOOGLE_DETAIL_RADIUS,
-                    coverageGeometricError: GOOGLE_BASELINE_ERROR,
-                    coverageNearRadius: GOOGLE_BASELINE_NEAR_RADIUS,
-                    coverageNearGeometricError: GOOGLE_BASELINE_NEAR_ERROR });
+                const workStarted = performance.now();
+                const statsBefore = { ...provider.stats };
+                await provider.load(GOOGLE_COVERAGE_RADIUS, { ...this.googleStartupDemand(), stage,
+                    publicationBarrier, publicationSignal: publicationBarrier ? signal : undefined,
+                    deferModelPreparationUntilPublication: stage === "coverage" && !!publicationBarrier
+                        && new URLSearchParams(location.search).get("tilePrepareEarly") !== "1" });
                 signal.throwIfAborted();
                 const result = provider.lastLoadResult;
+                const workEnded = performance.now();
+                const statsAfter = { ...provider.stats };
                 this.canvas.dataset.googleHierarchyRetries = String(provider.stats.hierarchyRetries);
                 this.canvas.dataset[`google${stage === "coverage" ? "Coverage" : "Immediate"}Result`] = JSON.stringify(result);
                 this.ensureGoogleStartupClearance(provider);
+                const clearanceEnded = performance.now();
                 // Let the completed pass appear even when a source limitation
                 // means its strict quality target could not be satisfied.
                 await this.waitForGoogleFrame(signal);
+                const timing = {
+                    attempt: attempt + 1, loadMs: workEnded - workStarted,
+                    clearanceMs: clearanceEnded - workEnded, presentationMs: performance.now() - clearanceEnded,
+                    statsBefore, statsAfter, meshCount: this.scene.meshes.length, textureCount: this.scene.textures.length,
+                };
+                this.canvas.dataset[`google${stage === "coverage" ? "Coverage" : "Immediate"}Timings`] = JSON.stringify(timing);
+                attempts.push({ ...timing, result });
+                this.canvas.dataset[`google${stage === "coverage" ? "Coverage" : "Immediate"}Attempts`] = JSON.stringify(attempts);
                 const baselineReady = result?.coverageQualityComplete || result?.coverageAvailableQualityComplete;
                 // A distant finest-source leaf cannot improve by waiting. Keep
                 // its strict quality limitation visible in the result while
@@ -1597,7 +1681,7 @@ class GlobeDemo {
         const height = point.elevation / this.detailGlobe.metresToWorld;
         // A narrow spire can sit beside the center ray. Inspect actual nearby
         // vertices as well, excluding broad low-quality fallback geometry.
-        const models = provider.loadedModelTiles.filter(tile => (tile.geometricError ?? Infinity) <= GOOGLE_BASELINE_NEAR_ERROR);
+        const models = provider.loadedModelTiles.filter(tile => (tile.geometricError ?? Infinity) <= GOOGLE_BASELINE_CORE_ERROR);
         const roof = sampleGoogleSurfaceElevation(this.detailGlobe, models, point.latitude, point.longitude, 20);
         this.canvas.dataset.googleCameraHeightM = String(height);
         this.canvas.dataset.googleCameraSurfaceHeightM = roof === undefined ? "" : String(roof);
@@ -1624,6 +1708,11 @@ class GlobeDemo {
                 const required = [this.data, this.distanceLayers[1]?.data].filter((data): data is GlobeDataController => !!data);
                 for (const data of required) data.update();
                 if (required.every(data => data.isTerrainReady)) {
+                    this.canvas.dataset.startupTerrainDiagnostics = JSON.stringify({
+                        regionalSources: this.regionalBootstrapElevation.loadingProgress,
+                        detailSources: this.elevation.loadingProgress,
+                        controllers: required.map(data => ({ ...data.stats })),
+                    });
                     signal.removeEventListener("abort", cancel);
                     resolve();
                 } else timer = setTimeout(check, 25);
@@ -1633,13 +1722,21 @@ class GlobeDemo {
     }
 
     private onLoadingTransition(snapshot: GlobeLoadingSnapshot): void {
+        const previouslyReleased = this.backgroundReleased;
         const background = snapshot.stage === "background";
         this.backgroundReleased = background;
+        if (background && !previouslyReleased && this.automaticSatellitePending) this.applyAutomaticSatellite();
+        if (background && !previouslyReleased) this.configureDistanceLayers();
+        if (background && !previouslyReleased) this.updateDistanceLayers(this.navigator.getView());
         this.canvas.dataset.loadingStage = snapshot.stage;
         this.canvas.dataset.loadingStatus = snapshot.status;
         this.canvas.dataset.loadingGoogleCoverageReady = String(snapshot.googleCoverageReady);
         this.canvas.dataset.loadingImmediateReady = String(snapshot.immediateReady);
         this.canvas.dataset.loadingDegraded = String(snapshot.degraded);
+        if (snapshot.googleCoverageReady && snapshot.timings.coverage?.endedMs !== undefined)
+            this.canvas.dataset.loadingTimeToCoverageMs = String(snapshot.timings.coverage.endedMs - this.demoStartedAt);
+        if (snapshot.immediateReady && snapshot.timings.immediate?.endedMs !== undefined)
+            this.canvas.dataset.loadingTimeToImmediateMs = String(snapshot.timings.immediate.endedMs - this.demoStartedAt);
         this.canvas.dataset.loadingStageTimings = JSON.stringify(snapshot.timings);
         if (background) {
             const started = snapshot.timings.background!.startedMs;
@@ -1695,7 +1792,7 @@ class GlobeDemo {
         this.updateSatelliteAttribution(view);
         if (view.zoom < 8 && !this.distanceLayers.length) return;
         const detailed15MileRadius = (document.getElementById("googleTiles") as HTMLInputElement).checked;
-        const plans = globeLODPlan(view.zoom, detailed15MileRadius);
+        const plans = globeLODPlan(view.zoom, detailed15MileRadius, this.backgroundReleased);
         if (!this.distanceLayers.length) {
             // Construct near tiers first so their scene observers request
             // imagery and elevation before the much larger horizon windows.
@@ -1709,8 +1806,12 @@ class GlobeDemo {
                 globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);
                 globe.setTerrainDisplayRequirement((document.getElementById("terrain") as HTMLInputElement).checked);
                 for (const tile of globe.ourTiles) this.registerTerrain(tile.mesh, plan.group);
-                const data = new GlobeDataController(globe, { elevation: plan.group <= 2 ? this.regionalElevation.load : this.elevation.load,
-                    concurrency: detailed15MileRadius && plan.group === 2 ? 8
+                const data = new GlobeDataController(globe, { elevation: plan.group <= 2
+                    ? !this.backgroundReleased && detailed15MileRadius && plan.group === 2
+                        ? this.regionalBootstrapElevation.load : this.regionalElevation.load
+                    : this.elevation.load,
+                    concurrency: detailed15MileRadius && plan.group === 2 ? this.backgroundReleased ? 64
+                        : plan.zoom > GOOGLE_TERRAIN_BOOTSTRAP_ZOOM ? plan.size ** 2 : 32
                         : plan.group === 5 ? 6 : plan.group >= 3 ? 4 : 1,
                     minTerrainZoom: 5, prioritizeVisible: true,
                     minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14,
@@ -1726,7 +1827,10 @@ class GlobeDemo {
         this.distanceLayers.forEach((layer, index) => {
             const plan = plans[index];
             layer.globe.rasterConcurrency = this.distanceRasterConcurrency(plan.group);
-            layer.data.options.concurrency = detailed15MileRadius && plan.group === 2 ? 8
+            // Bootstrap children share just nine z10 sources. Admit the whole
+            // window so child promises cannot hide the remaining sources.
+            layer.data.options.concurrency = detailed15MileRadius && plan.group === 2 ? this.backgroundReleased ? 64
+                : plan.zoom > GOOGLE_TERRAIN_BOOTSTRAP_ZOOM ? plan.size ** 2 : 32
                 : plan.group === 5 ? 6 : plan.group >= 3 ? 4 : 1;
             if (layer.buildings) layer.buildings.loadConcurrency = detailed15MileRadius && plan.group === 2 ? 12 : 6;
             // At global zooms use a small valid world window rather than repeating tiles.
@@ -1747,7 +1851,6 @@ class GlobeDemo {
                 for (const tile of layer.globe.ourTiles) tile.mesh.isVisible = visible;
                 layer.visible = visible;
             }
-            layer.globe.ourAttribution.advancedTexture.rootContainer.isVisible = false;
             const math = layer.globe.ourTileMath;
             const tileX = math.lon_to_tile(view.longitude, plan.zoom);
             const tileY = math.lat_to_tile(Math.max(-85, Math.min(85, view.latitude)), plan.zoom);
@@ -1817,7 +1920,9 @@ class GlobeDemo {
                 layer.buildings.creationTimeBudgetMs = 2;
                 layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, 7); };
             }
-            const elevation = index <= 1 ? this.regionalElevation.load : this.elevation.load;
+            const elevation = index <= 1 ? !this.backgroundReleased && index === 1
+                && (document.getElementById("googleTiles") as HTMLInputElement).checked
+                ? this.regionalBootstrapElevation.load : this.regionalElevation.load : this.elevation.load;
             const terrainChanged = layer.data.options.elevation !== (terrain ? elevation : undefined)
                 || layer.data.options.exaggeration !== exaggeration;
             const buildingsChanged = layer.data.options.buildings !== (buildings ? layer.buildings : undefined);

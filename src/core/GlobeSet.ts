@@ -66,6 +66,7 @@ export default class GlobeSet extends TileSet {
     private originalElevations = new WeakMap<Tile, { key: string; heights: number[] }>();
     private geometryBudgetMs = Infinity;
     private geometryQueue: Tile[] = [];
+    private pendingElevationTiles = new Set<Tile>();
     private geometryBounds = new WeakMap<Tile, { key: string; center: Vector3; radius: number }>();
     private getGeographicTileBounds(tile: Tile): { center: Vector3; radius: number } {
         const key = `${tile.tileCoords}/${this.radius}`;
@@ -96,6 +97,20 @@ export default class GlobeSet extends TileSet {
     public prepareGeometry(): void {
         this.flushGeometry();
     }
+    public get pendingElevationCount(): number { return this.pendingElevationTiles.size; }
+    public hasPendingElevationData(tile: Tile): boolean { return this.pendingElevationTiles.has(tile); }
+    /** Upload a coalesced DEM burst once per dirty tile, including welded neighbours. */
+    public flushElevationData(): void {
+        const dirty = [...this.pendingElevationTiles];
+        this.pendingElevationTiles.clear();
+        for (const tile of dirty) {
+            if (tile.mesh.isDisposed() || !tile.terrainLoaded || !tile.elevationHeights
+                || this.originalElevations.get(tile)?.key !== tile.tileCoords.toString()
+                || this.ourTilesMap.get(tile.tileCoords.toString()) !== tile) continue;
+            this.applyElevationGrid(tile, tile.elevationHeights, this.meshPrecision);
+            if (tile.material?.diffuseTexture?.isReady() && this.isTileDisplayReady(tile)) tile.mesh.setEnabled(true);
+        }
+    }
     public override isTileGeometryReady(tile: Tile): boolean {
         return (
             this.geometryKeys.get(tile) ===
@@ -104,7 +119,7 @@ export default class GlobeSet extends TileSet {
     }
     public override isTileDisplayReady(tile: Tile): boolean {
         return this.isTileGeometryReady(tile) &&
-            (tile.tileCoords.z < this.terrainDisplayZoom || tile.terrainLoaded);
+            (tile.tileCoords.z < this.terrainDisplayZoom || tile.terrainLoaded && !this.pendingElevationTiles.has(tile));
     }
     /** Hold a raster patch behind existing coarser coverage until its DEM arrives. */
     public setTerrainDisplayRequirement(enabled: boolean, minimumZoom = 5): void {
@@ -169,7 +184,7 @@ export default class GlobeSet extends TileSet {
         engine: AbstractEngine,
         options: GlobeSetOptions = {},
     ) {
-        super(scene, engine);
+        super(scene, engine, options.attribution === false);
         this.geometryBudgetMs = options.geometryBudgetMs ?? Infinity;
         this.edgeFadeTiles = options.edgeFadeTiles ?? 0;
         if (!Number.isFinite(this.edgeFadeTiles) || this.edgeFadeTiles < 0) throw new RangeError("edgeFadeTiles must be non-negative");
@@ -180,8 +195,10 @@ export default class GlobeSet extends TileSet {
         this.flatMath = new GlobeTileMath(this, true);
         this.ourTileMath = new GlobeTileMath(this);
         this.attributionEnabled = options.attribution !== false;
-        const attributionLayer = this.ourAttribution.advancedTexture.layer;
-        if (attributionLayer) attributionLayer.isEnabled = this.attributionEnabled;
+        if (this.attributionEnabled) {
+            const attributionLayer = this.ourAttribution.advancedTexture.layer;
+            if (attributionLayer) attributionLayer.isEnabled = true;
+        }
 
         if (options.radius !== undefined) {
             this.radius = options.radius;
@@ -391,6 +408,7 @@ export default class GlobeSet extends TileSet {
         width: number,
         height: number,
         exaggeration = 1,
+        deferUploads = false,
     ): void {
         if (
             !this.ourTiles.includes(tile) ||
@@ -441,13 +459,13 @@ export default class GlobeSet extends TileSet {
         this.originalElevations.set(tile, { key: tile.tileCoords.toString(), heights: heights.slice() });
         tile.elevationHeights = heights;
         tile.terrainLoaded = true;
-        this.joinElevationBorders(tile);
+        this.joinElevationBorders(tile, deferUploads);
         if (tile.material?.diffuseTexture?.isReady() && this.isTileDisplayReady(tile))
             tile.mesh.setEnabled(true);
     }
 
     /** Weld shared samples before uploading; no vertical walls are needed between patches. */
-    private joinElevationBorders(changed: Tile): void {
+    private joinElevationBorders(changed: Tile, deferUploads = false): void {
         const p = this.meshPrecision, n = p + 1, world = 2 ** this.zoom * p;
         const groups = new Map<string, { tile: Tile; index: number; height: number }[]>();
         const dirty = new Set<Tile>([changed]);
@@ -491,7 +509,13 @@ export default class GlobeSet extends TileSet {
                 dirty.add(item.tile);
             }
         }
-        for (const tile of dirty) this.applyElevationGrid(tile, tile.elevationHeights!, p);
+        for (const tile of dirty) {
+            if (deferUploads) this.pendingElevationTiles.add(tile);
+            else {
+                this.pendingElevationTiles.delete(tile);
+                this.applyElevationGrid(tile, tile.elevationHeights!, p);
+            }
+        }
     }
 
     public override applyElevationGrid(
