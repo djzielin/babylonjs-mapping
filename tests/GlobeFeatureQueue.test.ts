@@ -18,10 +18,10 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
-function setup(size = 2) {
+function setup(size = 2, geometryBudgetMs?: number) {
     const engine = new NullEngine(), scene = new Scene(engine);
     const tier = () => {
-        const globe = new GlobeSet(scene, engine, { radius: 60, backingSurface: false });
+        const globe = new GlobeSet(scene, engine, { radius: 60, backingSurface: false, geometryBudgetMs });
         globe.createGeometry(new Vector2(size, size), 20, 8);
         globe.updateRaster(35, -79, 15);
         return globe;
@@ -53,6 +53,43 @@ function featureQueue(scene: Scene, maxPendingRequests: number) {
 }
 
 describe("staged globe data loading", () => {
+    it("advances budgeted geometry and DEM without rendering while honoring a disabled controller", async () => {
+        vi.useFakeTimers();
+        let time = 0;
+        vi.spyOn(performance, "now").mockImplementation(() => (time += 3));
+        const { globe, scene } = setup(2, 1);
+        const prepare = vi.spyOn(globe, "prepareGeometry");
+        const render = vi.spyOn(scene.onBeforeRenderObservable, "notifyObservers");
+        let resolveFirst!: (result: ElevationGrid) => void;
+        const elevation = vi.fn().mockImplementationOnce(() => new Promise<ElevationGrid>(resolve => { resolveFirst = resolve; }))
+            .mockResolvedValue(grid);
+        const data = controller(globe, { elevation, concurrency: 1, enabled: false, featuresEnabled: false });
+        expect(globe.pendingGeometryCount).toBe(3);
+        data.update();
+        expect(prepare).not.toHaveBeenCalled();
+        expect(elevation).not.toHaveBeenCalled();
+        data.setEnabled(true);
+        expect(globe.pendingGeometryCount).toBe(2);
+        expect(prepare).toHaveBeenCalledOnce();
+        expect(elevation).toHaveBeenCalledOnce();
+        // One expensive patch still fits each slice; completing the useful
+        // in-flight DEM must not advance paused geometry or start another DEM.
+        data.setEnabled(false); resolveFirst(grid);
+        await vi.advanceTimersByTimeAsync(10);
+        data.update();
+        expect(globe.pendingGeometryCount).toBe(2);
+        expect(prepare).toHaveBeenCalledOnce();
+        expect(elevation).toHaveBeenCalledOnce();
+        data.setEnabled(true);
+        expect(globe.pendingGeometryCount).toBe(1);
+        await vi.advanceTimersByTimeAsync(10);
+        expect(globe.pendingGeometryCount).toBe(0);
+        expect(data.isTerrainReady).toBe(true);
+        expect(elevation).toHaveBeenCalledTimes(4);
+        expect(prepare).toHaveBeenCalledTimes(3);
+        expect(render).not.toHaveBeenCalled();
+    });
+
     it("finishes terrain behind the feature gate and resumes buildings and roads without downloading DEM again", async () => {
         vi.useFakeTimers();
         const { globe } = setup();

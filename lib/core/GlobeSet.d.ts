@@ -56,6 +56,8 @@ export default class GlobeSet extends TileSet {
     };
     private terrainDisplayZoom;
     get pendingGeometryCount(): number;
+    /** Prepare one configured geometry slice even when scene rendering is throttled. */
+    prepareGeometry(): void;
     isTileGeometryReady(tile: Tile): boolean;
     isTileDisplayReady(tile: Tile): boolean;
     /** Hold a raster patch behind existing coarser coverage until its DEM arrives. */

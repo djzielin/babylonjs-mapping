@@ -35,6 +35,7 @@ interface LoadingRun {
     abort: AbortController;
     plan: GlobeLoadingPlan;
     state: GlobeLoadingSnapshot;
+    backgroundCompletion?: Promise<void>;
 }
 
 /** Startup barriers share one generation; obsolete work cannot release a new view's queue. */
@@ -68,7 +69,9 @@ export class GlobeLoadingQueue {
             const covered = await this.barrier(run, "coverage", plan.coverage, plan.allowGoogleFailure !== false);
             if (!this.canContinue(run)) return this.snapshotOf(run);
             run.state.googleCoverageReady = covered;
-            if (covered && plan.immediate) {
+            // A distant source gap must not bypass the useful nearby detail
+            // barrier. Keep the coverage failure visible while trying it.
+            if (plan.immediate) {
                 const immediate = await this.barrier(run, "immediate", plan.immediate, plan.allowGoogleFailure !== false);
                 if (!this.canContinue(run)) return this.snapshotOf(run);
                 run.state.immediateReady = immediate;
@@ -83,7 +86,15 @@ export class GlobeLoadingQueue {
         run.state.status = "background";
         this.notify(run);
         // Observe background failures here; stage four must release immediately.
-        void this.background(run);
+        run.backgroundCompletion = this.background(run);
+        return this.snapshotOf(run);
+    }
+
+    /** Wait for the entered background stage's state publication, including cancellation. */
+    public async awaitBackground(): Promise<GlobeLoadingSnapshot> {
+        const run = this.current;
+        if (!run) return this.snapshot;
+        await run.backgroundCompletion;
         return this.snapshotOf(run);
     }
 

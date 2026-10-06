@@ -18,6 +18,7 @@ import { DrawSnapshotCache } from "./DrawSnapshotCache";
 import { MotionFrameProfile } from "./MotionFrameProfile";
 import { globeLODPlan, MIN_GLOBE_BUILDING_ZOOM } from "./GlobeLODPlan";
 import { GlobeLoadingQueue, type GlobeLoadingSnapshot } from "./GlobeLoadingQueue";
+import { sampleGoogleSurfaceElevation } from "./GoogleCameraClearance";
 import { setupAddressSearch } from "./AddressSearch";
 import { TrafficOverlay } from "./TrafficOverlay";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
@@ -76,9 +77,14 @@ const DETAIL_RADIUS = 60;
 const MAP_MAX_LEVEL = 8;
 const GOOGLE_COVERAGE_RADIUS = 15 * 1609.344;
 const GOOGLE_DETAIL_RADIUS = 300;
-// Keep the first city-wide view recognizable; very coarse landscape slabs
-// saved requests but erased the building shapes people use to orient themselves.
-const GOOGLE_BASELINE_ERROR = 256;
+// The close view needs building shapes before the fine-detail barrier. Spend
+// more detail there while keeping city-wide coverage practical to download.
+// Google's nominal 128 m level is 128.4076 m. Avoid needlessly descending
+// another level throughout the disk while preserving the tighter near cap.
+const GOOGLE_BASELINE_ERROR = 129;
+const GOOGLE_BASELINE_NEAR_RADIUS = 750;
+const GOOGLE_BASELINE_NEAR_ERROR = 16;
+const GOOGLE_TILE_BUDGET = 4096;
 const GOOGLE_REPLACEMENT_ERROR = 33;
 const HOME_VIEW: LocationPreset = {
     name: "New York · Empire State Building",
@@ -185,6 +191,7 @@ class GlobeDemo {
     private replacementCoverageURLs = new Set<string>();
     private photorealisticActive = false;
     private googleLoading = false;
+    private googleStartupClearanceAdjusted = false;
     private googlePassStartedAt = 0;
     private lastGoogleCheck = 0;
     private movementKeys = new Set<string>();
@@ -440,6 +447,7 @@ class GlobeDemo {
                 if (this.googleTiles) {
                     const stages = this.googleTiles.stats;
                     this.canvas.dataset.googleLoadingProgress = JSON.stringify(this.googleTiles.loadingProgress);
+                    this.canvas.dataset.googleHierarchyRetries = String(stages.hierarchyRetries);
                     this.canvas.dataset.googleModelFetchCount = String(stages.modelFetchCount);
                     this.canvas.dataset.googleModelDecodeCount = String(stages.modelDecodeCount);
                     this.canvas.dataset.googleModelFetchMs = String(Math.round(stages.modelFetchMs));
@@ -486,7 +494,7 @@ class GlobeDemo {
                 const startup = this.loadingQueue.snapshot;
                 const stageLabel = { idle: "Preparing terrain", terrain: "1/4 Terrain", coverage: "2/4 Google 15-mile coverage", immediate: "3/4 Nearby Google detail", background: "4/4 Background detail" }[startup.stage];
                 const readyMs = this.canvas.dataset.loadingTimeToBackgroundMs;
-                document.getElementById("loadingStatus")!.textContent = `${stageLabel}${startup.degraded ? " · Google coverage unavailable" : ""}${readyMs ? ` · ready in ${(Number(readyMs) / 1000).toFixed(1)} s` : ""} · Terrain ${terrainTiles}/${totalTiles} · Buildings ${buildingTiles} tiles${stat.failed ? ` · ${stat.failed} data errors` : ""}`;
+                document.getElementById("loadingStatus")!.textContent = `${stageLabel}${startup.degraded ? startup.immediateReady ? " · distant Google detail limited" : " · Google detail incomplete" : ""}${readyMs ? ` · background at ${(Number(readyMs) / 1000).toFixed(1)} s` : ""} · Terrain ${terrainTiles}/${totalTiles} · Buildings ${buildingTiles} tiles${stat.failed ? ` · ${stat.failed} data errors` : ""}`;
                 const roadJobs = this.roads?.pendingRequestCount ?? 0;
                 const buildingJobs = [this.buildings, ...this.distanceLayers.map(layer => layer.buildings)]
                     .reduce((count, provider) => count + (provider?.pendingRequestCount ?? 0), 0);
@@ -1393,10 +1401,11 @@ class GlobeDemo {
             if (generation !== this.googleGeneration) return;
             const currentView = this.navigator.getView();
             const freshProvider = !this.googleTiles;
+            if (freshProvider) this.googleStartupClearanceAdjusted = false;
             const provider = this.googleTiles ??= new Google3DTiles(this.detailGlobe, {
                 apiKey: this.googleKey,
                 origin: { latitude: currentView.latitude, longitude: currentView.longitude },
-                maxTiles: 2048,
+                maxTiles: GOOGLE_TILE_BUDGET,
                 maximumDisplayGeometricError: 33,
                 maximumInitialErrorRatio: 2,
                 cullToCamera: true,
@@ -1419,8 +1428,9 @@ class GlobeDemo {
             provider.maximumScreenSpaceError = targetScreenError;
             provider.maximumDisplayGeometricError = 33;
             provider.maximumInitialErrorRatio = 2;
-            provider.maxTiles = 2048;
+            provider.maxTiles = GOOGLE_TILE_BUDGET;
             provider.maxPendingHierarchy = 32;
+            if (!freshProvider && this.backgroundReleased) this.configureGoogleRefinement(provider);
             this.googleLoading = true;
             this.googleTurnPending = false;
             this.googlePassStartedAt = performance.now();
@@ -1503,6 +1513,10 @@ class GlobeDemo {
             // full-radius refinement starts. The two streams share stage four.
             background: provider ? signal => refinement = (async () => {
                     signal.throwIfAborted();
+                    // Keep the source-fine immediate tiles. The rest of the
+                    // disk refines to a practical overview while Overture
+                    // fills medium-distance buildings in parallel.
+                    this.configureGoogleRefinement(provider);
                     const cancel = () => provider.cancelPendingLoad(true);
                     signal.addEventListener("abort", cancel, { once: true });
                     try { await provider.load(); }
@@ -1511,7 +1525,14 @@ class GlobeDemo {
         });
         // Keep the existing movement/turn scheduler aware of the detached
         // stage-four Google pass so it cannot launch overlapping selections.
-        await refinement;
+        try { await refinement; }
+        finally { await this.loadingQueue.awaitBackground(); }
+    }
+
+    private configureGoogleRefinement(provider: Google3DTiles): void {
+        provider.maximumDisplayGeometricError = GOOGLE_BASELINE_ERROR;
+        provider.maximumScreenSpaceError = (provider.maximumScreenSpaceError ?? 1) * 4;
+        provider.referenceImageHeight = 1080;
     }
 
     private async loadGoogleStage(provider: Google3DTiles, stage: "coverage" | "immediate", signal: AbortSignal): Promise<void> {
@@ -1521,17 +1542,74 @@ class GlobeDemo {
             for (let attempt = 0; attempt < 3; attempt++) {
                 signal.throwIfAborted();
                 await provider.load(GOOGLE_COVERAGE_RADIUS, { stage, detailRadius: GOOGLE_DETAIL_RADIUS,
-                    coverageGeometricError: GOOGLE_BASELINE_ERROR });
+                    coverageGeometricError: GOOGLE_BASELINE_ERROR,
+                    coverageNearRadius: GOOGLE_BASELINE_NEAR_RADIUS,
+                    coverageNearGeometricError: GOOGLE_BASELINE_NEAR_ERROR });
                 signal.throwIfAborted();
                 const result = provider.lastLoadResult;
+                this.canvas.dataset.googleHierarchyRetries = String(provider.stats.hierarchyRetries);
                 this.canvas.dataset[`google${stage === "coverage" ? "Coverage" : "Immediate"}Result`] = JSON.stringify(result);
-                if (result?.coverageComplete && (stage === "coverage" || result.immediateQualityComplete)) return;
+                this.ensureGoogleStartupClearance(provider);
+                // Let the completed pass appear even when a source limitation
+                // means its strict quality target could not be satisfied.
+                await this.waitForGoogleFrame(signal);
+                const baselineReady = result?.coverageQualityComplete || result?.coverageAvailableQualityComplete;
+                // A distant finest-source leaf cannot improve by waiting. Keep
+                // its strict quality limitation visible in the result while
+                // accepting complete coverage and a successful near baseline.
+                if (stage === "coverage" ? result?.coverageComplete && baselineReady : result?.immediateQualityComplete) {
+                    return;
+                }
                 // Retry transient downloads using the same hierarchy/resident
                 // models. Missing source quality cannot be repaired by retrying.
                 if (!result || (!result.failedModelTiles && !result.hierarchyFailures)) break;
             }
             throw new Error(stage === "coverage" ? "Google 15-mile coverage incomplete" : "Nearby Google detail incomplete");
         } finally { signal.removeEventListener("abort", cancel); }
+    }
+
+    private waitForGoogleFrame(signal: AbortSignal): Promise<void> {
+        signal.throwIfAborted();
+        return new Promise((resolve, reject) => {
+            let presentationFrame: number | undefined;
+            const observer = this.scene.onAfterRenderObservable.addOnce(() => {
+                // Rendering has submitted the new geometry. Let the browser
+                // present that frame before the next pass competes for work.
+                presentationFrame = requestAnimationFrame(() => {
+                    signal.removeEventListener("abort", cancel);
+                    resolve();
+                });
+            });
+            const cancel = () => {
+                this.scene.onAfterRenderObservable.remove(observer);
+                if (presentationFrame !== undefined) cancelAnimationFrame(presentationFrame);
+                reject(signal.reason);
+            };
+            signal.addEventListener("abort", cancel, { once: true });
+        });
+    }
+
+    private ensureGoogleStartupClearance(provider: Google3DTiles): void {
+        const camera = this.scene.activeCamera;
+        if (!camera) return;
+        camera.getViewMatrix(true);
+        const point = this.detailGlobe.getSurfaceCoordinates(camera.globalPosition);
+        const height = point.elevation / this.detailGlobe.metresToWorld;
+        // A narrow spire can sit beside the center ray. Inspect actual nearby
+        // vertices as well, excluding broad low-quality fallback geometry.
+        const models = provider.loadedModelTiles.filter(tile => (tile.geometricError ?? Infinity) <= GOOGLE_BASELINE_NEAR_ERROR);
+        const roof = sampleGoogleSurfaceElevation(this.detailGlobe, models, point.latitude, point.longitude, 20);
+        this.canvas.dataset.googleCameraHeightM = String(height);
+        this.canvas.dataset.googleCameraSurfaceHeightM = roof === undefined ? "" : String(roof);
+        if (roof === undefined || this.googleStartupClearanceAdjusted || this.inspecting
+            || this.movementKeys.size || height - roof >= 50) return;
+        this.googleStartupClearanceAdjusted = true;
+        const raise = roof + 80 - height;
+        const view = this.navigator.getView();
+        this.navigator.setView(point.latitude, point.longitude,
+            { altitude: view.altitude + raise * this.detailGlobe.metresToWorld });
+        this.canvas.dataset.googleStartupCameraRaiseM = String(raise);
+        this.canvas.dataset.googleCameraHeightM = String(height + raise);
     }
 
     private waitForStartupTerrain(signal: AbortSignal): Promise<void> {
@@ -1578,7 +1656,10 @@ class GlobeDemo {
         }
         const messages = { terrain: "Google 3D · waiting for terrain…", coverage: "Google 3D · loading 15-mile baseline…", immediate: "Google 3D · loading nearby high detail…", background: "Google 3D · refining nearby tiles and filling Overture gaps…", idle: "Google 3D · preparing…" };
         if (this.googleKey && (document.getElementById("googleTiles") as HTMLInputElement).checked)
-            this.googleStatus(snapshot.degraded ? "Google 3D · incomplete coverage; loading fallback buildings" : messages[snapshot.stage]);
+            this.googleStatus(snapshot.degraded && background
+                ? snapshot.immediateReady ? "Google 3D · nearby ready; distant detail limited"
+                    : "Google 3D · incomplete detail; loading fallback buildings"
+                : messages[snapshot.stage]);
     }
 
     private distanceRasterConcurrency(group: number): number {

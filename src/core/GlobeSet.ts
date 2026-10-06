@@ -92,6 +92,10 @@ export default class GlobeSet extends TileSet {
     public get pendingGeometryCount(): number {
         return this.geometryQueue.length;
     }
+    /** Prepare one configured geometry slice even when scene rendering is throttled. */
+    public prepareGeometry(): void {
+        this.flushGeometry();
+    }
     public override isTileGeometryReady(tile: Tile): boolean {
         return (
             this.geometryKeys.get(tile) ===

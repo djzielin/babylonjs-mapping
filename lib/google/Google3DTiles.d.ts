@@ -71,6 +71,10 @@ export interface Google3DLoadOptions {
     detailRadius?: number;
     /** Source error tolerated by the coarse frontier in metres; defaults to 256. */
     coverageGeometricError?: number;
+    /** Optional tighter source-error target for recognizable coverage around the viewer. */
+    coverageNearGeometricError?: number;
+    /** Ground radius of tighter baseline demand, in metres; defaults to 750 when a near error is supplied. */
+    coverageNearRadius?: number;
 }
 export interface Google3DLoadResult {
     stage: Google3DLoadingStage;
@@ -82,16 +86,42 @@ export interface Google3DLoadResult {
     /** Model attempts that failed, even if an existing parent supplied fallback coverage. */
     failedModelTiles: number;
     hierarchyFailures: number;
+    /** Up to eight final failures, without request URLs, credentials, or server-provided messages. */
+    hierarchyFailureSamples: Array<{
+        type: "network" | "http" | "response" | "loader";
+        status?: number;
+        attempts: number;
+    }>;
+    nearHierarchyFailures: number;
+    nearFailedModelTiles: number;
     budgetLimitedTiles: number;
     sourceLimitedTiles: number;
     /** Intersecting source branches with neither model content nor an available fallback ancestor. */
     sourceCoverageGaps: number;
+    nearSourceCoverageGaps: number;
     /** Every model in a nonempty complete frontier is visible and hierarchy traversal succeeded. */
     coverageComplete: boolean;
+    /** Complete coverage at the configured near and far baseline error targets. */
+    coverageQualityComplete: boolean;
+    /** Target quality is met nearby; every distant miss is a visible finest-source leaf. */
+    coverageAvailableQualityComplete: boolean;
+    /** Nearby recognizable baseline is complete even when distant source leaves exceed the far target. */
+    nearCoverageQualityComplete: boolean;
+    coverageQualityMissingTiles: number;
+    coverageNearQualityMissingTiles: number;
     /** Complete visible frontier at the requested quality, without download, source, or budget limits. */
     detailComplete: boolean;
     /** Immediate frontier is visible at the display limit or the best available source quality, without budget limits. */
     immediateQualityComplete: boolean;
+    immediateSelectedTiles: number;
+    immediateLoadedTiles: number;
+    immediateQualityMissingTiles: number;
+    qualityLimitedSamples: Array<{
+        groundDistance: number;
+        geometricError: number;
+        depth: number;
+        sourceLeaf: boolean;
+    }>;
 }
 export interface Google3DTilesOptions {
     /** Google Maps Platform API key. It is appended to every request. */
@@ -100,7 +130,7 @@ export interface Google3DTilesOptions {
     rootUrl?: string;
     /** Maximum number of hierarchy levels visited for one load. */
     maxDepth?: number;
-    /** Maximum number of GLB content tiles kept in the scene. */
+    /** Maximum quality-frontier demand. A bounded coarse reserve and existing finer residents may remain for coverage. */
     maxTiles?: number;
     /** Optional minimum coverage radius around the current map center, in metres. */
     coverageRadius?: number;
@@ -190,8 +220,11 @@ export default class Google3DTiles {
     heightOffset: number;
     readonly stats: {
         hierarchyRequests: number;
+        hierarchyRetries: number;
         modelRequests: number;
         reusedModels: number;
+        obsoleteModelRequests: number;
+        obsoleteHierarchyRequests: number;
         detailLimitedTiles: number;
         sourceLimitedTiles: number;
         visibleDetailLimitedTiles: number;
@@ -232,6 +265,7 @@ export default class Google3DTiles {
     private rootRequest?;
     private session;
     private readonly externalTilesets;
+    private readonly externalTilesetDemand;
     private readonly dirtyCoverageEntries;
     private readonly loadedTiles;
     private retainedTiles;
@@ -246,6 +280,7 @@ export default class Google3DTiles {
     private attributionCache;
     private pendingModels;
     private readonly unusableModelURLs;
+    private readonly prefetchModels;
     private activeModelFetches;
     private lastModelAbortEye?;
     private selectionEye?;
@@ -274,7 +309,10 @@ export default class Google3DTiles {
     private loadingStage;
     private stageDetailRadius;
     private stageCoverageGeometricError;
+    private stageCoverageNearGeometricError?;
+    private stageCoverageNearRadius;
     private coverageQualityEye?;
+    private readonly coverageDistances;
     private loadingPhase;
     private frontierProgress?;
     private replacementGroupsPending;
@@ -286,6 +324,7 @@ export default class Google3DTiles {
     private networkQueueName;
     private networkQueueFor;
     private rebuildNetworkQueues;
+    private cancelNetworkWaiter;
     private drainNetwork;
     private networkSlot;
     constructor(tileSet: TileSet, options?: Google3DTilesOptions);
@@ -372,6 +411,9 @@ export default class Google3DTiles {
      */
     load(selectionRadius?: number | undefined, options?: Google3DLoadOptions): Promise<readonly LoadedGoogle3DTile[]>;
     private usesCoverageQuality;
+    private coverageGeometricError;
+    private horizontalTileDistance;
+    private preserveResidentDetail;
     private acceptableDisplayQuality;
     private acceptableInitialQuality;
     private trimVisibleHistory;
@@ -387,6 +429,8 @@ export default class Google3DTiles {
     private getOriginStateKey;
     private getRootTilesetURL;
     private loadRootTileset;
+    private requestTileset;
+    private recordHierarchyFailure;
     private authenticateURL;
     private loadExternalTileset;
     private cameraEye;
@@ -404,6 +448,7 @@ export default class Google3DTiles {
     /** Commit disjoint replacement subtrees only after every new model is ready. */
     private loadReplacementGroups;
     private loadTile;
+    private recordModelFailure;
     private loadTileAsset;
     private createTileRoot;
     private disposeTile;

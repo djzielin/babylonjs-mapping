@@ -75,21 +75,28 @@ describe("globe startup loading barriers", () => {
         expect(currentBackground).toHaveBeenCalledOnce();
     });
 
-    it("allows Google failure fallback without claiming full-radius coverage", async () => {
+    it("still awaits nearby detail after distant coverage fails without claiming full-radius coverage", async () => {
         const queue = new GlobeLoadingQueue();
-        const immediate = vi.fn(async () => {}), background = vi.fn(async () => {});
+        const detail = deferred();
+        const immediate = vi.fn(() => detail.promise), background = vi.fn(async () => {});
         const error = new Error("Google temporarily unavailable");
-        const result = await queue.run({ terrain: async () => {}, coverage: async () => { throw error; },
+        const released = queue.run({ terrain: async () => {}, coverage: async () => { throw error; },
             immediate, background });
+        await vi.waitFor(() => expect(queue.snapshot.stage).toBe("immediate"));
+        expect(queue.snapshot.googleCoverageReady).toBe(false);
+        expect(queue.snapshot.degraded).toBe(true);
+        expect(immediate).toHaveBeenCalledOnce();
+        expect(background).not.toHaveBeenCalled();
+        detail.resolve();
+        const result = await released;
         await flush();
         expect(result.stage).toBe("background");
         expect(result.googleCoverageReady).toBe(false);
-        expect(result.immediateReady).toBe(false);
+        expect(result.immediateReady).toBe(true);
         expect(result.degraded).toBe(true);
         expect(result.error).toBe(error);
         expect(result.timings.coverage?.status).toBe("failed");
-        expect(result.timings.immediate?.status).toBe("skipped");
-        expect(immediate).not.toHaveBeenCalled();
+        expect(result.timings.immediate?.status).toBe("complete");
         expect(background).toHaveBeenCalledOnce();
         // Retrying the same view can establish Google coverage later.
         const retried = await queue.run({ terrain: async () => {}, coverage: async () => {}, immediate: async () => {} });
@@ -154,5 +161,44 @@ describe("globe startup loading barriers", () => {
         expect(queue.snapshot.stage).toBe("terrain");
         expect(queue.snapshot.status).toBe("running");
         current.resolve(); await third;
+    });
+
+    it("awaits background state publication after the raw work promise resolves", async () => {
+        const queue = new GlobeLoadingQueue();
+        const work = deferred();
+        const transitions: GlobeLoadingSnapshot[] = [];
+        await queue.run({ terrain: async () => {}, background: () => work.promise,
+            onTransition: snapshot => transitions.push(snapshot) });
+        expect(queue.snapshot.status).toBe("background");
+        work.resolve();
+        await work.promise;
+        const completed = await queue.awaitBackground();
+        expect(completed.status).toBe("complete");
+        expect(completed.timings.background?.status).toBe("complete");
+        expect(transitions.at(-1)?.status).toBe("complete");
+        // Scheduling the next view after this wait cannot cancel completed work.
+        const nextTerrain = deferred();
+        const next = queue.run({ terrain: () => nextTerrain.promise });
+        expect(transitions.at(-1)?.status).toBe("complete");
+        nextTerrain.resolve(); await next;
+    });
+
+    it("resolves a background wait promptly on cancellation and retains that generation's outcome", async () => {
+        const queue = new GlobeLoadingQueue();
+        const work = deferred();
+        const first = await queue.run({ terrain: async () => {}, background: () => work.promise });
+        const settled = queue.awaitBackground();
+        queue.cancel();
+        const nextTerrain = deferred();
+        const next = queue.run({ terrain: () => nextTerrain.promise });
+        const cancelled = await settled;
+        expect(cancelled.generation).toBe(first.generation);
+        expect(cancelled.status).toBe("cancelled");
+        expect(cancelled.timings.background?.status).toBe("cancelled");
+        expect(queue.snapshot.generation).toBe(first.generation + 1);
+        work.resolve(); await flush();
+        expect(queue.snapshot.stage).toBe("terrain");
+        expect(queue.snapshot.status).toBe("running");
+        nextTerrain.resolve(); await next;
     });
 });

@@ -104,6 +104,10 @@ export interface Google3DLoadOptions {
     detailRadius?: number;
     /** Source error tolerated by the coarse frontier in metres; defaults to 256. */
     coverageGeometricError?: number;
+    /** Optional tighter source-error target for recognizable coverage around the viewer. */
+    coverageNearGeometricError?: number;
+    /** Ground radius of tighter baseline demand, in metres; defaults to 750 when a near error is supplied. */
+    coverageNearRadius?: number;
 }
 
 export interface Google3DLoadResult {
@@ -116,16 +120,33 @@ export interface Google3DLoadResult {
     /** Model attempts that failed, even if an existing parent supplied fallback coverage. */
     failedModelTiles: number;
     hierarchyFailures: number;
+    /** Up to eight final failures, without request URLs, credentials, or server-provided messages. */
+    hierarchyFailureSamples: Array<{ type: "network" | "http" | "response" | "loader"; status?: number; attempts: number }>;
+    nearHierarchyFailures: number;
+    nearFailedModelTiles: number;
     budgetLimitedTiles: number;
     sourceLimitedTiles: number;
     /** Intersecting source branches with neither model content nor an available fallback ancestor. */
     sourceCoverageGaps: number;
+    nearSourceCoverageGaps: number;
     /** Every model in a nonempty complete frontier is visible and hierarchy traversal succeeded. */
     coverageComplete: boolean;
+    /** Complete coverage at the configured near and far baseline error targets. */
+    coverageQualityComplete: boolean;
+    /** Target quality is met nearby; every distant miss is a visible finest-source leaf. */
+    coverageAvailableQualityComplete: boolean;
+    /** Nearby recognizable baseline is complete even when distant source leaves exceed the far target. */
+    nearCoverageQualityComplete: boolean;
+    coverageQualityMissingTiles: number;
+    coverageNearQualityMissingTiles: number;
     /** Complete visible frontier at the requested quality, without download, source, or budget limits. */
     detailComplete: boolean;
     /** Immediate frontier is visible at the display limit or the best available source quality, without budget limits. */
     immediateQualityComplete: boolean;
+    immediateSelectedTiles: number;
+    immediateLoadedTiles: number;
+    immediateQualityMissingTiles: number;
+    qualityLimitedSamples: Array<{ groundDistance: number; geometricError: number; depth: number; sourceLeaf: boolean }>;
 }
 
 export interface Google3DTilesOptions {
@@ -135,7 +156,7 @@ export interface Google3DTilesOptions {
     rootUrl?: string;
     /** Maximum number of hierarchy levels visited for one load. */
     maxDepth?: number;
-    /** Maximum number of GLB content tiles kept in the scene. */
+    /** Maximum quality-frontier demand. A bounded coarse reserve and existing finer residents may remain for coverage. */
     maxTiles?: number;
     /** Optional minimum coverage radius around the current map center, in metres. */
     coverageRadius?: number;
@@ -214,12 +235,14 @@ interface FrontierTile {
     priority: number;
     offscreen: boolean;
     incompleteChildren?: boolean;
+    incompleteChildrenNear?: boolean;
 }
 
 interface NetworkWaiter {
     priority: number | (() => number);
     kind: "hierarchy" | "model";
-    resume: (offscreen: boolean) => void;
+    resume: (offscreen: boolean | undefined) => void;
+    wanted?: () => boolean;
     sequence: number;
     distance?: number;
 }
@@ -281,7 +304,8 @@ export default class Google3DTiles {
     public referenceImageHeight: number;
     public referenceFovY: number;
     public heightOffset = 0;
-    public readonly stats = { hierarchyRequests: 0, modelRequests: 0, reusedModels: 0,
+    public readonly stats = { hierarchyRequests: 0, hierarchyRetries: 0, modelRequests: 0, reusedModels: 0,
+        obsoleteModelRequests: 0, obsoleteHierarchyRequests: 0,
         detailLimitedTiles: 0, sourceLimitedTiles: 0,
         visibleDetailLimitedTiles: 0, offscreenDetailLimitedTiles: 0,
         visibleSourceLimitedTiles: 0, offscreenSourceLimitedTiles: 0,
@@ -300,9 +324,10 @@ export default class Google3DTiles {
     private readonly usesDefaultModelLoader: boolean;
     private rootTileset: Google3DTileset | undefined;
     private rootRequestKey = "";
-    private rootRequest?: { key: string; promise: Promise<Google3DTileset> };
+    private rootRequest?: { key: string; generation: number; promise: Promise<Google3DTileset> };
     private session: string | undefined;
     private readonly externalTilesets = new Map<string, Promise<LoadedTileset>>();
+    private readonly externalTilesetDemand = new Map<string, Set<{ generation: number; wanted?: () => boolean }>>();
     private readonly dirtyCoverageEntries = new Set<string>();
     private readonly loadedTiles = new ChangedTileMap<LoadedGoogle3DTile>(url => {
         this.dirtyCoverageEntries.add(url);
@@ -320,6 +345,7 @@ export default class Google3DTiles {
     private attributionCache: string[] = [];
     private pendingModels = new Map<string, { generation: number; request: Promise<LoadedGoogle3DTile | undefined> }>();
     private readonly unusableModelURLs = new Set<string>();
+    private readonly prefetchModels = new Set<string>();
     private activeModelFetches = new Map<string, { selection: TileSelection; controller: AbortController }>();
     private lastModelAbortEye?: Vector3;
     private selectionEye?: Vector3;
@@ -348,13 +374,16 @@ export default class Google3DTiles {
     };
     private modelDecodeActive = 0;
     private modelDecodeWaiters: Array<{ priority: () => number; generation: number;
-        reuse?: () => boolean; resume: (ready: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
+        reuse?: () => boolean; wanted?: () => boolean; resume: (ready: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
     private pendingModelReuseBlocked = false;
     private pendingReuseBounds?: { revision: number; bounds: GeographicBounds };
     private loadingStage: Google3DLoadingStage = "refinement";
     private stageDetailRadius = 750;
     private stageCoverageGeometricError = 256;
-    private coverageQualityEye?: { revision: number; eye: Vector3 };
+    private stageCoverageNearGeometricError?: number;
+    private stageCoverageNearRadius = 750;
+    private coverageQualityEye?: { revision: number; eye: Vector3; east: Vector3; north: Vector3 };
+    private readonly coverageDistances = new WeakMap<Google3DBoundingVolume, { revision: number; transformFlag: number; distance: number }>();
     private loadingPhase: "idle" | "root" | "frontier" | "replacement" | "models" = "idle";
     private frontierProgress?: () => { queued: number; pending: number };
     private replacementGroupsPending = 0;
@@ -367,15 +396,15 @@ export default class Google3DTiles {
         return boundingVolumeIntersects(selection.boundingVolume, this.pendingReuseBounds.bounds, transform);
     }
 
-    private canDecodeModel(generation: number, reuse?: () => boolean): boolean {
-        return generation === this.generation || !!reuse?.();
+    private canDecodeModel(generation: number, reuse?: () => boolean, wanted?: () => boolean): boolean {
+        return generation === this.generation ? wanted?.() ?? true : !!reuse?.();
     }
 
     private drainModelDecode(): void {
         // A cancelled view must release its downloaded buffers even while both
         // decoder slots are busy with work from the previous generation.
         this.modelDecodeWaiters = this.modelDecodeWaiters.filter(waiter => {
-            if (this.canDecodeModel(waiter.generation, waiter.reuse)) return true;
+            if (this.canDecodeModel(waiter.generation, waiter.reuse, waiter.wanted)) return true;
             waiter.resume(false);
             return false;
         });
@@ -390,23 +419,23 @@ export default class Google3DTiles {
         while (this.modelDecodeActive < 2 && this.modelDecodeWaiters.length) {
             const next = this.modelDecodeWaiters.shift()!;
             this.stats.modelDecodeQueued = this.modelDecodeWaiters.length;
-            if (!this.canDecodeModel(next.generation, next.reuse)) { next.resume(false); continue; }
+            if (!this.canDecodeModel(next.generation, next.reuse, next.wanted)) { next.resume(false); continue; }
             this.modelDecodeActive++;
             next.resume(true);
         }
     }
 
     private async modelDecodeSlot<T>(work: () => Promise<T>, priority: () => number,
-        generation: number, reuse?: () => boolean): Promise<T | undefined> {
+        generation: number, reuse?: () => boolean, wanted?: () => boolean): Promise<T | undefined> {
         const ready = await new Promise<boolean>(resume => {
-            this.modelDecodeWaiters.push({ priority, generation, reuse, resume });
+            this.modelDecodeWaiters.push({ priority, generation, reuse, wanted, resume });
             this.stats.modelDecodeQueued = this.modelDecodeWaiters.length;
             this.stats.peakModelDecodeQueued = Math.max(this.stats.peakModelDecodeQueued, this.stats.modelDecodeQueued);
             this.drainModelDecode();
         });
         if (!ready) return undefined;
         try {
-            if (!this.canDecodeModel(generation, reuse)) return undefined;
+            if (!this.canDecodeModel(generation, reuse, wanted)) return undefined;
             if (generation !== this.generation) this.stats.reusedDownloadedModels++;
             return await work();
         } finally {
@@ -433,6 +462,7 @@ export default class Google3DTiles {
                 offscreenHierarchy: [] as NetworkWaiter[], offscreenModel: [] as NetworkWaiter[],
             };
             for (const waiter of this.networkWaiters) {
+                if (waiter.wanted && !waiter.wanted()) { this.cancelNetworkWaiter(waiter); continue; }
                 waiter.distance = typeof waiter.priority === "function" ? waiter.priority() : waiter.priority;
                 buckets[this.networkQueueName(waiter)].push(waiter);
             }
@@ -450,15 +480,23 @@ export default class Google3DTiles {
         this.networkPendingInsertions = [];
     }
 
+    private cancelNetworkWaiter(waiter: NetworkWaiter): void {
+        if (!this.networkWaiters.delete(waiter)) return;
+        if (waiter.kind === "hierarchy") {
+            this.networkQueuedHierarchy--; this.stats.obsoleteHierarchyRequests++;
+        } else { this.networkQueuedModel--; this.stats.obsoleteModelRequests++; }
+        waiter.resume(undefined);
+    }
+
     private drainNetwork(): void {
         if (this.networkDrainQueued) return;
         this.networkDrainQueued = true;
         queueMicrotask(() => {
             this.networkDrainQueued = false;
-            if (this.networkActive >= 48) return;
             // Reclassify on camera changes. Between turns, enqueue and dispatch
             // use heaps rather than sorting the entire backlog per free slot.
             this.rebuildNetworkQueues();
+            if (this.networkActive >= 48) return;
             const { visibleHierarchy, visibleModel, offscreenHierarchy, offscreenModel } = this.networkQueues;
             const best = (hierarchy: PriorityQueue<NetworkWaiter>, model: PriorityQueue<NetworkWaiter>) => {
                 const a = hierarchy.peek(), b = model.peek();
@@ -477,6 +515,12 @@ export default class Google3DTiles {
                     : visible ? best(visibleHierarchy, visibleModel)
                     : best(offscreenHierarchy, offscreenModel);
                 let next = queue.peek()!;
+                if (!this.networkWaiters.has(next) || next.wanted && !next.wanted()) {
+                    queue.shift();
+                    if (next.distance! >= 1e9) offscreen--; else visible--;
+                    this.cancelNetworkWaiter(next);
+                    continue;
+                }
                 if (this.usesDefaultModelLoader && next.kind === "model") {
                     const outstanding = this.networkActiveModel + this.modelDecodeActive + this.modelDecodeWaiters.length;
                     if (outstanding >= 16) {
@@ -516,15 +560,16 @@ export default class Google3DTiles {
         });
     }
     private async networkSlot<T>(work: (releaseSlot: () => void) => Promise<T>, priority: number | (() => number) = 0,
-        kind: "hierarchy" | "model" = "hierarchy"): Promise<T> {
-        const offscreen = await new Promise<boolean>(resolve => {
-            const waiter: NetworkWaiter = { priority, kind, resume: resolve,
+        kind: "hierarchy" | "model" = "hierarchy", wanted?: () => boolean): Promise<T> {
+        const offscreen = await new Promise<boolean | undefined>(resolve => {
+            const waiter: NetworkWaiter = { priority, kind, resume: resolve, wanted,
                 sequence: this.networkEnqueueSequence++ };
             this.networkWaiters.add(waiter);
             if (kind === "hierarchy") this.networkQueuedHierarchy++; else this.networkQueuedModel++;
             this.networkPendingInsertions.push(waiter);
             this.drainNetwork();
         });
+        if (offscreen === undefined) throw new DOMException("Queued Google work is no longer needed.", "AbortError");
         let released = false;
         const releaseSlot = () => {
             if (released) return;
@@ -535,7 +580,10 @@ export default class Google3DTiles {
             if (kind === "hierarchy") this.networkActiveHierarchy--; else this.networkActiveModel--;
             this.drainNetwork();
         };
-        try { return await work(releaseSlot); }
+        try {
+            if (wanted && !wanted()) throw new DOMException("Queued Google work is no longer needed.", "AbortError");
+            return await work(releaseSlot);
+        }
         finally { releaseSlot(); }
     }
 
@@ -862,7 +910,13 @@ export default class Google3DTiles {
     public cancelPendingLoad(preserveDownloadedModels = false): void {
         this.pendingModelReuseBlocked = !preserveDownloadedModels;
         this.generation++;
+        for (const waiter of this.networkWaiters) if (waiter.kind === "model" && waiter.wanted && !waiter.wanted())
+            this.cancelNetworkWaiter(waiter);
+        // A successor view can register interest in the same queued hierarchy
+        // before the next microtask. Shared JSON work remains reusable on turns.
+        this.networkQueueRevision = -1;
         this.drainModelDecode();
+        this.drainNetwork();
         for (const wake of this.movementWaiters) wake();
     }
 
@@ -903,18 +957,30 @@ export default class Google3DTiles {
         const stage = options.stage ?? "refinement";
         const detailRadius = options.detailRadius ?? 750;
         const coverageGeometricError = options.coverageGeometricError ?? 256;
+        const coverageNearRadius = options.coverageNearRadius ?? 750;
         if (!["coverage", "immediate", "refinement"].includes(stage)) throw new RangeError("Unknown Google loading stage.");
         if (!Number.isFinite(detailRadius) || detailRadius <= 0) throw new RangeError("detailRadius must be positive and finite.");
         if (!Number.isFinite(coverageGeometricError) || coverageGeometricError <= 0)
             throw new RangeError("coverageGeometricError must be positive and finite.");
+        if (!Number.isFinite(coverageNearRadius) || coverageNearRadius <= 0)
+            throw new RangeError("coverageNearRadius must be positive and finite.");
+        if (options.coverageNearGeometricError !== undefined
+            && (!Number.isFinite(options.coverageNearGeometricError) || options.coverageNearGeometricError <= 0))
+            throw new RangeError("coverageNearGeometricError must be positive and finite.");
         this.loadingStage = stage;
         this.loadingPhase = "root";
         this.stageDetailRadius = detailRadius;
         this.stageCoverageGeometricError = coverageGeometricError;
+        this.stageCoverageNearGeometricError = options.coverageNearGeometricError;
+        this.stageCoverageNearRadius = coverageNearRadius;
         const result: Google3DLoadResult = this.lastLoadResult = { stage, cancelled: false, selectedTiles: 0, loadedTiles: 0,
-            failedTiles: 0, failedModelTiles: 0, hierarchyFailures: 0, budgetLimitedTiles: 0, sourceLimitedTiles: 0,
-            sourceCoverageGaps: 0,
-            coverageComplete: false, detailComplete: false, immediateQualityComplete: false };
+            failedTiles: 0, failedModelTiles: 0, hierarchyFailures: 0, hierarchyFailureSamples: [], nearHierarchyFailures: 0, nearFailedModelTiles: 0,
+            budgetLimitedTiles: 0, sourceLimitedTiles: 0, sourceCoverageGaps: 0, nearSourceCoverageGaps: 0,
+            coverageComplete: false, coverageQualityComplete: false, coverageAvailableQualityComplete: false,
+            nearCoverageQualityComplete: false,
+            coverageQualityMissingTiles: 0, coverageNearQualityMissingTiles: 0,
+            detailComplete: false, immediateQualityComplete: false, immediateSelectedTiles: 0, immediateLoadedTiles: 0,
+            immediateQualityMissingTiles: 0, qualityLimitedSamples: [] };
         const cancelled = () => { result.cancelled = true; return [] as readonly LoadedGoogle3DTile[]; };
 
         this.selectionEye = this.cameraEye();
@@ -933,7 +999,11 @@ export default class Google3DTiles {
         this.originStateKey = originStateKey;
 
         const residentAncestors = new Set<string>();
-        for (const [url, selection] of this.loadedSelections) if (this.loadedTiles.has(url))
+        const residentDetails = this.indexLoadedDescendants();
+        const currentCoverage = this.getTileSetBounds();
+        for (const [url, selection] of this.loadedSelections) if (this.loadedTiles.has(url)
+            && boundingVolumeIntersects(selection.boundingVolume, currentCoverage,
+                selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity()))
             for (const ancestor of selection.ancestors ?? []) residentAncestors.add(ancestor);
         // The new view can use prefetched coverage before hierarchy traversal
         // finishes. Keep it visible until the selected finer subtree commits.
@@ -992,11 +1062,8 @@ export default class Google3DTiles {
                     this.coverageKey = ""; this.coverageVersion++;
                     break;
                 }
-                if (residentAncestors.has(selection.url) && selection.geometricError !== undefined
-                    && (this.usesCoverageQuality(selection.boundingVolume,
-                        selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity())
-                        || selection.geometricError > this.allowedGeometricError(selection.boundingVolume,
-                            selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity()))) return;
+                if (residentAncestors.has(selection.url) && this.preserveResidentDetail(selection,
+                    (residentDetails.get(selection.url) ?? []).map(([, previous]) => previous))) return;
                 const overlapsExisting = selection.ancestors?.some(url => this.loadedTiles.has(url))
                     || residentAncestors.has(selection.url);
                 // New, disjoint coverage can appear immediately. Overlapping
@@ -1074,9 +1141,51 @@ export default class Google3DTiles {
             && !result.sourceCoverageGaps;
         result.detailComplete = result.coverageComplete && !result.failedModelTiles
             && !result.budgetLimitedTiles && !result.sourceLimitedTiles;
-        result.immediateQualityComplete = stage === "immediate" && result.coverageComplete
-            && !result.failedModelTiles && !result.budgetLimitedTiles
-            && Array.from(desiredTiles.values()).every(selection => this.acceptableDisplayQuality(selection));
+        if (stage === "coverage") for (const selection of desiredTiles.values()) {
+            const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+            if (!this.loadedTiles.has(selection.url) || selection.geometricError !== undefined
+                && selection.geometricError > this.coverageGeometricError(selection.boundingVolume, transform)) {
+                result.coverageQualityMissingTiles++;
+                const groundDistance = this.horizontalTileDistance(selection.boundingVolume, transform,
+                    this.requestEye ?? this.selectionEye ?? this.cameraEye());
+                if (groundDistance <= this.stageCoverageNearRadius) result.coverageNearQualityMissingTiles++;
+                if (selection.geometricError !== undefined) result.qualityLimitedSamples.push({ groundDistance,
+                    geometricError: selection.geometricError, depth: selection.depth, sourceLeaf: selection.hasRefinement === false });
+            }
+        }
+        result.coverageQualityComplete = stage === "coverage" && result.coverageComplete && !result.failedModelTiles
+            && !result.coverageQualityMissingTiles && !result.budgetLimitedTiles;
+        result.nearCoverageQualityComplete = stage === "coverage" && result.coverageComplete
+            && !result.coverageNearQualityMissingTiles;
+        result.coverageAvailableQualityComplete = result.nearCoverageQualityComplete && !result.failedModelTiles
+            && !result.budgetLimitedTiles
+            && Array.from(desiredTiles.values()).every(selection => {
+                const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+                return selection.geometricError === undefined
+                    || selection.geometricError <= this.coverageGeometricError(selection.boundingVolume, transform)
+                    || selection.hasRefinement === false && this.loadedTiles.has(selection.url)
+                        && this.horizontalTileDistance(selection.boundingVolume, transform,
+                            this.requestEye ?? this.selectionEye ?? this.cameraEye()) > this.stageCoverageNearRadius;
+            });
+        if (stage === "immediate") for (const selection of desiredTiles.values()) {
+                const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+                const groundDistance = this.horizontalTileDistance(selection.boundingVolume, transform,
+                    this.requestEye ?? this.selectionEye ?? this.cameraEye());
+                if (groundDistance > this.stageDetailRadius) continue;
+                result.immediateSelectedTiles++;
+                if (this.loadedTiles.has(selection.url)) result.immediateLoadedTiles++;
+                if (!this.loadedTiles.has(selection.url) || !this.acceptableDisplayQuality(selection)
+                    || selection.geometricError !== undefined && selection.geometricError > (this.stageCoverageNearGeometricError ?? Infinity)) {
+                    result.immediateQualityMissingTiles++;
+                    if (selection.geometricError !== undefined) result.qualityLimitedSamples.push({ groundDistance,
+                        geometricError: selection.geometricError, depth: selection.depth, sourceLeaf: selection.hasRefinement === false });
+                }
+        }
+        result.qualityLimitedSamples.sort((a, b) => a.groundDistance - b.groundDistance);
+        result.qualityLimitedSamples.length = Math.min(8, result.qualityLimitedSamples.length);
+        result.immediateQualityComplete = stage === "immediate" && result.immediateSelectedTiles > 0
+            && !result.immediateQualityMissingTiles && !result.nearFailedModelTiles && !result.nearHierarchyFailures
+            && !result.nearSourceCoverageGaps && !result.budgetLimitedTiles;
         this.loadingPhase = "idle";
         return this.loadedModelTiles;
     }
@@ -1085,16 +1194,50 @@ export default class Google3DTiles {
         eye = this.requestEye ?? this.selectionEye ?? this.cameraEye()): boolean {
         if (this.loadingStage === "coverage") return true;
         if (this.loadingStage !== "immediate") return false;
-        // The immediate radius describes ground coverage, independent of camera altitude.
-        if (this.tileSet.isGlobe) {
-            if (this.coverageQualityEye?.revision !== this.requestPriorityRevision) {
-                const scale = Math.sqrt((eye.x * eye.x + eye.y * eye.y) / WGS84_SEMI_MAJOR_AXIS ** 2
-                    + eye.z * eye.z / (WGS84_SEMI_MAJOR_AXIS ** 2 * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED)));
-                this.coverageQualityEye = { revision: this.requestPriorityRevision, eye: scale > 0 ? eye.scale(1 / scale) : eye };
-            }
-            eye = this.coverageQualityEye.eye;
+        return this.horizontalTileDistance(volume, transform, eye) > this.stageDetailRadius;
+    }
+
+    private coverageGeometricError(volume: Google3DBoundingVolume | undefined, transform: Matrix,
+        eye = this.requestEye ?? this.selectionEye ?? this.cameraEye()): number {
+        return this.stageCoverageNearGeometricError !== undefined
+            && this.horizontalTileDistance(volume, transform, eye) <= this.stageCoverageNearRadius
+            ? Math.min(this.stageCoverageGeometricError, this.stageCoverageNearGeometricError) : this.stageCoverageGeometricError;
+    }
+
+    private horizontalTileDistance(volume: Google3DBoundingVolume | undefined, transform: Matrix, eye: Vector3): number {
+        if (!this.tileSet.isGlobe) return this.tilePriority(volume, transform, eye);
+        if (!volume) return 0;
+        if (this.coverageQualityEye?.revision !== this.requestPriorityRevision) {
+            const scale = Math.sqrt((eye.x * eye.x + eye.y * eye.y) / WGS84_SEMI_MAJOR_AXIS ** 2
+                + eye.z * eye.z / (WGS84_SEMI_MAJOR_AXIS ** 2 * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED)));
+            const ground = scale > 0 ? eye.scale(1 / scale) : eye;
+            const east = new Vector3(-ground.y, ground.x, 0).normalize();
+            if (!east.lengthSquared()) east.set(0, 1, 0);
+            const up = new Vector3(ground.x, ground.y, ground.z / (1 - WGS84_FIRST_ECCENTRICITY_SQUARED)).normalize();
+            this.coverageQualityEye = { revision: this.requestPriorityRevision, eye: ground, east,
+                north: Vector3.Cross(up, east).normalize() };
         }
-        return this.tilePriority(volume, transform, eye) > this.stageDetailRadius;
+        let cached = this.coverageDistances.get(volume);
+        if (!cached || cached.revision !== this.requestPriorityRevision || cached.transformFlag !== transform.updateFlag) {
+            const frame = this.coverageQualityEye;
+            cached = { revision: this.requestPriorityRevision, transformFlag: transform.updateFlag,
+                distance: horizontalBoundsDistance(volume, transform, frame.eye, frame.east, frame.north) };
+            this.coverageDistances.set(volume, cached);
+        }
+        return cached.distance;
+    }
+
+    private preserveResidentDetail(selection: TileSelection, descendants: TileSelection[]): boolean {
+        const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+        if (this.loadingStage !== "refinement" || selection.geometricError === undefined
+            || selection.geometricError > this.allowedGeometricError(selection.boundingVolume, transform)) return true;
+        const bounds = this.getTileSetBounds();
+        return descendants.some(previous => {
+            const previousTransform = previous.transform ? Matrix.FromArray(previous.transform) : Matrix.Identity();
+            return boundingVolumeIntersects(previous.boundingVolume, bounds, previousTransform)
+                && this.horizontalTileDistance(previous.boundingVolume, previousTransform,
+                    this.requestEye ?? this.selectionEye ?? this.cameraEye()) <= this.stageDetailRadius;
+        });
     }
 
     private acceptableDisplayQuality(selection: TileSelection): boolean {
@@ -1208,7 +1351,9 @@ export default class Google3DTiles {
             const selection = sector.shift();
             if (!selection || models >= 512) continue;
             models++;
-            requests.push(this.loadTile(selection, origin, generation, false).catch(() => undefined));
+            this.prefetchModels.add(selection.url);
+            requests.push(this.loadTile(selection, origin, generation, false).catch(() => undefined)
+                .finally(() => this.prefetchModels.delete(selection.url)));
         }
         await Promise.all(requests);
         this.trimRetainedTiles();
@@ -1221,9 +1366,7 @@ export default class Google3DTiles {
 
     /** Disposes loaded GLB assets and clears the provider's request caches. */
     public dispose(): void {
-        this.pendingModelReuseBlocked = true;
-        ++this.generation;
-        this.drainModelDecode();
+        this.cancelPendingLoad();
         this.tileSet.ourAttribution.setGoogleAttributions?.([]);
         this.desiredTiles.clear();
         this.disposeLoadedTiles();
@@ -1303,13 +1446,23 @@ export default class Google3DTiles {
         let request = this.rootRequest;
         if (!request || request.key !== requestKey) {
             this.stats.hierarchyRequests++;
-            request = { key: requestKey, promise: this.tilesetLoader(rootUrl) };
+            request = { key: requestKey, generation, promise: this.requestTileset(rootUrl,
+                () => this.rootRequest?.key === requestKey && this.rootRequest.generation === this.generation) };
             this.rootRequest = request;
         }
+        request.generation = generation;
         let tileset: Google3DTileset;
         try { tileset = await request.promise; }
         catch (error) {
             if (this.rootRequest === request) this.rootRequest = undefined;
+            if (generation !== this.generation) return;
+            if (!(error instanceof DOMException && error.name === "AbortError")) {
+                this.recordHierarchyFailure(error);
+                if (this.lastLoadResult) {
+                    this.lastLoadResult.hierarchyFailures++;
+                    this.lastLoadResult.nearHierarchyFailures++;
+                }
+            }
             throw error;
         }
         if (generation !== this.generation || this.rootRequest !== request) return;
@@ -1322,6 +1475,21 @@ export default class Google3DTiles {
         this.rootRequest = undefined;
         this.session = undefined;
         this.externalTilesets.clear();
+    }
+
+    private requestTileset(url: string, wanted?: () => boolean): Promise<Google3DTileset> {
+        return this.tilesetLoader === defaultTilesetLoader ? defaultTilesetLoader(url, wanted, () => {
+            this.stats.hierarchyRequests++;
+            this.stats.hierarchyRetries++;
+        }) : this.tilesetLoader(url);
+    }
+
+    private recordHierarchyFailure(error: unknown): void {
+        if (!this.lastLoadResult || this.lastLoadResult.hierarchyFailureSamples.length >= 8
+            || error instanceof DOMException && error.name === "AbortError") return;
+        this.lastLoadResult.hierarchyFailureSamples.push(error instanceof NativeTilesetRequestError
+            ? { type: error.type, status: error.status, attempts: error.attempts }
+            : { type: "loader", attempts: 1 });
     }
 
     private authenticateURL(
@@ -1340,33 +1508,44 @@ export default class Google3DTiles {
         return url.toString();
     }
 
-    private async loadExternalTileset(uri: string, baseUrl: string, priority: number | (() => number) = 0, generation = this.generation): Promise<LoadedTileset> {
+    private async loadExternalTileset(uri: string, baseUrl: string, priority: number | (() => number) = 0,
+        generation = this.generation, wanted?: () => boolean): Promise<LoadedTileset> {
         const url = this.authenticateURL(uri, baseUrl);
+        const interest = { generation, wanted };
+        const interests = this.externalTilesetDemand.get(url) ?? new Set<typeof interest>();
+        interests.add(interest); this.externalTilesetDemand.set(url, interests);
+        const release = () => {
+            interests.delete(interest);
+            if (!interests.size && this.externalTilesetDemand.get(url) === interests) this.externalTilesetDemand.delete(url);
+        };
         const cached = this.externalTilesets.get(url);
         if (cached) {
             return cached.catch(error => {
-                if (generation === this.generation && error instanceof DOMException && error.name === "AbortError")
-                    return this.loadExternalTileset(uri, baseUrl, priority, generation);
+                if (generation === this.generation && (wanted?.() ?? true) && error instanceof DOMException && error.name === "AbortError")
+                    return this.loadExternalTileset(uri, baseUrl, priority, generation, wanted);
                 throw error;
-            });
+            }).finally(release);
         }
 
         // Keep queued hierarchy fetches across camera generations. Their
         // priority follows the current eye, and a later selection reuses the
         // same promise instead of requesting the same subtree again on turns.
+        const needed = () => [...interests].some(entry => entry.generation === this.generation
+            && (entry.wanted?.() ?? true));
         const request = this.networkSlot(() => {
-            this.stats.hierarchyRequests++; return this.tilesetLoader(url);
-        }, priority).then((tileset) => {
+            this.stats.hierarchyRequests++; return this.requestTileset(url, needed);
+        }, priority, "hierarchy", needed).then((tileset) => {
             if (!tileset || !tileset.root) {
                 throw new Error("Google 3D Tiles response did not contain a root tile.");
             }
             return { tileset, url };
         }).catch((error) => {
             this.externalTilesets.delete(url);
+            if (needed()) this.recordHierarchyFailure(error);
             throw error;
         });
         this.externalTilesets.set(url, request);
-        return request;
+        return request.finally(release);
     }
 
     private cameraEye(): Vector3 {
@@ -1432,7 +1611,7 @@ export default class Google3DTiles {
 
     private allowedGeometricError(volume: Google3DBoundingVolume | undefined, transform: Matrix,
         surroundings = false, eye = this.selectionEye ?? this.cameraEye(), forPriority = false): number {
-        if (!surroundings && this.usesCoverageQuality(volume, transform, eye)) return this.stageCoverageGeometricError;
+        if (!surroundings && this.usesCoverageQuality(volume, transform, eye)) return this.coverageGeometricError(volume, transform, eye);
         const camera = this.tileSet.scene.activeCamera;
         if (!this.maximumScreenSpaceError || !this.tileSet.isGlobe || !camera || !volume) return this.maximumGeometricError;
         const globe = this.tileSet as GlobeSet;
@@ -1525,7 +1704,8 @@ export default class Google3DTiles {
             this.maximumScreenSpaceError, this.maximumDisplayGeometricError, this.cullToCamera,
             this.fullRadiusDemand, this.referenceImageHeight, this.referenceFovY,
             this.maximumGeometricError, this.originStateKey, this.rootRequestKey, surroundings, this.coverageRegion,
-            this.loadingStage, this.stageDetailRadius, this.stageCoverageGeometricError]);
+            this.loadingStage, this.stageDetailRadius, this.stageCoverageGeometricError,
+            this.stageCoverageNearGeometricError, this.stageCoverageNearRadius]);
         if (this.frontierCache?.key === key) {
             this.stats.frontierTraversalMs = 0;
             this.stats.frontierCommitMs = 0;
@@ -1544,8 +1724,9 @@ export default class Google3DTiles {
         let hierarchyFailed = false;
         const frontierStarted = performance.now();
         const workBudget = SceneWorkBudget.forScene(this.tileSet.scene);
+        let liveFrontier: Set<FrontierTile> | undefined;
         const firstContent = async (tile: Google3DTile, responseUrl: string, depth: number,
-            parentTransform: Matrix, parentRefine: string, ancestors: string[] = [], onGap?: () => void): Promise<FrontierTile[]> => {
+            parentTransform: Matrix, parentRefine: string, ancestors: string[] = [], onGap?: (near: boolean) => void): Promise<FrontierTile[]> => {
             if (generation !== this.generation || depth > this.maxDepth) return [];
             const transform = getTileTransform(tile)?.multiply(parentTransform) ?? parentTransform;
             if (!boundingVolumeIntersects(tile.boundingVolume, bounds, transform)) return [];
@@ -1573,19 +1754,27 @@ export default class Google3DTiles {
             const node: FrontierTile = { tile, responseUrl, depth, transform, refine, selections, ancestors,
                 priority: (tile.geometricError ?? Infinity) / Math.max(allowed, 1e-12), offscreen };
             if (selections.length) return [node];
-            const gap = () => {
-                if (onGap) onGap();
-                else if (!surroundings && generation === this.generation && this.lastLoadResult)
+            const gap = (near: boolean) => {
+                if (onGap) onGap(near);
+                else if (!surroundings && generation === this.generation && this.lastLoadResult) {
                     this.lastLoadResult.sourceCoverageGaps++;
+                    if (near) this.lastLoadResult.nearSourceCoverageGaps++;
+                }
             };
-            if (depth >= this.maxDepth || !hasRefinement) { gap(); return []; }
+            if (depth >= this.maxDepth || !hasRefinement) {
+                // Empty external roots can be structural placeholders. An explicit
+                // source error distinguishes unavailable source content from them.
+                if (tile.geometricError !== undefined) gap(this.horizontalTileDistance(tile.boundingVolume, transform,
+                    this.requestEye ?? this.selectionEye ?? this.cameraEye()) <= this.stageDetailRadius);
+                return [];
+            }
             const next = await children(node);
-            if (node.incompleteChildren) gap();
+            if (node.incompleteChildren) gap(!!node.incompleteChildrenNear);
             return next;
         };
         const children = async (node: FrontierTile): Promise<FrontierTile[]> => {
             if (node.depth >= this.maxDepth) return [];
-            const missingContent = () => { node.incompleteChildren = true; };
+            const missingContent = (near: boolean) => { node.incompleteChildren = true; node.incompleteChildrenNear ||= near; };
             const branches = (node.tile.children ?? []).map(child => firstContent({
                 ...child,
                 boundingVolume: child.boundingVolume ?? node.tile.boundingVolume,
@@ -1596,15 +1785,33 @@ export default class Google3DTiles {
             for (const content of getTileContents(node.tile).filter(isTilesetContent)) {
                 branches.push(this.loadExternalTileset(getContentURI(content), node.responseUrl,
                     () => this.requestPriority(node.tile.boundingVolume, node.transform, node.tile.geometricError,
-                        node.ancestors.some(url => this.loadedTiles.has(url))), generation).then(external => firstContent(external.tileset.root,
+                        node.ancestors.some(url => this.loadedTiles.has(url))), generation,
+                    () => generation === this.generation && boundingVolumeIntersects(node.tile.boundingVolume, bounds, node.transform)
+                        && (!liveFrontier || !node.selections.length || liveFrontier.has(node) || seedPending.has(node)))
+                    .then(external => firstContent(external.tileset.root,
                         external.url, node.depth + 1, node.transform, node.refine,
                         node.ancestors.concat(node.selections.map(selection => selection.url)), missingContent)));
             }
             return (await Promise.all(branches)).reduce((all, branch) => all.concat(branch), [] as FrontierTile[]);
         };
-        const initial = await firstContent(this.rootTileset!.root, this.getRootTilesetURL(), 0, Matrix.Identity(), "REPLACE");
+        let initial: FrontierTile[];
+        try { initial = await firstContent(this.rootTileset!.root, this.getRootTilesetURL(), 0, Matrix.Identity(), "REPLACE"); }
+        catch (error) { if (generation !== this.generation) return; throw error; }
         const frontier = new Set(initial);
+        liveFrontier = frontier;
+        const protectedResidentAncestors = new Set<string>();
+        if (!surroundings) for (const [url, selection] of this.loadedSelections) {
+            const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+            if (this.loadedTiles.has(url) && boundingVolumeIntersects(selection.boundingVolume, bounds, transform)
+                && this.horizontalTileDistance(selection.boundingVolume, transform,
+                    this.requestEye ?? this.selectionEye ?? this.cameraEye()) <= this.stageDetailRadius)
+                for (const ancestor of selection.ancestors ?? []) protectedResidentAncestors.add(ancestor);
+        }
+        const fallbackFrontier = new Set<FrontierTile>();
+        let fallbackCount = 0;
+        let boundsRevision = 0;
         let count = initial.reduce((sum, node) => sum + node.selections.length, 0);
+        const coverageReserveBudget = Math.min(budget, count);
         if (count > budget) throw new Error("The first renderable Google tile level exceeds the configured tile budget.");
         let preferCoverage = false;
         const settled = new Set<FrontierTile>();
@@ -1700,30 +1907,8 @@ export default class Google3DTiles {
         const queue = new PriorityQueue<FrontierTile>(compare);
         initial.forEach(node => queue.push(node));
         let queueRevision = this.requestPriorityRevision;
-        type Expansion = { kind: "expand" | "seed"; node: FrontierTile; next: FrontierTile[] | undefined };
+        type Expansion = { kind: "expand" | "seed"; node: FrontierTile; next: FrontierTile[] | undefined; boundsRevision: number };
         const pending = new Map<FrontierTile, Promise<Expansion>>();
-        let evictions = new PriorityQueue<FrontierTile>((a, b) => compare(b, a));
-        const evictionQueued = new Set<FrontierTile>();
-        const offerEviction = (node: FrontierTile) => {
-            if (frontier.has(node) && !evictionQueued.has(node)) {
-                evictions.push(node); evictionQueued.add(node);
-            }
-        };
-        const rebuildEvictions = () => {
-            evictions = new PriorityQueue<FrontierTile>((a, b) => compare(b, a));
-            evictionQueued.clear();
-            for (const node of frontier) offerEviction(node);
-        };
-        const takeWorst = (): FrontierTile | undefined => {
-            while (evictions.length) {
-                const node = evictions.shift()!;
-                evictionQueued.delete(node);
-                if (frontier.has(node) && node.refine !== "ADD" && !pending.has(node)
-                    && priority(node).background) return node;
-            }
-            return undefined;
-        };
-        initial.forEach(offerEviction);
         const seedQueue = new PriorityQueue<FrontierTile>(compare);
         const seedPending = new Map<FrontierTile, Promise<Expansion>>();
         let rootSeed: Promise<FrontierTile[]> | undefined;
@@ -1748,12 +1933,12 @@ export default class Google3DTiles {
                 queueRevision = this.requestPriorityRevision;
                 queue.rebuild();
                 seedQueue.rebuild();
-                rebuildEvictions();
             }
             const eye = this.requestEye ?? this.selectionEye ?? this.cameraEye();
             if (!surroundings && coverageRadius
                 && Vector3.Distance(eye, seededAt) >= 250) {
                 bounds = this.getTileSetBounds(coverageRadius);
+                boundsRevision++;
                 recordCenter();
                 seededAt = eye.clone();
                 reseeded = true;
@@ -1783,10 +1968,11 @@ export default class Google3DTiles {
                     this.coverageKey = ""; this.coverageVersion++;
                     this.updateAttribution();
                 }
-                for (const node of frontier) {
+                for (const node of [...frontier, ...fallbackFrontier]) {
                     if (boundingVolumeIntersects(node.tile.boundingVolume, bounds, node.transform)) continue;
-                    frontier.delete(node); track(node, false);
-                    count -= node.selections.length;
+                    if (frontier.delete(node)) count -= node.selections.length;
+                    if (fallbackFrontier.delete(node)) fallbackCount -= node.selections.length;
+                    track(node, false);
                     settled.delete(node);
                     for (const selection of node.selections) {
                         activeURLs.delete(selection.url);
@@ -1794,33 +1980,15 @@ export default class Google3DTiles {
                     }
                 }
                 representedURLs.clear();
-                for (const node of frontier) for (const selection of node.selections) {
+                for (const node of [...frontier, ...fallbackFrontier]) for (const selection of node.selections) {
                     representedURLs.add(selection.url);
                     for (const ancestor of selection.ancestors ?? []) representedURLs.add(ancestor);
                 }
                 rootSeed = firstContent(this.rootTileset!.root, this.getRootTilesetURL(),
                     0, Matrix.Identity(), "REPLACE").catch(() => []);
             }
-            if (count >= budget && queue.length) {
-                const scanStarted = performance.now();
-                const worstResident = takeWorst();
-                if (worstResident) offerEviction(worstResident);
-                const refinable: FrontierTile[] = [];
-                // Yielding every 32 items stalls each budgeted expansion for
-                // a render frame, though a complete scan is normally sub-ms.
-                while (queue.length) {
-                    const node = queue.shift()!;
-                    if (!frontier.has(node)) continue;
-                    if (worstResident && node !== worstResident && compare(node, worstResident) < 0)
-                        refinable.push(node);
-                    else settle(node, true);
-                }
-                refinable.forEach(node => queue.push(node));
-                this.stats.frontierBudgetScanMs += performance.now() - scanStarted;
-                this.stats.frontierBudgetScanCount++;
-            }
             const coverage = count >= Math.min(128, budget / 4);
-            if (coverage !== preferCoverage) { preferCoverage = coverage; queue.rebuild(); rebuildEvictions(); }
+            if (coverage !== preferCoverage) { preferCoverage = coverage; queue.rebuild(); }
             while (seedQueue.length && pending.size + seedPending.size < pendingLimit) {
                 const node = seedQueue.shift()!;
                 const pause = workBudget.checkpoint(() => priority(node).distance, 0);
@@ -1829,26 +1997,21 @@ export default class Google3DTiles {
                 if (!boundingVolumeIntersects(node.tile.boundingVolume, bounds, node.transform)) continue;
                 const url = node.selections[0]?.url;
                 if (!url) continue;
+                // A seed reaching an active frontier member is already represented.
+                // Descending it again would admit both that parent and new children.
+                if (activeURLs.has(url)) continue;
                 if (representedURLs.has(url)) {
-                    seedPending.set(node, children(node).then(next => ({ kind: "seed", node, next }),
-                        () => ({ kind: "seed", node, next: undefined })));
+                    const revision = boundsRevision;
+                    seedPending.set(node, children(node).then(next => ({ kind: "seed", node, next, boundsRevision: revision }),
+                        () => ({ kind: "seed", node, next: undefined, boundsRevision: revision })));
                     continue;
                 }
                 if (count + node.selections.length > budget) {
-                    // Resident far coverage remains drawn even when its demand
-                    // slot is given to a newly entered, more urgent branch.
-                    const victim = takeWorst();
-                    if (victim) offerEviction(victim);
-                    if (!victim || compare(node, victim) >= 0
-                        || count - victim.selections.length + node.selections.length > budget) continue;
-                    frontier.delete(victim); track(victim, false); settled.delete(victim);
-                    count -= victim.selections.length;
-                    for (const selection of victim.selections) {
-                        activeURLs.delete(selection.url);
-                        desired.delete(selection.url);
-                    }
+                    // Evicting a demanded sibling would turn a complete replacement
+                    // group into partial coverage. Keep the current frontier intact.
+                    continue;
                 }
-                frontier.add(node); offerEviction(node); track(node, true); count += node.selections.length;
+                frontier.add(node); track(node, true); count += node.selections.length;
                 for (const selection of node.selections) {
                     activeURLs.add(selection.url);
                     representedURLs.add(selection.url);
@@ -1860,9 +2023,11 @@ export default class Google3DTiles {
                 const node = queue.shift()!;
                 if (!frontier.has(node)) continue;
                 // A tile that meets SSE may still be too coarse to display.
-                if (node.priority <= 1 && renderable(node)) { settle(node); continue; }
-                pending.set(node, children(node).then(next => ({ kind: "expand", node, next }),
-                    () => ({ kind: "expand", node, next: undefined })));
+                if (node.priority <= 1 && renderable(node)
+                    && !node.selections.some(selection => protectedResidentAncestors.has(selection.url))) { settle(node); continue; }
+                const revision = boundsRevision;
+                pending.set(node, children(node).then(next => ({ kind: "expand", node, next, boundsRevision: revision }),
+                    () => ({ kind: "expand", node, next: undefined, boundsRevision: revision })));
             }
             flushReplacements();
             if (!pending.size && !seedPending.size && !rootSeed) continue;
@@ -1887,14 +2052,26 @@ export default class Google3DTiles {
             const { node, next } = result;
             if (result.kind === "seed") {
                 seedPending.delete(node);
+                if (result.boundsRevision !== boundsRevision) { enqueueSeed(node); continue; }
                 if (next) next.forEach(enqueueSeed);
-                else hierarchyFailed = true;
+                else {
+                    hierarchyFailed = true;
+                    if (!surroundings && this.lastLoadResult && this.horizontalTileDistance(node.tile.boundingVolume,
+                        node.transform, this.requestEye ?? this.selectionEye ?? this.cameraEye()) <= this.stageDetailRadius)
+                        this.lastLoadResult.nearHierarchyFailures++;
+                }
                 continue;
             }
             pending.delete(node);
-            offerEviction(node);
             if (!frontier.has(node)) continue;
-            if (!next) { hierarchyFailed = true; settle(node, true); continue; }
+            if (result.boundsRevision !== boundsRevision) { node.incompleteChildren = false; queue.push(node); continue; }
+            if (!next) {
+                hierarchyFailed = true;
+                if (!surroundings && this.lastLoadResult && this.horizontalTileDistance(node.tile.boundingVolume,
+                    node.transform, this.requestEye ?? this.selectionEye ?? this.cameraEye()) <= this.stageDetailRadius)
+                    this.lastLoadResult.nearHierarchyFailures++;
+                settle(node, true); continue;
+            }
             // A contentless sibling is a real source gap. Keep the complete parent
             // instead of replacing it with only the children that happened to exist.
             if (node.incompleteChildren) { settle(node, true); continue; }
@@ -1917,32 +2094,23 @@ export default class Google3DTiles {
                     continue;
                 }
                 if (count + extra > budget) {
-                    const scanStarted = performance.now();
-                    let freed = 0;
-                    const chosen: FrontierTile[] = [];
-                    const inspected: FrontierTile[] = [];
-                    while (count + extra - freed > budget) {
-                        const victim = takeWorst();
-                        if (!victim) break;
-                        inspected.push(victim);
-                        if (victim === node) continue;
-                        if (compare(node, victim) >= 0) break;
-                        chosen.push(victim);
-                        freed += victim.selections.length;
-                    }
-                    this.stats.frontierBudgetScanMs += performance.now() - scanStarted;
-                    this.stats.frontierBudgetScanCount++;
-                    if (count + extra - freed > budget) inspected.forEach(offerEviction);
-                    else inspected.filter(victim => !chosen.includes(victim)).forEach(offerEviction);
-                    if (count + extra - freed > budget) { settle(node, true); continue; }
-                    for (const victim of chosen) {
-                        frontier.delete(victim); track(victim, false); settled.delete(victim);
+                    // A settled, offscreen branch may become a coverage-only
+                    // fallback once. Keep it in live demand and replacement groups
+                    // so making room for near detail never removes a sibling.
+                    const candidates = fallbackCount >= coverageReserveBudget ? [] : [...frontier].filter(victim => victim !== node && settled.has(victim)
+                        && victim.refine !== "ADD" && !pending.has(victim) && priority(victim).background
+                        && compare(node, victim) < 0).sort((a, b) => compare(b, a));
+                    for (const victim of candidates) {
+                        if (count + extra <= budget || fallbackCount + victim.selections.length > coverageReserveBudget) break;
+                        frontier.delete(victim); fallbackFrontier.add(victim);
+                        fallbackCount += victim.selections.length;
                         count -= victim.selections.length;
-                        for (const selection of victim.selections) {
-                            activeURLs.delete(selection.url);
-                            desired.delete(selection.url);
-                        }
                     }
+                    // Once a frontier member settles, its GLB is useful coverage.
+                    // Preserve it instead of repeatedly evicting settled siblings,
+                    // downloading their replacements, and retaining both histories.
+                    this.stats.frontierBudgetScanCount++;
+                    if (count + extra > budget) { settle(node, true); continue; }
                 }
                 if (node.refine !== "ADD") {
                     frontier.delete(node); track(node, false);
@@ -1956,7 +2124,7 @@ export default class Google3DTiles {
                 }
                 else settle(node);
                 next.forEach(child => {
-                    frontier.add(child); offerEviction(child); track(child, true); queue.push(child);
+                    frontier.add(child); track(child, true); queue.push(child);
                     for (const selection of child.selections) {
                         activeURLs.add(selection.url);
                         representedURLs.add(selection.url);
@@ -1982,14 +2150,14 @@ export default class Google3DTiles {
             this.stats.visibleSourceLimitedTiles = 0;
             this.stats.offscreenSourceLimitedTiles = 0;
             const eye = this.requestEye ?? this.selectionEye ?? this.cameraEye();
-            for (const node of frontier) {
+            for (const node of [...frontier, ...fallbackFrontier]) {
                 if (node.priority <= 1) continue;
                 if (this.loadingStage === "immediate" && this.usesCoverageQuality(node.tile.boundingVolume, node.transform)) continue;
                 const external = getTileContents(node.tile).some(isTilesetContent);
                 const hasChildren = !!node.tile.children?.length;
                 const offscreen = this.cullToCamera && this.allowedGeometricError(
                     node.tile.boundingVolume, node.transform, false, eye, true) < 0;
-                if (!node.incompleteChildren && node.depth < this.maxDepth && (hasChildren || external)) {
+                if (!node.incompleteChildren && (hasChildren || external)) {
                     this.stats.detailLimitedTiles++;
                     if (offscreen) this.stats.offscreenDetailLimitedTiles++;
                     else this.stats.visibleDetailLimitedTiles++;
@@ -2004,7 +2172,8 @@ export default class Google3DTiles {
         // fallback promotion can leave obsolete demands behind; only the final
         // frontier is authoritative for replacement and stage completion.
         desired.clear();
-        for (const node of frontier) if (renderable(node)) for (const selection of node.selections) desired.set(selection.url, selection);
+        for (const node of [...frontier, ...fallbackFrontier]) if (renderable(node))
+            for (const selection of node.selections) desired.set(selection.url, selection);
         if (reseeded) for (const [url, selection] of desired) {
             const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
             if (!boundingVolumeIntersects(selection.boundingVolume, bounds, transform)) desired.delete(url);
@@ -2149,12 +2318,13 @@ export default class Google3DTiles {
         descendants = this.indexLoadedDescendants()): Promise<void> {
         const groups = new Map<string, { next: TileSelection[]; previous: Set<string> }>();
         for (const selection of Array.from(desired.values())) {
-            const finerVisible = (descendants.get(selection.url) ?? []).filter(([url]) => this.loadedTiles.has(url));
-            const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
-            if (finerVisible.length && selection.geometricError !== undefined
-                && (this.usesCoverageQuality(selection.boundingVolume, transform)
-                    || selection.geometricError > this.allowedGeometricError(selection.boundingVolume, transform))) {
-                // The budget is not permission to visibly coarsen resident detail.
+            const coverage = this.getTileSetBounds();
+            const finerVisible = (descendants.get(selection.url) ?? []).filter(([url, previous]) => this.loadedTiles.has(url)
+                && boundingVolumeIntersects(previous.boundingVolume, coverage,
+                    previous.transform ? Matrix.FromArray(previous.transform) : Matrix.Identity()));
+            if (finerVisible.length && this.preserveResidentDetail(selection, finerVisible.map(([, previous]) => previous))) {
+                // A relaxed far-detail target may reuse existing fine models, but
+                // cannot replace them with a coarser parent that now meets SSE.
                 desired.delete(selection.url);
                 for (const [url, old] of finerVisible) desired.set(url, old);
                 continue;
@@ -2174,7 +2344,7 @@ export default class Google3DTiles {
             if (generation !== this.generation) return;
             // Traversal can replace this demand while models are still
             // decoding. An obsolete partial batch cannot replace coverage.
-            if (group.next.some(selection => !desired.has(selection.url))) return;
+            if (group.next.some(selection => !desired.has(selection.url) || !this.desiredTiles.has(selection.url))) return;
             if (models.some(model => !model)) {
                 // Failed refinement must not remove valid coverage.
                 for (const url of group.previous) {
@@ -2226,6 +2396,15 @@ export default class Google3DTiles {
         return request;
     }
 
+    private recordModelFailure(selection: TileSelection): void {
+        if (!this.lastLoadResult) return;
+        this.lastLoadResult.failedModelTiles++;
+        if (this.horizontalTileDistance(selection.boundingVolume,
+            selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity(),
+            this.requestEye ?? this.selectionEye ?? this.cameraEye()) <= this.stageDetailRadius)
+            this.lastLoadResult.nearFailedModelTiles++;
+    }
+
     private async loadTileAsset(
         selection: TileSelection,
         origin: Google3DTilesOrigin,
@@ -2257,8 +2436,12 @@ export default class Google3DTiles {
         const priority = () => this.requestPriority(selection.boundingVolume,
             selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity(), selection.geometricError,
             selection.ancestors?.some(url => this.loadedTiles.has(url)) ?? false);
+        const wanted = () => generation === this.generation
+            && (this.desiredTiles.has(selection.url) || this.prefetchModels.has(selection.url));
+        let dispatched = false;
         const request = this.networkSlot(async releaseSlot => {
-            if (generation !== this.generation) return undefined;
+            if (!wanted()) return undefined;
+            dispatched = true;
             this.stats.modelRequests++;
             const controller = new AbortController();
             this.activeModelFetches.set(selection.url, { selection, controller });
@@ -2271,27 +2454,27 @@ export default class Google3DTiles {
                 return this.usesDefaultModelLoader
                     ? await defaultModelTileLoader(selection.url, this.tileSet.scene, this.stats, controller.signal,
                         fetched, work => this.modelDecodeSlot(work, priority, generation,
-                            () => this.canReusePendingModel(selection, origin)))
+                            () => this.canReusePendingModel(selection, origin), wanted))
                     : await this.modelTileLoader(selection.url, this.tileSet.scene, controller.signal);
             }
             finally {
                 if (this.activeModelFetches.get(selection.url)?.controller === controller)
                     this.activeModelFetches.delete(selection.url);
             }
-        }, priority, "model").then(async (model) => {
+        }, priority, "model", wanted).then(async (model) => {
             if (!model) {
-                if (generation === this.generation) {
+                if (wanted()) {
                     this.unusableModelURLs.add(selection.url);
-                    if (this.lastLoadResult) this.lastLoadResult.failedModelTiles++;
+                    this.recordModelFailure(selection);
                 }
                 return undefined;
             }
             if (model.renderable === false) {
-                if (generation === this.generation && this.lastLoadResult) this.lastLoadResult.failedModelTiles++;
-                if (generation === this.generation) this.unusableModelURLs.add(selection.url);
+                if (wanted()) { this.recordModelFailure(selection); this.unusableModelURLs.add(selection.url); }
                 model.asset.dispose();
                 return undefined;
             }
+            if (generation === this.generation && !wanted()) { model.asset.dispose(); return undefined; }
             const integrationStarted = performance.now();
             if (originGeneration !== this.originGeneration || this.getOriginStateKey(origin) !== this.originStateKey) {
                 model.asset.dispose();
@@ -2355,7 +2538,7 @@ export default class Google3DTiles {
             this.stats.modelIntegrationMaxMs = Math.max(this.stats.modelIntegrationMaxMs, integrationDuration);
 
             if (mipmapsReady && !await mipmapsReady) {
-                if (generation === this.generation) this.unusableModelURLs.add(selection.url);
+                if (wanted()) { this.recordModelFailure(selection); this.unusableModelURLs.add(selection.url); }
                 model.asset.dispose();
                 root.dispose();
                 return undefined;
@@ -2403,9 +2586,10 @@ export default class Google3DTiles {
             this.updateAttribution();
             return result;
         }).catch((error: unknown) => {
-            if (generation === this.generation) {
+            if (!dispatched && error instanceof DOMException && error.name === "AbortError") return undefined;
+            if (wanted()) {
                 this.unusableModelURLs.add(selection.url);
-                if (this.lastLoadResult) this.lastLoadResult.failedModelTiles++;
+                this.recordModelFailure(selection);
             }
             throw error;
         });
@@ -2597,12 +2781,38 @@ export default class Google3DTiles {
     }
 }
 
-async function defaultTilesetLoader(url: string): Promise<Google3DTileset> {
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Unable to load Google 3D Tileset (${response.status} ${response.statusText}).`);
+class NativeTilesetRequestError extends Error {
+    constructor(public readonly type: "network" | "http" | "response", public readonly status: number | undefined,
+        public readonly attempts: number) {
+        super(`Unable to load Google 3D Tileset (${type}${status === undefined ? "" : ` ${status}`}; ${attempts} attempts).`);
     }
-    return response.json() as Promise<Google3DTileset>;
+}
+
+/** Short retries recover a missing ancestor without repeating the whole frontier pass. */
+async function defaultTilesetLoader(url: string, wanted?: () => boolean, retried?: () => void): Promise<Google3DTileset> {
+    const delays = [150, 450];
+    for (let attempt = 0; ; attempt++) {
+        let response: Response | undefined;
+        try {
+            response = await fetch(url);
+            if (!response.ok) throw new NativeTilesetRequestError("http", response.status, attempt + 1);
+            const tileset = await response.json() as Google3DTileset;
+            if (!tileset?.root) throw new NativeTilesetRequestError("response", response.status, attempt + 1);
+            return tileset;
+        } catch (error) {
+            if (error instanceof DOMException && error.name === "AbortError") throw error;
+            const transient = error instanceof TypeError || error instanceof NativeTilesetRequestError
+                && error.type === "http" && error.status !== undefined
+                && (error.status === 408 || error.status === 429 || error.status >= 500 && error.status <= 599);
+            if (!transient || attempt >= delays.length) throw error instanceof NativeTilesetRequestError ? error
+                : new NativeTilesetRequestError(response ? "response" : "network", response?.status, attempt + 1);
+            if (wanted && !wanted()) throw new DOMException("Google hierarchy work is no longer needed.", "AbortError");
+            await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+            // Movement or a successor pass may remove this branch during backoff.
+            if (wanted && !wanted()) throw new DOMException("Google hierarchy work is no longer needed.", "AbortError");
+            retried?.();
+        }
+    }
 }
 
 /** Remove deep coastal photogrammetry skirts and their attached fins. */
@@ -2853,6 +3063,58 @@ function getContentURIOrUndefined(content: Google3DTileContent): string | undefi
 function isTilesetContent(content: Google3DTileContent): boolean {
     const uri = getContentURI(content).split("?", 1)[0].toLowerCase();
     return content.mimeType === "application/json" || uri.endsWith(".json");
+}
+
+/** Ground footprint distance, ignoring roof height and vertical box extent. */
+function horizontalBoundsDistance(volume: Google3DBoundingVolume, transform: Matrix,
+    eye: Vector3, east: Vector3, north: Vector3): number {
+    const project = (point: Vector3): [number, number] => {
+        const delta = point.subtract(eye);
+        return [Vector3.Dot(delta, east), Vector3.Dot(delta, north)];
+    };
+    if (volume.sphere) {
+        const center = project(Vector3.TransformCoordinates(Vector3.FromArray(volume.sphere), transform));
+        const scale = Math.max(...[Vector3.Right(), Vector3.Up(), Vector3.Forward()]
+            .map(axis => Vector3.TransformNormal(axis, transform).length()));
+        return Math.max(0, Math.hypot(...center) - volume.sphere[3] * scale);
+    }
+    const points: Array<[number, number]> = [];
+    if (volume.box) {
+        const center = Vector3.TransformCoordinates(Vector3.FromArray(volume.box), transform);
+        const axes = [3, 6, 9].map(offset => Vector3.TransformNormal(Vector3.FromArray(volume.box!, offset), transform));
+        for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1])
+            points.push(project(center.add(axes[0].scale(x)).addInPlace(axes[1].scale(y)).addInPlace(axes[2].scale(z))));
+    } else if (volume.region) {
+        const [west, south, right, top, low, high] = volume.region;
+        for (const latitude of [south, top]) for (const longitude of [west, right]) for (const height of [low, high])
+            points.push(project(geographicToECEF({ latitude: latitude / RADIANS_PER_DEGREE,
+                longitude: longitude / RADIANS_PER_DEGREE, height })));
+    } else return 0;
+    points.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cross = (a: number[], b: number[], c: number[]) =>
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    const lower: Array<[number, number]> = [], upper: Array<[number, number]> = [];
+    for (const point of points) {
+        while (lower.length > 1 && cross(lower.at(-2)!, lower.at(-1)!, point) <= 0) lower.pop();
+        lower.push(point);
+    }
+    for (let i = points.length - 1; i >= 0; i--) {
+        const point = points[i];
+        while (upper.length > 1 && cross(upper.at(-2)!, upper.at(-1)!, point) <= 0) upper.pop();
+        upper.push(point);
+    }
+    const hull = lower.slice(0, -1).concat(upper.slice(0, -1));
+    if (hull.length < 2) return Math.hypot(...(hull[0] ?? points[0]));
+    let inside = hull.length > 2, distance = Infinity;
+    for (let i = 0; i < hull.length; i++) {
+        const a = hull[i], b = hull[(i + 1) % hull.length];
+        if (cross(a, b, [0, 0]) < -1e-7) inside = false;
+        const dx = b[0] - a[0], dy = b[1] - a[1];
+        const squared = dx * dx + dy * dy;
+        const t = squared ? Math.max(0, Math.min(1, -(a[0] * dx + a[1] * dy) / squared)) : 0;
+        distance = Math.min(distance, Math.hypot(a[0] + t * dx, a[1] + t * dy));
+    }
+    return inside ? 0 : distance;
 }
 
 function boundingVolumeIntersects(
