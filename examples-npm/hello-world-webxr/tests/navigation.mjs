@@ -63,6 +63,9 @@ try {
             await page.click('#renderCanvas'); await page.mouse.move(400, 250); await page.mouse.down();
             await page.mouse.move(440, 260); await page.dispatchEvent('#renderCanvas', 'pointercancel', { pointerId: 1 });
             await settle(); const cancelled = await state(); await page.mouse.move(480, 290); await page.mouse.up(); await still(cancelled);
+            await page.click('#renderCanvas'); await page.mouse.move(400, 250); await page.mouse.down({ button: 'middle' });
+            await page.mouse.move(440, 260); await page.dispatchEvent('#renderCanvas', 'lostpointercapture', { pointerId: 1 });
+            await settle(); const lost = await state(); await page.mouse.move(480, 290); await page.mouse.up({ button: 'middle' }); await still(lost);
             await page.click('#renderCanvas'); const zoomBefore = await state(); await page.mouse.wheel(0, -100); await settle();
             assert.notDeepEqual(await state(), zoomBefore, `${mode}: wheel moves camera`);
             await page.keyboard.down(mode === 'fly' ? 'w' : 'ArrowLeft'); await settle();

@@ -137,6 +137,7 @@ export function flyControls(source: CameraHandle, canvas: HTMLCanvasElement): ()
     }, options);
     for (const name of ["pointerup", "pointercancel", "lostpointercapture", "blur"]) canvas.addEventListener(name, stop, options);
     window.addEventListener("blur", stop, options);
+    document.addEventListener("visibilitychange", stop, options);
     canvas.addEventListener("wheel", event => {
         if (!active()) return;
         event.preventDefault();
