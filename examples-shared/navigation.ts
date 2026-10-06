@@ -3,22 +3,23 @@ import type { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import type { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera";
 import type { FreeCameraMouseInput } from "@babylonjs/core/Cameras/Inputs/freeCameraMouseInput";
 import type { FreeCameraKeyboardMoveInput } from "@babylonjs/core/Cameras/Inputs/freeCameraKeyboardMoveInput";
-import type { ArcRotateCameraKeyboardMoveInput } from "@babylonjs/core/Cameras/Inputs/arcRotateCameraKeyboardMoveInput";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 
 // Examples install Babylon independently. Do not expose its nominal class types
 // across package boundaries; webpack aliases each demo to one Babylon runtime.
 type CameraHandle = Pick<Camera, "detachControl" | "getClassName">;
+export const EXPLORATION_HELP = "Right or left drag looks: drag up to look up, down to look down. WASD or arrows move/strafe. Q/E or PageDown/PageUp move down/up. I/K look up/down; J/L look left/right. Shift moves faster. Middle drag pans; wheel flies forward/back.";
 
 /** Keep Babylon's pointer, touch and keyboard inputs, but scope them to the canvas.
  * Detaching resets Babylon's held keys/pointers; this also handles XR camera changes.
  */
-export function canvasControls(source: CameraHandle, canvas: HTMLCanvasElement, attach: () => void, help: string): () => void {
+export function canvasControls(source: CameraHandle, canvas: HTMLCanvasElement, attach: () => void, help: string, onReset?: () => void): () => void {
     const camera = source as Camera;
     const scene = camera.getScene();
     const abort = new AbortController();
     const options = { signal: abort.signal };
     const active = () => scene.activeCamera === camera && document.activeElement === canvas;
+    const pointers = new Set<number>();
     canvas.tabIndex = 0;
     canvas.style.touchAction = "none";
     canvas.setAttribute("aria-label", "3D viewport. " + help);
@@ -28,10 +29,12 @@ export function canvasControls(source: CameraHandle, canvas: HTMLCanvasElement, 
     const summary = document.createElement("summary");
     summary.textContent = "Navigation controls";
     const text = document.createElement("p");
-    text.textContent = help + " Click or Tab to the viewport first. Esc stops movement. Touch: drag to look/orbit; pinch zooms in orbit views.";
+    text.textContent = help + " Click or Tab to the viewport first. Esc stops movement. Touch: drag to look.";
     description.append(summary, text);
     document.body.append(description);
     const reset = () => {
+        pointers.clear();
+        onReset?.();
         camera.detachControl();
         if ("cameraDirection" in camera) {
             (camera as UniversalCamera).cameraDirection.setAll(0);
@@ -46,13 +49,18 @@ export function canvasControls(source: CameraHandle, canvas: HTMLCanvasElement, 
     };
     const resume = () => { reset(); if (active()) attach(); };
     canvas.addEventListener("focus", resume, options);
-    canvas.addEventListener("pointerdown", () => { canvas.focus(); if (active()) attach(); }, { ...options, capture: true });
+    canvas.addEventListener("pointerdown", event => { canvas.focus(); pointers.add(event.pointerId); if (active()) attach(); }, { ...options, capture: true });
+    canvas.addEventListener("pointerup", event => pointers.delete(event.pointerId), { ...options, capture: true });
     canvas.addEventListener("blur", reset, options);
     window.addEventListener("blur", reset, options);
     window.addEventListener("focus", resume, options);
     document.addEventListener("visibilitychange", () => { if (document.hidden) reset(); else resume(); }, options);
     canvas.addEventListener("pointercancel", resume, options);
-    canvas.addEventListener("lostpointercapture", resume, options);
+    canvas.addEventListener("lostpointercapture", event => {
+        // A normal pointerup also releases capture. Keep held movement keys
+        // through that release; reset only an interrupted drag.
+        if (pointers.delete(event.pointerId)) resume();
+    }, options);
     canvas.addEventListener("contextmenu", event => event.preventDefault(), options);
     canvas.addEventListener("keydown", event => {
         if (event.key === "Escape") { reset(); canvas.blur(); }
@@ -78,23 +86,6 @@ export function canvasControls(source: CameraHandle, canvas: HTMLCanvasElement, 
     return dispose;
 }
 
-export function orbitControls(source: CameraHandle, canvas: HTMLCanvasElement, spherical = false): () => void {
-    const camera = source as ArcRotateCamera;
-    camera.inertia = 0;
-    camera.panningInertia = 0;
-    if (spherical) camera.movement.input.addEntry({ source: "pointer", button: 1, interaction: "rotate" });
-    if (!spherical) {
-        camera.panningSensibility = 150;
-        camera.wheelDeltaPercentage = 0.03;
-    }
-    const keyboard = camera.inputs.attached.keyboard as ArcRotateCameraKeyboardMoveInput;
-    keyboard.keysZoomIn = [187, 107];
-    keyboard.keysZoomOut = [189, 109];
-    return canvasControls(camera, canvas, () => camera.attachControl(false, !spherical, spherical ? -1 : 1), spherical
-        ? "Left or middle drag rotates the globe. Arrows rotate; wheel zooms. The globe stays centered."
-        : "Left drag orbits. Middle drag or Ctrl+left drag pans. Wheel or +/- zooms. Arrows orbit; Ctrl+arrows pan.");
-}
-
 export function flyControls(source: CameraHandle, canvas: HTMLCanvasElement): () => void {
     const camera = source as UniversalCamera;
     camera.keysUp = [87, 38]; camera.keysDown = [83, 40];
@@ -106,16 +97,27 @@ export function flyControls(source: CameraHandle, canvas: HTMLCanvasElement): ()
     const mouse = camera.inputs.attached.mouse as FreeCameraMouseInput;
     mouse.buttons = [0, 2];
     camera.inertia = 0;
-    const disposeStandard = canvasControls(camera, canvas, () => camera.attachControl(canvas, false),
-        "Right or left drag looks. WASD or arrows move/strafe. Q/E or PageDown/PageUp move down/up. IJKL look with the keyboard. Middle drag pans; wheel moves along the sight line.");
+    const disposeStandard = canvasControls(camera, canvas, () => camera.attachControl(canvas, false), EXPLORATION_HELP);
     const abort = new AbortController();
     const options = { signal: abort.signal };
     let pointer: number | undefined, x = 0, y = 0;
+    let normalSpeed: number | undefined;
     const active = () => camera.getScene().activeCamera === camera && document.activeElement === canvas;
     const stop = () => {
         if (pointer !== undefined && canvas.hasPointerCapture(pointer)) canvas.releasePointerCapture(pointer);
         pointer = undefined;
     };
+    const interrupt = () => {
+        stop();
+        if (normalSpeed !== undefined) { camera.speed = normalSpeed; normalSpeed = undefined; }
+    };
+    canvas.addEventListener("keydown", event => {
+        if (event.ctrlKey || event.metaKey || event.altKey) interrupt();
+        else if (active() && event.key === "Shift" && normalSpeed === undefined) { normalSpeed = camera.speed; camera.speed *= 4; }
+    }, { ...options, capture: true });
+    canvas.addEventListener("keyup", event => {
+        if (event.key === "Shift" && normalSpeed !== undefined) { camera.speed = normalSpeed; normalSpeed = undefined; }
+    }, options);
     canvas.addEventListener("pointerdown", event => {
         if (!active() || event.button !== 1 || event.pointerType === "touch") return;
         event.preventDefault(); pointer = event.pointerId; x = event.clientX; y = event.clientY;
@@ -128,15 +130,17 @@ export function flyControls(source: CameraHandle, canvas: HTMLCanvasElement): ()
             .addInPlace(camera.getDirection(Vector3.Up()).scale((event.clientY - y) * scale));
         x = event.clientX; y = event.clientY;
     }, options);
-    for (const name of ["pointerup", "pointercancel", "lostpointercapture", "blur"]) canvas.addEventListener(name, stop, options);
-    window.addEventListener("blur", stop, options);
+    for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) canvas.addEventListener(name, stop, options);
+    canvas.addEventListener("blur", interrupt, options);
+    window.addEventListener("blur", interrupt, options);
+    document.addEventListener("visibilitychange", interrupt, options);
     canvas.addEventListener("wheel", event => {
         if (!active()) return;
         event.preventDefault();
         camera.position.addInPlace(camera.getDirection(Vector3.Forward()).scale(-Math.max(-300, Math.min(300, event.deltaY)) / 100 * camera.speed));
     }, { ...options, passive: false });
-    const changed = camera.getScene().onActiveCameraChanged.add(stop);
-    const dispose = () => { stop(); abort.abort(); disposeStandard(); camera.getScene().onActiveCameraChanged.remove(changed); };
+    const changed = camera.getScene().onActiveCameraChanged.add(interrupt);
+    const dispose = () => { interrupt(); abort.abort(); disposeStandard(); camera.getScene().onActiveCameraChanged.remove(changed); };
     camera.onDisposeObservable.addOnce(dispose);
     return dispose;
 }

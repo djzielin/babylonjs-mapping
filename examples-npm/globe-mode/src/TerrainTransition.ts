@@ -11,6 +11,7 @@ export class TerrainTransition {
     public maxCaptureMs = 0;
     private previous = new Map<GlobeSet, Retained[]>();
     private nextCheck = 0;
+    constructor(private maximumGroup = 8) {}
     public capture(globe: GlobeSet, nextZoom: number, latitude?: number, longitude?: number, force = false): void {
         const started = performance.now();
         if (globe.zoom < 8) return;
@@ -57,7 +58,7 @@ export class TerrainTransition {
             // stencil first and hide ready replacement tiles. Draw fallbacks
             // in the following (coarser) group, after all current tiles and
             // batches at this tier have had a chance to claim their pixels.
-            mesh.renderingGroupId = Math.min(8, source.renderingGroupId + 1);
+            mesh.renderingGroupId = Math.min(this.maximumGroup, source.renderingGroupId + 1);
             mesh.visibility = 1;
             mesh.isVisible = true;
             mesh.setEnabled(true);

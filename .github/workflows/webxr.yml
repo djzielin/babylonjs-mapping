@@ -63,5 +63,7 @@ jobs:
 
       - name: Verify desktop navigation and interrupted input
         working-directory: examples-npm/hello-world-webxr
-        run: npm run test:navigation
+        run: |
+          npm run test:navigation
+          npm run test:layers
 

@@ -1,5 +1,5 @@
-import { orbitControls } from "../../../examples-shared/navigation";
-import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
+import { flyControls } from "../../../examples-shared/navigation";
+import { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { Color4 } from "@babylonjs/core/Maths/math.color";
@@ -19,7 +19,7 @@ class Google3DTilesDemo {
     private readonly status = document.getElementById("status") as HTMLDivElement;
     private readonly engine = new Engine(this.canvas, true, { powerPreference: "high-performance", adaptToDeviceRatio: true });
     private readonly scene = new Scene(this.engine);
-    private readonly camera: ArcRotateCamera;
+    private readonly camera: UniversalCamera;
     private readonly tileSet: TileSet;
     private googleTiles: Google3DTiles | undefined;
     private loadedLocation = "";
@@ -29,20 +29,9 @@ class Google3DTilesDemo {
     public constructor() {
         this.scene.clearColor = new Color4(0.025, 0.05, 0.08, 1);
 
-        this.camera = new ArcRotateCamera(
-            "camera",
-            -Math.PI / 2,
-            Math.PI / 3.1,
-            310,
-            new Vector3(0, 15, 0),
-            this.scene,
-        );
-        orbitControls(this.camera, this.canvas);
-        this.camera.lowerRadiusLimit = 15;
-        this.camera.upperRadiusLimit = 900;
-        this.camera.wheelDeltaPercentage = 0.03;
-        this.camera.panningSensibility = 150;
-        this.camera.inertia = 0;
+        this.camera = new UniversalCamera("camera", new Vector3(0, 170, -270), this.scene);
+        this.camera.speed = 3;
+        flyControls(this.camera, this.canvas);
 
         const light = new HemisphericLight("ambient light", new Vector3(0.2, 1, -0.4), this.scene);
         light.intensity = 1.15;
@@ -62,8 +51,8 @@ class Google3DTilesDemo {
         });
 
         document.getElementById("resetView")!.addEventListener("click", () => this.resetView());
-        document.getElementById("zoomIn")!.addEventListener("click", () => { this.camera.radius *= 0.8; });
-        document.getElementById("zoomOut")!.addEventListener("click", () => { this.camera.radius *= 1.25; });
+        document.getElementById("zoomIn")!.addEventListener("click", () => this.moveForward(1));
+        document.getElementById("zoomOut")!.addEventListener("click", () => this.moveForward(-1));
 
         this.engine.runRenderLoop(() => this.scene.render());
         window.addEventListener("resize", () => this.engine.resize());
@@ -102,10 +91,15 @@ class Google3DTilesDemo {
         const [latitude, longitude] = this.locationInput.value.split(",").map(Number);
         const target = this.tileSet.ourTileMath.EPSG_to_Game(new Vector2(longitude, latitude), EPSG_Type.EPSG_4326);
         target.y = Number(this.locationInput.selectedOptions[0].dataset.targetHeight ?? 65);
+        const alpha = Number(this.locationInput.selectedOptions[0].dataset.cameraAlpha ?? -Math.PI / 2.4);
+        const beta = Math.PI / 3.1;
+        const radius = Number(this.locationInput.selectedOptions[0].dataset.cameraRadius ?? 440);
+        this.camera.position.copyFrom(target.add(new Vector3(Math.cos(alpha) * Math.sin(beta), Math.cos(beta), Math.sin(alpha) * Math.sin(beta)).scale(radius)));
         this.camera.setTarget(target);
-        this.camera.alpha = Number(this.locationInput.selectedOptions[0].dataset.cameraAlpha ?? -Math.PI / 2.4);
-        this.camera.beta = Math.PI / 3.1;
-        this.camera.radius = Number(this.locationInput.selectedOptions[0].dataset.cameraRadius ?? 440);
+    }
+
+    private moveForward(direction: number): void {
+        this.camera.position.addInPlace(this.camera.getDirection(Vector3.Forward()).scale(direction * this.camera.speed * 10));
     }
 
     private async load(): Promise<void> {

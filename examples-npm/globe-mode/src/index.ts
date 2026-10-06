@@ -1,4 +1,4 @@
-import { orbitControls, canvasControls } from "../../../examples-shared/navigation";
+import { canvasControls, EXPLORATION_HELP } from "../../../examples-shared/navigation";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { PassPostProcess } from "@babylonjs/core/PostProcesses/passPostProcess";
 import type { WebGPURenderTargetWrapper } from "@babylonjs/core/Engines/WebGPU/webgpuRenderTargetWrapper";
@@ -7,6 +7,7 @@ import { DracoDecoder } from "@babylonjs/core/Meshes/Compression/dracoDecoder";
 import { lookFromEye, moveEye, alignEyeHorizon } from "./FirstPersonNavigation";
 import { TerrainTransition } from "./TerrainTransition";
 import { BuildingTransition } from "./BuildingTransition";
+import { MAP_MAX_LEVEL, MODEL_LEVEL, buildingLayerLevel } from "./BuildingLayerPriority";
 import { OvertureTierCoverage } from "./OvertureTierCoverage";
 import "@babylonjs/core/Engines/AbstractEngine/abstractEngine.timeQuery";
 import "@babylonjs/core/Engines/Extensions/engine.query";
@@ -78,7 +79,6 @@ interface LocationPreset {
 
 const GLOBE_RADIUS = 60;
 const DETAIL_RADIUS = 60;
-const MAP_MAX_LEVEL = 8;
 const GOOGLE_COVERAGE_RADIUS = 15 * 1609.344;
 const GOOGLE_DETAIL_RADIUS = 300;
 const GOOGLE_TERRAIN_BOOTSTRAP_ZOOM = 10;
@@ -212,8 +212,8 @@ class GlobeDemo {
     private engineProfile: EngineInstrumentation;
     private sceneProfile: SceneInstrumentation;
     private terrainBatcher: TerrainBatcher;
-    private terrainTransition = new TerrainTransition();
-    private buildingTransition = new BuildingTransition();
+    private terrainTransition = new TerrainTransition(MAP_MAX_LEVEL);
+    private buildingTransition = new BuildingTransition(MAP_MAX_LEVEL);
     private renderTimes: number[] = [];
     private gpuTimes: number[] = [];
     private drawSnapshot?: DrawSnapshotCache;
@@ -356,7 +356,7 @@ class GlobeDemo {
         this.markSetupStage("terrainBatcherStarted");
         this.terrainBatcher = new TerrainBatcher(this.scene,
             () => [this.baseGlobe, this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)].map(globe => globe.ourTiles.map(tile => tile.mesh)),
-            (mesh, source) => this.registerTerrain(mesh, 8 - source.renderingGroupId));
+            (mesh, source) => this.registerTerrain(mesh, MAP_MAX_LEVEL - source.renderingGroupId));
         this.markSetupStage("terrainBatcherFinished");
         document.getElementById("batchTerrain")!.addEventListener("change", () => {
             this.terrainBatcher.enabled = (document.getElementById("batchTerrain") as HTMLInputElement).checked;
@@ -366,7 +366,6 @@ class GlobeDemo {
         this.markSetupStage("locationControlsFinished");
         this.markSetupStage("addressSearchStarted");
         setupAddressSearch(result => {
-            this.exitInspection();
             if (this.tourTimer) {
                 clearInterval(this.tourTimer);
                 this.tourTimer = undefined;
@@ -375,7 +374,7 @@ class GlobeDemo {
             (document.getElementById("latitude") as HTMLInputElement).value = String(result.latitude);
             (document.getElementById("longitude") as HTMLInputElement).value = String(result.longitude);
             (document.getElementById("locationPreset") as HTMLSelectElement).selectedIndex = -1;
-            this.navigator.flyTo(result.latitude, result.longitude, { zoom: result.zoom, durationMs: 1400 });
+            this.goToLocation(result.latitude, result.longitude, result.zoom);
         }, () => (document.getElementById("mapboxToken") as HTMLInputElement).value);
         this.markSetupStage("addressSearchFinished");
         this.markSetupStage("pointerNavigationStarted");
@@ -384,6 +383,7 @@ class GlobeDemo {
         this.markSetupStage("dataControlsStarted");
         this.setupDataControls();
         this.markSetupStage("dataControlsFinished");
+        this.orientView(60, 0);
         if (DEMO_MAPBOX_TOKEN && HOME_VIEW.basemap)
             document.getElementById("basemap")!.dispatchEvent(new Event("change"));
         if (DEMO_MAPBOX_TOKEN) {
@@ -445,7 +445,7 @@ class GlobeDemo {
                         this.googleMeshes.add(mesh);
                         // Baseline imagery sits below Overture; detailed Google
                         // models own their pixels when they replace it.
-                        this.layers.add(mesh, (tile.geometricError ?? 0) <= GOOGLE_REPLACEMENT_ERROR ? 8 : 6);
+                        this.layers.add(mesh, (tile.geometricError ?? 0) <= GOOGLE_REPLACEMENT_ERROR ? MAP_MAX_LEVEL : 6);
                         mesh.freezeWorldMatrix();
                         // Newly loaded static materials have no stale bindings to
                         // invalidate. freeze() otherwise scans the entire city.
@@ -660,7 +660,7 @@ class GlobeDemo {
                 this.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, this.detailGlobe, Number(feature.properties?.height) || 4);
                 this.buildings.buildingsCreatedPerFrame = 32;
                 this.buildings.buildingMeshTransform = (mesh) => {
-                    this.layers.add(mesh, 7);
+                    this.layers.add(mesh, buildingLayerLevel(this.detailGlobe.zoom));
                 };
                 this.buildings.buildingMaterial.diffuseColor.set(
                     0.86,
@@ -691,8 +691,9 @@ class GlobeDemo {
             Vector3.Zero(),
             this.scene,
         );
-        orbitControls(this.camera, this.canvas, true);
-        this.camera.inputs.removeByType("ArcRotateCameraMouseWheelInput");
+        // Geographic navigation uses this camera internally; the viewport
+        // always uses the exploration camera and game bindings.
+        this.camera.inputs.clear();
         this.camera.panningSensibility = 0;
         this.camera.inertia = 0;
 
@@ -866,10 +867,6 @@ class GlobeDemo {
                 applyStyle();
             }
         });
-        document.getElementById("inspect")!.addEventListener("click", () => {
-            if (this.inspecting) this.exitInspection();
-            else this.orientView(60, 0);
-        });
         document.getElementById("tour")!.addEventListener("click", () => {
             if (this.tourTimer) {
                 clearInterval(this.tourTimer);
@@ -879,12 +876,8 @@ class GlobeDemo {
             }
             let i = 1;
             const next = () => {
-                this.exitInspection();
                 const place = LOCATIONS[i++ % LOCATIONS.length];
-                this.navigator.flyTo(place.latitude, place.longitude, {
-                    zoom: place.zoom,
-                    durationMs: 1800,
-                });
+                this.goToLocation(place.latitude, place.longitude, place.zoom, place.tilt ?? 60, place.heading ?? 0, place.eyeHeight, place.distance);
                 this.message(place.name);
             };
             next();
@@ -911,7 +904,7 @@ class GlobeDemo {
                             this.detailGlobe,
                         ));
                     settings.buildingMeshTransform = (mesh) => {
-                        this.layers.add(mesh, 7);
+                        this.layers.add(mesh, MODEL_LEVEL);
                     };
                     const generator = new GeoJSON.GeoJSON(
                         this.detailGlobe,
@@ -974,7 +967,7 @@ class GlobeDemo {
                     mesh.computeWorldMatrix(true);
                     const location = landmarkGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
                     mesh.setEnabled(!this.googleCoversLocation(location.latitude, location.longitude));
-                    this.layers.add(mesh, 7);
+                    this.layers.add(mesh, MODEL_LEVEL);
                     mesh.freezeWorldMatrix();
                     // These newly loaded landmark materials have no stale draw
                     // bindings. freeze() scans every mesh in the city, once per
@@ -1210,20 +1203,13 @@ class GlobeDemo {
 
         preset.addEventListener("change", () => {
             this.framePacing.reset();
-            this.exitInspection();
             const location = LOCATIONS[Number(preset.value)];
             if (location.google !== undefined) {
                 (document.getElementById("googleTiles") as HTMLInputElement).checked = location.google;
             }
             latitude.value = String(location.latitude);
             longitude.value = String(location.longitude);
-            if (location.heading !== undefined) {
-                this.navigator.setView(location.latitude, location.longitude, { zoom: location.zoom });
-                this.orientView(location.tilt ?? 80, location.heading, location.eyeHeight ?? 0, location.distance);
-            } else this.navigator.flyTo(location.latitude, location.longitude, {
-                zoom: location.zoom,
-                durationMs: 1400,
-            });
+            this.goToLocation(location.latitude, location.longitude, location.zoom, location.tilt ?? 60, location.heading ?? 0, location.eyeHeight, location.distance);
             const basemap = document.getElementById("basemap") as HTMLSelectElement;
             const style = location.basemap ?? "osm";
             if (basemap.value !== style) {
@@ -1235,28 +1221,20 @@ class GlobeDemo {
 
         form.addEventListener("submit", (event) => {
             event.preventDefault();
-            this.exitInspection();
-            this.navigator.flyTo(
+            this.goToLocation(
                 Number(latitude.value),
                 Number(longitude.value),
-                {
-                    zoom: Math.max(8, this.navigator.getView().zoom),
-                    durationMs: 1200,
-                },
+                Math.max(8, this.navigator.getView().zoom),
             );
         });
 
         zoomIn.addEventListener("click", () => this.changeZoom(1));
         zoomOut.addEventListener("click", () => this.changeZoom(-1));
         home.addEventListener("click", () => {
-            this.exitInspection();
             preset.value = "0";
             latitude.value = String(HOME_VIEW.latitude);
             longitude.value = String(HOME_VIEW.longitude);
-            this.navigator.flyTo(HOME_VIEW.latitude, HOME_VIEW.longitude, {
-                zoom: HOME_VIEW.zoom,
-                durationMs: 1200,
-            });
+            this.goToLocation(HOME_VIEW.latitude, HOME_VIEW.longitude, HOME_VIEW.zoom);
         });
 
         this.navigator.onBeforeRasterUpdateObservable.add(view => {
@@ -1986,7 +1964,7 @@ class GlobeDemo {
                 layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, layer.globe, Number(feature.properties?.height) || 4);
                 layer.buildings.buildingsCreatedPerFrame = 64;
                 layer.buildings.creationTimeBudgetMs = 2;
-                layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, 7); };
+                layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, buildingLayerLevel(layer.globe.zoom)); };
             }
             const elevation = index <= 1 ? !this.backgroundReleased && index === 1
                 && (document.getElementById("googleTiles") as HTMLInputElement).checked
@@ -2007,7 +1985,13 @@ class GlobeDemo {
         });
     }
 
-    private exitInspection(): void {
+    private goToLocation(latitude: number, longitude: number, zoom: number, tilt = 60, heading = 0, eyeHeight = 0, distance?: number): void {
+        this.releaseInspection();
+        this.navigator.setView(latitude, longitude, { zoom });
+        this.orientView(tilt, heading, eyeHeight, distance);
+    }
+
+    private releaseInspection(): void {
         if (!this.inspecting) return;
         const view = this.navigator.getView();
         this.navigator.setViewSource();
@@ -2017,7 +2001,6 @@ class GlobeDemo {
         this.scene.activeCamera = this.camera;
         this.movementKeys.clear();
         this.canvas.focus();
-        document.getElementById("inspect")!.textContent = "Explore in 3D";
         this.setOrientation(0, 0);
     }
 
@@ -2035,11 +2018,6 @@ class GlobeDemo {
         const preserveEye = this.inspecting?.position.clone();
         const { up, east, north } = this.inspectionBasis();
         if (!this.inspecting) {
-            if (this.tourTimer) {
-                clearInterval(this.tourTimer);
-                this.tourTimer = undefined;
-                document.getElementById("tour")!.textContent = "Guided tour";
-            }
             // Stop any flight at the place the user is currently looking at.
             this.navigator.setView(view.latitude, view.longitude, { altitude: view.altitude });
             const target = this.detailGlobe.getSurfacePosition(view.latitude, view.longitude,
@@ -2061,10 +2039,9 @@ class GlobeDemo {
             camera.onAfterCheckInputsObservable.add(() => this.keepInspectionAboveGround(camera));
             this.scene.activeCamera = camera;
             this.inspecting = camera;
-            canvasControls(camera, this.canvas, () => {}, "Right or left drag looks. Middle drag pans. WASD or arrows move/strafe; Q/E down/up; Shift faster. IJKL look. Wheel flies. Top down resets the view.");
+            canvasControls(camera, this.canvas, () => {}, EXPLORATION_HELP, () => this.stopExplorationInput());
             this.canvas.focus();
             this.navigator.setViewSource(camera);
-            document.getElementById("inspect")!.textContent = "Top down";
         }
         const camera = this.inspecting;
         const pitch = Math.max(0.001, tilt * Math.PI / 180);
@@ -2093,6 +2070,7 @@ class GlobeDemo {
 
     private viewTilt = 0;
     private viewHeading = 0;
+    private stopExplorationInput = () => {};
 
     private setOrientation(tilt: number, heading: number): void {
         this.viewTilt = tilt;
@@ -2227,7 +2205,7 @@ class GlobeDemo {
         if (document.activeElement !== this.canvas) { this.movementKeys.clear(); return; }
         const forwardInput = Number(this.movementKeys.has("w") || this.movementKeys.has("arrowup")) - Number(this.movementKeys.has("s") || this.movementKeys.has("arrowdown"));
         const rightInput = Number(this.movementKeys.has("d") || this.movementKeys.has("arrowright")) - Number(this.movementKeys.has("a") || this.movementKeys.has("arrowleft"));
-        const verticalInput = Number(this.movementKeys.has("e")) - Number(this.movementKeys.has("q"));
+        const verticalInput = Number(this.movementKeys.has("e") || this.movementKeys.has("pageup")) - Number(this.movementKeys.has("q") || this.movementKeys.has("pagedown"));
         const lookX = Number(this.movementKeys.has("l")) - Number(this.movementKeys.has("j"));
         const lookY = Number(this.movementKeys.has("i")) - Number(this.movementKeys.has("k"));
         if (lookX || lookY) this.orientView(Math.max(0.1, Math.min(179, this.viewTilt + lookY * this.engine.getDeltaTime() * 0.05)),
@@ -2235,7 +2213,6 @@ class GlobeDemo {
         if (!forwardInput && !rightInput && !verticalInput) return;
         const { up, north } = this.inspectionBasis();
         const forward = camera.getTarget().subtract(camera.position);
-        forward.subtractInPlace(up.scale(Vector3.Dot(forward, up)));
         if (forward.lengthSquared() < 1e-16) forward.copyFrom(north);
         forward.normalize();
         const right = Vector3.Cross(up, forward).normalize();
@@ -2290,12 +2267,16 @@ class GlobeDemo {
         window.addEventListener("keydown", event => {
             if (document.activeElement !== this.canvas) return;
             if (event.key === "Escape") { this.movementKeys.clear(); stopLooking(); this.canvas.blur(); return; }
-            if (this.inspecting && ["w", "a", "s", "d", "q", "e", "shift", "arrowup", "arrowdown", "arrowleft", "arrowright", "i", "j", "k", "l"].includes(event.key.toLowerCase()) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            if (this.inspecting && ["w", "a", "s", "d", "q", "e", "pageup", "pagedown", "shift", "arrowup", "arrowdown", "arrowleft", "arrowright", "i", "j", "k", "l"].includes(event.key.toLowerCase()) && !event.ctrlKey && !event.metaKey && !event.altKey) {
                 event.preventDefault(); this.movementKeys.add(event.key.toLowerCase());
             }
         }, options);
         window.addEventListener("keyup", event => this.movementKeys.delete(event.key.toLowerCase()), options);
         const stop = () => { this.movementKeys.clear(); stopLooking(); };
+        this.stopExplorationInput = stop;
+        this.canvas.addEventListener("keydown", event => {
+            if (event.ctrlKey || event.metaKey || event.altKey) stop();
+        }, { ...options, capture: true });
         window.addEventListener("blur", stop, options);
         this.canvas.addEventListener("blur", stop, options);
         document.addEventListener("visibilitychange", stop, options);
@@ -2303,55 +2284,14 @@ class GlobeDemo {
         this.canvas.addEventListener(
             "wheel",
             (event) => {
-                if (document.activeElement !== this.canvas) return;
+                if (!this.inspecting || document.activeElement !== this.canvas) return;
                 event.preventDefault();
-                if (this.inspecting) {
-                    const direction = this.inspecting.getTarget().subtract(this.inspecting.position).normalize();
-                    this.translateInspection(direction.scale(-Math.max(-300, Math.min(300, event.deltaY)) / 300 * this.movementSpeed()));
-                    return;
-                }
-                const view = this.navigator.getView();
-                const direction = event.deltaY < 0 ? 1 : -1;
-                const targetZoom = Math.max(
-                    3,
-                    Math.min(18, view.zoom + direction),
-                );
-                const targetAltitude =
-                    this.navigator.getAltitudeForZoom(targetZoom);
-                const blend = Math.min(
-                    1,
-                    Math.max(0.15, Math.abs(event.deltaY) / 500),
-                );
-                this.camera.radius =
-                    DETAIL_RADIUS +
-                    this.detailGlobe.sampleElevation(
-                        view.latitude,
-                        view.longitude,
-                    ) +
-                    view.altitude +
-                    (targetAltitude - view.altitude) * blend;
-                this.navigator.refresh();
+                const direction = this.inspecting.getTarget().subtract(this.inspecting.position).normalize();
+                this.translateInspection(direction.scale(-Math.max(-300, Math.min(300, event.deltaY)) / 300 * this.movementSpeed()));
             },
             { ...options, passive: false },
         );
 
-        this.canvas.addEventListener("dblclick", (event) => {
-            if (this.inspecting) return;
-            const rect = this.canvas.getBoundingClientRect();
-            const coordinates = this.navigator.getCoordinatesAtScreenPoint(
-                (event.clientX - rect.left) * this.engine.getRenderWidth() / rect.width,
-                (event.clientY - rect.top) * this.engine.getRenderHeight() / rect.height,
-            );
-            if (coordinates === undefined) {
-                return;
-            }
-
-            const zoom = Math.min(18, this.navigator.getView().zoom + 2);
-            this.navigator.flyTo(coordinates.latitude, coordinates.longitude, {
-                zoom,
-                durationMs: 850,
-            });
-        });
     }
 
     private changeZoom(change: number): void {
@@ -2359,11 +2299,6 @@ class GlobeDemo {
             this.translateInspection(this.inspecting.getTarget().subtract(this.inspecting.position).normalize().scale(this.movementSpeed() * change));
             return;
         }
-        const view = this.navigator.getView();
-        this.navigator.flyTo(view.latitude, view.longitude, {
-            zoom: Math.max(3, Math.min(18, view.zoom + change)),
-            durationMs: 350,
-        });
     }
 
     private updateReadout(readout: HTMLDivElement, view: GlobeView): void {
