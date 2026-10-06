@@ -6,6 +6,7 @@ import { DracoCompression } from "@babylonjs/core/Meshes/Compression/dracoCompre
 import { lookFromEye, moveEye, alignEyeHorizon } from "./FirstPersonNavigation";
 import { TerrainTransition } from "./TerrainTransition";
 import { BuildingTransition } from "./BuildingTransition";
+import { MAP_MAX_LEVEL, MODEL_LEVEL, buildingLayerLevel } from "./BuildingLayerPriority";
 import { OvertureTierCoverage } from "./OvertureTierCoverage";
 import "@babylonjs/core/Engines/AbstractEngine/abstractEngine.timeQuery";
 import "@babylonjs/core/Engines/Extensions/engine.query";
@@ -71,7 +72,6 @@ interface LocationPreset {
 
 const GLOBE_RADIUS = 60;
 const DETAIL_RADIUS = 60;
-const MAP_MAX_LEVEL = 8;
 const HOME_VIEW: LocationPreset = {
     name: "New York · Empire State Building",
     latitude: 40.7484,
@@ -172,8 +172,8 @@ class GlobeDemo {
     private engineProfile: EngineInstrumentation;
     private sceneProfile: SceneInstrumentation;
     private terrainBatcher: TerrainBatcher;
-    private terrainTransition = new TerrainTransition();
-    private buildingTransition = new BuildingTransition();
+    private terrainTransition = new TerrainTransition(MAP_MAX_LEVEL);
+    private buildingTransition = new BuildingTransition(MAP_MAX_LEVEL);
     private renderTimes: number[] = [];
     private gpuTimes: number[] = [];
     private drawSnapshot?: DrawSnapshotCache;
@@ -278,7 +278,7 @@ class GlobeDemo {
         });
         this.terrainBatcher = new TerrainBatcher(this.scene,
             () => [this.baseGlobe, this.detailGlobe, ...this.distanceLayers.map(layer => layer.globe)].map(globe => globe.ourTiles.map(tile => tile.mesh)),
-            (mesh, source) => this.registerTerrain(mesh, 8 - source.renderingGroupId));
+            (mesh, source) => this.registerTerrain(mesh, MAP_MAX_LEVEL - source.renderingGroupId));
         document.getElementById("batchTerrain")!.addEventListener("change", () => {
             this.terrainBatcher.enabled = (document.getElementById("batchTerrain") as HTMLInputElement).checked;
         });
@@ -356,7 +356,7 @@ class GlobeDemo {
                         this.googleMeshes.add(mesh);
                         // Google geometry owns its pixels even if an Overture
                         // footprint straddles a model-tile boundary.
-                        this.layers.add(mesh, 8);
+                        this.layers.add(mesh, MAP_MAX_LEVEL);
                         mesh.freezeWorldMatrix();
                         // Newly loaded static materials have no stale bindings to
                         // invalidate. freeze() otherwise scans the entire city.
@@ -550,7 +550,7 @@ class GlobeDemo {
                 this.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, this.detailGlobe, Number(feature.properties?.height) || 4);
                 this.buildings.buildingsCreatedPerFrame = 32;
                 this.buildings.buildingMeshTransform = (mesh) => {
-                    this.layers.add(mesh, 7);
+                    this.layers.add(mesh, buildingLayerLevel(this.detailGlobe.zoom));
                 };
                 this.buildings.buildingMaterial.diffuseColor.set(
                     0.86,
@@ -792,7 +792,7 @@ class GlobeDemo {
                             this.detailGlobe,
                         ));
                     settings.buildingMeshTransform = (mesh) => {
-                        this.layers.add(mesh, 7);
+                        this.layers.add(mesh, MODEL_LEVEL);
                     };
                     const generator = new GeoJSON.GeoJSON(
                         this.detailGlobe,
@@ -854,7 +854,7 @@ class GlobeDemo {
                     mesh.computeWorldMatrix(true);
                     const location = landmarkGlobe.getSurfaceCoordinates(mesh.getBoundingInfo().boundingBox.centerWorld);
                     mesh.setEnabled(!this.googleCoversLocation(location.latitude, location.longitude));
-                    this.layers.add(mesh, 7);
+                    this.layers.add(mesh, MODEL_LEVEL);
                     mesh.freezeWorldMatrix();
                     // These newly loaded landmark materials have no stale draw
                     // bindings. freeze() scans every mesh in the city, once per
@@ -1540,7 +1540,7 @@ class GlobeDemo {
                 layer.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, layer.globe, Number(feature.properties?.height) || 4);
                 layer.buildings.buildingsCreatedPerFrame = 64;
                 layer.buildings.creationTimeBudgetMs = 2;
-                layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, 7); };
+                layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, buildingLayerLevel(layer.globe.zoom)); };
             }
             const terrainChanged = layer.data.options.elevation !== (terrain ? this.elevation.load : undefined)
                 || layer.data.options.exaggeration !== exaggeration;

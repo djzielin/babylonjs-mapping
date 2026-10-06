@@ -15,6 +15,7 @@ export class BuildingTransition {
     private fallbackMaterials = new Map<Material, { material: Material; users: number }>();
     private nextCheck = 0;
     private enabled = true;
+    constructor(private maximumGroup = 8) {}
 
     public setEnabled(enabled: boolean): void {
         this.enabled = enabled;
@@ -60,9 +61,9 @@ export class BuildingTransition {
                 mesh.setEnabled(true);
                 mesh.isPickable = false;
                 mesh.freezeWorldMatrix(world);
-                // New Google and Overture geometry draws first. The fallback
-                // fills only pixels their level-7 stencil has not claimed, so
-                // partial finer buildings do not z-fight with the old batch.
+                // Current detail at this tier and all finer tiers draw first.
+                // Retained detail fills only their unclaimed pixels, before
+                // a coarser current tier gets a chance to cover it.
                 const sourceMaterial = source.material ?? globe.scene.defaultMaterial;
                 let fallback = this.fallbackMaterials.get(sourceMaterial);
                 if (!fallback) {
@@ -70,7 +71,7 @@ export class BuildingTransition {
                     if (material) {
                         material.stencil.enabled = true;
                         material.stencil.func = Constants.GREATER;
-                        material.stencil.funcRef = 8;
+                        material.stencil.funcRef = Math.max(8, sourceMaterial.stencil.funcRef);
                         material.stencil.opStencilDepthPass = Constants.REPLACE;
                         fallback = { material, users: 0 };
                         this.fallbackMaterials.set(sourceMaterial, fallback);
@@ -87,7 +88,7 @@ export class BuildingTransition {
                         }
                     });
                 }
-                mesh.renderingGroupId = Math.min(8, source.renderingGroupId + 1);
+                mesh.renderingGroupId = Math.min(this.maximumGroup, source.renderingGroupId + 1);
                 const coverage = (source.metadata as { overtureCoverage?: Coverage } | null)?.overtureCoverage;
                 // Most outgoing batches still draw every building. Preserve
                 // their shared geometry until coverage actually changes.

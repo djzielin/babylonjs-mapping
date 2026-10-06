@@ -28,7 +28,8 @@
     "build": "npx webpack --config webpack.config-prod.js",
     "test:xr": "node tests/null-headset.mjs",
     "test:xr:google": "node tests/null-headset.mjs --google",
-    "test:navigation": "node tests/navigation.mjs"
+    "test:navigation": "node tests/navigation.mjs",
+    "test:layers": "node tests/layer-priority.mjs"
   },
   "author": "David J. Zielinski. original template by Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>",
   "license": "CC BY-NC-SA 4.0"
