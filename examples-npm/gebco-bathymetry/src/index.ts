@@ -1,7 +1,7 @@
-import { orbitControls } from "../../../examples-shared/navigation";
+import { flyControls } from "../../../examples-shared/navigation";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
-import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
+import { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera";
 import { Color4, Vector2, Vector3 } from "@babylonjs/core/Maths/math";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
@@ -41,19 +41,10 @@ class Game {
     private createScene(): void {
         this.scene.clearColor = new Color4(0.02, 0.055, 0.11, 1);
 
-        const camera = new ArcRotateCamera(
-            "camera1",
-            -Math.PI / 2,
-            1.12,
-            390,
-            Vector3.Zero(),
-            this.scene,
-        );
-        orbitControls(camera, this.canvas);
-        camera.lowerRadiusLimit = 175;
-        camera.upperRadiusLimit = 900;
-        camera.wheelPrecision = 35;
-        camera.panningSensibility = 150;
+        const camera = new UniversalCamera("camera1", new Vector3(0, Math.cos(1.12) * 390, -Math.sin(1.12) * 390), this.scene);
+        camera.setTarget(Vector3.Zero());
+        camera.speed = 3;
+        flyControls(camera, this.canvas);
 
         const hemisphere = new HemisphericLight("hemisphere", new Vector3(0, 1, 0), this.scene);
         hemisphere.intensity = 0.8;
@@ -186,7 +177,7 @@ class Game {
         scale.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         content.addControl(scale);
 
-        const controls = new TextBlock("controls", "Drag to orbit · scroll to zoom");
+        const controls = new TextBlock("controls", "Drag to look - WASD move - middle drag pan - wheel fly");
         controls.height = "28px";
         controls.color = "#ffffff";
         controls.fontSize = 13;

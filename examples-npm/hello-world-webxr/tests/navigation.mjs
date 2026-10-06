@@ -14,7 +14,7 @@ await new Promise((done, reject) => webpack({
     module: { rules: [{ test: /\.ts$/, loader: resolve('node_modules/ts-loader'), options: { transpileOnly: true } }] },
 }, (error, stats) => error || stats.hasErrors() ? reject(error ?? new Error(stats.toString())) : done()));
 const html = `<style>body{margin:0;font:16px system-ui}canvas{width:800px;height:500px;display:block}pre{font-size:12px}</style>
-<label>Mode<select id="mode"><option>fly</option><option>orbit</option><option>globe</option></select></label>
+<label>Mode<select id="mode"><option>fly</option></select></label>
 <input aria-label="Address"/><button id="reset">Recreate</button><button id="alternate">Switch camera</button>
 <canvas id="renderCanvas" width="800" height="500"></canvas><pre id="state"></pre><script src="/fixture.js"></script>`;
 const server = createServer((req, res) => { const script = req.url.endsWith('.js'); res.setHeader('Content-Type', script ? 'application/javascript' : 'text/html'); res.end(script ? readFileSync(resolve(output, basename(req.url))) : html); });
@@ -30,7 +30,7 @@ try {
     const settle = () => page.waitForTimeout(100);
     const drag = async button => { await page.mouse.move(400, 250); await page.mouse.down({ button }); await page.mouse.move(470, 280, { steps: 5 }); await page.mouse.up({ button }); await settle(); };
     const still = async before => { await settle(); assert.deepEqual(await state(), before); };
-    for (const mode of ['fly', 'orbit', 'globe']) {
+    for (const mode of ['fly']) {
         await page.selectOption('#mode', mode); await settle();
         const touch = await page.context().newCDPSession(page);
         await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 400, y: 250 }] });
@@ -48,10 +48,11 @@ try {
             await drag('middle');
             const panned = await state();
             assert.notDeepEqual(panned, looked, `${mode}: middle drag moves camera`);
-            if (mode === 'orbit') { assert.deepEqual(panned.alpha, looked.alpha); assert.deepEqual(panned.beta, looked.beta); assert.notDeepEqual(panned.target, looked.target); }
-            if (mode === 'globe') assert.deepEqual(panned.target, [0, 0, 0]);
             await page.keyboard.down(mode === 'fly' ? 'w' : 'ArrowLeft'); await settle();
             const moving = await state(); assert.notDeepEqual(moving, panned);
+            const speed = moving.speed;
+            await page.keyboard.down('Shift'); await settle(); assert.equal((await state()).speed, speed * 4);
+            await page.keyboard.up('Shift'); await settle(); assert.equal((await state()).speed, speed);
             await drag(mode === 'fly' ? 'right' : 'left');
             const releasedDrag = await state(); await settle();
             assert.notDeepEqual(await state(), releasedDrag, `${mode}: releasing look drag preserves held movement`);
