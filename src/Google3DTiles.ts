@@ -4,6 +4,9 @@ export {
     parseGoogleGLBMetadata,
 } from "./google/Google3DTiles.js";
 export type {
+    Google3DLoadingStage,
+    Google3DLoadOptions,
+    Google3DLoadResult,
     Google3DBoundingVolume,
     Google3DTile,
     Google3DTileContent,

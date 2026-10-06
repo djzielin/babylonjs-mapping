@@ -95,6 +95,39 @@ export type GoogleModelTileLoader = (
     signal?: AbortSignal,
 ) => Promise<LoadedGoogleModelTile | undefined>;
 
+export type Google3DLoadingStage = "coverage" | "immediate" | "refinement";
+
+export interface Google3DLoadOptions {
+    /** Coverage uses a coarse full-disk frontier; immediate refines the nearby part of that same frontier. */
+    stage?: Google3DLoadingStage;
+    /** Radius of nearby quality demand in metres; defaults to 750. Keep selectionRadius at the full coverage radius. */
+    detailRadius?: number;
+    /** Source error tolerated by the coarse frontier in metres; defaults to 256. */
+    coverageGeometricError?: number;
+}
+
+export interface Google3DLoadResult {
+    stage: Google3DLoadingStage;
+    cancelled: boolean;
+    selectedTiles: number;
+    loadedTiles: number;
+    /** Selected content still missing or hidden after the pass, including failed downloads. */
+    failedTiles: number;
+    /** Model attempts that failed, even if an existing parent supplied fallback coverage. */
+    failedModelTiles: number;
+    hierarchyFailures: number;
+    budgetLimitedTiles: number;
+    sourceLimitedTiles: number;
+    /** Intersecting source branches with neither model content nor an available fallback ancestor. */
+    sourceCoverageGaps: number;
+    /** Every model in a nonempty complete frontier is visible and hierarchy traversal succeeded. */
+    coverageComplete: boolean;
+    /** Complete visible frontier at the requested quality, without download, source, or budget limits. */
+    detailComplete: boolean;
+    /** Immediate frontier is visible at the display limit or the best available source quality, without budget limits. */
+    immediateQualityComplete: boolean;
+}
+
 export interface Google3DTilesOptions {
     /** Google Maps Platform API key. It is appended to every request. */
     apiKey?: string;
@@ -141,6 +174,8 @@ export interface LoadedGoogle3DTile {
     url: string;
     /** Hierarchy depth at which the content was selected. */
     depth: number;
+    /** Source error in metres, useful for distinguishing coarse coverage from detailed replacement. */
+    geometricError?: number;
     /** Root transform that places the tile in the TileSet's local map space. */
     root: TransformNode;
     /** Babylon assets loaded from the GLB. */
@@ -178,6 +213,7 @@ interface FrontierTile {
     ancestors: string[];
     priority: number;
     offscreen: boolean;
+    incompleteChildren?: boolean;
 }
 
 interface NetworkWaiter {
@@ -238,6 +274,8 @@ export default class Google3DTiles {
     public maximumInitialErrorRatio?: number;
     public cullToCamera = false;
     public fullRadiusDemand = false;
+    /** Completion of the latest load, suitable for gating staged startup. */
+    public lastLoadResult?: Google3DLoadResult;
     /** Maximum hierarchy branches inspected in parallel during frontier selection. */
     public maxPendingHierarchy = 16;
     public referenceImageHeight: number;
@@ -295,6 +333,8 @@ export default class Google3DTiles {
     private networkActiveOffscreen = 0;
     private networkActiveHierarchy = 0;
     private networkActiveModel = 0;
+    private networkQueuedHierarchy = 0;
+    private networkQueuedModel = 0;
     private networkDispatchCount = 0;
     private networkWaiters = new Set<NetworkWaiter>();
     private networkPendingInsertions: NetworkWaiter[] = [];
@@ -311,6 +351,13 @@ export default class Google3DTiles {
         reuse?: () => boolean; resume: (ready: boolean) => void; distance?: number; evaluatedAt?: number }> = [];
     private pendingModelReuseBlocked = false;
     private pendingReuseBounds?: { revision: number; bounds: GeographicBounds };
+    private loadingStage: Google3DLoadingStage = "refinement";
+    private stageDetailRadius = 750;
+    private stageCoverageGeometricError = 256;
+    private coverageQualityEye?: { revision: number; eye: Vector3 };
+    private loadingPhase: "idle" | "root" | "frontier" | "replacement" | "models" = "idle";
+    private frontierProgress?: () => { queued: number; pending: number };
+    private replacementGroupsPending = 0;
 
     private canReusePendingModel(selection: TileSelection, origin: Google3DTilesOrigin): boolean {
         if (this.pendingModelReuseBlocked || this.getOriginStateKey(origin) !== this.originStateKey) return false;
@@ -455,6 +502,7 @@ export default class Google3DTiles {
                 if (isOffscreen && visible === 0 && this.networkActive >= 46) break;
                 queue.shift();
                 this.networkWaiters.delete(next);
+                if (next.kind === "hierarchy") this.networkQueuedHierarchy--; else this.networkQueuedModel--;
                 if (isOffscreen) offscreen--; else visible--;
                 this.networkActive++;
                 if (isOffscreen) this.networkActiveOffscreen++;
@@ -473,6 +521,7 @@ export default class Google3DTiles {
             const waiter: NetworkWaiter = { priority, kind, resume: resolve,
                 sequence: this.networkEnqueueSequence++ };
             this.networkWaiters.add(waiter);
+            if (kind === "hierarchy") this.networkQueuedHierarchy++; else this.networkQueuedModel++;
             this.networkPendingInsertions.push(waiter);
             this.drainNetwork();
         });
@@ -519,6 +568,18 @@ export default class Google3DTiles {
     /** Content currently attached to the Babylon scene. */
     public get loadedModelTiles(): readonly LoadedGoogle3DTile[] {
         return Array.from(this.loadedTiles.values());
+    }
+
+    /** Current queue occupancy, including work that can delay a startup-stage barrier. */
+    public get loadingProgress() {
+        const frontier = this.frontierProgress?.();
+        return { stage: this.loadingStage, phase: this.loadingPhase,
+            queuedFrontier: frontier?.queued ?? 0, pendingHierarchy: frontier?.pending ?? 0,
+            replacementGroups: this.replacementGroupsPending, pendingModels: this.pendingModels.size,
+            hierarchyActive: this.networkActiveHierarchy, modelActive: this.networkActiveModel,
+            hierarchyQueued: this.networkQueuedHierarchy, modelQueued: this.networkQueuedModel,
+            decodeActive: this.modelDecodeActive, decodeQueued: this.modelDecodeWaiters.length,
+            uploadQueued: this.pendingModelUploads.size };
     }
 
     /** Current camera-facing resident quality, sampled independently of the last completed traversal. */
@@ -623,8 +684,8 @@ export default class Google3DTiles {
     private footprintTests = new WeakMap<TileSelection, (south: number, west: number, north: number, east: number) => boolean>();
     private loadedSelections = new ChangedTileMap<TileSelection>(url => this.dirtyCoverageEntries.add(url));
 
-    /** Whether loaded model bounds cover this geographic position. */
-    public coversLocation(latitude: number, longitude: number): boolean {
+    /** Whether loaded model bounds cover this position at an optional source-error limit. */
+    public coversLocation(latitude: number, longitude: number, maximumGeometricError?: number): boolean {
         const key = `${this.coverageVersion}/${this.loadedTiles.size}`;
         if (this.coverageKey !== key || this.dirtyCoverageEntries.size) {
             this.coverageKey = key;
@@ -671,14 +732,16 @@ export default class Google3DTiles {
             this.dirtyCoverageEntries.clear();
         }
         const nearby = this.coverageIndex.get(`${Math.floor(longitude * 1000)}/${Math.floor(latitude * 1000)}`) ?? [];
-        for (const selection of nearby) if (this.coverageTest(selection)(latitude, longitude)) return true;
+        for (const selection of nearby) if (this.coverageQualityMatches(selection, maximumGeometricError)
+            && this.coverageTest(selection)(latitude, longitude)) return true;
         for (const selection of this.broadCoverage.values())
-            if (this.coverageTest(selection)(latitude, longitude)) return true;
+            if (this.coverageQualityMatches(selection, maximumGeometricError)
+                && this.coverageTest(selection)(latitude, longitude)) return true;
         return false;
     }
 
     /** Skip a fallback tile only when one resident model covers its whole sampled footprint. */
-    public coversAreaCompletely(south: number, west: number, north: number, east: number): boolean {
+    public coversAreaCompletely(south: number, west: number, north: number, east: number, maximumGeometricError?: number): boolean {
         if (south > north || ![south, west, north, east].every(Number.isFinite)) return false;
         const span = east >= west ? east - west : east + 360 - west;
         if (span > 180) return false;
@@ -689,6 +752,7 @@ export default class Google3DTiles {
         this.coversLocation(latitude, midpoint);
         const nearby = this.coverageIndex.get(`${Math.floor(midpoint * 1000)}/${Math.floor(latitude * 1000)}`) ?? [];
         const covers = (selection: TileSelection) => {
+            if (!this.coverageQualityMatches(selection, maximumGeometricError)) return false;
             const test = this.coverageTest(selection);
             return latitudes.every(lat => longitudes.every(lon => test(lat, lon)));
         };
@@ -696,7 +760,7 @@ export default class Google3DTiles {
     }
 
     /** Whether a resident model overlaps a geographic building footprint. */
-    public overlapsFootprint(south: number, west: number, north: number, east: number): boolean {
+    public overlapsFootprint(south: number, west: number, north: number, east: number, maximumGeometricError?: number): boolean {
         if (!this.loadedTiles.size || south > north || ![south, west, north, east].every(Number.isFinite)) return false;
         // coversLocation also rebuilds the resident-only spatial index after a
         // replacement commits. A point query alone misses narrow tile edges
@@ -705,7 +769,7 @@ export default class Google3DTiles {
         const queryLongitudes = longitudeIntervals(west, east);
         const seen = new Set<TileSelection>();
         const overlaps = (selection: TileSelection): boolean => {
-            if (seen.has(selection)) return false;
+            if (seen.has(selection) || !this.coverageQualityMatches(selection, maximumGeometricError)) return false;
             seen.add(selection);
             let bounds = this.footprintEnvelopes.get(selection);
             if (!bounds) {
@@ -730,6 +794,11 @@ export default class Google3DTiles {
         }
         for (const selection of this.broadCoverage.values()) if (overlaps(selection)) return true;
         return false;
+    }
+
+    private coverageQualityMatches(selection: TileSelection, maximumGeometricError?: number): boolean {
+        return maximumGeometricError === undefined || selection.geometricError === undefined
+            || selection.geometricError <= maximumGeometricError;
     }
 
     private coverageTest(selection: TileSelection): (latitude: number, longitude: number) => boolean {
@@ -821,11 +890,32 @@ export default class Google3DTiles {
         for (const wake of this.movementWaiters) wake();
     }
 
-    /** Loads content that overlaps the current TileSet. */
-    public async load(selectionRadius = this.coverageRadius): Promise<readonly LoadedGoogle3DTile[]> {
+    /**
+     * Loads content overlapping selectionRadius while reusing the hierarchy and resident models.
+     * Startup can await load(radius, {stage: "coverage"}), then load(radius,
+     * {stage: "immediate", detailRadius: 750}), then load(radius) for normal refinement.
+     * Both startup passes select the complete disk, so nearby replacement cannot remove distant coverage.
+     */
+    public async load(selectionRadius = this.coverageRadius, options: Google3DLoadOptions = {}): Promise<readonly LoadedGoogle3DTile[]> {
         const loadStarted = performance.now();
         this.tileSet.assertRasterSetup("load Google 3D Tiles");
         this.validateOptions();
+        const stage = options.stage ?? "refinement";
+        const detailRadius = options.detailRadius ?? 750;
+        const coverageGeometricError = options.coverageGeometricError ?? 256;
+        if (!["coverage", "immediate", "refinement"].includes(stage)) throw new RangeError("Unknown Google loading stage.");
+        if (!Number.isFinite(detailRadius) || detailRadius <= 0) throw new RangeError("detailRadius must be positive and finite.");
+        if (!Number.isFinite(coverageGeometricError) || coverageGeometricError <= 0)
+            throw new RangeError("coverageGeometricError must be positive and finite.");
+        this.loadingStage = stage;
+        this.loadingPhase = "root";
+        this.stageDetailRadius = detailRadius;
+        this.stageCoverageGeometricError = coverageGeometricError;
+        const result: Google3DLoadResult = this.lastLoadResult = { stage, cancelled: false, selectedTiles: 0, loadedTiles: 0,
+            failedTiles: 0, failedModelTiles: 0, hierarchyFailures: 0, budgetLimitedTiles: 0, sourceLimitedTiles: 0,
+            sourceCoverageGaps: 0,
+            coverageComplete: false, detailComplete: false, immediateQualityComplete: false };
+        const cancelled = () => { result.cancelled = true; return [] as readonly LoadedGoogle3DTile[]; };
 
         this.selectionEye = this.cameraEye();
         this.requestEye = this.selectionEye;
@@ -867,7 +957,7 @@ export default class Google3DTiles {
 
         await this.loadRootTileset(generation);
         this.stats.rootMs = performance.now() - loadStarted;
-        if (generation !== this.generation) return [];
+        if (generation !== this.generation) return cancelled();
         if (!this.rootTileset) {
             throw new Error("Google 3D Tiles root tileset was not loaded.");
         }
@@ -880,8 +970,9 @@ export default class Google3DTiles {
                 console.warn("Unable to load a Google 3D Tile.");
             }));
         };
-        if (this.maximumScreenSpaceError) {
+        if (this.maximumScreenSpaceError || stage !== "refinement") {
             this.frontierGeneration = generation;
+            this.loadingPhase = "frontier";
             try { await this.selectFrontier(desiredTiles, generation, selection => {
                 desiredTiles.set(selection.url, selection);
                 // A nearby offscreen parent may already be prefetched. Show it
@@ -902,8 +993,10 @@ export default class Google3DTiles {
                     break;
                 }
                 if (residentAncestors.has(selection.url) && selection.geometricError !== undefined
-                    && selection.geometricError > this.allowedGeometricError(selection.boundingVolume,
-                        selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity())) return;
+                    && (this.usesCoverageQuality(selection.boundingVolume,
+                        selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity())
+                        || selection.geometricError > this.allowedGeometricError(selection.boundingVolume,
+                            selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity()))) return;
                 const overlapsExisting = selection.ancestors?.some(url => this.loadedTiles.has(url))
                     || residentAncestors.has(selection.url);
                 // New, disjoint coverage can appear immediately. Overlapping
@@ -911,8 +1004,12 @@ export default class Google3DTiles {
                 modelRequests.push(this.loadTile(selection, origin, generation,
                     !overlapsExisting && this.acceptableInitialQuality(selection)).catch(() => undefined));
             }, false, selectionRadius); }
-            finally { if (this.frontierGeneration === generation) this.frontierGeneration = -1; }
+            finally { if (this.frontierGeneration === generation) {
+                this.frontierGeneration = -1;
+                this.frontierProgress = undefined;
+            } }
             if (Array.from(desiredTiles.keys()).some(url => !this.loadedTiles.has(url))) {
+                this.loadingPhase = "replacement";
                 const replacementStarted = performance.now();
                 await this.loadReplacementGroups(desiredTiles, origin, generation);
                 this.stats.replacementMs = performance.now() - replacementStarted;
@@ -930,13 +1027,14 @@ export default class Google3DTiles {
             generation,
             startModel,
         );
-        if (generation !== this.generation) return [];
+        if (generation !== this.generation) return cancelled();
         this.desiredTiles = desiredTiles;
 
         const modelWaitStarted = performance.now();
+        this.loadingPhase = "models";
         await Promise.all(modelRequests);
         this.stats.modelWaitMs = performance.now() - modelWaitStarted;
-        if (generation !== this.generation) return [];
+        if (generation !== this.generation) return cancelled();
         this.stats.reusedModels += Array.from(desiredTiles.keys()).filter(url => residentAtStart.has(url) && this.loadedTiles.has(url)).length;
         // Keep the previous view visible while its replacement is streaming.
         // A short-radius foreground pass is only a scheduling hint. Content
@@ -948,7 +1046,7 @@ export default class Google3DTiles {
         for (const url of Array.from(this.loadedTiles.keys())) {
             if (!desiredTiles.has(url)) {
                 const previous = this.loadedSelections.get(url);
-                if (this.maximumScreenSpaceError && previous) {
+                if ((this.maximumScreenSpaceError || stage !== "refinement") && previous) {
                     const transform = previous.transform ? Matrix.FromArray(previous.transform) : Matrix.Identity();
                     if (boundingVolumeIntersects(previous.boundingVolume, currentBounds, transform)) continue;
                 }
@@ -967,15 +1065,52 @@ export default class Google3DTiles {
         }
         if (this.coverageVersion !== revisionBeforeCleanup || !this.googleAttributionAdded) this.updateAttribution();
         this.stats.loadMs = performance.now() - loadStarted;
+        result.selectedTiles = desiredTiles.size;
+        result.loadedTiles = Array.from(desiredTiles.keys()).filter(url => this.loadedTiles.has(url)).length;
+        result.failedTiles = result.selectedTiles - result.loadedTiles;
+        result.budgetLimitedTiles = this.stats.detailLimitedTiles;
+        result.sourceLimitedTiles = this.stats.sourceLimitedTiles;
+        result.coverageComplete = result.selectedTiles > 0 && !result.failedTiles && !result.hierarchyFailures
+            && !result.sourceCoverageGaps;
+        result.detailComplete = result.coverageComplete && !result.failedModelTiles
+            && !result.budgetLimitedTiles && !result.sourceLimitedTiles;
+        result.immediateQualityComplete = stage === "immediate" && result.coverageComplete
+            && !result.failedModelTiles && !result.budgetLimitedTiles
+            && Array.from(desiredTiles.values()).every(selection => this.acceptableDisplayQuality(selection));
+        this.loadingPhase = "idle";
         return this.loadedModelTiles;
     }
 
+    private usesCoverageQuality(volume: Google3DBoundingVolume | undefined, transform: Matrix,
+        eye = this.requestEye ?? this.selectionEye ?? this.cameraEye()): boolean {
+        if (this.loadingStage === "coverage") return true;
+        if (this.loadingStage !== "immediate") return false;
+        // The immediate radius describes ground coverage, independent of camera altitude.
+        if (this.tileSet.isGlobe) {
+            if (this.coverageQualityEye?.revision !== this.requestPriorityRevision) {
+                const scale = Math.sqrt((eye.x * eye.x + eye.y * eye.y) / WGS84_SEMI_MAJOR_AXIS ** 2
+                    + eye.z * eye.z / (WGS84_SEMI_MAJOR_AXIS ** 2 * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED)));
+                this.coverageQualityEye = { revision: this.requestPriorityRevision, eye: scale > 0 ? eye.scale(1 / scale) : eye };
+            }
+            eye = this.coverageQualityEye.eye;
+        }
+        return this.tilePriority(volume, transform, eye) > this.stageDetailRadius;
+    }
+
     private acceptableDisplayQuality(selection: TileSelection): boolean {
-        return this.maximumDisplayGeometricError === undefined || selection.geometricError === undefined
+        const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
+        return this.usesCoverageQuality(selection.boundingVolume, transform)
+            || this.maximumDisplayGeometricError === undefined || selection.geometricError === undefined
             || selection.geometricError <= this.maximumDisplayGeometricError;
     }
 
     private acceptableInitialQuality(selection: TileSelection): boolean {
+        if (this.usesCoverageQuality(selection.boundingVolume,
+            selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity())) return true;
+        // Google can publish a nonzero error on its finest available model.
+        // Do not wait for a nonexistent refinement during immediate startup.
+        if (this.loadingStage === "immediate" && selection.hasRefinement === false
+            && this.acceptableDisplayQuality(selection)) return true;
         if (this.maximumInitialErrorRatio === undefined || selection.geometricError === undefined) return true;
         const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
         // Geometric error from the source can remain high even for a small,
@@ -1249,7 +1384,19 @@ export default class Google3DTiles {
     private tilePriority(volume: Google3DBoundingVolume | undefined, transform: Matrix, eye = this.selectionEye ?? this.cameraEye()): number {
         if (!volume) return 0;
         const values = volume.box ?? volume.sphere;
-        if (!values) return 0;
+        if (!values) {
+            if (!volume.region) return 0;
+            const [west, south, east, north, low, high] = volume.region;
+            const longitudeSpan = east >= west ? east - west : east + 2 * Math.PI - west;
+            const longitude = west + longitudeSpan / 2;
+            const center = geographicToECEF({ latitude: (south + north) / 2 / RADIANS_PER_DEGREE,
+                longitude: longitude / RADIANS_PER_DEGREE, height: (low + high) / 2 });
+            let radius = 0;
+            for (const lat of [south, north]) for (const lon of [west, east]) for (const height of [low, high])
+                radius = Math.max(radius, Vector3.Distance(center, geographicToECEF({ latitude: lat / RADIANS_PER_DEGREE,
+                    longitude: lon / RADIANS_PER_DEGREE, height })));
+            return Math.max(0, Vector3.Distance(eye, center) - radius);
+        }
         const center = Vector3.TransformCoordinates(Vector3.FromArray(values), transform);
         if (volume.box) {
             const axes = [3, 6, 9].map(offset => Vector3.TransformNormal(Vector3.FromArray(values, offset), transform));
@@ -1285,6 +1432,7 @@ export default class Google3DTiles {
 
     private allowedGeometricError(volume: Google3DBoundingVolume | undefined, transform: Matrix,
         surroundings = false, eye = this.selectionEye ?? this.cameraEye(), forPriority = false): number {
+        if (!surroundings && this.usesCoverageQuality(volume, transform, eye)) return this.stageCoverageGeometricError;
         const camera = this.tileSet.scene.activeCamera;
         if (!this.maximumScreenSpaceError || !this.tileSet.isGlobe || !camera || !volume) return this.maximumGeometricError;
         const globe = this.tileSet as GlobeSet;
@@ -1328,7 +1476,8 @@ export default class Google3DTiles {
                 planes: Frustum.GetPlanes(cameraMatrix) };
         const planes = this.frustumCache.planes;
         const visible = !planes.some(plane => plane.dotCoordinate(world) < -radius * globe.metresToWorld);
-        if (this.cullToCamera && !visible && !surroundings && (!this.fullRadiusDemand || forPriority)) return -1;
+        if (this.cullToCamera && !visible && !surroundings && this.loadingStage === "refinement"
+            && (!this.fullRadiusDemand || forPriority)) return -1;
         let distance = Math.max(1, Vector3.Distance(eye, center) - radius);
         if (volume.box) {
             // A sphere around a long city block greatly exaggerates proximity.
@@ -1375,7 +1524,8 @@ export default class Google3DTiles {
             this.tileSet.scene.getEngine().getRenderHeight(), budget, this.maxDepth,
             this.maximumScreenSpaceError, this.maximumDisplayGeometricError, this.cullToCamera,
             this.fullRadiusDemand, this.referenceImageHeight, this.referenceFovY,
-            this.maximumGeometricError, this.originStateKey, this.rootRequestKey, surroundings, this.coverageRegion]);
+            this.maximumGeometricError, this.originStateKey, this.rootRequestKey, surroundings, this.coverageRegion,
+            this.loadingStage, this.stageDetailRadius, this.stageCoverageGeometricError]);
         if (this.frontierCache?.key === key) {
             this.stats.frontierTraversalMs = 0;
             this.stats.frontierCommitMs = 0;
@@ -1395,7 +1545,7 @@ export default class Google3DTiles {
         const frontierStarted = performance.now();
         const workBudget = SceneWorkBudget.forScene(this.tileSet.scene);
         const firstContent = async (tile: Google3DTile, responseUrl: string, depth: number,
-            parentTransform: Matrix, parentRefine: string, ancestors: string[] = []): Promise<FrontierTile[]> => {
+            parentTransform: Matrix, parentRefine: string, ancestors: string[] = [], onGap?: () => void): Promise<FrontierTile[]> => {
             if (generation !== this.generation || depth > this.maxDepth) return [];
             const transform = getTileTransform(tile)?.multiply(parentTransform) ?? parentTransform;
             if (!boundingVolumeIntersects(tile.boundingVolume, bounds, transform)) return [];
@@ -1409,7 +1559,7 @@ export default class Google3DTiles {
                 false, this.requestEye ?? this.selectionEye ?? this.cameraEye(), true) < 0;
             const inRegion = required(tile.boundingVolume, transform);
             if (allowed < 0 && !inRegion) return [];
-            if (inRegion) allowed = allowed < 0 ? this.maximumDisplayGeometricError ?? 33
+            if (inRegion && this.loadingStage === "refinement") allowed = allowed < 0 ? this.maximumDisplayGeometricError ?? 33
                 : Math.min(allowed, this.maximumDisplayGeometricError ?? 33);
             const refine = tile.refine?.toUpperCase() ?? parentRefine;
             const contents = getTileContents(tile);
@@ -1423,21 +1573,32 @@ export default class Google3DTiles {
             const node: FrontierTile = { tile, responseUrl, depth, transform, refine, selections, ancestors,
                 priority: (tile.geometricError ?? Infinity) / Math.max(allowed, 1e-12), offscreen };
             if (selections.length) return [node];
-            return children(node);
+            const gap = () => {
+                if (onGap) onGap();
+                else if (!surroundings && generation === this.generation && this.lastLoadResult)
+                    this.lastLoadResult.sourceCoverageGaps++;
+            };
+            if (depth >= this.maxDepth || !hasRefinement) { gap(); return []; }
+            const next = await children(node);
+            if (node.incompleteChildren) gap();
+            return next;
         };
         const children = async (node: FrontierTile): Promise<FrontierTile[]> => {
             if (node.depth >= this.maxDepth) return [];
+            const missingContent = () => { node.incompleteChildren = true; };
             const branches = (node.tile.children ?? []).map(child => firstContent({
                 ...child,
                 boundingVolume: child.boundingVolume ?? node.tile.boundingVolume,
                 geometricError: child.geometricError ?? node.tile.geometricError,
             }, node.responseUrl,
-                node.depth + 1, node.transform, node.refine, node.ancestors.concat(node.selections.map(selection => selection.url))));
+                node.depth + 1, node.transform, node.refine,
+                node.ancestors.concat(node.selections.map(selection => selection.url)), missingContent));
             for (const content of getTileContents(node.tile).filter(isTilesetContent)) {
                 branches.push(this.loadExternalTileset(getContentURI(content), node.responseUrl,
                     () => this.requestPriority(node.tile.boundingVolume, node.transform, node.tile.geometricError,
                         node.ancestors.some(url => this.loadedTiles.has(url))), generation).then(external => firstContent(external.tileset.root,
-                        external.url, node.depth + 1, node.transform, node.refine, node.ancestors.concat(node.selections.map(selection => selection.url)))));
+                        external.url, node.depth + 1, node.transform, node.refine,
+                        node.ancestors.concat(node.selections.map(selection => selection.url)), missingContent)));
             }
             return (await Promise.all(branches)).reduce((all, branch) => all.concat(branch), [] as FrontierTile[]);
         };
@@ -1448,7 +1609,8 @@ export default class Google3DTiles {
         let preferCoverage = false;
         const settled = new Set<FrontierTile>();
         const fallback = new WeakSet<FrontierTile>();
-        const renderable = (node: FrontierTile) => this.maximumDisplayGeometricError === undefined
+        const renderable = (node: FrontierTile) => !surroundings && this.usesCoverageQuality(node.tile.boundingVolume, node.transform)
+            || this.maximumDisplayGeometricError === undefined
             || (node.tile.geometricError ?? 0) <= this.maximumDisplayGeometricError
             || fallback.has(node)
             || surroundings && node.priority <= 1;
@@ -1565,6 +1727,8 @@ export default class Google3DTiles {
         const seedQueue = new PriorityQueue<FrontierTile>(compare);
         const seedPending = new Map<FrontierTile, Promise<Expansion>>();
         let rootSeed: Promise<FrontierTile[]> | undefined;
+        if (!surroundings) this.frontierProgress = () => ({ queued: queue.length + seedQueue.length,
+            pending: pending.size + seedPending.size + Number(!!rootSeed) });
         let seededAt = this.requestEye ?? this.selectionEye ?? this.cameraEye();
         let reseeded = false;
         const activeURLs = new Set(initial.flatMap(node => node.selections.map(selection => selection.url)));
@@ -1731,6 +1895,9 @@ export default class Google3DTiles {
             offerEviction(node);
             if (!frontier.has(node)) continue;
             if (!next) { hierarchyFailed = true; settle(node, true); continue; }
+            // A contentless sibling is a real source gap. Keep the complete parent
+            // instead of replacing it with only the children that happened to exist.
+            if (node.incompleteChildren) { settle(node, true); continue; }
             const extra = next.reduce((sum, child) => sum + child.selections.length, 0)
                     - (node.refine === "ADD" ? 0 : node.selections.length);
                 if (!next.length) {
@@ -1799,9 +1966,11 @@ export default class Google3DTiles {
                 count += extra;
         }
         if (generation !== this.generation) return;
+        if (!surroundings && hierarchyFailed && this.lastLoadResult) this.lastLoadResult.hierarchyFailures++;
         flushReplacements();
         this.stats.frontierTraversalMs = performance.now() - frontierStarted;
         const commitStarted = performance.now();
+        if (!surroundings) this.loadingPhase = "replacement";
         await Promise.all(commits);
         this.stats.frontierCommitMs = performance.now() - commitStarted;
         if (generation !== this.generation) return;
@@ -1815,27 +1984,33 @@ export default class Google3DTiles {
             const eye = this.requestEye ?? this.selectionEye ?? this.cameraEye();
             for (const node of frontier) {
                 if (node.priority <= 1) continue;
+                if (this.loadingStage === "immediate" && this.usesCoverageQuality(node.tile.boundingVolume, node.transform)) continue;
                 const external = getTileContents(node.tile).some(isTilesetContent);
                 const hasChildren = !!node.tile.children?.length;
                 const offscreen = this.cullToCamera && this.allowedGeometricError(
                     node.tile.boundingVolume, node.transform, false, eye, true) < 0;
-                if (node.depth < this.maxDepth && (hasChildren || external)) {
+                if (!node.incompleteChildren && node.depth < this.maxDepth && (hasChildren || external)) {
                     this.stats.detailLimitedTiles++;
                     if (offscreen) this.stats.offscreenDetailLimitedTiles++;
                     else this.stats.visibleDetailLimitedTiles++;
-                } else if (!hasChildren && !external) {
+                } else if (node.incompleteChildren || !hasChildren && !external) {
                     this.stats.sourceLimitedTiles++;
                     if (offscreen) this.stats.offscreenSourceLimitedTiles++;
                     else this.stats.visibleSourceLimitedTiles++;
                 }
             }
         }
+        // onStable streams models before traversal finishes. Camera reseeding and
+        // fallback promotion can leave obsolete demands behind; only the final
+        // frontier is authoritative for replacement and stage completion.
+        desired.clear();
         for (const node of frontier) if (renderable(node)) for (const selection of node.selections) desired.set(selection.url, selection);
         if (reseeded) for (const [url, selection] of desired) {
             const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
             if (!boundingVolumeIntersects(selection.boundingVolume, bounds, transform)) desired.delete(url);
         }
-        if (!hierarchyFailed && !surroundings && !reseeded) this.frontierCache = { key, selections: Array.from(desired.values()) };
+        if (!hierarchyFailed && !surroundings && !reseeded && !this.lastLoadResult?.sourceCoverageGaps)
+            this.frontierCache = { key, selections: Array.from(desired.values()) };
     }
 
     private async collectTileContent(
@@ -1977,7 +2152,8 @@ export default class Google3DTiles {
             const finerVisible = (descendants.get(selection.url) ?? []).filter(([url]) => this.loadedTiles.has(url));
             const transform = selection.transform ? Matrix.FromArray(selection.transform) : Matrix.Identity();
             if (finerVisible.length && selection.geometricError !== undefined
-                && selection.geometricError > this.allowedGeometricError(selection.boundingVolume, transform)) {
+                && (this.usesCoverageQuality(selection.boundingVolume, transform)
+                    || selection.geometricError > this.allowedGeometricError(selection.boundingVolume, transform))) {
                 // The budget is not permission to visibly coarsen resident detail.
                 desired.delete(selection.url);
                 for (const [url, old] of finerVisible) desired.set(url, old);
@@ -1992,6 +2168,8 @@ export default class Google3DTiles {
             for (const [url] of finerVisible) group.previous.add(url);
         }
         await Promise.all(Array.from(groups.values()).map(async group => {
+            this.replacementGroupsPending++;
+            try {
             const models = await Promise.all(group.next.map(selection => this.loadTile(selection, origin, generation, false).catch(() => undefined)));
             if (generation !== this.generation) return;
             // Traversal can replace this demand while models are still
@@ -2021,6 +2199,7 @@ export default class Google3DTiles {
             this.trimVisibleHistory(this.desiredTiles);
             this.coverageKey = ""; this.coverageVersion++;
             this.updateAttribution();
+            } finally { this.replacementGroupsPending--; }
         }));
     }
 
@@ -2101,9 +2280,14 @@ export default class Google3DTiles {
             }
         }, priority, "model").then(async (model) => {
             if (!model) {
+                if (generation === this.generation) {
+                    this.unusableModelURLs.add(selection.url);
+                    if (this.lastLoadResult) this.lastLoadResult.failedModelTiles++;
+                }
                 return undefined;
             }
             if (model.renderable === false) {
+                if (generation === this.generation && this.lastLoadResult) this.lastLoadResult.failedModelTiles++;
                 if (generation === this.generation) this.unusableModelURLs.add(selection.url);
                 model.asset.dispose();
                 return undefined;
@@ -2187,6 +2371,7 @@ export default class Google3DTiles {
             const result: LoadedGoogle3DTile = {
                 url: selection.url,
                 depth: selection.depth,
+                geometricError: selection.geometricError,
                 root,
                 asset: model.asset,
                 attributions: [...model.attributions],
@@ -2217,6 +2402,12 @@ export default class Google3DTiles {
             this.coverageKey = ""; this.coverageVersion++;
             this.updateAttribution();
             return result;
+        }).catch((error: unknown) => {
+            if (generation === this.generation) {
+                this.unusableModelURLs.add(selection.url);
+                if (this.lastLoadResult) this.lastLoadResult.failedModelTiles++;
+            }
+            throw error;
         });
 
         return request;

@@ -63,6 +63,36 @@ export interface LoadedGoogleModelTile {
 }
 export type GoogleTilesetLoader = (url: string) => Promise<Google3DTileset>;
 export type GoogleModelTileLoader = (url: string, scene: Scene, signal?: AbortSignal) => Promise<LoadedGoogleModelTile | undefined>;
+export type Google3DLoadingStage = "coverage" | "immediate" | "refinement";
+export interface Google3DLoadOptions {
+    /** Coverage uses a coarse full-disk frontier; immediate refines the nearby part of that same frontier. */
+    stage?: Google3DLoadingStage;
+    /** Radius of nearby quality demand in metres; defaults to 750. Keep selectionRadius at the full coverage radius. */
+    detailRadius?: number;
+    /** Source error tolerated by the coarse frontier in metres; defaults to 256. */
+    coverageGeometricError?: number;
+}
+export interface Google3DLoadResult {
+    stage: Google3DLoadingStage;
+    cancelled: boolean;
+    selectedTiles: number;
+    loadedTiles: number;
+    /** Selected content still missing or hidden after the pass, including failed downloads. */
+    failedTiles: number;
+    /** Model attempts that failed, even if an existing parent supplied fallback coverage. */
+    failedModelTiles: number;
+    hierarchyFailures: number;
+    budgetLimitedTiles: number;
+    sourceLimitedTiles: number;
+    /** Intersecting source branches with neither model content nor an available fallback ancestor. */
+    sourceCoverageGaps: number;
+    /** Every model in a nonempty complete frontier is visible and hierarchy traversal succeeded. */
+    coverageComplete: boolean;
+    /** Complete visible frontier at the requested quality, without download, source, or budget limits. */
+    detailComplete: boolean;
+    /** Immediate frontier is visible at the display limit or the best available source quality, without budget limits. */
+    immediateQualityComplete: boolean;
+}
 export interface Google3DTilesOptions {
     /** Google Maps Platform API key. It is appended to every request. */
     apiKey?: string;
@@ -113,6 +143,8 @@ export interface LoadedGoogle3DTile {
     url: string;
     /** Hierarchy depth at which the content was selected. */
     depth: number;
+    /** Source error in metres, useful for distinguishing coarse coverage from detailed replacement. */
+    geometricError?: number;
     /** Root transform that places the tile in the TileSet's local map space. */
     root: TransformNode;
     /** Babylon assets loaded from the GLB. */
@@ -149,6 +181,8 @@ export default class Google3DTiles {
     maximumInitialErrorRatio?: number;
     cullToCamera: boolean;
     fullRadiusDemand: boolean;
+    /** Completion of the latest load, suitable for gating staged startup. */
+    lastLoadResult?: Google3DLoadResult;
     /** Maximum hierarchy branches inspected in parallel during frontier selection. */
     maxPendingHierarchy: number;
     referenceImageHeight: number;
@@ -225,6 +259,8 @@ export default class Google3DTiles {
     private networkActiveOffscreen;
     private networkActiveHierarchy;
     private networkActiveModel;
+    private networkQueuedHierarchy;
+    private networkQueuedModel;
     private networkDispatchCount;
     private networkWaiters;
     private networkPendingInsertions;
@@ -235,6 +271,13 @@ export default class Google3DTiles {
     private modelDecodeWaiters;
     private pendingModelReuseBlocked;
     private pendingReuseBounds?;
+    private loadingStage;
+    private stageDetailRadius;
+    private stageCoverageGeometricError;
+    private coverageQualityEye?;
+    private loadingPhase;
+    private frontierProgress?;
+    private replacementGroupsPending;
     private canReusePendingModel;
     private canDecodeModel;
     private drainModelDecode;
@@ -248,6 +291,22 @@ export default class Google3DTiles {
     constructor(tileSet: TileSet, options?: Google3DTilesOptions);
     /** Content currently attached to the Babylon scene. */
     get loadedModelTiles(): readonly LoadedGoogle3DTile[];
+    /** Current queue occupancy, including work that can delay a startup-stage barrier. */
+    get loadingProgress(): {
+        stage: Google3DLoadingStage;
+        phase: "root" | "idle" | "frontier" | "replacement" | "models";
+        queuedFrontier: number;
+        pendingHierarchy: number;
+        replacementGroups: number;
+        pendingModels: number;
+        hierarchyActive: number;
+        modelActive: number;
+        hierarchyQueued: number;
+        modelQueued: number;
+        decodeActive: number;
+        decodeQueued: number;
+        uploadQueued: number;
+    };
     /** Current camera-facing resident quality, sampled independently of the last completed traversal. */
     measureVisibleQuality(): {
         visibleTiles: number;
@@ -277,12 +336,13 @@ export default class Google3DTiles {
     private footprintEnvelopes;
     private footprintTests;
     private loadedSelections;
-    /** Whether loaded model bounds cover this geographic position. */
-    coversLocation(latitude: number, longitude: number): boolean;
+    /** Whether loaded model bounds cover this position at an optional source-error limit. */
+    coversLocation(latitude: number, longitude: number, maximumGeometricError?: number): boolean;
     /** Skip a fallback tile only when one resident model covers its whole sampled footprint. */
-    coversAreaCompletely(south: number, west: number, north: number, east: number): boolean;
+    coversAreaCompletely(south: number, west: number, north: number, east: number, maximumGeometricError?: number): boolean;
     /** Whether a resident model overlaps a geographic building footprint. */
-    overlapsFootprint(south: number, west: number, north: number, east: number): boolean;
+    overlapsFootprint(south: number, west: number, north: number, east: number, maximumGeometricError?: number): boolean;
+    private coverageQualityMatches;
     private coverageTest;
     private footprintTest;
     /** The last root tileset response, if load() has been called. */
@@ -304,8 +364,14 @@ export default class Google3DTiles {
     get selectingFrontier(): boolean;
     /** Reorder queued downloads immediately when the camera moves, without cancelling active requests. */
     reprioritizeRequests(): void;
-    /** Loads content that overlaps the current TileSet. */
-    load(selectionRadius?: number | undefined): Promise<readonly LoadedGoogle3DTile[]>;
+    /**
+     * Loads content overlapping selectionRadius while reusing the hierarchy and resident models.
+     * Startup can await load(radius, {stage: "coverage"}), then load(radius,
+     * {stage: "immediate", detailRadius: 750}), then load(radius) for normal refinement.
+     * Both startup passes select the complete disk, so nearby replacement cannot remove distant coverage.
+     */
+    load(selectionRadius?: number | undefined, options?: Google3DLoadOptions): Promise<readonly LoadedGoogle3DTile[]>;
+    private usesCoverageQuality;
     private acceptableDisplayQuality;
     private acceptableInitialQuality;
     private trimVisibleHistory;

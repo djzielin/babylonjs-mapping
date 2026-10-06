@@ -17,6 +17,7 @@ import { installResidentMeshCandidates } from "./ResidentMeshCandidates";
 import { DrawSnapshotCache } from "./DrawSnapshotCache";
 import { MotionFrameProfile } from "./MotionFrameProfile";
 import { globeLODPlan, MIN_GLOBE_BUILDING_ZOOM } from "./GlobeLODPlan";
+import { GlobeLoadingQueue, type GlobeLoadingSnapshot } from "./GlobeLoadingQueue";
 import { setupAddressSearch } from "./AddressSearch";
 import { TrafficOverlay } from "./TrafficOverlay";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
@@ -41,6 +42,7 @@ import {
     RasterGEBCO,
     RasterMB,
     GlobeDataController,
+    GlobeFeatureQueue,
     TerrainRGB,
     Buildings,
     BuildingsOverture,
@@ -72,6 +74,12 @@ interface LocationPreset {
 const GLOBE_RADIUS = 60;
 const DETAIL_RADIUS = 60;
 const MAP_MAX_LEVEL = 8;
+const GOOGLE_COVERAGE_RADIUS = 15 * 1609.344;
+const GOOGLE_DETAIL_RADIUS = 300;
+// Keep the first city-wide view recognizable; very coarse landscape slabs
+// saved requests but erased the building shapes people use to orient themselves.
+const GOOGLE_BASELINE_ERROR = 256;
+const GOOGLE_REPLACEMENT_ERROR = 33;
 const HOME_VIEW: LocationPreset = {
     name: "New York · Empire State Building",
     latitude: 40.7484,
@@ -132,7 +140,18 @@ class GlobeDemo {
     private replacementSignatures = new WeakMap<object, string>();
     private replacementLandmarkSignature?: string;
     private data: GlobeDataController;
-    private elevation = new TerrainRGB();
+    private elevation = new TerrainRGB({ cacheSize: 256 });
+    // Regional meshes sample much less densely than the source DEM. Four z13
+    // neighbors share one z12 download without reducing mesh resolution.
+    private regionalElevation = new TerrainRGB({ maxZoom: 12, cacheSize: 128 });
+    private loadingQueue = new GlobeLoadingQueue();
+    private featureQueue: GlobeFeatureQueue;
+    private backgroundReleased = false;
+    private googleKeyRead = false;
+    private googleRetryAt = 0;
+    private demoStartedAt = 0;
+    private buildingPriorityFrame = -1;
+    private buildingPriorityCenter = Vector3.Zero();
     private buildings?: BuildingsOverture;
     private inspecting?: ArcRotateCamera;
     private tourTimer?: ReturnType<typeof setInterval>;
@@ -210,6 +229,7 @@ class GlobeDemo {
         DracoCompression.DefaultNumWorkers = Math.min(8, Math.max(1, Math.floor(navigator.hardwareConcurrency / 2) || 1));
         RenderingManager.MAX_RENDERINGGROUPS = Math.max(RenderingManager.MAX_RENDERINGGROUPS, 8);
         this.scene = new Scene(this.engine);
+        this.featureQueue = new GlobeFeatureQueue(this.scene, { maxPendingRequests: 8 });
         installResidentMeshCandidates(this.scene);
         if (this.engine.isWebGPU && new URLSearchParams(location.search).has("snapshot"))
             this.drawSnapshot = new DrawSnapshotCache(this.scene, this.engine as WebGPUEngine);
@@ -228,6 +248,7 @@ class GlobeDemo {
     }
 
     public start(): void {
+        this.demoStartedAt = performance.now();
         (document.getElementById("mapboxToken") as HTMLInputElement).value = DEMO_MAPBOX_TOKEN;
         if (DEMO_MAPBOX_TOKEN && HOME_VIEW.basemap)
             (document.getElementById("basemap") as HTMLSelectElement).value = HOME_VIEW.basemap;
@@ -241,6 +262,8 @@ class GlobeDemo {
             this.depthPass.onSizeChangedObservable.add(pass => pass.inputTexture.createDepthStencilTexture(0, false, true, 4, 18));
         }
         this.scene.onDisposeObservable.add(() => {
+            this.loadingQueue.cancel();
+            this.featureQueue.dispose();
             this.terrainTransition.dispose();
             this.buildingTransition.dispose();
         });
@@ -354,9 +377,9 @@ class GlobeDemo {
                     for (const mesh of tile.asset.meshes) {
                         if (this.googleMeshes.has(mesh)) continue;
                         this.googleMeshes.add(mesh);
-                        // Google geometry owns its pixels even if an Overture
-                        // footprint straddles a model-tile boundary.
-                        this.layers.add(mesh, 8);
+                        // Baseline imagery sits below Overture; detailed Google
+                        // models own their pixels when they replace it.
+                        this.layers.add(mesh, (tile.geometricError ?? 0) <= GOOGLE_REPLACEMENT_ERROR ? 8 : 6);
                         mesh.freezeWorldMatrix();
                         // Newly loaded static materials have no stale bindings to
                         // invalidate. freeze() otherwise scans the entire city.
@@ -416,6 +439,7 @@ class GlobeDemo {
                 this.updateGoogleCredits();
                 if (this.googleTiles) {
                     const stages = this.googleTiles.stats;
+                    this.canvas.dataset.googleLoadingProgress = JSON.stringify(this.googleTiles.loadingProgress);
                     this.canvas.dataset.googleModelFetchCount = String(stages.modelFetchCount);
                     this.canvas.dataset.googleModelDecodeCount = String(stages.modelDecodeCount);
                     this.canvas.dataset.googleModelFetchMs = String(Math.round(stages.modelFetchMs));
@@ -459,7 +483,10 @@ class GlobeDemo {
                 const terrainTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.filter(tile => tile.terrainLoaded).length, 0);
                 const totalTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.length, 0);
                 const buildingTiles = globes.reduce((sum, globe) => sum + globe.ourTiles.filter(tile => tile.buildings.length > 0 || tile.buildingBatches.length > 0).length, 0);
-                document.getElementById("loadingStatus")!.textContent = `Terrain ${terrainTiles}/${totalTiles} tiles · Buildings ${buildingTiles} tiles${stat.failed ? ` · ${stat.failed} data errors` : ""}`;
+                const startup = this.loadingQueue.snapshot;
+                const stageLabel = { idle: "Preparing terrain", terrain: "1/4 Terrain", coverage: "2/4 Google 15-mile coverage", immediate: "3/4 Nearby Google detail", background: "4/4 Background detail" }[startup.stage];
+                const readyMs = this.canvas.dataset.loadingTimeToBackgroundMs;
+                document.getElementById("loadingStatus")!.textContent = `${stageLabel}${startup.degraded ? " · Google coverage unavailable" : ""}${readyMs ? ` · ready in ${(Number(readyMs) / 1000).toFixed(1)} s` : ""} · Terrain ${terrainTiles}/${totalTiles} · Buildings ${buildingTiles} tiles${stat.failed ? ` · ${stat.failed} data errors` : ""}`;
                 const roadJobs = this.roads?.pendingRequestCount ?? 0;
                 const buildingJobs = [this.buildings, ...this.distanceLayers.map(layer => layer.buildings)]
                     .reduce((count, provider) => count + (provider?.pendingRequestCount ?? 0), 0);
@@ -532,6 +559,10 @@ class GlobeDemo {
             minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14,
             minFeatureZoom: 15, maxFeatureZoom: 18,
             exaggeration: 1,
+            featuresEnabled: false,
+            featureQueue: this.featureQueue,
+            featurePriority: tile => this.overturePriority(this.detailGlobe, tile),
+            featureFilter: tile => this.inBuildingRadius(this.detailGlobe, tile),
         });
         this.data.onErrorObservable.add((error) => this.message(error.message));
         void resolveLatestOvertureBuildingsURL()
@@ -545,6 +576,7 @@ class GlobeDemo {
                     && !this.finerOvertureCoverage.get(this.detailGlobe)?.covers(bounds);
                 this.buildings.onTileResolved = () => this.onFinerOvertureCoverageChanged(this.detailGlobe);
                 this.buildings.tileCoverageFilter = tile => this.googleCoversTile(this.detailGlobe, tile);
+                this.buildings.onTileReloadRequested = tile => this.data.requeueFeatures(tile);
                 this.buildings.loadConcurrency = 6;
                 this.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
                 this.buildings.buildingFeatureFilter = feature => this.keepBuildingFeature(feature.geometry?.coordinates, this.detailGlobe, Number(feature.properties?.height) || 4);
@@ -563,10 +595,10 @@ class GlobeDemo {
                 )
                     this.data.options.buildings = this.buildings;
                 this.baseGlobe.ourAttribution.addAttribution("OVERTURE");
-                this.data.invalidate(true, true);
+                if (this.backgroundReleased) this.data.invalidate(true, true);
                 this.configureDistanceLayers();
                 this.message(
-                    "Terrain and Overture buildings ready.",
+                    "Overture source ready · buildings queued for background loading.",
                 );
             })
             .catch((error) =>
@@ -825,6 +857,7 @@ class GlobeDemo {
     }
 
     private updateLandmarks(): void {
+        if (!this.backgroundReleased) return;
         const enabled = (document.getElementById("landmarks") as HTMLInputElement).checked;
         const token = (document.getElementById("mapboxToken") as HTMLInputElement).value.trim();
         if (!enabled || !token || this.detailGlobe.zoom < 14) {
@@ -963,13 +996,13 @@ class GlobeDemo {
         // center leaves long lines painted over already loaded city imagery.
         for (const vertex of [bounds.centerWorld, ...bounds.vectorsWorld]) {
             const point = this.detailGlobe.getSurfaceCoordinates(vertex);
-            if (this.googleTiles.coversLocation(point.latitude, point.longitude)) return true;
+            if (this.googleCoversLocation(point.latitude, point.longitude)) return true;
         }
         return false;
     }
 
     private googleCoversLocation(latitude: number, longitude: number): boolean {
-        return !!this.googleTiles?.coversLocation(latitude, longitude);
+        return !!this.googleTiles?.coversLocation(latitude, longitude, GOOGLE_REPLACEMENT_ERROR);
     }
 
     private googleCoversTile(globe: GlobeSet, tile: Tile): boolean {
@@ -978,14 +1011,14 @@ class GlobeDemo {
         const math = globe.ourTileMath;
         return this.googleTiles.coversAreaCompletely(
             math.tile_to_lat(y + 1, z), math.tile_to_lon(x, z),
-            math.tile_to_lat(y, z), math.tile_to_lon(x + 1, z));
+            math.tile_to_lat(y, z), math.tile_to_lon(x + 1, z), GOOGLE_REPLACEMENT_ERROR);
     }
 
     private googleCoversFootprint(latitude: number, longitude: number,
         bounds?: { south: number; west: number; north: number; east: number }): boolean {
         if (this.googleCoversLocation(latitude, longitude)) return true;
         if (!bounds || !this.googleTiles) return false;
-        return this.googleTiles.overlapsFootprint(bounds.south, bounds.west, bounds.north, bounds.east);
+        return this.googleTiles.overlapsFootprint(bounds.south, bounds.west, bounds.north, bounds.east, GOOGLE_REPLACEMENT_ERROR);
     }
 
     private refreshBuildingReplacements(): void {
@@ -1200,6 +1233,7 @@ class GlobeDemo {
             const response = await fetch("google-key.txt", { cache: "no-store" });
             this.googleKey = response.ok ? (await response.text()).trim() : "";
         } catch { this.googleKey = ""; }
+        this.googleKeyRead = true;
         this.scheduleGoogleTiles(true);
         if (this.googleKey && !(document.getElementById("mapboxToken") as HTMLInputElement).value.trim()) {
             void this.ensureSatelliteSession().then(() => {
@@ -1260,6 +1294,9 @@ class GlobeDemo {
     }
 
     private scheduleGoogleTiles(force = false): void {
+        if (!this.googleKeyRead) return;
+        if (!this.googleKey && (this.backgroundReleased || this.loadingQueue.snapshot.status === "running")) return;
+        if (!force && performance.now() < this.googleRetryAt) return;
         const view = this.navigator.getView();
         const enabled = (document.getElementById("googleTiles") as HTMLInputElement).checked;
         const quality = (document.getElementById("googleQuality") as HTMLSelectElement).value;
@@ -1290,7 +1327,7 @@ class GlobeDemo {
             const ground = this.googleTiles.sampleVisibleSurfaceCoverage();
             if (!quality.visibleTiles || quality.underDetailedTiles || quality.missingVisibleTiles || ground.missing) force = true;
         }
-        if (key && this.googleTurnPending && this.googleLoading && !this.googleTimer
+        if (this.backgroundReleased && key && this.googleTurnPending && this.googleLoading && !this.googleTimer
             && this.googleTiles?.tileset && !this.googleTiles.selectingFrontier
             && performance.now() - this.googlePassStartedAt >= 100) {
             const quality = this.googleTiles.measureVisibleQuality();
@@ -1307,6 +1344,9 @@ class GlobeDemo {
         this.googleViewKey = key;
         if (!force && key && this.googleTimer) return;
         if (!force && key && this.googleLoading) {
+            // Startup passes have short, ordered barriers. Reprioritize their
+            // useful work without restarting them on every camera movement.
+            if (!this.backgroundReleased) return;
             const center = this.googleTiles?.selectedCoverageCenter;
             if (!center || performance.now() - this.googlePassStartedAt < 500) return;
             // The live frontier reseeds at 250 m and reprioritizes its queue
@@ -1327,6 +1367,7 @@ class GlobeDemo {
         clearTimeout(this.googleTimer);
         this.googleTimer = undefined;
         const generation = ++this.googleGeneration;
+        this.loadingQueue.cancel();
         if (!key) {
             this.googleSelectionBearing = "";
             this.googleTurnPending = false;
@@ -1336,11 +1377,13 @@ class GlobeDemo {
             this.canvas.dataset.googleTiles = "0";
             this.setPhotorealisticActive(false);
             this.googleStatus("Google 3D off");
+            void this.runStartup();
             return;
         }
         if (!this.googleKey) {
             this.googleLoading = false;
             this.googleStatus("Google 3D unavailable · local key missing; toggle to retry");
+            void this.runStartup();
             return;
         }
         this.googleTimer = setTimeout(async () => {
@@ -1349,6 +1392,7 @@ class GlobeDemo {
             const { meanSeaLevel } = await import("egm96-universal");
             if (generation !== this.googleGeneration) return;
             const currentView = this.navigator.getView();
+            const freshProvider = !this.googleTiles;
             const provider = this.googleTiles ??= new Google3DTiles(this.detailGlobe, {
                 apiKey: this.googleKey,
                 origin: { latitude: currentView.latitude, longitude: currentView.longitude },
@@ -1359,14 +1403,14 @@ class GlobeDemo {
                 fullRadiusDemand: true,
                 referenceImageHeight: 2160,
                 referenceFovY: 0.8,
-                coverageRadius: 15 * 1609.344,
+                coverageRadius: GOOGLE_COVERAGE_RADIUS,
                 heightOffset: -meanSeaLevel(currentView.latitude, currentView.longitude),
             });
             provider.maxDepth = quality === "auto" || quality === "32" ? 64 : Number(quality);
             // Select the area around the viewer first. A city-wide required
             // region sent thousands of hierarchy requests before nearby models
             // could appear, even when most of Manhattan was off screen.
-            provider.coverageRadius = 15 * 1609.344;
+            provider.coverageRadius = GOOGLE_COVERAGE_RADIUS;
             provider.coverageRegion = undefined;
             const requestedError = new URLSearchParams(location.search).get("sse");
             const screenError = requestedError === null ? NaN : Number(requestedError);
@@ -1386,7 +1430,9 @@ class GlobeDemo {
                 this.canvas.dataset.googleSelectionRadius = String(Math.round(provider.coverageRadius!));
                 this.canvas.dataset.googleSelectionCenter = `${currentView.latitude.toFixed(5)},${currentView.longitude.toFixed(5)}`;
                 this.googleSelectionCenter = { latitude: currentView.latitude, longitude: currentView.longitude };
-                const loaded = await provider.load();
+                if (freshProvider || !this.backgroundReleased) await this.runStartup(provider);
+                else await provider.load();
+                const loaded = provider.loadedModelTiles;
                 if (generation !== this.googleGeneration) return;
                 const selectedCenter = provider.selectedCoverageCenter;
                 if (selectedCenter) {
@@ -1430,15 +1476,138 @@ class GlobeDemo {
             } catch (error) {
                 const reason = (error instanceof Error ? error.message : String(error)).replace(/https?:\/\/\S+/g, "[request]");
                 console.warn("Google 3D loading failed:", reason);
-                if (generation === this.googleGeneration) this.googleStatus(`Google 3D unavailable · ${reason}`);
+                if (generation === this.googleGeneration) {
+                    this.googleStatus(`Google 3D unavailable · ${reason}`);
+                    this.googleRetryAt = performance.now() + 2000;
+                    this.googleViewKey = "";
+                }
             } finally {
                 if (generation === this.googleGeneration) {
                     this.googleLoading = false;
-                    if (this.googleViewKey !== key || this.googleTurnPending)
+                    if (performance.now() >= this.googleRetryAt && (this.googleViewKey !== key || this.googleTurnPending))
                         this.scheduleGoogleTiles(this.googleViewKey !== key);
                 }
             }
-        }, 35);
+        }, 0);
+    }
+
+    private async runStartup(provider?: Google3DTiles): Promise<void> {
+        let refinement: Promise<void> | undefined;
+        await this.loadingQueue.run({
+            terrain: signal => this.waitForStartupTerrain(signal),
+            coverage: provider ? signal => this.loadGoogleStage(provider, "coverage", signal) : undefined,
+            immediate: provider ? signal => this.loadGoogleStage(provider, "immediate", signal) : undefined,
+            allowGoogleFailure: true,
+            onTransition: snapshot => this.onLoadingTransition(snapshot),
+            // Releasing vector admissions happens in onTransition before this
+            // full-radius refinement starts. The two streams share stage four.
+            background: provider ? signal => refinement = (async () => {
+                    signal.throwIfAborted();
+                    const cancel = () => provider.cancelPendingLoad(true);
+                    signal.addEventListener("abort", cancel, { once: true });
+                    try { await provider.load(); }
+                    finally { signal.removeEventListener("abort", cancel); }
+                })() : undefined,
+        });
+        // Keep the existing movement/turn scheduler aware of the detached
+        // stage-four Google pass so it cannot launch overlapping selections.
+        await refinement;
+    }
+
+    private async loadGoogleStage(provider: Google3DTiles, stage: "coverage" | "immediate", signal: AbortSignal): Promise<void> {
+        const cancel = () => provider.cancelPendingLoad(true);
+        signal.addEventListener("abort", cancel, { once: true });
+        try {
+            for (let attempt = 0; attempt < 3; attempt++) {
+                signal.throwIfAborted();
+                await provider.load(GOOGLE_COVERAGE_RADIUS, { stage, detailRadius: GOOGLE_DETAIL_RADIUS,
+                    coverageGeometricError: GOOGLE_BASELINE_ERROR });
+                signal.throwIfAborted();
+                const result = provider.lastLoadResult;
+                this.canvas.dataset[`google${stage === "coverage" ? "Coverage" : "Immediate"}Result`] = JSON.stringify(result);
+                if (result?.coverageComplete && (stage === "coverage" || result.immediateQualityComplete)) return;
+                // Retry transient downloads using the same hierarchy/resident
+                // models. Missing source quality cannot be repaired by retrying.
+                if (!result || (!result.failedModelTiles && !result.hierarchyFailures)) break;
+            }
+            throw new Error(stage === "coverage" ? "Google 15-mile coverage incomplete" : "Nearby Google detail incomplete");
+        } finally { signal.removeEventListener("abort", cancel); }
+    }
+
+    private waitForStartupTerrain(signal: AbortSignal): Promise<void> {
+        return new Promise((resolve, reject) => {
+            let timer: ReturnType<typeof setTimeout>;
+            const cancel = () => { clearTimeout(timer); reject(signal.reason); };
+            signal.addEventListener("abort", cancel, { once: true });
+            const check = () => {
+                if (signal.aborted) { cancel(); return; }
+                // One regional tier covers the disk. Higher-resolution and
+                // horizon terrain can refine alongside buildings in stage four.
+                const required = [this.data, this.distanceLayers[1]?.data].filter((data): data is GlobeDataController => !!data);
+                for (const data of required) data.update();
+                if (required.every(data => data.isTerrainReady)) {
+                    signal.removeEventListener("abort", cancel);
+                    resolve();
+                } else timer = setTimeout(check, 25);
+            };
+            check();
+        });
+    }
+
+    private onLoadingTransition(snapshot: GlobeLoadingSnapshot): void {
+        const background = snapshot.stage === "background";
+        this.backgroundReleased = background;
+        this.canvas.dataset.loadingStage = snapshot.stage;
+        this.canvas.dataset.loadingStatus = snapshot.status;
+        this.canvas.dataset.loadingGoogleCoverageReady = String(snapshot.googleCoverageReady);
+        this.canvas.dataset.loadingImmediateReady = String(snapshot.immediateReady);
+        this.canvas.dataset.loadingDegraded = String(snapshot.degraded);
+        this.canvas.dataset.loadingStageTimings = JSON.stringify(snapshot.timings);
+        if (background) {
+            const started = snapshot.timings.background!.startedMs;
+            this.canvas.dataset.loadingBarrierTimeToBackgroundMs = String(Math.round(started - snapshot.startedMs));
+            this.canvas.dataset.loadingTimeToBackgroundMs = String(Math.round(started - this.demoStartedAt));
+            this.canvas.dataset.loadingFirstTimeToBackgroundMs ??= this.canvas.dataset.loadingTimeToBackgroundMs;
+        }
+        this.data.setFeaturesEnabled(background);
+        this.detailGlobe.rasterConcurrency = background ? 6 : snapshot.stage === "terrain" ? 2 : 0;
+        for (const [index, layer] of this.distanceLayers.entries()) {
+            layer.data.setEnabled(background || index === 1);
+            layer.data.setFeaturesEnabled(background);
+            layer.globe.rasterConcurrency = this.distanceRasterConcurrency(index + 1);
+        }
+        const messages = { terrain: "Google 3D · waiting for terrain…", coverage: "Google 3D · loading 15-mile baseline…", immediate: "Google 3D · loading nearby high detail…", background: "Google 3D · refining nearby tiles and filling Overture gaps…", idle: "Google 3D · preparing…" };
+        if (this.googleKey && (document.getElementById("googleTiles") as HTMLInputElement).checked)
+            this.googleStatus(snapshot.degraded ? "Google 3D · incomplete coverage; loading fallback buildings" : messages[snapshot.stage]);
+    }
+
+    private distanceRasterConcurrency(group: number): number {
+        if (!this.backgroundReleased) return group === 2 && this.loadingQueue.snapshot.stage === "terrain" ? 2 : 0;
+        return (document.getElementById("googleTiles") as HTMLInputElement).checked && group === 2 ? 8 : group >= 4 ? 4 : 2;
+    }
+
+    private buildingDistance(globe: GlobeSet, tile: Tile): number {
+        const frame = this.scene.getFrameId();
+        if (this.buildingPriorityFrame !== frame) {
+            this.buildingPriorityFrame = frame;
+            const view = this.navigator.getView();
+            this.buildingPriorityCenter = this.detailGlobe.getSurfacePosition(view.latitude, view.longitude);
+        }
+        const sphere = tile.mesh.getBoundingInfo().boundingSphere;
+        return Math.max(0, (Vector3.Distance(this.buildingPriorityCenter, sphere.centerWorld) - sphere.radiusWorld) / globe.metresToWorld);
+    }
+
+    private inBuildingRadius(globe: GlobeSet, tile: Tile): boolean {
+        return !(document.getElementById("googleTiles") as HTMLInputElement).checked
+            || this.buildingDistance(globe, tile) <= GOOGLE_COVERAGE_RADIUS;
+    }
+
+    private overturePriority(globe: GlobeSet, tile: Tile): number {
+        const distance = this.buildingDistance(globe, tile);
+        const medium = distance >= 750 && distance <= 8000;
+        const band = medium ? 0 : distance < 750 ? 20000 : 50000;
+        const visible = this.scene.activeCamera?.isInFrustum(tile.mesh) ? -1000 : 0;
+        return band + Math.abs(distance - 2500) + visible + Math.max(0, 14 - globe.zoom) * 250;
     }
 
     private updateDistanceLayers(view: GlobeView): void {
@@ -1454,17 +1623,20 @@ class GlobeDemo {
                     radius: GLOBE_RADIUS, backingSurface: false, attribution: false, geometryBudgetMs: 0.5,
                 });
                 globe.setOptimizationOptions({ freezeTileWorldMatrices: true, disableTilePicking: true, disableTileCollisions: true });
-                globe.rasterConcurrency = detailed15MileRadius && plan.group === 2 ? 8
-                    : plan.group >= 4 ? 4 : 2;
+                globe.rasterConcurrency = this.distanceRasterConcurrency(plan.group);
                 globe.setRasterProvider(new RasterOSM(globe));
                 globe.createGeometry(new Vector2(plan.size, plan.size), 20, plan.precision);
                 globe.setTerrainDisplayRequirement((document.getElementById("terrain") as HTMLInputElement).checked);
                 for (const tile of globe.ourTiles) this.registerTerrain(tile.mesh, plan.group);
-                const data = new GlobeDataController(globe, { elevation: this.elevation.load,
+                const data = new GlobeDataController(globe, { elevation: plan.group <= 2 ? this.regionalElevation.load : this.elevation.load,
                     concurrency: detailed15MileRadius && plan.group === 2 ? 8
                         : plan.group === 5 ? 6 : plan.group >= 3 ? 4 : 1,
                     minTerrainZoom: 5, prioritizeVisible: true,
-                    minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14 });
+                    minBuildingZoom: MIN_GLOBE_BUILDING_ZOOM, maxBuildingZoom: 14,
+                    enabled: this.backgroundReleased || plan.group === 2,
+                    featuresEnabled: this.backgroundReleased, featureQueue: this.featureQueue,
+                    featurePriority: tile => this.overturePriority(globe, tile),
+                    featureFilter: tile => this.inBuildingRadius(globe, tile) });
                 this.distanceLayers.unshift({ globe, data, key: "" });
             }
             this.configureDistanceLayers();
@@ -1472,8 +1644,7 @@ class GlobeDemo {
         }
         this.distanceLayers.forEach((layer, index) => {
             const plan = plans[index];
-            layer.globe.rasterConcurrency = detailed15MileRadius && plan.group === 2 ? 8
-                : plan.group >= 4 ? 4 : 2;
+            layer.globe.rasterConcurrency = this.distanceRasterConcurrency(plan.group);
             layer.data.options.concurrency = detailed15MileRadius && plan.group === 2 ? 8
                 : plan.group === 5 ? 6 : plan.group >= 3 ? 4 : 1;
             if (layer.buildings) layer.buildings.loadConcurrency = detailed15MileRadius && plan.group === 2 ? 12 : 6;
@@ -1556,6 +1727,7 @@ class GlobeDemo {
                     && !this.finerOvertureCoverage.get(layer.globe)?.covers(bounds);
                 layer.buildings.onTileResolved = () => this.onFinerOvertureCoverageChanged(layer.globe);
                 layer.buildings.tileCoverageFilter = tile => this.googleCoversTile(layer.globe, tile);
+                layer.buildings.onTileReloadRequested = tile => layer.data.requeueFeatures(tile);
                 layer.buildings.loadConcurrency = (document.getElementById("googleTiles") as HTMLInputElement).checked
                     && index === 1 ? 12 : 6;
                 layer.buildings.setOptimizationOptions({ freezeWorldMatrices: true, disablePicking: true, prioritizeRequestsByDistance: true });
@@ -1564,11 +1736,12 @@ class GlobeDemo {
                 layer.buildings.creationTimeBudgetMs = 2;
                 layer.buildings.buildingMeshTransform = mesh => { this.layers.add(mesh, 7); };
             }
-            const terrainChanged = layer.data.options.elevation !== (terrain ? this.elevation.load : undefined)
+            const elevation = index <= 1 ? this.regionalElevation.load : this.elevation.load;
+            const terrainChanged = layer.data.options.elevation !== (terrain ? elevation : undefined)
                 || layer.data.options.exaggeration !== exaggeration;
             const buildingsChanged = layer.data.options.buildings !== (buildings ? layer.buildings : undefined);
             layer.data.options.buildings = buildings ? layer.buildings : undefined;
-            layer.data.options.elevation = terrain ? this.elevation.load : undefined;
+            layer.data.options.elevation = terrain ? elevation : undefined;
             layer.data.options.exaggeration = exaggeration;
             layer.lodKey = undefined;
             if (!terrain) for (const tile of layer.globe.ourTiles) {
@@ -1576,7 +1749,7 @@ class GlobeDemo {
                 tile.terrainLoaded = false;
             }
             layer.globe.setTerrainDisplayRequirement(terrain);
-            if (terrainChanged || buildingsChanged) layer.data.invalidate(!terrainChanged, buildings);
+            if (terrainChanged || buildingsChanged && this.backgroundReleased) layer.data.invalidate(!terrainChanged, buildings);
         });
     }
 
