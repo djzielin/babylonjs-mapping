@@ -1,3 +1,4 @@
+import { flyControls } from "../../../examples-shared/navigation";
 /* Web-Based-VR-Tutorial Project Template
 * Author: Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>
 * License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
@@ -85,7 +86,7 @@ class Game {
         const ourOverlay = this.ourTS.getAdvancedDynamicTexture();
 
         const textBlock = new TextBlock();
-        textBlock.text = "On Desktop, use arrow keys and mouse to navigate";
+        textBlock.text = "Click viewport: WASD move, right drag look, middle drag pan";
         textBlock.color = "white";
         textBlock.fontSize = 24;
 
@@ -105,7 +106,7 @@ class Game {
         const camera = new UniversalCamera("camera1", new Vector3(130, 50, 0), this.scene); //grand canyon
 
         camera.setTarget(Vector3.Zero());
-        camera.attachControl(this.canvas, true);
+        flyControls(camera, this.canvas);
 
         camera.speed = 0.5;
         camera.angularSensibility = 8000;

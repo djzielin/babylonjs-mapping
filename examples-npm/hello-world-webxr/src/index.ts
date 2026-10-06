@@ -1,3 +1,4 @@
+import { flyControls } from "../../../examples-shared/navigation";
 import { Constants } from "@babylonjs/core/Engines/constants";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
@@ -41,7 +42,7 @@ export const camera = new UniversalCamera("desktop", new Vector3(0, 1.6, -3), sc
 camera.setTarget(Vector3.Zero());
 camera.minZ = 0.02;
 camera.speed = 0.03;
-camera.attachControl(canvas, true);
+flyControls(camera, canvas);
 new HemisphericLight("sky", new Vector3(0, 1, 0), scene);
 
 // One scene unit remains one physical metre in XR; the map is a 4 m miniature.

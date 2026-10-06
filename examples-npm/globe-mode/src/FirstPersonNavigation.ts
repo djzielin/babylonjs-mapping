@@ -16,3 +16,17 @@ export function moveEye(camera: ArcRotateCamera, shift: Vector3): void {
     camera.setTarget(camera.getTarget().add(shift));
     camera.setPosition(eye);
 }
+
+/** Transport the sight line as the local vertical changes around a globe. */
+export function alignEyeHorizon(camera: ArcRotateCamera, up: Vector3): void {
+    const oldUp = camera.upVector.normalizeToNew();
+    const axis = Vector3.Cross(oldUp, up);
+    const sine = axis.length();
+    if (sine < 1e-12) return;
+    axis.scaleInPlace(1 / sine);
+    const cosine = Math.max(-1, Math.min(1, Vector3.Dot(oldUp, up)));
+    const backward = camera.position.subtract(camera.getTarget()).normalize();
+    const transported = backward.scale(cosine).add(Vector3.Cross(axis, backward).scale(sine))
+        .add(axis.scale(Vector3.Dot(axis, backward) * (1 - cosine)));
+    lookFromEye(camera, up, transported);
+}

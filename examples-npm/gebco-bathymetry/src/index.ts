@@ -1,3 +1,4 @@
+import { orbitControls } from "../../../examples-shared/navigation";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
@@ -48,11 +49,11 @@ class Game {
             Vector3.Zero(),
             this.scene,
         );
-        camera.attachControl(this.canvas, true);
+        orbitControls(camera, this.canvas);
         camera.lowerRadiusLimit = 175;
         camera.upperRadiusLimit = 900;
         camera.wheelPrecision = 35;
-        camera.panningSensibility = 0;
+        camera.panningSensibility = 150;
 
         const hemisphere = new HemisphericLight("hemisphere", new Vector3(0, 1, 0), this.scene);
         hemisphere.intensity = 0.8;

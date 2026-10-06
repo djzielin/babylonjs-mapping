@@ -1,6 +1,6 @@
 # Globe fidelity explorer
 
-Orbit the Earth, fly to a city or ocean trench, zoom to detailed geometry, then adjust **Tilt** (0–89°) and **Heading** to look across the local surface. **Tilt view** starts at 60°; drag to orbit the selected spot or scroll to move closer. **Top down** restores globe navigation. Choosing a destination or starting a tour also returns to globe navigation.
+Orbit the Earth, fly to a city or ocean trench, and zoom to detailed geometry.
 
 ## Run the current PR
 
@@ -45,7 +45,7 @@ The Tokyo preset starts at zoom 16 in central Tokyo, 600 m above the terrain and
 
 The detail window has at most 25 tiles. Orbital geometry uses 16 subdivisions and terrain views use 64. New patch generation is spread over frames with a 4 ms CPU budget (a single tile is atomic). Raster requests are bounded at six, elevation jobs at four, and decoded DEM tiles use a 64-entry cache. Retained tiles keep their geometry, DEM and in-flight imagery. Geometry is projected when it loads, not every frame. Fine vertices use local origins and the demo enables Babylon's high-precision matrices. Feature creation has a 4 ms frame budget and a 32-feature cap; one feature is atomic and can exceed the budget.
 
-The HUD reports actual browser FPS, active meshes, vertices, and detail-job counts. These are measurements of the current browser/device, not a promised frame rate. `Tilt view` keeps the current geographic tile window fixed; return to globe mode to stream a different region. Terrain and buildings share a rendering group above the overview so low-resolution sea-level imagery cannot hide the seafloor.
+The HUD reports actual browser FPS, active meshes, vertices, and detail-job counts. These are measurements of the current browser/device, not a promised frame rate. Terrain and buildings share a rendering group above the overview so low-resolution sea-level imagery cannot hide the seafloor.
 
 ## Sources
 

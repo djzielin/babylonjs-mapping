@@ -1,8 +1,9 @@
+import { orbitControls, canvasControls } from "../../../examples-shared/navigation";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import { PassPostProcess } from "@babylonjs/core/PostProcesses/passPostProcess";
 import type { WebGPURenderTargetWrapper } from "@babylonjs/core/Engines/WebGPU/webgpuRenderTargetWrapper";
 import { DracoCompression } from "@babylonjs/core/Meshes/Compression/dracoCompression";
-import { lookFromEye, moveEye } from "./FirstPersonNavigation";
+import { lookFromEye, moveEye, alignEyeHorizon } from "./FirstPersonNavigation";
 import { TerrainTransition } from "./TerrainTransition";
 import { BuildingTransition } from "./BuildingTransition";
 import { OvertureTierCoverage } from "./OvertureTierCoverage";
@@ -255,8 +256,8 @@ class GlobeDemo {
             if (moving && !this.inspecting) this.orientView(60, 0);
             const now = performance.now();
             this.benchmark = { started: now, previous: 0,
-                heading: Number((document.getElementById("heading") as HTMLInputElement).value),
-                tilt: Number((document.getElementById("tilt") as HTMLInputElement).value),
+                heading: this.viewHeading,
+                tilt: this.viewTilt,
                 shift: this.inspectionBasis().north.scale(this.inspecting
                     ? fullSpeed ? this.movementSpeed() * 4 : Math.min(200 * this.detailGlobe.metresToWorld, this.movementSpeed()) : 0),
                 moving, fullSpeed, profile: new MotionFrameProfile(30000),
@@ -580,10 +581,10 @@ class GlobeDemo {
             Vector3.Zero(),
             this.scene,
         );
-        this.camera.attachControl(this.canvas, true);
+        orbitControls(this.camera, this.canvas, true);
         this.camera.inputs.removeByType("ArcRotateCameraMouseWheelInput");
         this.camera.panningSensibility = 0;
-        this.camera.inertia = 0.72;
+        this.camera.inertia = 0;
 
         this.navigator = new GlobeNavigator(this.detailGlobe, this.camera, {
             minZoom: 3,
@@ -757,13 +758,6 @@ class GlobeDemo {
             if (this.inspecting) this.exitInspection();
             else this.orientView(60, 0);
         });
-        for (const id of ["tilt", "heading"]) {
-            document.getElementById(id)!.addEventListener("input", () => {
-                const tilt = Number((document.getElementById("tilt") as HTMLInputElement).value);
-                const heading = Number((document.getElementById("heading") as HTMLInputElement).value);
-                this.orientView(tilt, heading);
-            });
-        }
         document.getElementById("tour")!.addEventListener("click", () => {
             if (this.tourTimer) {
                 clearInterval(this.tourTimer);
@@ -1594,9 +1588,10 @@ class GlobeDemo {
         this.inspecting.dispose();
         this.inspecting = undefined;
         this.scene.activeCamera = this.camera;
-        this.camera.attachControl(this.canvas, true);
-        document.getElementById("inspect")!.textContent = "Tilt view";
-        this.syncOrientationControls(0, 0);
+        this.movementKeys.clear();
+        this.canvas.focus();
+        document.getElementById("inspect")!.textContent = "Explore in 3D";
+        this.setOrientation(0, 0);
     }
 
     private inspectionBasis() {
@@ -1639,6 +1634,8 @@ class GlobeDemo {
             camera.onAfterCheckInputsObservable.add(() => this.keepInspectionAboveGround(camera));
             this.scene.activeCamera = camera;
             this.inspecting = camera;
+            canvasControls(camera, this.canvas, () => {}, "Right or left drag looks. Middle drag pans. WASD or arrows move/strafe; Q/E down/up; Shift faster. IJKL look. Wheel flies. Top down resets the view.");
+            this.canvas.focus();
             this.navigator.setViewSource(camera);
             document.getElementById("inspect")!.textContent = "Top down";
         }
@@ -1653,7 +1650,7 @@ class GlobeDemo {
             lookFromEye(camera, up, offset);
         } else camera.setPosition(camera.getTarget().add(offset.scale(camera.radius)));
         this.keepInspectionAboveGround(camera);
-        this.syncOrientationControls(tilt, heading);
+        this.setOrientation(tilt, heading);
     }
 
     private keepInspectionAboveGround(camera: ArcRotateCamera): void {
@@ -1667,14 +1664,12 @@ class GlobeDemo {
         }
     }
 
-    private syncOrientationControls(tilt: number, heading: number): void {
-        for (const [id, value] of [["tilt", tilt], ["heading", heading]] as const) {
-            const rounded = id === "heading" ? Math.round(value) % 360 : Math.min(179, Math.round(value));
-            const input = document.getElementById(id) as HTMLInputElement;
-            const output = document.getElementById(`${id}Value`)!;
-            if (input.value !== String(rounded)) input.value = String(rounded);
-            if (output.textContent !== `${rounded}°`) output.textContent = `${rounded}°`;
-        }
+    private viewTilt = 0;
+    private viewHeading = 0;
+
+    private setOrientation(tilt: number, heading: number): void {
+        this.viewTilt = tilt;
+        this.viewHeading = heading;
     }
 
     private updateOrientation(): void {
@@ -1683,7 +1678,7 @@ class GlobeDemo {
         const direction = this.inspecting.position.subtract(this.inspecting.getTarget()).normalize();
         const tilt = Math.acos(Math.max(-1, Math.min(1, Vector3.Dot(direction, up)))) * 180 / Math.PI;
         const heading = (Math.atan2(-Vector3.Dot(direction, east), -Vector3.Dot(direction, north)) * 180 / Math.PI + 360) % 360;
-        this.syncOrientationControls(tilt, heading);
+        this.setOrientation(tilt, heading);
     }
 
     private translateInspection(shift: Vector3): void {
@@ -1691,6 +1686,9 @@ class GlobeDemo {
         if (!camera) return;
         moveEye(camera, shift);
         this.keepInspectionAboveGround(camera);
+        const location = this.detailGlobe.getSurfaceCoordinates(camera.position);
+        alignEyeHorizon(camera, this.detailGlobe.getSurfaceNormal(location.latitude, location.longitude));
+        this.updateOrientation();
     }
 
     private movementSpeed(): number {
@@ -1799,9 +1797,14 @@ class GlobeDemo {
     private updateMovement(): void {
         const camera = this.inspecting;
         if (!camera) return;
-        const forwardInput = Number(this.movementKeys.has("w")) - Number(this.movementKeys.has("s"));
-        const rightInput = Number(this.movementKeys.has("d")) - Number(this.movementKeys.has("a"));
+        if (document.activeElement !== this.canvas) { this.movementKeys.clear(); return; }
+        const forwardInput = Number(this.movementKeys.has("w") || this.movementKeys.has("arrowup")) - Number(this.movementKeys.has("s") || this.movementKeys.has("arrowdown"));
+        const rightInput = Number(this.movementKeys.has("d") || this.movementKeys.has("arrowright")) - Number(this.movementKeys.has("a") || this.movementKeys.has("arrowleft"));
         const verticalInput = Number(this.movementKeys.has("e")) - Number(this.movementKeys.has("q"));
+        const lookX = Number(this.movementKeys.has("l")) - Number(this.movementKeys.has("j"));
+        const lookY = Number(this.movementKeys.has("i")) - Number(this.movementKeys.has("k"));
+        if (lookX || lookY) this.orientView(Math.max(0.1, Math.min(179, this.viewTilt + lookY * this.engine.getDeltaTime() * 0.05)),
+            (this.viewHeading + lookX * this.engine.getDeltaTime() * 0.05 + 360) % 360);
         if (!forwardInput && !rightInput && !verticalInput) return;
         const { up, north } = this.inspectionBasis();
         const forward = camera.getTarget().subtract(camera.position);
@@ -1816,43 +1819,64 @@ class GlobeDemo {
 
     private setupPointerNavigation(): void {
         let lookPointer: number | undefined;
+        let pan = false;
+        const abort = new AbortController();
+        this.scene.onDisposeObservable.addOnce(() => abort.abort());
+        const options = { signal: abort.signal };
         let lastX = 0, lastY = 0, lookTilt = 0, lookHeading = 0;
-        this.canvas.addEventListener("contextmenu", event => event.preventDefault());
+        this.canvas.addEventListener("contextmenu", event => event.preventDefault(), options);
         this.canvas.addEventListener("pointerdown", event => {
-            if (!this.inspecting || event.button !== 0 && event.button !== 2) return;
+            if (!this.inspecting || ![0, 1, 2].includes(event.button)) return;
             event.preventDefault();
             this.canvas.focus();
             lookPointer = event.pointerId;
-            lookTilt = Number((document.getElementById("tilt") as HTMLInputElement).value);
-            lookHeading = Number((document.getElementById("heading") as HTMLInputElement).value);
+            pan = event.button === 1;
+            lookTilt = this.viewTilt;
+            lookHeading = this.viewHeading;
             lastX = event.clientX; lastY = event.clientY;
             this.canvas.setPointerCapture(event.pointerId);
-        });
+        }, options);
         this.canvas.addEventListener("pointermove", event => {
-            if (!this.inspecting || event.pointerId !== lookPointer) return;
+            if (!this.inspecting || document.activeElement !== this.canvas || event.pointerId !== lookPointer) return;
             const dx = event.clientX - lastX, dy = event.clientY - lastY;
             lastX = event.clientX; lastY = event.clientY;
+            if (pan) {
+                const { up } = this.inspectionBasis();
+                const forward = this.inspecting.getTarget().subtract(this.inspecting.position).normalize();
+                const right = Vector3.Cross(up, forward).normalize();
+                const screenUp = Vector3.Cross(forward, right).normalize();
+                this.translateInspection(right.scale(-dx * this.movementSpeed() * 0.002)
+                    .add(screenUp.scale(dy * this.movementSpeed() * 0.002)));
+                return;
+            }
             lookTilt = Math.max(0.1, Math.min(179, lookTilt - dy * 0.15));
             lookHeading = (lookHeading + dx * 0.15 + 360) % 360;
             this.orientView(lookTilt, lookHeading);
-        });
-        const stopLooking = () => { lookPointer = undefined; };
-        this.canvas.addEventListener("pointerup", stopLooking);
-        this.canvas.addEventListener("pointercancel", stopLooking);
-        this.canvas.addEventListener("lostpointercapture", stopLooking);
+        }, options);
+        const stopLooking = () => {
+            const pointer = lookPointer; lookPointer = undefined;
+            if (pointer !== undefined && this.canvas.hasPointerCapture(pointer)) this.canvas.releasePointerCapture(pointer);
+        };
+        this.canvas.addEventListener("pointerup", stopLooking, options);
+        this.canvas.addEventListener("pointercancel", stopLooking, options);
+        this.canvas.addEventListener("lostpointercapture", stopLooking, options);
         window.addEventListener("keydown", event => {
-            const target = event.target as HTMLInputElement;
-            if (target?.tagName === "TEXTAREA" || target?.isContentEditable
-                || target?.tagName === "INPUT" && target.type !== "range" && target.type !== "checkbox") return;
-            if (this.inspecting && ["w", "a", "s", "d", "q", "e", "shift"].includes(event.key.toLowerCase()) && !event.ctrlKey && !event.metaKey) {
+            if (document.activeElement !== this.canvas) return;
+            if (event.key === "Escape") { this.movementKeys.clear(); stopLooking(); this.canvas.blur(); return; }
+            if (this.inspecting && ["w", "a", "s", "d", "q", "e", "shift", "arrowup", "arrowdown", "arrowleft", "arrowright", "i", "j", "k", "l"].includes(event.key.toLowerCase()) && !event.ctrlKey && !event.metaKey && !event.altKey) {
                 event.preventDefault(); this.movementKeys.add(event.key.toLowerCase());
             }
-        });
-        window.addEventListener("keyup", event => this.movementKeys.delete(event.key.toLowerCase()));
-        window.addEventListener("blur", () => this.movementKeys.clear());
+        }, options);
+        window.addEventListener("keyup", event => this.movementKeys.delete(event.key.toLowerCase()), options);
+        const stop = () => { this.movementKeys.clear(); stopLooking(); };
+        window.addEventListener("blur", stop, options);
+        this.canvas.addEventListener("blur", stop, options);
+        document.addEventListener("visibilitychange", stop, options);
+        this.scene.onActiveCameraChanged.add(stop);
         this.canvas.addEventListener(
             "wheel",
             (event) => {
+                if (document.activeElement !== this.canvas) return;
                 event.preventDefault();
                 if (this.inspecting) {
                     const direction = this.inspecting.getTarget().subtract(this.inspecting.position).normalize();
@@ -1881,7 +1905,7 @@ class GlobeDemo {
                     (targetAltitude - view.altitude) * blend;
                 this.navigator.refresh();
             },
-            { passive: false },
+            { ...options, passive: false },
         );
 
         this.canvas.addEventListener("dblclick", (event) => {

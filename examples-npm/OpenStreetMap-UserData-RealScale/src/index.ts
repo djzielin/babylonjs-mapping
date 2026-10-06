@@ -1,3 +1,4 @@
+import { flyControls } from "../../../examples-shared/navigation";
 // example of bringing in user position (lat/lon) data points
 // example of "real" ie 1:1 object scale
 
@@ -96,7 +97,7 @@ class Game {
         const ourOverlay = this.ourTS.getAdvancedDynamicTexture();
 
         const textBlock = new TextBlock();
-        textBlock.text = "On Desktop, use arrow keys and mouse to navigate\nclick on green info spots";
+        textBlock.text = "Click viewport: WASD move, right drag look, middle drag pan\nclick on green info spots";
         textBlock.color = "white";
         textBlock.fontSize = 24;
 
@@ -116,7 +117,7 @@ class Game {
 
         const camera = new UniversalCamera("camera1", new Vector3(0, 800, -1500), this.scene);
         camera.setTarget(Vector3.Zero());
-        camera.attachControl(this.canvas, true);
+        flyControls(camera, this.canvas);
         camera.speed=10;
         camera.angularSensibility=2000;        
 

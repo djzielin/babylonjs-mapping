@@ -1,3 +1,4 @@
+import { flyControls } from "../../../examples-shared/navigation";
 import { PointerEventTypes } from "@babylonjs/core/Events/pointerEvents";
 /* Web-Based-VR-Tutorial Project Template
 * Author: Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>
@@ -117,7 +118,7 @@ class Game {
 
         const camera = new UniversalCamera("camera1", new Vector3(0, 40, -80), this.scene);
         camera.setTarget(Vector3.Zero());
-        camera.attachControl(this.canvas, true);
+        flyControls(camera, this.canvas);
         camera.speed = 0.5;
         camera.angularSensibility = 8000;
 

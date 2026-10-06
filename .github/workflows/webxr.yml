@@ -61,3 +61,7 @@ jobs:
           npm run test:xr 2>&1 | tee test-results/webxr-simulator.log
           npm run test:xr:google 2>&1 | tee test-results/webxr-google-simulator.log
 
+      - name: Verify desktop navigation and interrupted input
+        working-directory: examples-npm/hello-world-webxr
+        run: npm run test:navigation
+

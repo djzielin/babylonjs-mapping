@@ -1,3 +1,4 @@
+import { flyControls } from "../../../examples-shared/navigation";
 import { landscapeTerrainLOD } from "../../../lib/terrain/LandscapeLOD";
 /* Web-Based-VR-Tutorial Project Template
 * Author: Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>
@@ -150,7 +151,7 @@ class Game {
         this.scene.clearColor = new Color4(135 / 255, 206 / 255, 235 / 255, 1.0);
 
         const camera = new UniversalCamera("camera1", Vector3.Zero(), this.scene);
-        camera.attachControl(this.canvas, true);
+        flyControls(camera, this.canvas);
         camera.speed=3;
         camera.angularSensibility=8000;
         camera.maxZ = 2000;

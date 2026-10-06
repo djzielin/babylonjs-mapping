@@ -1,3 +1,4 @@
+import { orbitControls } from "../../../examples-shared/navigation";
 import { Engine } from '@babylonjs/core/Engines/engine';
 import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
@@ -42,7 +43,7 @@ const scene = new Scene(engine);
 scene.clearColor = new Color4(0.035,0.085,0.12,1);
 const camera = new ArcRotateCamera('camera', -Math.PI/2, 0.38, 145, Vector3.Zero(), scene);
 camera.lowerRadiusLimit = 55; camera.upperRadiusLimit = 420;
-camera.attachControl(canvas, true);
+orbitControls(camera, canvas);
 const light = new HemisphericLight('light', new Vector3(0,1,0), scene);
 light.intensity = 1.2;
 const map = new TileSet(scene, engine);

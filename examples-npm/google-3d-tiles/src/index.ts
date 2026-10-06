@@ -1,3 +1,4 @@
+import { orbitControls } from "../../../examples-shared/navigation";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
@@ -36,7 +37,7 @@ class Google3DTilesDemo {
             new Vector3(0, 15, 0),
             this.scene,
         );
-        this.camera.attachControl(this.canvas, true);
+        orbitControls(this.camera, this.canvas);
         this.camera.lowerRadiusLimit = 15;
         this.camera.upperRadiusLimit = 900;
         this.camera.wheelDeltaPercentage = 0.03;

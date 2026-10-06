@@ -1,3 +1,4 @@
+import { flyControls } from "../../../examples-shared/navigation";
 /* Web-Based-VR-Tutorial Project Template
 * Author: Evan Suma Rosenberg <suma@umn.edu> and Blair MacIntyre <blair@cc.gatech.edu>
 * License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
@@ -16,7 +17,6 @@ import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { ActionManager } from "@babylonjs/core/Actions/actionManager";
-import { KeyboardEventTypes, KeyboardInfo } from "@babylonjs/core/Events/keyboardEvents";
 
 import { TextBlock } from "@babylonjs/gui/2D/controls/textBlock";
 import { Control } from "@babylonjs/gui/2D/controls/control";
@@ -40,10 +40,7 @@ class Game {
 
     private spherePositions: Vector3[] = [];
 
-    private keyRight: boolean;
-    private keyLeft: boolean;
-    private keyUp: boolean;
-    private keyDown: boolean;
+
 
     private camera: UniversalCamera;
 
@@ -93,7 +90,7 @@ class Game {
         const ourOverlay = this.ourTS.getAdvancedDynamicTexture();
 
         const textBlock = new TextBlock();
-        textBlock.text = "On Desktop, use AWSD and mouse to navigate";
+        textBlock.text = "Click viewport: WASD move, right drag look, middle drag pan";
         textBlock.color = "white";
         textBlock.fontSize = 24;
 
@@ -115,9 +112,9 @@ class Game {
         //var camera = new UniversalCamera("camera1", new Vector3(90, 45, 0), this.scene); //grand canyon
 
         //this.camera.setTarget(new Vector3(0,0,1));
-        this.camera.attachControl(this.canvas, true);
+        flyControls(this.camera, this.canvas);
 
-        this.camera.speed = 0.0;
+        this.camera.speed = 0.15;
         this.camera.angularSensibility = 8000;
 
 
@@ -163,69 +160,17 @@ class Game {
         }
         this.setupHelpText();
 
-        this.scene.onKeyboardObservable.add((e: KeyboardInfo) => {
-            if (e.type == KeyboardEventTypes.KEYDOWN) {
-                if (e.event.key == "d") {
-                    this.keyRight = true;
-                }
-                if (e.event.key == "a") {
-                    this.keyLeft = true;
-                }
-                if (e.event.key == "w") {
-                    this.keyUp = true;
-                }
-                if (e.event.key == "s") {
-                    this.keyDown = true;
-                }
-
-            } else {
-                console.log("key up: " + e.event.key);
-
-                if (e.event.key == "d") {
-                    this.keyRight = false;
-                }
-                if (e.event.key == "a") {
-                    this.keyLeft = false;
-                }
-                if (e.event.key == "w") {
-                    this.keyUp = false;
-                }
-                if (e.event.key == "s") {
-                    this.keyDown = false;
-                }
-            }
-        });
     }
 
     // The main update loop will be executed once per frame before the scene is rendered
     // modify camera flythrough?
     private update(): void {
-        const fVec = Vector3.TransformCoordinates(Vector3.Forward(), this.camera.getWorldMatrix());
-        const rVec = Vector3.TransformCoordinates(Vector3.Right(), this.camera.getWorldMatrix());
-
-        const deltaTimeSeconds = this.engine.getDeltaTime() * 0.001;
-
-        let movVec: Vector3 = Vector3.Zero();
-        let forwardAmount = 0;
-        let rightAmount = 0;
-
-        if (this.keyLeft) {
-            rightAmount += 10 * deltaTimeSeconds;
-        }
-        if (this.keyRight) {
-            rightAmount += -10 * deltaTimeSeconds;
-        }
-        if (this.keyUp) {
-            forwardAmount += -10 * deltaTimeSeconds;
-        }
-        if (this.keyDown) {
-            forwardAmount += 10 * deltaTimeSeconds;
-        }
-
-        if (Math.abs(forwardAmount) > 0.0 || Math.abs(rightAmount) > 0.0) {
-            movVec = movVec.add(fVec.multiplyByFloats(forwardAmount, forwardAmount, forwardAmount));
-            movVec = movVec.add(rVec.multiplyByFloats(rightAmount, rightAmount, rightAmount));
-            this.ourTS.moveAllTiles(movVec.x, movVec.z, 100, this.ourOSM, this.terrainEnabled);
+        // Move the map opposite the viewer, then recenter the camera. All input
+        // paths (keyboard, middle drag and wheel) share tile recycling.
+        const shift = new Vector3(this.camera.position.x, 0, this.camera.position.z);
+        if (shift.lengthSquared() > 0) {
+            this.ourTS.moveAllTiles(-shift.x, -shift.z, 100, this.ourOSM, this.terrainEnabled);
+            this.camera.position.x = this.camera.position.z = 0;
         }
     }
 
