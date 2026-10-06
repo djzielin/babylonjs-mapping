@@ -182,7 +182,11 @@ async function setupXR(): Promise<void> {
     xr.baseExperience.onStateChangedObservable.add(state => {
         help.hidden = state === WebXRState.IN_XR;
         enterButton.disabled = entering || state !== WebXRState.NOT_IN_XR;
-        if (state === WebXRState.NOT_IN_XR) status.textContent = "VR ready. Select Enter VR to return.";
+        if (state === WebXRState.NOT_IN_XR) {
+            status.textContent = "VR ready. Select Enter VR to return.";
+            // Restore desktop input to the viewport after leaving the headset.
+            canvas.focus();
+        }
     });
     enterButton.disabled = false;
     status.textContent = "VR ready. Select Enter VR to explore the campus.";

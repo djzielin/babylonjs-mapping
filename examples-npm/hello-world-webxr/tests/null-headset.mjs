@@ -212,6 +212,7 @@ try {
     await page.evaluate(() => helloWorldWebXR.xrExperience.baseExperience.exitXRAsync());
     await page.waitForFunction(() => helloWorldWebXR.scene.activeCamera.name === 'desktop' && !document.querySelector('#enter-vr').disabled && !document.querySelector('#help').hidden);
     assert.equal(await page.evaluate(() => helloWorldWebXR.scene.activeCamera.inputs.attachedToElement), true);
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#renderCanvas')), true);
     assert.deepEqual(errors, []);
     const evidence = await page.evaluate(() => ({
         rasterTiles: helloWorldWebXR.map.ourTiles.length,
