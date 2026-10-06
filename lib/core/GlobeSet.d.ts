@@ -48,6 +48,7 @@ export default class GlobeSet extends TileSet {
     private originalElevations;
     private geometryBudgetMs;
     private geometryQueue;
+    private pendingElevationTiles;
     private geometryBounds;
     private getGeographicTileBounds;
     protected getRasterRequestPriority(request: TileRequest, camera: Camera, planes: Plane[]): {
@@ -56,6 +57,12 @@ export default class GlobeSet extends TileSet {
     };
     private terrainDisplayZoom;
     get pendingGeometryCount(): number;
+    /** Prepare one configured geometry slice even when scene rendering is throttled. */
+    prepareGeometry(): void;
+    get pendingElevationCount(): number;
+    hasPendingElevationData(tile: Tile): boolean;
+    /** Upload a coalesced DEM burst once per dirty tile, including welded neighbours. */
+    flushElevationData(): void;
     isTileGeometryReady(tile: Tile): boolean;
     isTileDisplayReady(tile: Tile): boolean;
     /** Hold a raster patch behind existing coarser coverage until its DEM arrives. */
@@ -97,7 +104,7 @@ export default class GlobeSet extends TileSet {
     protected reuseRasterTilesOnUpdate(): boolean;
     protected showRasterAttribution(): boolean;
     /** Signed elevation grids (including bathymetry) are supplied in metres. */
-    setElevationData(tile: Tile, data: ArrayLike<number>, width: number, height: number, exaggeration?: number): void;
+    setElevationData(tile: Tile, data: ArrayLike<number>, width: number, height: number, exaggeration?: number, deferUploads?: boolean): void;
     /** Weld shared samples before uploading; no vertical walls are needed between patches. */
     private joinElevationBorders;
     applyElevationGrid(tile: Tile, heights: number[], precision: number): void;

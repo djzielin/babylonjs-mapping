@@ -99,7 +99,7 @@ export default class TileSet {
     private isGeometrySetup;
     private isRasterSetup;
     /** Bind map resources to the explicitly supplied scene and rendering engine. */
-    constructor(scene: Scene, engine: AbstractEngine);
+    constructor(scene: Scene, engine: AbstractEngine, deferAttributionGUI?: boolean);
     /**
      * Returns whether the tile meshes have been created and are ready for use.
      */

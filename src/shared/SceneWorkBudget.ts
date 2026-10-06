@@ -19,13 +19,24 @@ export class SceneWorkBudget {
     private waiting: Waiting[] = [];
     private disposed = false;
     private fallback?: ReturnType<typeof setTimeout>;
-    constructor(private scene: Scene, private milliseconds = 1) {
+    private postedTask?: MessageChannel;
+    private posted = false;
+    constructor(private scene: Scene, private milliseconds = 1, fallbackMode: "timer" | "posted" = "timer") {
+        if (fallbackMode === "posted" && typeof MessageChannel !== "undefined") {
+            this.postedTask = new MessageChannel();
+            this.postedTask.port1.onmessage = () => {
+                this.posted = false;
+                if (!this.disposed && this.waiting.length) this.nextSlice();
+            };
+        }
         const frame = scene.onAfterRenderObservable.add(() => {
             this.nextSlice();
         });
         scene.onDisposeObservable.addOnce(() => {
             this.disposed = true;
             clearTimeout(this.fallback);
+            this.postedTask?.port1.close();
+            this.postedTask?.port2.close();
             scene.onAfterRenderObservable.remove(frame);
             this.waiting.splice(0).forEach(task => task.resolve());
         });
@@ -48,6 +59,12 @@ export class SceneWorkBudget {
     }
     private scheduleFallback(): void {
         // Preparation also works before the application starts its render loop.
+        // Posted startup slices yield to browser tasks without waiting a fixed
+        // frame interval or inheriting nested-timer minimum delays.
+        if (!this.disposed && this.waiting.length && this.postedTask) {
+            if (!this.posted) { this.posted = true; this.postedTask.port2.postMessage(undefined); }
+            return;
+        }
         if (!this.disposed && this.waiting.length && this.fallback === undefined)
             this.fallback = setTimeout(() => this.nextSlice(), 16);
     }

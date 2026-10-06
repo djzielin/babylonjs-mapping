@@ -130,9 +130,9 @@ export default class TileSet {
     private isRasterSetup: boolean = false;
 
     /** Bind map resources to the explicitly supplied scene and rendering engine. */
-    constructor(public scene: Scene, private engine: AbstractEngine) {
+    constructor(public scene: Scene, private engine: AbstractEngine, deferAttributionGUI = false) {
 
-        this.ourAttribution = new Attribution(this.scene);
+        this.ourAttribution = new Attribution(this.scene, deferAttributionGUI);
         this.ourTileMath = new TileMath(this);
 
         this.setRasterProvider(new RasterOSM(this)); //set default raster basemap to OSM

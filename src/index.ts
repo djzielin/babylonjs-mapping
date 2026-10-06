@@ -18,6 +18,9 @@ export {
 } from "./google/Google3DTiles.js";
 export type {
     Google3DBoundingVolume,
+    Google3DLoadingStage,
+    Google3DLoadOptions,
+    Google3DLoadResult,
     Google3DTile,
     Google3DTileContent,
     Google3DTilesOrigin,
@@ -80,8 +83,8 @@ export type {
 } from "./core/GlobeNavigator.js";
 export { default as TerrainRGB } from './terrain/TerrainRGB.js';
 export type { ElevationGrid, ElevationLoader, TerrainRGBOptions } from './terrain/TerrainRGB.js';
-export { default as GlobeDataController } from './core/GlobeDataController.js';
-export type { GlobeDataOptions } from './core/GlobeDataController.js';
+export { default as GlobeDataController, GlobeFeatureQueue } from './core/GlobeDataController.js';
+export type { GlobeDataOptions, GlobeFeatureQueueOptions } from './core/GlobeDataController.js';
 
 export { default as MapLayerRenderer } from "./core/MapLayerRenderer.js";
 export { default as BuildingReplacementIndex } from "./buildings/BuildingReplacementIndex.js";

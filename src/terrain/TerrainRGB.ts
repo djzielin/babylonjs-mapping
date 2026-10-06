@@ -21,6 +21,14 @@ export interface TerrainRGBOptions {
 type PendingGrid = { promise: Promise<ElevationGrid>; controller: AbortController; users: number };
 /** Numeric DEM streaming, including negative ocean depths. No GPU readback. */
 export default class TerrainRGB {
+    public readonly stats = { sourceRequests: 0, sharedSourceRequests: 0, sourceCacheHits: 0,
+        childCacheHits: 0, peakSourceActive: 0, sourceMs: 0 };
+    /** URL-free source occupancy: controller slots may share one source request. */
+    public get loadingProgress() {
+        let sourceChildren = 0;
+        for (const entry of this.pending.values()) sourceChildren += entry.users;
+        return { sourceActive: this.pending.size, sourceChildren, ...this.stats };
+    }
     private cache = new Map<string, ElevationGrid>();
     private cropped = new Map<string, ElevationGrid>();
     private pending = new Map<string, PendingGrid>();
@@ -98,6 +106,7 @@ export default class TerrainRGB {
         const childKey = `${coords.z}/${coords.x}/${coords.y}`;
         const reused = this.cropped.get(childKey);
         if (reused?.repairVersion === TERRAIN_REPAIR_VERSION) {
+            this.stats.childCacheHits++;
             this.cropped.delete(childKey);
             this.cropped.set(childKey, reused);
             return reused;
@@ -118,12 +127,15 @@ export default class TerrainRGB {
             this.cache.delete(url);
             grid = undefined;
         }
+        if (grid) this.stats.sourceCacheHits++;
         if (!grid) {
             let pending = this.pending.get(url);
             if (!pending || pending.controller.signal.aborted) {
                 // Overzoomed children share one decoded source. A moving caller must
                 // not abort the same request still needed by its neighbours.
                 const controller = new AbortController();
+                const started = performance.now();
+                this.stats.sourceRequests++;
                 let entry!: PendingGrid;
                 const promise = this.fetchGrid(url, z, controller.signal).then(grid => {
                     if (!controller.signal.aborted) {
@@ -132,11 +144,13 @@ export default class TerrainRGB {
                     }
                     return grid;
                 }).finally(() => {
+                    this.stats.sourceMs += performance.now() - started;
                     if (this.pending.get(url) === entry) this.pending.delete(url);
                 });
                 pending = entry = { controller, users: 0, promise };
                 this.pending.set(url, pending);
-            }
+                this.stats.peakSourceActive = Math.max(this.stats.peakSourceActive, this.pending.size);
+            } else this.stats.sharedSourceRequests++;
             const entry = pending;
             entry.users++;
             let released = false;

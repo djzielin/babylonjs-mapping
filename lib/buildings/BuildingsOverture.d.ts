@@ -28,6 +28,8 @@ export default class BuildingsOverture extends Buildings {
     }) => boolean;
     /** Notifies a viewer when prepared batch geometry can replace its fallback. */
     onTileResolved?: (tile: Tile) => void;
+    /** Route uncovered tiles through the viewer's admission queue when installed. */
+    onTileReloadRequested?: (tile: Tile) => void;
     /** Omit an entire vector tile when loaded imagery already replaces every building in it. */
     tileCoverageFilter?: (tile: Tile) => boolean;
     private skippedCoverageTiles;

@@ -15,6 +15,25 @@ export interface TerrainRGBOptions {
 }
 /** Numeric DEM streaming, including negative ocean depths. No GPU readback. */
 export default class TerrainRGB {
+    readonly stats: {
+        sourceRequests: number;
+        sharedSourceRequests: number;
+        sourceCacheHits: number;
+        childCacheHits: number;
+        peakSourceActive: number;
+        sourceMs: number;
+    };
+    /** URL-free source occupancy: controller slots may share one source request. */
+    get loadingProgress(): {
+        sourceRequests: number;
+        sharedSourceRequests: number;
+        sourceCacheHits: number;
+        childCacheHits: number;
+        peakSourceActive: number;
+        sourceMs: number;
+        sourceActive: number;
+        sourceChildren: number;
+    };
     private cache;
     private cropped;
     private pending;

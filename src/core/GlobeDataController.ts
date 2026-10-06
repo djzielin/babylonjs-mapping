@@ -1,10 +1,120 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
+import type { Scene } from "@babylonjs/core/scene.js";
 import type GlobeSet from "./GlobeSet.js";
 import type Tile from "./Tile.js";
 import type Buildings from "../buildings/Buildings.js";
 import type { ElevationLoader } from "../terrain/TerrainRGB.js";
+
+export interface GlobeFeatureQueueOptions {
+    /** Bound queued and in-flight provider work across every participating globe tier. */
+    maxPendingRequests?: number;
+}
+interface GlobeFeatureRequest {
+    owner: GlobeDataController;
+    tile: Tile;
+    providers: Buildings[];
+    valid: () => boolean;
+    priority: () => number;
+    submitted: (provider: Buildings) => void;
+    discarded: () => void;
+    complete: () => void;
+    failed: (error: unknown) => void;
+}
+/** Shares a small, reprioritized feature admission window across globe LOD tiers. */
+export class GlobeFeatureQueue {
+    private requests: GlobeFeatureRequest[] = [];
+    private providers = new Set<Buildings>();
+    private observer;
+    private timer?: ReturnType<typeof setTimeout>;
+    private timerIsFallback = false;
+    private disposed = false;
+    constructor(private readonly scene: Scene, public readonly options: GlobeFeatureQueueOptions = {}) {
+        if (!Number.isInteger(options.maxPendingRequests ?? 8) || (options.maxPendingRequests ?? 8) < 1)
+            throw new RangeError("Invalid globe feature queue limit");
+        // Defer admission until all tier observers have offered their candidates.
+        this.observer = scene.onBeforeRenderObservable.add(() => this.schedule());
+        scene.onDisposeObservable.addOnce(() => this.dispose());
+    }
+    public get pendingTileCount(): number { return this.requests.length; }
+    public get pendingRequestCount(): number {
+        let count = 0;
+        for (const provider of this.providers) count += provider.pendingRequestCount;
+        return count;
+    }
+    public enqueue(request: GlobeFeatureRequest): void {
+        if (this.disposed) return;
+        this.requests.push(request);
+        for (const provider of request.providers) this.providers.add(provider);
+        this.schedule();
+    }
+    public cancel(owner: GlobeDataController): void {
+        this.requests = this.requests.filter(request => request.owner !== owner);
+    }
+    private schedule(delay = 0): void {
+        if (this.disposed || !this.requests.length) return;
+        if (this.timer !== undefined) {
+            if (delay !== 0 || !this.timerIsFallback) return;
+            clearTimeout(this.timer);
+        }
+        this.timerIsFallback = delay > 0;
+        this.timer = setTimeout(() => {
+            this.timer = undefined;
+            this.flush();
+        }, delay);
+    }
+    /** Admit the best currently useful tile as soon as a provider slot is free. */
+    public flush(): void {
+        if (this.disposed) return;
+        const max = this.options.maxPendingRequests ?? 8;
+        // A full admission window has nothing to select. Avoid evaluating the
+        // entire regional queue on every frame while useful work is in flight.
+        if (this.pendingRequestCount >= max) { this.schedule(25); return; }
+        const availableProviders = new Set([...this.providers].filter(provider =>
+            provider.pendingRequestCount < Math.max(1, provider.loadConcurrency)));
+        if (!this.requests.some(request => request.providers.some(provider => availableProviders.has(provider)))) {
+            this.schedule(25);
+            return;
+        }
+        this.requests = this.requests.filter(request => {
+            if (request.valid()) return true;
+            request.discarded();
+            return false;
+        });
+        const priorities = new Map(this.requests.map(request => [request, request.priority()]));
+        this.requests.sort((a, b) => priorities.get(a)! - priorities.get(b)!);
+        for (let index = 0; index < this.requests.length && this.pendingRequestCount < max;) {
+            const request = this.requests[index];
+            try {
+                for (let providerIndex = 0; providerIndex < request.providers.length && this.pendingRequestCount < max;) {
+                    const provider = request.providers[providerIndex];
+                    // A full provider must not block another tier's useful work.
+                    if (provider.pendingRequestCount >= Math.max(1, provider.loadConcurrency)) { providerIndex++; continue; }
+                    provider.SubmitLoadTileRequest(request.tile);
+                    request.submitted(provider);
+                    request.providers.splice(providerIndex, 1);
+                }
+                if (request.providers.length) { index++; continue; }
+                this.requests.splice(index, 1);
+                request.complete();
+            } catch (error) {
+                this.requests.splice(index, 1);
+                request.failed(error);
+            }
+        }
+        // Provider downloads can finish while the scene is render-throttled.
+        if (this.requests.length) this.schedule(25);
+    }
+    public dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
+        clearTimeout(this.timer);
+        this.requests = [];
+        this.providers.clear();
+        this.scene.onBeforeRenderObservable.remove(this.observer);
+    }
+}
 
 export interface GlobeDataOptions {
     elevation?: ElevationLoader;
@@ -16,6 +126,16 @@ export interface GlobeDataOptions {
     minFeatureZoom?: number;
     maxFeatureZoom?: number;
     concurrency?: number;
+    /** Suspend new terrain and feature work while retaining useful resident data. */
+    enabled?: boolean;
+    /** Keep terrain streaming while deferring buildings and roads. */
+    featuresEnabled?: boolean;
+    /** Share bounded feature admissions across all LOD tiers. */
+    featureQueue?: GlobeFeatureQueue;
+    /** Lower scores win shared feature slots; recomputed when the queue drains. */
+    featurePriority?: (tile: Tile) => number;
+    /** Omit feature tiles outside the current useful area without delaying DEM. */
+    featureFilter?: (tile: Tile) => boolean;
     /** Prefer the active camera frustum when streaming large landscape windows. */
     prioritizeVisible?: boolean;
     exaggeration?: number;
@@ -28,14 +148,20 @@ export default class GlobeDataController {
         completed: 0,
         cancelled: 0,
         failed: 0,
+        postedRefills: 0,
+        timerRefills: 0,
     };
     private jobs = new Map<Tile, { key: string; abort: AbortController }>();
     private ready = new WeakMap<Tile, string>();
     private terrainReady = new WeakMap<Tile, string>();
+    private queuedFeatures = new WeakMap<Tile, string>();
+    private submittedFeatures = new WeakMap<Tile, { key: string; providers: Set<Buildings> }>();
     private retryAt = new WeakMap<Tile, { key: string; after: number; failures: number }>();
     private observer;
     private disposed = false;
     private refillTimer?: ReturnType<typeof setTimeout>;
+    private refillChannel?: MessageChannel;
+    private refillQueued = false;
     private nextPriorityCheck = 0;
     private priorityCamera?: Camera;
     private priorityRevision = -1;
@@ -62,13 +188,75 @@ export default class GlobeDataController {
             this.update(),
         );
     }
+    /** Number of current tiles still waiting for geometry or required elevation. */
+    public get pendingTerrainCount(): number {
+        return this.globe.ourTiles.reduce((count, tile) => count + Number(!tile.mesh.isDisposed()
+            && (!this.globe.isTileGeometryReady(tile) || this.globe.hasPendingElevationData(tile)
+                || this.needsTerrain(tile, tile.tileCoords.toString()))), 0);
+    }
+    public get isTerrainReady(): boolean { return this.pendingTerrainCount === 0; }
+    public setEnabled(enabled: boolean): void {
+        if ((this.options.enabled !== false) === enabled) return;
+        this.options.enabled = enabled;
+        this.settled = false;
+        this.nextPriorityCheck = 0;
+        if (!enabled) {
+            this.options.featureQueue?.cancel(this);
+            this.queuedFeatures = new WeakMap();
+        } else this.update();
+    }
+    public setFeaturesEnabled(enabled: boolean): void {
+        if ((this.options.featuresEnabled !== false) === enabled) return;
+        this.options.featuresEnabled = enabled;
+        this.settled = false;
+        this.nextPriorityCheck = 0;
+        if (!enabled) {
+            this.options.featureQueue?.cancel(this);
+            this.queuedFeatures = new WeakMap();
+        } else this.update();
+    }
+    /** Readmit a covered tile's features when its imagery replacement disappears. */
+    public requeueFeatures(tile: Tile): void {
+        if (this.disposed || tile.mesh.isDisposed()) return;
+        const key = tile.tileCoords.toString();
+        if (this.queuedFeatures.get(tile) === key) return;
+        this.ready.delete(tile);
+        this.submittedFeatures.delete(tile);
+        this.settled = false;
+        // Coverage can uncover many tiles at once. Batch their readmission,
+        // retaining the terrain cache and the shared admission limit.
+        this.scheduleRefill();
+    }
+    private needsTerrain(tile: Tile, key: string): boolean {
+        return !!this.options.elevation && tile.tileCoords.z >= (this.options.minTerrainZoom ?? 5)
+            && this.terrainReady.get(tile) !== key;
+    }
     public update(): void {
         if (this.disposed) return;
         if (this.tiles !== this.globe.ourTiles) {
+            // Drop the previous window's unsubmitted entries even when the
+            // shared provider window is full and admission scans are skipped.
+            // Retained tiles are offered again with their resident DEM intact.
+            this.options.featureQueue?.cancel(this);
+            this.queuedFeatures = new WeakMap();
             this.tiles = this.globe.ourTiles;
             this.settled = false;
         }
-        if (this.settled) return;
+        // Posted refills coalesce all child completions from one source promise.
+        // Finish useful in-flight terrain even if new admissions were paused.
+        if (this.globe.pendingElevationCount > 0) this.globe.flushElevationData();
+        if (this.options.enabled !== false && this.globe.pendingGeometryCount > 0) {
+            this.globe.prepareGeometry();
+            this.settled = false;
+        }
+        if (this.settled) {
+            if (!this.options.featureFilter) return;
+            const camera = this.globe.scene.activeCamera;
+            camera?.getViewMatrix();
+            if (camera === this.priorityCamera
+                && (camera?.getTransformationMatrix().updateFlag ?? -1) === this.priorityRevision) return;
+            this.settled = false;
+        }
         for (const [tile, job] of this.jobs)
             if (
                 tile.mesh.isDisposed() ||
@@ -79,6 +267,7 @@ export default class GlobeDataController {
                 this.stats.active--;
                 this.stats.cancelled++;
             }
+        if (this.options.enabled === false) return;
         const concurrency = this.options.concurrency ?? 4;
         const full = this.stats.active >= concurrency;
         const camera = this.globe.scene.activeCamera;
@@ -98,9 +287,15 @@ export default class GlobeDataController {
         };
         // Load the area around the viewer before the far corners of large LOD grids.
         const now = performance.now();
-        const candidates = this.globe.ourTiles.filter(tile => !tile.mesh.isDisposed() && this.globe.isTileGeometryReady(tile)
-            && this.ready.get(tile) !== tile.tileCoords.toString() && !this.jobs.has(tile)
-            && (this.retryAt.get(tile)?.key !== tile.tileCoords.toString() || this.retryAt.get(tile)!.after <= now));
+        const candidates: Tile[] = [];
+        for (const tile of this.globe.ourTiles) {
+            if (tile.mesh.isDisposed() || !this.globe.isTileGeometryReady(tile) || this.jobs.has(tile)) continue;
+            const key = tile.tileCoords.toString(), retry = this.retryAt.get(tile);
+            if (retry?.key === key && retry.after > now) continue;
+            if (this.needsTerrain(tile, key) || (this.options.featuresEnabled !== false
+                && this.ready.get(tile) !== key && this.queuedFeatures.get(tile) !== key
+                && this.options.featureFilter?.(tile) !== false)) candidates.push(tile);
+        }
         if (candidates.length === 0 && this.jobs.size === 0 && this.globe.pendingGeometryCount === 0) {
             const delayed = this.globe.ourTiles.map(tile => {
                 const retry = this.retryAt.get(tile);
@@ -149,6 +344,10 @@ export default class GlobeDataController {
             this.stats.active++;
             void this.load(tile, key, abort);
         }
+        // A source download must not leave unused controller slots waiting for
+        // the next render/poll to prepare their geometry. Fill the requested
+        // window with bounded slices, then resume when a DEM slot is released.
+        if (this.globe.pendingGeometryCount > 0 && this.stats.active < concurrency) this.scheduleRefill();
     }
     private async load(
         tile: Tile,
@@ -174,6 +373,7 @@ export default class GlobeDataController {
                     grid.width,
                     grid.height,
                     this.options.exaggeration ?? 1,
+                    true,
                 );
                 this.terrainReady.set(tile, key);
             }
@@ -183,29 +383,54 @@ export default class GlobeDataController {
                 tile.tileCoords.toString() !== key
             )
                 return;
-            const submit = (provider: Buildings | undefined) => {
-                if (!provider) return;
-                this.providers.add(provider);
-                provider.SubmitLoadTileRequest(tile);
-            };
-            if (coords.z >= (this.options.minBuildingZoom ?? 14) && coords.z <= (this.options.maxBuildingZoom ?? Infinity))
-                submit(this.options.buildings);
-            if (coords.z >= (this.options.minFeatureZoom ?? this.options.minBuildingZoom ?? 14)
-                && coords.z <= (this.options.maxFeatureZoom ?? this.options.maxBuildingZoom ?? Infinity))
-                for (const provider of this.options.features ?? []) submit(provider);
-            this.ready.set(tile, key);
-            this.retryAt.delete(tile);
+            if (this.options.enabled !== false && this.options.featuresEnabled !== false
+                && this.options.featureFilter?.(tile) !== false) {
+                const providers: Buildings[] = [];
+                if (this.options.buildings && coords.z >= (this.options.minBuildingZoom ?? 14)
+                    && coords.z <= (this.options.maxBuildingZoom ?? Infinity)) providers.push(this.options.buildings);
+                if (coords.z >= (this.options.minFeatureZoom ?? this.options.minBuildingZoom ?? 14)
+                    && coords.z <= (this.options.maxFeatureZoom ?? this.options.maxBuildingZoom ?? Infinity))
+                    providers.push(...(this.options.features ?? []));
+                for (const provider of providers) this.providers.add(provider);
+                const submitted = this.submittedFeatures.get(tile);
+                const remaining = [...new Set(providers)].filter(provider => submitted?.key !== key || !submitted.providers.has(provider));
+                const recordSubmitted = (provider: Buildings) => {
+                    let record = this.submittedFeatures.get(tile);
+                    if (record?.key !== key) { record = { key, providers: new Set() }; this.submittedFeatures.set(tile, record); }
+                    record.providers.add(provider);
+                };
+                if (this.options.featureQueue && remaining.length) {
+                    this.queuedFeatures.set(tile, key);
+                    this.options.featureQueue.enqueue({ owner: this, tile, providers: remaining,
+                        valid: () => !this.disposed && this.options.enabled !== false && this.options.featuresEnabled !== false
+                            && !tile.mesh.isDisposed() && tile.tileCoords.toString() === key
+                            && this.options.featureFilter?.(tile) !== false,
+                        priority: () => this.options.featurePriority?.(tile) ?? this.featureDistance(tile),
+                        submitted: recordSubmitted,
+                        discarded: () => {
+                            if (this.queuedFeatures.get(tile) === key) this.queuedFeatures.delete(tile);
+                            this.settled = false; this.scheduleRefill();
+                        },
+                        complete: () => {
+                            this.queuedFeatures.delete(tile); this.ready.set(tile, key); this.retryAt.delete(tile);
+                        },
+                        failed: error => {
+                            this.queuedFeatures.delete(tile);
+                            this.settled = false;
+                            this.recordFailure(tile, key, error);
+                            this.scheduleRefill();
+                        },
+                    });
+                } else {
+                    for (const provider of remaining) { provider.SubmitLoadTileRequest(tile); recordSubmitted(provider); }
+                    this.ready.set(tile, key);
+                    this.retryAt.delete(tile);
+                }
+            } else this.retryAt.delete(tile);
             this.stats.completed++;
         } catch (error) {
             if (!abort.signal.aborted) {
-                this.stats.failed++;
-                const previous = this.retryAt.get(tile);
-                const failures = previous?.key === key ? previous.failures + 1 : 1;
-                this.retryAt.set(tile, { key, failures,
-                    after: performance.now() + Math.min(8000, 250 * 2 ** Math.min(5, failures - 1)) });
-                if (failures === 1) this.onErrorObservable.notifyObservers(
-                    error instanceof Error ? error : new Error(String(error)),
-                );
+                this.recordFailure(tile, key, error);
             }
         } finally {
             if (this.jobs.get(tile)?.abort === abort) {
@@ -214,11 +439,51 @@ export default class GlobeDataController {
             }
             // Fill the released slot immediately, including when rendering is
             // throttled. update() reprioritizes from the latest camera each time.
-            if (!this.disposed && this.refillTimer === undefined) this.refillTimer = setTimeout(() => {
-                this.refillTimer = undefined;
-                this.update();
-            }, 0);
+            this.scheduleRefill();
         }
+    }
+    private featureDistance(tile: Tile): number {
+        const camera = this.globe.scene.activeCamera;
+        if (camera) return Vector3.DistanceSquared(camera.globalPosition, tile.mesh.getBoundingInfo().boundingSphere.centerWorld);
+        const x = this.globe.ourTileMath.lon_to_tileExact(this.globe.centerCoords.x, this.globe.zoom);
+        const y = this.globe.ourTileMath.lat_to_tileExact(this.globe.centerCoords.y, this.globe.zoom);
+        const count = 2 ** this.globe.zoom;
+        const dx = Math.abs(tile.tileCoords.x + 0.5 - x);
+        return Math.min(dx, count - dx) ** 2 + (tile.tileCoords.y + 0.5 - y) ** 2;
+    }
+    private recordFailure(tile: Tile, key: string, error: unknown): void {
+        this.stats.failed++;
+        const previous = this.retryAt.get(tile);
+        const failures = previous?.key === key ? previous.failures + 1 : 1;
+        this.retryAt.set(tile, { key, failures,
+            after: performance.now() + Math.min(8000, 250 * 2 ** Math.min(5, failures - 1)) });
+        if (failures === 1) this.onErrorObservable.notifyObservers(
+            error instanceof Error ? error : new Error(String(error)),
+        );
+    }
+    private scheduleRefill(): void {
+        if (this.disposed) return;
+        // Nested browser timers are clamped to at least four milliseconds.
+        // A regional window can need hundreds of geometry/DEM refill slices;
+        // posted tasks yield to rendering without paying that delay per tile.
+        if (typeof window !== "undefined" && typeof MessageChannel !== "undefined") {
+            if (this.refillQueued) return;
+            if (!this.refillChannel) {
+                this.refillChannel = new MessageChannel();
+                this.refillChannel.port1.onmessage = () => {
+                    this.refillQueued = false;
+                    if (!this.disposed) { this.stats.postedRefills++; this.update(); }
+                };
+            }
+            this.refillQueued = true;
+            this.refillChannel.port2.postMessage(null);
+            return;
+        }
+        if (this.refillTimer === undefined) this.refillTimer = setTimeout(() => {
+            this.refillTimer = undefined;
+            this.stats.timerRefills++;
+            this.update();
+        }, 0);
     }
     /** Explicitly retry failures or reload after changing provider settings. */
     public invalidate(preserveTerrain = false, preserveBuildings = false): void {
@@ -229,6 +494,9 @@ export default class GlobeDataController {
         this.stats.active = 0;
         this.nextPriorityCheck = 0;
         this.ready = new WeakMap();
+        this.options.featureQueue?.cancel(this);
+        this.queuedFeatures = new WeakMap();
+        this.submittedFeatures = new WeakMap();
         this.retryAt = new WeakMap();
         for (const provider of this.providers) provider.cancelPendingRequests();
         if (!preserveBuildings) for (const tile of this.globe.ourTiles) tile.deleteBuildings();
@@ -236,6 +504,12 @@ export default class GlobeDataController {
     public dispose(): void {
         this.disposed = true;
         clearTimeout(this.refillTimer);
+        this.refillChannel?.port1.close();
+        this.refillChannel?.port2.close();
+        // The globe can outlive its streaming controller. Do not strand DEM
+        // data recorded just before its posted upload callback was cancelled.
+        if (this.globe.pendingElevationCount > 0) this.globe.flushElevationData();
+        this.options.featureQueue?.cancel(this);
         for (const provider of this.providers) provider.cancelPendingRequests();
         for (const job of this.jobs.values()) job.abort.abort();
         this.jobs.clear();

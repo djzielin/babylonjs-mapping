@@ -13,7 +13,9 @@ export declare class SceneWorkBudget {
     private waiting;
     private disposed;
     private fallback?;
-    constructor(scene: Scene, milliseconds?: number);
+    private postedTask?;
+    private posted;
+    constructor(scene: Scene, milliseconds?: number, fallbackMode?: "timer" | "posted");
     checkpoint(priority: () => number, urgency?: number): Promise<void> | undefined;
     private scheduleFallback;
     private nextSlice;

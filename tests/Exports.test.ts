@@ -2,11 +2,17 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+// npm.cmd cannot be spawned directly by execFileSync on Windows. Running its
+// JavaScript entry point also preserves argument boundaries for paths with spaces.
+const npmCli = process.env.npm_execpath ?? (process.platform === "win32"
+  ? join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js") : undefined);
+const npmExecutable = npmCli ? process.execPath : "npm";
+const npmArgs = (args: string[]) => npmCli ? [npmCli, ...args] : args;
 
 function assertImportsResolve() {
   return `
@@ -80,7 +86,7 @@ describe("package exports", () => {
 
     try {
       mkdirSync(join(tempDir, "node_modules"), { recursive: true });
-      symlinkSync(repoRoot, join(tempDir, "node_modules", "babylonjs-mapping"), "dir");
+      symlinkSync(repoRoot, join(tempDir, "node_modules", "babylonjs-mapping"), process.platform === "win32" ? "junction" : "dir");
       writeFileSync(join(tempDir, "package.json"), JSON.stringify({ type: "module" }));
 
       execFileSync(
@@ -99,7 +105,7 @@ describe("package exports", () => {
 
     try {
       const packed = JSON.parse(
-        execFileSync("npm", ["pack", "--json"], { cwd: repoRoot, encoding: "utf8" }),
+        execFileSync(npmExecutable, npmArgs(["pack", "--json"]), { cwd: repoRoot, encoding: "utf8" }),
       ) as Array<{ filename: string }>;
 
       if (!packed[0]?.filename) {
@@ -111,8 +117,8 @@ describe("package exports", () => {
       writeFileSync(join(tempDir, "package.json"), JSON.stringify({ type: "module" }));
 
       execFileSync(
-        "npm",
-        ["install", "--ignore-scripts", "--omit=dev", "--no-fund", "--no-audit", tarballPath],
+        npmExecutable,
+        npmArgs(["install", "--ignore-scripts", "--omit=dev", "--no-fund", "--no-audit", tarballPath]),
         { cwd: tempDir, stdio: "pipe" },
       );
 

@@ -65,6 +65,8 @@ export default class BuildingsOverture extends Buildings {
         bounds?: { id?: string; south: number; west: number; north: number; east: number }) => boolean;
     /** Notifies a viewer when prepared batch geometry can replace its fallback. */
     public onTileResolved?: (tile: Tile) => void;
+    /** Route uncovered tiles through the viewer's admission queue when installed. */
+    public onTileReloadRequested?: (tile: Tile) => void;
     /** Omit an entire vector tile when loaded imagery already replaces every building in it. */
     public tileCoverageFilter?: (tile: Tile) => boolean;
     private skippedCoverageTiles = new WeakMap<Tile, string>();
@@ -297,7 +299,10 @@ export default class BuildingsOverture extends Buildings {
                     || tile.buildingBatches.length || tile.buildings.length) this.SubmitLoadTileRequest(tile);
                 continue;
             }
-            if (this.skippedCoverageTiles.get(tile) === tile.tileCoords.toString()) this.SubmitLoadTileRequest(tile);
+            if (this.skippedCoverageTiles.get(tile) === tile.tileCoords.toString()) {
+                if (this.onTileReloadRequested) this.onTileReloadRequested(tile);
+                else this.SubmitLoadTileRequest(tile);
+            }
             for (const mesh of tile.buildingBatches) this.updateMeshVisibility(mesh, coverageOnlyGrows);
             if (this.batchGeometry && this.tileSet.isGlobe) for (const building of tile.buildings) {
                 if (coverageOnlyGrows && !building.mesh.isEnabled(false)) continue;

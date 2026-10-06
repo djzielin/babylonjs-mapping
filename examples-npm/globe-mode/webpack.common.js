@@ -59,7 +59,11 @@ module.exports = {
                 });
             });
         } },
-        new DefinePlugin({ DEMO_MAPBOX_TOKEN: JSON.stringify(mapboxToken) }),
+        new DefinePlugin({
+            DEMO_MAPBOX_TOKEN: JSON.stringify(mapboxToken),
+            // This is the same browser credential emitted as google-key.txt.
+            DEMO_GOOGLE_KEY: JSON.stringify(googleKey)
+        }),
         new HtmlWebpackPlugin({
             inject: true,
             template: path.resolve(appDirectory, 'index.html')
