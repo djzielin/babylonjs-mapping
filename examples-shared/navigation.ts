@@ -19,6 +19,7 @@ export function canvasControls(source: CameraHandle, canvas: HTMLCanvasElement, 
     const abort = new AbortController();
     const options = { signal: abort.signal };
     const active = () => scene.activeCamera === camera && document.activeElement === canvas;
+    const pointers = new Set<number>();
     canvas.tabIndex = 0;
     canvas.style.touchAction = "none";
     canvas.setAttribute("aria-label", "3D viewport. " + help);
@@ -32,6 +33,7 @@ export function canvasControls(source: CameraHandle, canvas: HTMLCanvasElement, 
     description.append(summary, text);
     document.body.append(description);
     const reset = () => {
+        pointers.clear();
         camera.detachControl();
         if ("cameraDirection" in camera) {
             (camera as UniversalCamera).cameraDirection.setAll(0);
@@ -46,13 +48,18 @@ export function canvasControls(source: CameraHandle, canvas: HTMLCanvasElement, 
     };
     const resume = () => { reset(); if (active()) attach(); };
     canvas.addEventListener("focus", resume, options);
-    canvas.addEventListener("pointerdown", () => { canvas.focus(); if (active()) attach(); }, { ...options, capture: true });
+    canvas.addEventListener("pointerdown", event => { canvas.focus(); pointers.add(event.pointerId); if (active()) attach(); }, { ...options, capture: true });
+    canvas.addEventListener("pointerup", event => pointers.delete(event.pointerId), { ...options, capture: true });
     canvas.addEventListener("blur", reset, options);
     window.addEventListener("blur", reset, options);
     window.addEventListener("focus", resume, options);
     document.addEventListener("visibilitychange", () => { if (document.hidden) reset(); else resume(); }, options);
     canvas.addEventListener("pointercancel", resume, options);
-    canvas.addEventListener("lostpointercapture", resume, options);
+    canvas.addEventListener("lostpointercapture", event => {
+        // A normal pointerup also releases capture. Keep held movement keys
+        // through that release; reset only an interrupted drag.
+        if (pointers.delete(event.pointerId)) resume();
+    }, options);
     canvas.addEventListener("contextmenu", event => event.preventDefault(), options);
     canvas.addEventListener("keydown", event => {
         if (event.key === "Escape") { reset(); canvas.blur(); }

@@ -52,6 +52,9 @@ try {
             if (mode === 'globe') assert.deepEqual(panned.target, [0, 0, 0]);
             await page.keyboard.down(mode === 'fly' ? 'w' : 'ArrowLeft'); await settle();
             const moving = await state(); assert.notDeepEqual(moving, panned);
+            await drag(mode === 'fly' ? 'right' : 'left');
+            const releasedDrag = await state(); await settle();
+            assert.notDeepEqual(await state(), releasedDrag, `${mode}: releasing look drag preserves held movement`);
             await page.getByLabel('Address').click(); await page.keyboard.up(mode === 'fly' ? 'w' : 'ArrowLeft'); await settle();
             const blurred = await state(); await still(blurred);
             await page.getByLabel('Address').fill('wasd'); await still(blurred);
