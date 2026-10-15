@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1"/>
+        <title>Globe VR · babylonjs-mapping</title>
+        <style>
+            :root {
+                color-scheme: dark;
+                font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+                --glass: rgba(14, 18, 24, .58);
+                --line: rgba(255, 255, 255, .1);
+                --text: #f2f5f8;
+                --muted: rgba(242, 245, 248, .64);
+            }
+            * { box-sizing: border-box; }
+            html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; color: var(--text); }
+            #renderCanvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
+            .glass {
+                background: var(--glass); border: 1px solid var(--line);
+                backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%);
+            }
+            #intro {
+                position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%);
+                width: min(440px, calc(100vw - 32px)); padding: 22px 24px 20px; border-radius: 20px; text-align: center;
+            }
+            #intro h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+            #intro p { margin: 6px 0 16px; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+            #enterVR {
+                font: inherit; font-size: 15px; font-weight: 600; color: #0b1016; background: #f2f5f8;
+                border: 0; border-radius: 22px; height: 44px; padding: 0 28px; cursor: pointer;
+            }
+            #enterVR:disabled { opacity: .35; cursor: default; }
+            #enterVR:focus-visible { outline: 2px solid #9cc9ff; outline-offset: 3px; }
+            #xrStatus { margin-top: 12px; font-size: 12px; color: var(--muted); min-height: 1em; }
+            #loading { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 13px; color: var(--muted); }
+            /* Credits: one quiet line, shortened; the full list on hover. */
+            #attribution {
+                position: absolute; right: 10px; bottom: 6px; max-width: min(46vw, 520px);
+                font-size: 10px; color: rgba(255, 255, 255, .55); text-shadow: 0 0 3px #000;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            #attribution:hover { white-space: normal; color: rgba(255, 255, 255, .8); }
+            @media (max-width: 560px) { #intro { bottom: 28px; } #attribution { max-width: 70vw; } }
+        </style>
+    </head>
+    <body>
+        <canvas id="renderCanvas"></canvas>
+        <div id="loading">Loading…</div>
+        <section id="intro" class="glass">
+            <h1>The Earth, in VR</h1>
+            <p>Stand over photorealistic cities and terrain, grab the world to move it, pinch to grow or shrink. Made for Meta Quest 3.</p>
+            <button id="enterVR" disabled>Enter VR</button>
+            <div id="xrStatus" aria-live="polite">Checking for a headset…</div>
+        </section>
+        <div id="attribution"></div>
+    </body>
+</html>

@@ -7,8 +7,7 @@ import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 
 import { EPSG_Type, Google3DTiles, RasterOSM, TileSet } from "babylonjs-mapping";
-import { optimizeStaticGoogleModels } from "../../../examples-shared/static-google-models";
-import { googleTilesOptions } from "./GoogleTilesOptions";
+import { googleTilesError, googleTilesOptions } from "./GoogleTilesOptions";
 
 class Google3DTilesDemo {
     private readonly canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
@@ -131,26 +130,17 @@ class Google3DTilesDemo {
                     googleTilesOptions(this.apiKey, Number(this.qualityInput.value)));
             }
             const provider = this.googleTiles!;
-            const targetDepth = Number(this.qualityInput.value);
-            if (changedLocation && targetDepth > 18) {
-                const overview = await provider.load();
-                if (generation !== this.loadGeneration) return;
-                if (overview.length) {
-                    for (const tile of this.tileSet.ourTiles) tile.mesh.isVisible = false;
-                    this.setStatus("loading", `${overview.length} overview tiles visible · refining detail…`);
-                }
-            }
-            provider.maxDepth = targetDepth;
-            const loaded = await provider.load();
+            provider.maximumScreenSpaceError = googleTilesError(Number(this.qualityInput.value));
+            // Tiles stream continuously; this waits for the view to settle.
+            await provider.whenIdle();
             if (generation !== this.loadGeneration) return;
-            this.canvas.dataset.loadedTiles = String(loaded.length);
+            const loaded = provider.stats.rendered;
+            this.canvas.dataset.loadedTiles = String(loaded);
 
-            if (loaded.length === 0) {
+            if (loaded === 0) {
                 this.setStatus("error", "The hierarchy loaded, but no model tiles matched this area.");
                 return;
             }
-
-            optimizeStaticGoogleModels(loaded);
 
             // Google terrain uses ellipsoid heights, which can be below the
             // flat raster plane. Hide that plane so it cannot cut through models.
@@ -162,8 +152,7 @@ class Google3DTilesDemo {
             this.tileSet.ourAttribution.advancedTexture.rootContainer.isVisible = false;
             this.setStatus(
                 "ready",
-                `${loaded.length} model tiles loaded${sourceCount ? ` · ${sourceCount} credited data source${sourceCount === 1 ? "" : "s"}` : ""}.`
-                    + (loaded.length >= provider.maxTiles ? " Tile limit reached; lower detail for wider coverage." : ""),
+                `${loaded} model tiles drawn${sourceCount ? ` · ${sourceCount} credited data source${sourceCount === 1 ? "" : "s"}` : ""}.`,
             );
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);

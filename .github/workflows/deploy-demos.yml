@@ -56,6 +56,7 @@ jobs:
             gebco-bathymetry
             google-3d-tiles
             globe-mode
+            globe-xr
           )
 
           for demo in "${demos[@]}"; do

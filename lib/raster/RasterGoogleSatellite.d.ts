@@ -10,7 +10,15 @@ export default class RasterGoogleSatellite extends Raster {
     private apiKey;
     private token;
     constructor(tileSet: TileSet, apiKey: string, token: GoogleSatelliteSession);
-    static openSession(apiKey: string): Promise<GoogleSatelliteSession>;
+    /**
+     * Open a satellite tile session. Sessions last about two weeks and Google
+     * asks clients to reuse them, so one is kept in localStorage until a day
+     * before it expires: tile URLs stay the same across page loads and the
+     * browser's HTTP cache can serve them. Pass `reuse: false` for a fresh one.
+     */
+    static openSession(apiKey: string, { reuse }?: {
+        reuse?: boolean;
+    }): Promise<GoogleSatelliteSession>;
     static viewportCopyright(apiKey: string, token: GoogleSatelliteSession, bounds: {
         north: number;
         south: number;

@@ -1,0 +1,76 @@
+const CopyPublicAssets = require('../../examples-shared/copy-public-assets.cjs');
+const path = require('path');
+const fs = require('fs');
+const { DefinePlugin, Compilation, sources } = require('webpack');
+const HtmlWebpackPlugin = require('html-webpack-plugin');
+const { CleanWebpackPlugin } = require('clean-webpack-plugin');
+
+const appDirectory = fs.realpathSync(process.cwd());
+const babylonDirectory = fs.existsSync(path.join(appDirectory, 'node_modules/@babylonjs/core'))
+    ? path.join(appDirectory, 'node_modules/@babylonjs')
+    : path.join(appDirectory, '../../node_modules/@babylonjs');
+
+const keyFile = [path.join(appDirectory, 'mapbox-key.txt'), path.join(appDirectory, '../globe-mode/mapbox-key.txt')].find(file => fs.existsSync(file)) ?? '';
+const mapboxToken = process.env.MAPBOX_PUBLIC_TOKEN || process.env.MAPBOX_ACCESS_TOKEN || (keyFile ? fs.readFileSync(keyFile, 'utf8').trim() : '');
+
+const googleKeyFile = [path.join(appDirectory, 'public/google-key.txt'), path.join(appDirectory, '../google-3d-tiles/public/google-key.txt')].find(file => fs.existsSync(file));
+const googleKey = process.env.GOOGLE_MAPS_API_KEY || (googleKeyFile ? fs.readFileSync(googleKeyFile, 'utf8').trim() : '');
+
+module.exports = {
+    resolve: {
+        extensions: ['.ts', '.js'],
+        // The linked package can have its own node_modules. Share one Babylon
+        // runtime so engine extension methods reach the same prototype.
+        alias: Object.fromEntries(['core', 'gui', 'loaders'].map(name =>
+            [`@babylonjs/${name}`, path.join(babylonDirectory, name)]))
+    },
+    output: {
+        filename: 'js/babylonBundle.js',
+        path: path.resolve('./dist/')
+    },
+    module: {
+        rules: [
+            {
+                test: /\.(js|mjs|jsx|ts|tsx)$/,
+                loader: 'source-map-loader',
+                exclude: /node_modules/,
+                enforce: 'pre'
+            },
+            {
+                test: /\.m?js$/,
+                resolve: {
+                    fullySpecified: false
+                }
+            },
+            {
+                test: /\.tsx?$/,
+                loader: 'ts-loader',
+                exclude: /node_modules/
+            }
+        ]
+    },
+    plugins: [
+        new CopyPublicAssets(),
+        new CleanWebpackPlugin(),
+        { apply(compiler) {
+            compiler.hooks.thisCompilation.tap('LocalGoogleKey', compilation => {
+                compilation.hooks.processAssets.tap({ name: 'LocalGoogleKey', stage: Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL }, () => {
+                    if (googleKey) compilation.emitAsset('google-key.txt', new sources.RawSource(googleKey));
+                });
+            });
+        } },
+        new DefinePlugin({
+            DEMO_MAPBOX_TOKEN: JSON.stringify(mapboxToken),
+            // ADS-B APIs refuse cross-origin browser requests: the dev server proxies one.
+            DEMO_AIRCRAFT_URL: JSON.stringify(process.env.DEMO_AIRCRAFT_URL ?? '/adsb'),
+            // Vehicle models are the globe demo's, deployed beside this one.
+            DEMO_MODELS_URL: JSON.stringify(process.env.DEMO_MODELS_URL ?? '../globe-mode/models/'),
+            // This is the same browser credential emitted as google-key.txt.
+            DEMO_GOOGLE_KEY: JSON.stringify(googleKey)
+        }),
+        new HtmlWebpackPlugin({
+            inject: true,
+            template: path.resolve(appDirectory, 'index.html')
+        })
+    ]
+};

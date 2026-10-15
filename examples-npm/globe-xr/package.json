@@ -1,0 +1,31 @@
+{
+    "name": "babylonjs-mapping-globe-xr",
+    "version": "1.0.0",
+    "description": "The photorealistic globe in immersive WebXR, tuned for Meta Quest 3",
+    "main": "index.ts",
+    "dependencies": {
+        "@babylonjs/core": "^9.26.0",
+        "@babylonjs/loaders": "^9.26.0",
+        "babylonjs-mapping": "^1.1.44",
+        "egm96-universal": "^1.1.1"
+    },
+    "devDependencies": {
+        "clean-webpack-plugin": "^4.0.0",
+        "html-webpack-plugin": "^5.6.8",
+        "iwer": "2.3.0",
+        "playwright": "1.61.1",
+        "source-map-loader": "^5.0.0",
+        "ts-loader": "^9",
+        "typescript": "^6.0.3",
+        "webpack": "^5.110.3",
+        "webpack-cli": "^7.2.3",
+        "webpack-dev-server": "^6.0.0",
+        "webpack-merge": "^6.0.1"
+    },
+    "scripts": {
+        "start": "npx webpack-dev-server --config webpack.config-dev.js",
+        "build": "npx webpack --config webpack.config-prod.js",
+        "test:xr": "node tests/headset.mjs"
+    },
+    "license": "MIT"
+}

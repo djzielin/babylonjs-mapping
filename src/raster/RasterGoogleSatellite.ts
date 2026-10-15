@@ -13,7 +13,18 @@ export default class RasterGoogleSatellite extends Raster {
         super("Google Maps satellite", tileSet);
     }
 
-    public static async openSession(apiKey: string): Promise<GoogleSatelliteSession> {
+    /**
+     * Open a satellite tile session. Sessions last about two weeks and Google
+     * asks clients to reuse them, so one is kept in localStorage until a day
+     * before it expires: tile URLs stay the same across page loads and the
+     * browser's HTTP cache can serve them. Pass `reuse: false` for a fresh one.
+     */
+    public static async openSession(apiKey: string, { reuse = true }: { reuse?: boolean } = {}): Promise<GoogleSatelliteSession> {
+        const storageKey = `babylonjs-mapping/google-satellite-session/${fingerprint(apiKey)}`;
+        if (reuse) {
+            const stored = readStorage(storageKey);
+            if (stored && stored.expiry * 1000 > Date.now() + 86_400_000) return stored;
+        }
         const response = await fetch(`https://tile.googleapis.com/v1/createSession?key=${encodeURIComponent(apiKey)}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -24,7 +35,9 @@ export default class RasterGoogleSatellite extends Raster {
         const expiry = Number(result.expiry);
         if (!result.session || !Number.isFinite(expiry) || expiry * 1000 <= Date.now())
             throw new Error("Invalid Google satellite session");
-        return { session: result.session, expiry };
+        const session = { session: result.session, expiry };
+        try { localStorage.setItem(storageKey, JSON.stringify(session)); } catch { /* storage unavailable */ }
+        return session;
     }
 
     public static async viewportCopyright(apiKey: string, token: GoogleSatelliteSession,
@@ -48,5 +61,21 @@ export default class RasterGoogleSatellite extends Raster {
         const y = Math.max(0, Math.min(count - 1, Math.floor(tileCoords.y)));
         const query = new URLSearchParams({ session: this.token.session, key: this.apiKey });
         return `https://tile.googleapis.com/v1/2dtiles/${zoom}/${x}/${y}?${query}`;
+    }
+}
+
+/** A short, non-reversible tag for an API key, so the key itself is never stored. */
+function fingerprint(text: string): string {
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
+    return (hash >>> 0).toString(36);
+}
+
+function readStorage(key: string): GoogleSatelliteSession | undefined {
+    try {
+        const value = JSON.parse(localStorage.getItem(key) ?? "null") as GoogleSatelliteSession | null;
+        return typeof value?.session === "string" && Number.isFinite(value.expiry) ? value : undefined;
+    } catch {
+        return undefined;
     }
 }

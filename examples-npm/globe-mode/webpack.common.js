@@ -61,6 +61,8 @@ module.exports = {
         } },
         new DefinePlugin({
             DEMO_MAPBOX_TOKEN: JSON.stringify(mapboxToken),
+            // ADS-B APIs refuse cross-origin browser requests: the dev server proxies one.
+            DEMO_AIRCRAFT_URL: JSON.stringify(process.env.DEMO_AIRCRAFT_URL ?? '/adsb'),
             // This is the same browser credential emitted as google-key.txt.
             DEMO_GOOGLE_KEY: JSON.stringify(googleKey)
         }),

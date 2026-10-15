@@ -18,19 +18,12 @@ export {
 } from "./google/Google3DTiles.js";
 export type {
     Google3DBoundingVolume,
-    Google3DLoadingStage,
-    Google3DLoadOptions,
-    Google3DLoadResult,
     Google3DTile,
     Google3DTileContent,
-    Google3DTilesOrigin,
     Google3DTilesOptions,
+    Google3DTilesOrigin,
+    Google3DTilesStats,
     Google3DTileset,
-    GoogleGLBMetadata,
-    GoogleModelTileLoader,
-    GoogleTilesetLoader,
-    LoadedGoogle3DTile,
-    LoadedGoogleModelTile,
 } from "./google/Google3DTiles.js";
 export { default as BuildingsOSM } from "./buildings/BuildingsOSM.js";
 export {
@@ -75,6 +68,34 @@ export type {
 } from "./core/TileSet.js";
 export { default as GlobeSet } from "./core/GlobeSet.js";
 export type { GlobeCoordinates, GlobeSetOptions } from "./core/GlobeSet.js";
+export { default as GlobeAtmosphere } from "./core/GlobeAtmosphere.js";
+export type { GlobeAtmosphereOptions } from "./core/GlobeAtmosphere.js";
+export { default as GlobeControls, GLOBE_CONTROLS_HELP } from "./core/GlobeControls.js";
+export type { GlobeCameraView, GlobeControlsOptions, GlobeLookAt } from "./core/GlobeControls.js";
+export {
+    default as GlobeSurface,
+    TERRARIUM_ELEVATION,
+    esriImagery,
+    esriTopoBathyElevation,
+    gebcoImagery,
+    googleImagery,
+    mapboxImagery,
+} from "./core/GlobeSurface.js";
+export type {
+    GlobeElevation,
+    GlobeImagery,
+    GlobeSurfaceCoverage,
+    GlobeSurfaceOptions,
+    GlobeSurfaceStats,
+} from "./core/GlobeSurface.js";
+export { ellipsoidECEF, globeECEFToWorld } from "./core/GlobeEarthFrame.js";
+export type { GlobeEarthFrame } from "./core/GlobeEarthFrame.js";
+export { default as GlobeTraffic } from "./core/GlobeTraffic.js";
+export type { GlobeTrafficOptions, GlobeTrafficStats } from "./core/GlobeTraffic.js";
+export { default as GlobeVehicles, adsbAircraftFeed, digitrafficShipFeed } from "./core/GlobeVehicles.js";
+export { aircraftModel, shipModel, VehiclePart } from "./core/VehicleModels.js";
+export type { VehicleModel } from "./core/VehicleModels.js";
+export type { GlobeVehiclesOptions, VehicleArea, VehicleFeed, VehicleKind, VehicleReport } from "./core/GlobeVehicles.js";
 export { default as GlobeNavigator } from "./core/GlobeNavigator.js";
 export type {
     GlobeFlyToOptions,

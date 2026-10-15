@@ -1,9 +1,10 @@
-import { AssetContainer } from "@babylonjs/core/assetContainer.js";
-import { Vector3 } from "@babylonjs/core/Maths/math.js";
-import type { Scene } from "@babylonjs/core/scene.js";
-import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
-import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
+import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import { Ray } from "@babylonjs/core/Culling/ray.js";
+import { Observable } from "@babylonjs/core/Misc/observable.js";
 import type TileSet from "../core/TileSet.js";
+import { type GeodeticPosition } from "./GoogleTileFrame.js";
+import type MapLayerRenderer from "../core/MapLayerRenderer.js";
 /** Google Maps Platform Map Tiles API Photorealistic 3D Tiles endpoint. */
 export declare const GOOGLE_3D_TILES_ROOT_URL = "https://tile.googleapis.com/v1/3dtiles/root.json";
 export interface Google3DTileset {
@@ -26,532 +27,297 @@ export interface Google3DTile {
     [key: string]: unknown;
 }
 export interface Google3DBoundingVolume {
-    /** west, south, east, north, minimum height, maximum height in radians/meters. */
-    region?: number[];
-    /** 3D Tiles box in the standard twelve-value format. */
+    /** 3D Tiles oriented box: centre followed by three half-axis vectors (12 values). */
     box?: number[];
-    /** center x/y/z followed by radius. */
+    /** Centre x/y/z followed by radius. */
     sphere?: number[];
+    /** West, south, east, north (radians), minimum and maximum height (metres). */
+    region?: number[];
     [key: string]: unknown;
 }
 export interface Google3DTileContent {
     uri?: string;
     url?: string;
-    mimeType?: string;
     [key: string]: unknown;
 }
-export interface Google3DTilesOrigin {
-    /** WGS84 latitude in degrees. */
-    latitude: number;
-    /** WGS84 longitude in degrees. */
-    longitude: number;
-    /** WGS84 ellipsoid height in meters. */
-    height?: number;
-}
-export interface GoogleGLBMetadata {
-    /** Individual attribution sources from glTF asset.copyright. */
-    attributions: string[];
-    /** CESIUM_RTC center in the tile's ECEF coordinate system, when present. */
-    rtcCenter?: Vector3;
-}
-export interface LoadedGoogleModelTile {
-    asset: AssetContainer;
-    attributions: readonly string[];
-    rtcCenter?: Vector3;
-    /** The default GLB loader sets false when decoding produced no drawable mesh. */
-    renderable?: boolean;
-}
-export type GoogleTilesetLoader = (url: string) => Promise<Google3DTileset>;
-export type GoogleModelTileLoader = (url: string, scene: Scene, signal?: AbortSignal) => Promise<LoadedGoogleModelTile | undefined>;
-export type Google3DLoadingStage = "coverage" | "immediate" | "refinement";
-export interface Google3DLoadOptions {
-    /** Coverage uses a coarse full-disk frontier; immediate refines the nearby part of that same frontier. */
-    stage?: Google3DLoadingStage;
-    /** Radius of nearby quality demand in metres; defaults to 750. Keep selectionRadius at the full coverage radius. */
-    detailRadius?: number;
-    /** Source error tolerated by the coarse frontier in metres; defaults to 256. */
-    coverageGeometricError?: number;
-    /** Optional tighter source-error target for recognizable coverage around the viewer. */
-    coverageNearGeometricError?: number;
-    /** Ground radius of tighter baseline demand, in metres; defaults to 750 when a near error is supplied. */
-    coverageNearRadius?: number;
-    /** Optional strict source-error target for the central core, independently of the near/far targets. */
-    coverageCoreGeometricError?: number;
-    /** Ground radius of the strict central core, in metres; defaults to 100 when a core error is supplied. */
-    coverageCoreRadius?: number;
-    /** Download/decode now, but publish models only after this promise resolves (for example terrain readiness). */
-    publicationBarrier?: Promise<unknown>;
-    /** Cancels an unresolved publication barrier and its unpublished model work. */
-    publicationSignal?: AbortSignal;
-    /** With a publication barrier, fetch bodies now but defer native model decoding until the barrier opens. */
-    deferModelPreparationUntilPublication?: boolean;
-    /** Optional decoded atlas preview edge for distant refinable coverage models; full source remains the default. */
-    coverageAtlasMaxSize?: number;
-}
-export interface Google3DLoadResult {
-    stage: Google3DLoadingStage;
-    cancelled: boolean;
-    selectedTiles: number;
-    loadedTiles: number;
-    /** Selected content still missing or hidden after the pass, including failed downloads. */
-    failedTiles: number;
-    /** Model attempts that failed, even if an existing parent supplied fallback coverage. */
-    failedModelTiles: number;
-    hierarchyFailures: number;
-    /** Up to eight final failures, without request URLs, credentials, or server-provided messages. */
-    hierarchyFailureSamples: Array<{
-        type: "network" | "http" | "response" | "loader";
-        status?: number;
-        attempts: number;
-    }>;
-    nearHierarchyFailures: number;
-    nearFailedModelTiles: number;
-    budgetLimitedTiles: number;
-    sourceLimitedTiles: number;
-    /** Intersecting source branches with neither model content nor an available fallback ancestor. */
-    sourceCoverageGaps: number;
-    nearSourceCoverageGaps: number;
-    /** Every model in a nonempty complete frontier is visible and hierarchy traversal succeeded. */
-    coverageComplete: boolean;
-    /** Complete coverage at the configured near and far baseline error targets. */
-    coverageQualityComplete: boolean;
-    /** Target quality is met nearby; every distant miss is a visible finest-source leaf. */
-    coverageAvailableQualityComplete: boolean;
-    /** Nearby recognizable baseline is complete even when distant source leaves exceed the far target. */
-    nearCoverageQualityComplete: boolean;
-    coverageQualityMissingTiles: number;
-    coverageNearQualityMissingTiles: number;
-    coverageCoreQualityMissingTiles: number;
-    /** Up to sixteen source-error bands, with distance-tier counts, for measuring startup demand. */
-    geometricErrorHistogram: Array<{
-        geometricError?: number;
-        selectedTiles: number;
-        loadedTiles: number;
-        coreTiles: number;
-        nearTiles: number;
-        immediateTiles: number;
-    }>;
-    /** Complete visible frontier at the requested quality, without download, source, or budget limits. */
-    detailComplete: boolean;
-    /** Immediate frontier is visible at the display limit or the best available source quality, without budget limits. */
-    immediateQualityComplete: boolean;
-    immediateSelectedTiles: number;
-    immediateLoadedTiles: number;
-    immediateQualityMissingTiles: number;
-    qualityLimitedSamples: Array<{
-        groundDistance: number;
-        geometricError: number;
-        depth: number;
-        sourceLeaf: boolean;
-    }>;
-}
+/** WGS84 position; heights are metres above the ellipsoid. */
+export type Google3DTilesOrigin = GeodeticPosition;
 export interface Google3DTilesOptions {
-    /** Google Maps Platform API key. It is appended to every request. */
-    apiKey?: string;
-    /** Root tileset URL, primarily useful for compatible test endpoints. */
+    /** Google Maps Platform key with the Map Tiles API enabled. */
+    apiKey: string;
     rootUrl?: string;
-    /** Maximum number of hierarchy levels visited for one load. */
-    maxDepth?: number;
-    /** Maximum quality-frontier demand. A bounded coarse reserve and existing finer residents may remain for coverage. */
-    maxTiles?: number;
-    /** Optional minimum coverage radius around the current map center, in metres. */
-    coverageRadius?: number;
-    /** Keep usable Google coverage across this region, including behind the camera. */
-    coverageRegion?: {
-        south: number;
-        north: number;
-        west: number;
-        east: number;
-    };
-    /** Stop refinement once source geometric error is below this value in metres. */
-    maximumGeometricError?: number;
-    /** Projected geometric error in physical pixels; globe scenes only. */
+    /**
+     * Target screen-space error in pixels. Tiles refine until their geometric
+     * error projects to less than this. Lower is sharper and loads more.
+     * Default 8.
+     */
     maximumScreenSpaceError?: number;
-    /** Omit budget-limited content above this source error (metres), leaving room for a fallback provider. */
-    maximumDisplayGeometricError?: number;
-    /** Maximum projected error ratio for a newly exposed broad Google model. Coarse residents remain until replacement is ready. */
-    maximumInitialErrorRatio?: number;
-    /** Stream only bounding volumes intersecting the active camera frustum. */
-    cullToCamera?: boolean;
-    /** Demand the same projected quality throughout the coverage disk, including behind the camera. */
-    fullRadiusDemand?: boolean;
-    /** Fixed vertical resolution used for full-radius geometric-error demand. */
-    referenceImageHeight?: number;
-    /** Fixed vertical field of view in radians used for full-radius geometric-error demand. */
-    referenceFovY?: number;
-    /** Concurrent native GLB decodes, including asynchronous texture/geometry preparation; defaults to 2. */
-    maxConcurrentModelDecodes?: number;
-    /** Concurrent hierarchy/model requests sharing the priority queue; defaults to 48. */
+    /**
+     * Ground distance in metres within which `maximumScreenSpaceError` applies.
+     * Beyond it the target grows linearly with distance, reaching
+     * `distantErrorScale` times the target at `distantErrorScale` times this
+     * radius. Distant ground covers few pixels and sits in haze, so this
+     * saves memory at the cost of distant detail. Default: unlimited.
+     */
+    detailRadius?: number;
+    /** Largest multiple of `maximumScreenSpaceError` used for distant tiles. Default 1 (no ramp). */
+    distantErrorScale?: number;
+    /** Ground distance in metres beyond which no tiles are drawn. Default: unlimited. */
+    maximumRadius?: number;
+    /**
+     * Approximate GPU memory for cached tiles, in megabytes. Default: no
+     * limit. Either way, tiles nothing has needed for `cacheSeconds` are released.
+     */
+    memoryBudgetMB?: number;
+    /** Seconds an unneeded tile stays cached. Default 300. */
+    cacheSeconds?: number;
+    /** Concurrent network requests. Default 32. */
     maxConcurrentRequests?: number;
-    /** Native models fetching or awaiting decode; defaults to 16, with up to 50% extra for newly urgent work. */
-    maxBufferedModels?: number;
-    /** Shared CPU preparation slice for coverage/immediate passes in milliseconds; defaults to 1. */
-    startupTraversalSliceMs?: number;
-    /** Opt in to direct preparation of supported static Google GLBs; unsupported formats use the native loader. */
-    fastStaticModels?: boolean;
-    /** Opt in to the compatible opaque-unlit material subset in the static loader; native PBR remains the default. */
-    lightweightUnlitMaterials?: boolean;
-    /** Metres added to ellipsoid heights to match the scene vertical datum. */
-    heightOffset?: number;
-    /** Multiplier applied to the local vertical axis after loading. */
-    exaggeration?: number;
-    /** Explicit local origin. Defaults to TileSet.centerCoords. */
+    /**
+     * Compress textures to BC1 in the streaming workers where the GPU supports
+     * it: an eighth of the memory and upload bandwidth, so far more detail fits
+     * in the budget. Default true.
+     */
+    compressTextures?: boolean;
+    /** Main-thread time spent creating GPU resources per frame. Default 4 ms. */
+    uploadBudgetMs?: number;
+    /**
+     * Fixed geographic anchor. Flat tile sets default to their centre. Globes
+     * default to following the camera, which keeps nearby geometry exact.
+     */
     origin?: Google3DTilesOrigin;
-    /** Injectable tileset JSON loader for tests or an application cache. */
-    tilesetLoader?: GoogleTilesetLoader;
-    /** Injectable GLB loader for tests or a custom Babylon loader. */
-    modelTileLoader?: GoogleModelTileLoader;
+    /** Metres added to Google's ellipsoid heights. */
+    heightOffset?: number;
+    /**
+     * Geoid height (ellipsoid minus mean sea level) in metres, e.g. EGM96's.
+     * On a globe whose heights are above sea level, such as one with
+     * `GlobeSurface` terrain, tiles then sit on the same sea level wherever
+     * they are anchored.
+     */
+    geoid?: (latitude: number, longitude: number) => number;
+    /** Camera used for level-of-detail selection. Defaults to the scene's active camera. */
+    camera?: Camera;
+    /** Network transport, for tests or custom caching. Defaults to `fetch`. */
+    fetch?: (url: string, init?: RequestInit) => Promise<Response>;
 }
-export interface LoadedGoogle3DTile {
-    /** Authenticated content URL. */
-    url: string;
-    /** Hierarchy depth at which the content was selected. */
-    depth: number;
-    /** Source error in metres, useful for distinguishing coarse coverage from detailed replacement. */
-    geometricError?: number;
-    /** Root transform that places the tile in the TileSet's local map space. */
-    root: TransformNode;
-    /** Babylon assets loaded from the GLB. */
-    asset: AssetContainer;
-    /** Attribution sources reported by the tile. */
-    attributions: readonly string[];
+/** A snapshot of streaming activity. */
+export interface Google3DTilesStats {
+    /** Tiles drawn in the latest update. */
+    rendered: number;
+    /** Tiles with GPU resources, including cached ones. */
+    resident: number;
+    /** Approximate GPU bytes held by resident tiles. */
+    residentBytes: number;
+    /** Tiles needed by the current view that are not ready yet. */
+    pending: number;
+    /** Tiles downloading or decoding. */
+    requestsInFlight: number;
+    /** Decoded tiles waiting for GPU upload. */
+    uploading: number;
+    totalRequests: number;
+    totalDownloadedBytes: number;
+    failedRequests: number;
+    /** Tiles that have appeared on screen; its rate while the view moves is level-of-detail churn. */
+    totalShown: number;
 }
 /**
- * Loads Google's Photorealistic 3D Tiles directly into a Babylon scene.
+ * Streams Google Photorealistic 3D Tiles into a `TileSet` or `GlobeSet`.
  *
- * Google serves an authenticated 3D Tiles hierarchy whose content is GLB.
- * This provider follows the hierarchy for the current TileSet extent, loads
- * the selected content into Babylon, and re-bases ECEF coordinates around the
- * TileSet center so that the existing local map and raster providers line up.
- * Call load() again after updateRaster() to refresh the selected area.
+ * Each frame the tile hierarchy is traversed from the camera: tiles refine
+ * while their projected geometric error exceeds `maximumScreenSpaceError`,
+ * and a tile is replaced only once all of its visible children can be drawn,
+ * so the surface never shows holes or overlapping levels. Network requests
+ * are prioritised coarse-to-fine and near-to-far, decoding happens in
+ * workers, GPU uploads are spread across frames, and least-recently-used
+ * tiles are evicted to respect the memory budget.
  */
 export default class Google3DTiles {
     readonly tileSet: TileSet;
-    apiKey: string;
-    rootUrl: string;
-    maxDepth: number;
-    maxTiles: number;
-    exaggeration: number;
-    coverageRadius?: number;
-    /** Center of the latest geographic frontier admitted during the active load. */
-    selectedCoverageCenter?: {
-        latitude: number;
-        longitude: number;
-    };
-    coverageRegion?: Google3DTilesOptions["coverageRegion"];
-    maximumGeometricError: number;
-    maximumScreenSpaceError?: number;
-    maximumDisplayGeometricError?: number;
-    maximumInitialErrorRatio?: number;
-    cullToCamera: boolean;
-    fullRadiusDemand: boolean;
-    /** Completion of the latest load, suitable for gating staged startup. */
-    lastLoadResult?: Google3DLoadResult;
-    /** Maximum hierarchy branches inspected in parallel during frontier selection. */
-    maxPendingHierarchy: number;
-    referenceImageHeight: number;
-    referenceFovY: number;
-    maxConcurrentModelDecodes: number;
+    readonly rootUrl: string;
+    maximumScreenSpaceError: number;
+    detailRadius: number;
+    distantErrorScale: number;
+    maximumRadius: number;
+    memoryBudgetMB: number;
+    cacheSeconds: number;
     maxConcurrentRequests: number;
-    maxBufferedModels: number;
-    startupTraversalSliceMs: number;
-    fastStaticModels: boolean;
-    lightweightUnlitMaterials: boolean;
+    uploadBudgetMs: number;
     heightOffset: number;
-    readonly stats: {
-        hierarchyRequests: number;
-        hierarchyRetries: number;
-        rootResponseFingerprint: number;
-        modelRequests: number;
-        reusedModels: number;
-        networkQueueRebuilds: number;
-        networkPriorityEvaluations: number;
-        hierarchyQueuePriorityChecks: number;
-        hierarchyQueuePriorityChanges: number;
-        obsoleteModelRequests: number;
-        obsoleteHierarchyRequests: number;
-        detailLimitedTiles: number;
-        sourceLimitedTiles: number;
-        visibleDetailLimitedTiles: number;
-        offscreenDetailLimitedTiles: number;
-        visibleSourceLimitedTiles: number;
-        offscreenSourceLimitedTiles: number;
-        rootMs: number;
-        frontierTraversalMs: number;
-        frontierBudgetScanMs: number;
-        frontierBudgetScanCount: number;
-        frontierYieldCount: number;
-        frontierCommitMs: number;
-        replacementMs: number;
-        modelWaitMs: number;
-        loadMs: number;
-        modelFetchMs: number;
-        modelDecodeMs: number;
-        modelIntegrationMs: number;
-        modelIntegrationMaxMs: number;
-        modelFetchHeaderMs: number;
-        modelFetchBodyMs: number;
-        fastParseMs: number;
-        fastCreationMs: number;
-        fastMaterialMs: number;
-        fastGeometryMs: number;
-        fastAtlasUpdateMs: number;
-        fastAtlasReadyMs: number;
-        fastAtlasBitmapMs: number;
-        modelResponsePositiveMaxAgeCount: number;
-        modelResponseMaxAgeMinSeconds: number;
-        modelResponseMaxAgeMaxSeconds: number;
-        modelResourceTimingReadableCount: number;
-        modelResourceTimingUnavailableCount: number;
-        modelResourceTimingOpaqueCount: number;
-        modelResourceZeroTransferCount: number;
-        modelResourceTransferBytes: number;
-        modelResourceEncodedBytes: number;
-        coveragePreviewCandidateModels: number;
-        coveragePreviewModels: number;
-        coveragePreviewTextures: number;
-        coveragePreviewSelectedMaxSize: number;
-        coveragePreviewSourceMaxSize: number;
-        coveragePreviewDecodedMaxSize: number;
-        modelFetchCount: number;
-        modelFetchBytes: number;
-        staticContainerModels: number;
-        fastModelCount: number;
-        genericModelCount: number;
-        lightweightMaterialCount: number;
-        modelDecodeCount: number;
-        modelDecodeActive: number;
-        peakModelDecodeActive: number;
-        modelDecodeQueued: number;
-        peakModelDecodeQueued: number;
-        reusedDownloadedModels: number;
-        coastalSkirtTrianglesRemoved: number;
-        peakHierarchyActive: number;
-        peakModelActive: number;
-        peakNetworkActive: number;
-    };
-    origin?: Google3DTilesOrigin;
-    private readonly tilesetLoader;
-    private static readonly startupWorkBudgets;
-    private readonly modelTileLoader;
-    private readonly usesDefaultModelLoader;
-    private rootTileset;
-    private rootRequestKey;
-    private rootRequest?;
-    private session;
-    private readonly externalTilesets;
-    private readonly hierarchyPriorities;
-    private readonly externalTilesetDemand;
-    private preparationEpoch;
-    private readonly preparationWaiters;
-    private readonly dirtyCoverageEntries;
-    private readonly attributionCounts;
-    private readonly loadedTiles;
-    private retainedTiles;
-    private generation;
-    private frontierGeneration;
-    private desiredTiles;
-    private originStateKey;
-    private originGeneration;
-    private readonly pendingModelUploads;
-    private publicationGate?;
-    private publicationQueued;
-    private preparationQueued;
-    private googleAttributionAdded;
-    private attributionCacheValid;
-    private attributionCache;
-    private pendingModels;
-    private readonly unusableModelURLs;
-    private readonly prefetchModels;
-    private activeModelFetches;
-    private lastModelAbortEye?;
-    private selectionEye?;
-    private requestEye?;
-    private requestPriorityRevision;
-    private lastPriorityUpdateAt;
-    private readonly movementWaiters;
-    private frustumCache?;
-    private frontierCache?;
-    private networkActive;
-    private networkActiveOffscreen;
-    private networkActiveHierarchy;
-    private networkActiveModel;
-    private networkQueuedHierarchy;
-    private networkQueuedModel;
-    private networkDispatchCount;
-    private networkWaiters;
-    private networkPendingInsertions;
-    private networkEnqueueSequence;
-    private networkQueueRevision;
-    private readonly networkQueues;
-    private modelDecodeActive;
-    private modelDecodeWaiters;
-    private pendingModelReuseBlocked;
-    private pendingReuseBounds?;
-    private loadingStage;
-    private stageDetailRadius;
-    private stageCoverageGeometricError;
-    private stageCoverageNearGeometricError?;
-    private stageCoverageNearRadius;
-    private stageCoverageCoreGeometricError?;
-    private stageCoverageCoreRadius;
-    private stageCoverageAtlasMaxSize?;
-    private coverageQualityEye?;
-    private readonly coverageDistances;
-    private loadingPhase;
-    private frontierProgress?;
-    private replacementGroupsPending;
-    private canReusePendingModel;
-    private canDecodeModel;
-    private drainModelDecode;
-    private modelDecodeSlot;
-    private networkDrainQueued;
-    private networkQueueName;
-    private networkQueueFor;
-    private rebuildNetworkQueues;
-    private cancelNetworkWaiter;
-    private drainNetwork;
-    private networkSlot;
-    constructor(tileSet: TileSet, options?: Google3DTilesOptions);
-    /** Content currently attached to the Babylon scene. */
-    get loadedModelTiles(): readonly LoadedGoogle3DTile[];
-    /** Current queue occupancy, including work that can delay a startup-stage barrier. */
-    get loadingProgress(): {
-        stage: Google3DLoadingStage;
-        phase: "root" | "idle" | "frontier" | "replacement" | "models";
-        queuedFrontier: number;
-        pendingHierarchy: number;
-        replacementGroups: number;
-        pendingModels: number;
-        hierarchyActive: number;
-        modelActive: number;
-        hierarchyQueued: number;
-        modelQueued: number;
-        decodeActive: number;
-        decodeQueued: number;
-        uploadQueued: number;
-        publicationQueued: number;
-        preparationQueued: number;
-    };
-    /** Current camera-facing resident quality, sampled independently of the last completed traversal. */
-    measureVisibleQuality(): {
-        visibleTiles: number;
-        underDetailedTiles: number;
-        missingVisibleTiles: number;
-        worstErrorRatio: number;
-        worstDepth: number;
-        worstGeometricError: number;
-    };
-    /** Probe the current ground view independently of a possibly stale frontier. */
-    sampleVisibleSurfaceCoverage(): {
-        sampled: number;
-        missing: number;
-    };
-    private coverageKey;
-    private coverageVersion;
-    get coverageRevision(): number;
-    private changedCoverageURLs?;
-    private changedCoverageRevision;
-    private changedCoverageBounds;
-    /** Conservatively test whether changed model bounds can affect a geographic tile. */
-    coverageChangesIntersect(urls: readonly string[], south: number, west: number, north: number, east: number): boolean;
-    private coverageIndex;
-    private indexedCoverage;
-    private broadCoverage;
-    private coverageTests;
-    private footprintEnvelopes;
-    private footprintTests;
-    private loadedSelections;
-    /** Whether loaded model bounds cover this position at an optional source-error limit. */
-    coversLocation(latitude: number, longitude: number, maximumGeometricError?: number): boolean;
-    /** Skip a fallback tile only when one resident model covers its whole sampled footprint. */
-    coversAreaCompletely(south: number, west: number, north: number, east: number, maximumGeometricError?: number): boolean;
-    /** Whether a resident model overlaps a geographic building footprint. */
-    overlapsFootprint(south: number, west: number, north: number, east: number, maximumGeometricError?: number): boolean;
-    private coverageQualityMatches;
-    private coverageTest;
-    private footprintTest;
-    /** The last root tileset response, if load() has been called. */
-    get tileset(): Google3DTileset | undefined;
-    /** The session token discovered in the tileset's child URIs. */
-    get sessionToken(): string | undefined;
-    /** Returns attribution sources sorted by frequency, then alphabetically. */
-    getAttributions(): string[];
+    geoid?: (latitude: number, longitude: number) => number;
+    camera?: Camera;
     /**
-     * Resolves a Google 3D Tiles URI and adds the API key and session token.
-     * Child URIs returned by Google are path/query components rather than
-     * complete URLs, so callers should pass the URL of the response containing
-     * the URI as baseUrl.
+     * On a globe, the colour of the sea. Google's imagery of water changes
+     * from one level of detail to the next, so water at sea level is drawn
+     * in this colour, reflecting the sky toward the horizon, instead.
      */
-    getTileURL(uri: string, baseUrl?: string): string;
-    /** Cancel queued work while retaining the visible scene and hierarchy cache. */
-    cancelPendingLoad(preserveDownloadedModels?: boolean): void;
-    /** The active frontier can follow camera movement without discarding its work. */
-    get selectingFrontier(): boolean;
-    /** Reorder queued downloads immediately when the camera moves, without cancelling active requests. */
-    reprioritizeRequests(): void;
-    /** Warm only the full-radius baseline JSON hierarchy. No GLBs, publication, stage, or readiness changes. */
-    prepareCoverageHierarchy(selectionRadius?: number | undefined, options?: Google3DLoadOptions, signal?: AbortSignal): Promise<void>;
-    /** Warm nearby detail JSON while baseline models load, retaining the same full-radius baseline policy. */
-    prepareImmediateHierarchy(selectionRadius?: number | undefined, options?: Google3DLoadOptions, signal?: AbortSignal): Promise<void>;
-    private prepareHierarchy;
-    private startupWorkBudget;
-    private configurePublication;
-    private awaitPublication;
+    readonly waterColor: import("@babylonjs/core").Color3;
+    /** Draw tiles. Streaming pauses while disabled, except for `prefetchCamera`. */
+    enabled: boolean;
     /**
-     * Loads content overlapping selectionRadius while reusing the hierarchy and resident models.
-     * Startup can await load(radius, {stage: "coverage"}), then load(radius,
-     * {stage: "immediate", detailRadius: 750}), then load(radius) for normal refinement.
-     * Both startup passes select the complete disk, so nearby replacement cannot remove distant coverage.
+     * Also load what this camera would see, after everything the visible
+     * view needs: e.g. the end of a flight, so it arrives already sharp.
+     * It is never drawn from.
      */
-    load(selectionRadius?: number | undefined, options?: Google3DLoadOptions): Promise<readonly LoadedGoogle3DTile[]>;
-    private usesCoverageQuality;
-    private coverageGeometricError;
-    private horizontalTileDistance;
-    private preserveResidentDetail;
-    private acceptableDisplayQuality;
-    private acceptableInitialQuality;
-    private trimVisibleHistory;
-    private trimRetainedTiles;
-    /** Prepare a bounded surrounding ring after visible loading has finished. */
-    prefetchSurroundings(): Promise<void>;
-    /** Alias matching the building-provider lifecycle used by older examples. */
-    generateBuildings(): Promise<readonly LoadedGoogle3DTile[]>;
-    /** Disposes loaded GLB assets and clears the provider's request caches. */
+    prefetchCamera?: Camera;
+    /** Fires after each traversal with the number of tiles drawn. */
+    readonly onUpdatedObservable: Observable<Google3DTiles>;
+    /** Fires when the set of attribution sources changes. */
+    readonly onAttributionsChangedObservable: Observable<readonly string[]>;
+    private readonly apiKey;
+    private readonly fetcher;
+    private readonly workers?;
+    private readonly scene;
+    /** Draws all tiles on WebGL; other engines get one scene mesh per primitive. */
+    private readonly batch?;
+    private meshMaterial?;
+    private layers?;
+    private readonly frame;
+    private readonly fixedOrigin?;
+    private readonly renderObserver;
+    private root?;
+    private rootState;
+    private session?;
+    /** Visiting for `prefetchCamera`. */
+    private pass;
+    /** Resident bytes the last traversal visited. */
+    private neededBytes;
+    private readonly prefetchFrame;
+    private updateId;
+    private rendered;
+    private wanted;
+    private readonly resident;
+    private readonly uploads;
+    private requestsInFlight;
+    private residentBytes;
+    private totals;
+    private lastViewKey;
+    private contentChanged;
+    private attributionKey;
+    private attributions;
+    private disposed;
+    private evictedIn;
+    private traversedAt;
+    private readonly motion;
+    private sweptAt;
+    /** Tiles replaced by others, drawn until those have faded in. */
+    private leaving;
+    private readonly eye;
+    private readonly nadir;
+    private planes;
+    private sseFactor;
+    private horizonDistance;
+    constructor(tileSet: TileSet, options: Google3DTilesOptions);
+    private get globe();
+    /** Current streaming counters. */
+    get stats(): Google3DTilesStats;
+    /** True when every tile wanted by the current view is drawn. */
+    get isIdle(): boolean;
+    /** Resolve once the current view has finished loading. */
+    whenIdle(): Promise<void>;
+    /** Data providers for the tiles currently drawn, most prominent first. */
+    getAttributions(): readonly string[];
+    /**
+     * Draw the tiles as `level` of a `MapLayerRenderer`, so coarser map layers
+     * fill in only where photorealistic coverage ends.
+     */
+    addToLayers(renderer: MapLayerRenderer, level: number): void;
+    /**
+     * Distance along a world-space ray to the drawn photorealistic surface,
+     * in world units, or undefined when the ray misses. Useful for camera
+     * collision and click-to-fly. Tiles coarser than `maximumError` metres of
+     * geometric error are skipped: the coarsest stand hundreds of metres off
+     * the ground.
+     */
+    intersectRay(ray: Ray, maximumError?: number): number | undefined;
+    /** Fix the geographic anchor that is placed exactly on the map. */
+    setOrigin(origin: Google3DTilesOrigin): void;
     dispose(): void;
-    private validateOptions;
-    private getOrigin;
-    private getOriginStateKey;
-    private getRootTilesetURL;
-    private loadRootTileset;
-    private requestTileset;
-    private recordHierarchyFailure;
-    private authenticateURL;
-    private loadExternalTileset;
-    private cameraEye;
-    private tilePriority;
-    private requestPriority;
-    private allowedGeometricError;
-    /** A complete renderable frontier: refine the largest projected error first.
-     * A budget limit leaves a parent in place instead of dropping its siblings.
+    /**
+     * ECEF metres to world as the tiles are currently placed, or undefined
+     * before they are. Overlays placed through it (see `GlobeEarthFrame`)
+     * line up with the tiles exactly.
      */
-    private selectFrontier;
-    private collectTileContent;
-    private retireTile;
-    private indexLoadedDescendants;
-    private hasVisibleDescendant;
-    /** Commit disjoint replacement subtrees only after every new model is ready. */
-    private loadReplacementGroups;
-    private loadTile;
-    private recordModelFailure;
-    private loadTileAsset;
-    private createTileRoot;
-    private disposeTile;
-    private disposeLoadedTiles;
-    private updateAttribution;
-    private getTileSetBounds;
+    get ecefToWorld(): Matrix | undefined;
+    /** ECEF metres of a point `height` metres above sea level, in the tiles' vertical datum. */
+    toECEF(latitude: number, longitude: number, height: number, result?: Vector3): Vector3;
+    /**
+     * Height in metres above sea level of the first tile surface below `top`
+     * metres (roofs, bridge decks, treetops, the ground) at a location, among
+     * the tiles drawn; undefined where there is none, or only coarse tiles
+     * whose surface is too approximate to measure.
+     */
+    surfaceHeight(latitude: number, longitude: number, top?: number): number | undefined;
+    private worldAnchorFor;
+    private applyAnchor;
+    private placeContent;
+    private localToWorld;
+    /**
+     * Keep the anchor near the camera on a globe. Re-anchoring keeps the
+     * surface under the camera fixed, so it is invisible; when the camera is
+     * high enough that the residual sphere/ellipsoid mismatch is sub-pixel,
+     * the anchor snaps back onto the globe's own coordinates.
+     */
+    private followCamera;
+    private authenticate;
+    private loadRoot;
+    private buildNode;
+    private loadTileset;
+    private fetchJSON;
+    /** One network request with brief retries for transient failures. */
+    private request;
+    private loadContent;
+    /** Download and decode in a worker, retrying transient HTTP failures. Undefined for empty tiles. */
+    private decodeInWorker;
+    private decodeHere;
+    private failContent;
+    /** Create GPU resources for decoded tiles within the per-frame budget. */
+    private upload;
+    private unload;
+    private reloadContent;
+    private abortAll;
+    private update;
+    private leavingSince;
+    private traverse;
+    /** An exact frame anchored beneath a camera, e.g. one far from the drawn view. */
+    private frameAt;
+    private prepareCamera;
+    /**
+     * Select what to draw beneath `node`. Returns true when the node's area is
+     * fully drawable (or needs nothing), so its parent may be replaced.
+     */
+    private visit;
+    /**
+     * Keep drawing the tiles that showed `node`'s area last time while its
+     * replacement loads, rather than falling back to a coarser ancestor.
+     * False when nothing beneath it was drawn: an ancestor covered it then.
+     */
+    /** The dead band: what multiple of the target error `node` must exceed to refine. */
+    private band;
+    private keepDrawn;
+    private isVisible;
+    private draw;
+    private want;
+    /**
+     * Show `render`, hiding tiles that left it. Tiles that change level
+     * cross-fade with the ones they replace; tiles merely entering or
+     * leaving the view appear and vanish at once.
+     */
+    private show;
+    /** Start the most important wanted requests that fit the concurrency limit. */
+    private schedule;
+    private loadingNodes;
+    /**
+     * Evict tiles until the cache fits the memory budget: first those the
+     * current view does not touch (least recently drawn first), then coarse
+     * fallbacks hidden behind fully loaded children. Drawn tiles are never
+     * evicted, so a view larger than the budget overshoots it instead of
+     * thrashing.
+     */
+    private evict;
+    private updateAttributions;
 }
-/** Remove deep coastal photogrammetry skirts and their attached fins. */
-export declare function removeCoastalSkirtTriangles(mesh: Mesh, metresToWorld: number, globeRadius?: number): number;
-/** Extracts Google attribution and CESIUM_RTC metadata from a GLB JSON chunk. */
-export declare function parseGoogleGLBMetadata(buffer: ArrayBuffer): GoogleGLBMetadata;
+/** Attribution sources and CESIUM_RTC centre from a GLB, without decoding geometry. */
+export declare function parseGoogleGLBMetadata(buffer: ArrayBuffer): {
+    attributions: string[];
+    rtcCenter?: Vector3;
+};

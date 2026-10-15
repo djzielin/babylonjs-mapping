@@ -20,7 +20,6 @@ import "@babylonjs/core/Helpers/sceneHelpers";
 import "@babylonjs/core/XR/motionController/webXROculusTouchMotionController";
 import { BuildingsOverture, resolveLatestOvertureBuildingsURL, Google3DTiles, RasterOSM, TileSet } from "babylonjs-mapping";
 
-import { optimizeStaticGoogleModels } from "../../../examples-shared/static-google-models";
 import { googleTilesOptions } from "../../../examples-shared/google-tiles-options";
 
 const canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
@@ -133,21 +132,14 @@ async function loadGoogleTiles(): Promise<void> {
         const apiKey = (await response.text()).trim();
         if (!apiKey) throw new Error("Google tiles configuration is empty.");
         googleTiles = new Google3DTiles(map, googleTilesOptions(apiKey, 32));
-        const overview = await googleTiles.load();
-        if (overview.length) {
-            for (const tile of map.ourTiles) tile.mesh.isVisible = false;
-            showGoogleCredits();
-            buildingStatus.textContent = `${overview.length} overview tiles visible; refining detail…`;
-        }
-        googleTiles.maxDepth = 32;
-        const loaded = await googleTiles.load();
-        if (!loaded.length) throw new Error("No Google model tiles matched Duke Chapel.");
-        optimizeStaticGoogleModels(loaded);
-        for (const model of loaded) for (const mesh of model.asset.meshes) mesh.isPickable = false;
+        // Tiles stream continuously; this waits for the first settled view.
+        await googleTiles.whenIdle();
+        const loaded = googleTiles.stats.rendered;
+        if (!loaded) throw new Error("No Google model tiles matched Duke Chapel.");
         for (const tile of map.ourTiles) tile.mesh.isVisible = false;
         showGoogleCredits();
-        canvas.dataset.googleTiles = String(loaded.length);
-        buildingStatus.textContent = `${loaded.length} Google model tiles ready.`;
+        canvas.dataset.googleTiles = String(loaded);
+        buildingStatus.textContent = `${loaded} Google model tiles drawn.`;
     } catch {
         // Keep credentials and credential-bearing request URLs out of diagnostics.
         buildingStatus.textContent = "Google tiles unavailable. Reload to retry; the map still works.";
