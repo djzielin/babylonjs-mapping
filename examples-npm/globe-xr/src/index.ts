@@ -9,6 +9,8 @@ import { Scene } from "@babylonjs/core/scene";
 import { WebXRDefaultExperience } from "@babylonjs/core/XR/webXRDefaultExperience";
 import { WebXRState } from "@babylonjs/core/XR/webXRTypes";
 import "@babylonjs/core/XR/motionController/webXROculusTouchMotionController";
+// The generic controller mesh, used when a headset's glTF profile cannot load, is a .babylon file.
+import "@babylonjs/core/Loading/Plugins/babylonFileLoader";
 import {
     GlobeAtmosphere,
     GlobeControls,
