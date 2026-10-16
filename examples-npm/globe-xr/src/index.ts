@@ -52,7 +52,18 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 
 const GOOGLE_LEVEL = 2;
 /** Map Tiles API requests a second per visitor: a city in well under a minute, leaving the shared quota for others. */
-const GOOGLE_REQUESTS_PER_SECOND = 60;
+/** A tour stop counts as loaded with no more than this many 3D tiles still to come. */
+const LOADED_PENDING = 12;
+/** How much longer than planned the tour may wait at a stop for it, and the next, to load. */
+const MAX_LOAD_WAIT_MS = 20_000;
+const GOOGLE_REQUESTS_PER_SECOND = 80;
+/**
+ * Google's 3D tiles quota is 12,000 requests a minute for the whole key: each
+ * visitor may load a place in a rush of this many, then 80 a second, so one
+ * visitor never takes much over half of a minute's share, and push-backs
+ * shrink each visitor's rate until the quota has room.
+ */
+const GOOGLE_REQUEST_BURST = 1500;
 const SURFACE_LEVEL = 1;
 /** Google's 3D tiles show below this eye height; satellite imagery looks better above. */
 const GOOGLE_CEILING = 60_000;
@@ -108,6 +119,8 @@ class GlobeXRDemo {
     private stop = 0;
     private menu?: XRMenu;
     /** Counts tours begun; a tour runs while its number is the latest and `touring` holds. */
+    /** True while the tour loads its next stop ahead. */
+    private prefetchingNext = false;
     private tourRun = 0;
     private touring = false;
     /** The first time in the headset, the menu opens on the controls. */
@@ -142,6 +155,7 @@ class GlobeXRDemo {
                 // The key's quota is shared by every visitor: each takes a modest share,
                 // and keeps its session so a revisit is answered from the browser's cache.
                 requestsPerSecond: GOOGLE_REQUESTS_PER_SECOND,
+                requestBurst: GOOGLE_REQUEST_BURST,
                 sessionKey: "babylonjs-mapping google 3d session",
                 ...googleQuality(INITIAL_LEVEL),
                 // Everything around the head at full detail; more than this risks
@@ -467,13 +481,28 @@ class GlobeXRDemo {
         const alive = () => run === this.tourRun && this.touring;
         for (let i = this.stop + 1; alive(); i++) {
             if (!await this.goToStop(i) || !alive()) break;
+            // At least the planned time, and on until the place has loaded
+            // (within reason); then on while the next stop loads behind the
+            // scenes, so the tour arrives to a finished view.
             const start = performance.now();
-            while (alive() && performance.now() - start < TOUR_LINGER_MS) await new Promise(resolve => setTimeout(resolve, 100));
+            const next = this.stopPose(TOUR[(this.stop + 1) % TOUR.length]);
+            while (alive()) {
+                const t = performance.now() - start;
+                const google = this.google?.enabled ? this.google : undefined;
+                const loaded = !google || (t > 2000 && google.viewPending <= LOADED_PENDING);
+                if (loaded && !this.prefetchingNext) { this.xrControls!.prefetch(next); this.prefetchingNext = true; }
+                const ready = loaded && (!google?.prefetchCamera || google.prefetchPending <= LOADED_PENDING);
+                if (t >= TOUR_LINGER_MS && (ready || t >= TOUR_LINGER_MS + MAX_LOAD_WAIT_MS)) break;
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            this.prefetchingNext = false;
         }
+        this.prefetchingNext = false;
         if (run === this.tourRun) this.stopTour();
     }
 
     private stopTour(): void {
+        this.prefetchingNext = false;
         if (!this.touring) return;
         this.touring = false;
         this.tourRun++;
@@ -568,7 +597,7 @@ class GlobeXRDemo {
             controls.update();
             const head = controls.headPose;
             height = head.height;
-            ahead = controls.isFlying ? controls.destination : undefined;
+            ahead = controls.isFlying || this.prefetchingNext ? controls.destination : undefined;
             // The place's name, until the user has left it.
             if (!controls.isFlying && this.place && this.placeAt) {
                 const away = Math.abs(head.latitude - this.placeAt.latitude) + Math.abs(head.longitude - this.placeAt.longitude);

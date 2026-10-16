@@ -17,8 +17,13 @@ export declare class HostThrottle {
     acquire(url: string, signal?: AbortSignal): Promise<string>;
     /** Report how the request ended. `retryAfter` is the response's Retry-After header, if readable. */
     release(host: string, status?: number, retryAfter?: string | null): void;
-    /** Limits requests to `url`'s host to `perSecond` (an API's own quota), in place of the default rate. */
-    setRate(url: string, perSecond: number): void;
+    /**
+     * Limits requests to `url`'s host to `perSecond` sustained (an API's own
+     * quota, or a share of it), in place of the default rate, with up to
+     * `burst` at once after a quiet spell: a per-minute quota allows a view
+     * to load in a rush, then idle.
+     */
+    setRate(url: string, perSecond: number, burst?: number): void;
     /** Milliseconds until `url`'s host accepts requests again; 0 if it does now. */
     pausedFor(url: string): number;
     private state;

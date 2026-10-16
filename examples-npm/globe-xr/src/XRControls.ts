@@ -255,6 +255,11 @@ export class GlobeXRControls {
         return !!this.flight;
     }
 
+    /** Aim `destination` at a place to load ahead of going there, e.g. a tour's next stop. Flights re-aim it. */
+    public prefetch(pose: RigPose): void {
+        if (!this.flight) this.placeDestination(pose);
+    }
+
     /** True while a flight, a held globe view, or the settling after one turns the world. */
     public get isTilted(): boolean {
         return !!(this.flight || this.held || this.settle);

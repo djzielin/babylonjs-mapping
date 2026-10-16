@@ -119,6 +119,11 @@ export interface Google3DTilesOptions {
      */
     requestsPerSecond?: number;
     /**
+     * Requests that may start at once after a quiet spell, beyond the steady
+     * rate: a per-minute quota lets a new view load in a rush. Default: one second's worth.
+     */
+    requestBurst?: number;
+    /**
      * A localStorage key under which to keep the API session for a few hours,
      * so a reload or a later visit asks for the very same tile URLs and the
      * browser's HTTP cache (Google allows four hours) answers them instead of
@@ -411,7 +416,7 @@ export default class Google3DTiles {
         this.apiKey = options.apiKey.trim();
         this.rootUrl = options.rootUrl ?? GOOGLE_3D_TILES_ROOT_URL;
         this.sessionKey = options.sessionKey;
-        TileWorkerPool.throttle.setRate(this.rootUrl, options.requestsPerSecond ?? 100);
+        TileWorkerPool.throttle.setRate(this.rootUrl, options.requestsPerSecond ?? 100, options.requestBurst);
         this.maximumScreenSpaceError = options.maximumScreenSpaceError ?? 8;
         this.detailRadius = options.detailRadius ?? Infinity;
         this.distantErrorScale = options.distantErrorScale ?? 1;
@@ -469,6 +474,11 @@ export default class Google3DTiles {
     /** Tiles the prefetch camera wants that have not loaded, as of the last selection. */
     public get prefetchPending(): number {
         return this.wanted.reduce((count, node) => count + (node.wantedBy === Pass.Prefetch ? 1 : 0), 0);
+    }
+
+    /** Tiles the visible view itself still needs: not those around it, nor a prefetch's. */
+    public get viewPending(): number {
+        return this.wanted.reduce((count, node) => count + (node.wantedBy === Pass.View ? 1 : 0), 0);
     }
 
     /** True when every tile wanted by the current view is drawn. */

@@ -11,6 +11,10 @@ const STRIKE_MEMORY_MS = 30_000;
 const INITIAL_LIMIT = 6;
 /** Fewest concurrent requests a host is cut to: one at a time stalls a map for minutes. */
 const MIN_LIMIT = 4;
+/** Lowest fraction of its rate a host is cut to by push-backs. */
+const MIN_RATE_SHARE = 1 / 8;
+/** Seconds for a cut rate to climb back to the full rate, while requests succeed. */
+const RATE_RECOVERY_SECONDS = 60;
 
 interface HostState {
     inFlight: number;
@@ -21,11 +25,15 @@ interface HostState {
     /** Consecutive slow-down replies, for exponential backoff. */
     strikes: number;
     lastStrikeAt: number;
-    /** Requests that may start now under the rate limit; refills continuously up to one second's worth. */
+    /** Requests that may start now under the rate limit; refills continuously up to `burst`. */
     tokens: number;
     refilledAt: number;
-    /** Requests a second at most. */
+    /** Requests a second at most, sustained: cut when the server pushes back, regrown as it answers. */
     rate: number;
+    /** The rate it regrows to. */
+    fullRate: number;
+    /** Requests that may start at once after a quiet spell. */
+    burst: number;
     /** Before the first push-back, each success adds a whole slot (TCP-style slow start). */
     slowStart: boolean;
     waiting: (() => void)[];
@@ -90,6 +98,10 @@ export class HostThrottle {
             state.lastStrikeAt = now;
             state.slowStart = false;
             state.limit = Math.max(Math.min(MIN_LIMIT, this.maxPerHost), state.limit / 2);
+            // A shared quota is full: this client takes a smaller share, and
+            // gives up what it had saved, rather than pushing on in bursts.
+            state.rate = Math.max(state.fullRate * MIN_RATE_SHARE, state.rate / 2);
+            state.tokens = Math.min(state.tokens, 0);
             const backoff = retry
                 ?? Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (state.strikes - 1) * (0.75 + Math.random() * 0.5));
             state.pausedUntil = Math.max(state.pausedUntil, performance.now() + backoff);
@@ -100,11 +112,17 @@ export class HostThrottle {
         this.arm(state);
     }
 
-    /** Limits requests to `url`'s host to `perSecond` (an API's own quota), in place of the default rate. */
-    public setRate(url: string, perSecond: number): void {
+    /**
+     * Limits requests to `url`'s host to `perSecond` sustained (an API's own
+     * quota, or a share of it), in place of the default rate, with up to
+     * `burst` at once after a quiet spell: a per-minute quota allows a view
+     * to load in a rush, then idle.
+     */
+    public setRate(url: string, perSecond: number, burst = perSecond): void {
         const state = this.state(hostOf(url));
-        state.rate = Math.max(1, perSecond);
-        state.tokens = Math.min(state.tokens, state.rate);
+        state.fullRate = state.rate = Math.max(1, perSecond);
+        state.burst = Math.max(1, burst);
+        state.tokens = Math.min(state.tokens, state.burst);
     }
 
     /** Milliseconds until `url`'s host accepts requests again; 0 if it does now. */
@@ -117,13 +135,19 @@ export class HostThrottle {
         let state = this.hosts.get(host);
         if (!state) this.hosts.set(host, state = {
             inFlight: 0, limit: Math.min(INITIAL_LIMIT, this.maxPerHost), pausedUntil: 0, strikes: 0, lastStrikeAt: -Infinity,
-            tokens: Math.min(INITIAL_LIMIT, this.ratePerSecond), refilledAt: performance.now(), rate: this.ratePerSecond, slowStart: true, waiting: [],
+            tokens: Math.min(INITIAL_LIMIT, this.ratePerSecond), refilledAt: performance.now(),
+            rate: this.ratePerSecond, fullRate: this.ratePerSecond, burst: this.ratePerSecond, slowStart: true, waiting: [],
         });
         return state;
     }
 
     private refill(state: HostState, now: number): void {
-        state.tokens = Math.min(state.rate, state.tokens + (now - state.refilledAt) / 1000 * state.rate);
+        const seconds = (now - state.refilledAt) / 1000;
+        // Unrefused for a while, a cut rate regrows.
+        if (state.rate < state.fullRate && now - state.lastStrikeAt > 1000) {
+            state.rate = Math.min(state.fullRate, state.rate + state.fullRate * seconds / RATE_RECOVERY_SECONDS);
+        }
+        state.tokens = Math.min(state.burst, state.tokens + seconds * state.rate);
         state.refilledAt = now;
     }
 

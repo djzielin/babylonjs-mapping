@@ -94,6 +94,11 @@ export interface Google3DTilesOptions {
      */
     requestsPerSecond?: number;
     /**
+     * Requests that may start at once after a quiet spell, beyond the steady
+     * rate: a per-minute quota lets a new view load in a rush. Default: one second's worth.
+     */
+    requestBurst?: number;
+    /**
      * A localStorage key under which to keep the API session for a few hours,
      * so a reload or a later visit asks for the very same tile URLs and the
      * browser's HTTP cache (Google allows four hours) answers them instead of
@@ -257,6 +262,8 @@ export default class Google3DTiles {
     get stats(): Google3DTilesStats;
     /** Tiles the prefetch camera wants that have not loaded, as of the last selection. */
     get prefetchPending(): number;
+    /** Tiles the visible view itself still needs: not those around it, nor a prefetch's. */
+    get viewPending(): number;
     /** True when every tile wanted by the current view is drawn. */
     get isIdle(): boolean;
     /** Resolve once the current view has finished loading. */

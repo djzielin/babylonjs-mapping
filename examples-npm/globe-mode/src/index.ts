@@ -1,6 +1,7 @@
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { Color4 } from "@babylonjs/core/Maths/math.color";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 import {
     GLOBE_CONTROLS_HELP,
@@ -36,7 +37,20 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 /** Map layers, finest first: Google's 3D tiles cover the surface, which covers the sky. */
 const GOOGLE_LEVEL = 2;
 /** Map Tiles API requests a second per visitor: a city in well under a minute, leaving the shared quota for others. */
-const GOOGLE_REQUESTS_PER_SECOND = 60;
+/** A tour stop counts as loaded with no more than this many 3D tiles still to come. */
+const LOADED_PENDING = 12;
+/** How much longer than its planned time the tour may wait at a stop for it to load. */
+const MAX_LOAD_WAIT_MS = 20_000;
+/** Google's 3D tiles' screen-space error target, in CSS pixels. */
+const GOOGLE_ERROR = 8;
+const GOOGLE_REQUESTS_PER_SECOND = 80;
+/**
+ * Google's 3D tiles quota is 12,000 requests a minute for the whole key: each
+ * visitor may load a place in a rush of this many, then 80 a second, so one
+ * visitor never takes much over half of a minute's share, and push-backs
+ * shrink each visitor's rate until the quota has room.
+ */
+const GOOGLE_REQUEST_BURST = 1500;
 const SURFACE_LEVEL = 1;
 /** Google's 3D tiles load within this many metres of the point beneath the camera (20 miles). */
 const GOOGLE_RADIUS = 32_187;
@@ -64,6 +78,8 @@ class GlobeDemo {
     private imagery!: GlobeImagery[];
     private show3D = true;
     private tourRun = 0;
+    /** The tour's next stop, loaded once the current one is: it arrives already sharp. */
+    private nextStop?: TargetCamera;
 
     public constructor() {
         this.scene.clearColor = new Color4(0, 0, 0, 1);
@@ -138,6 +154,7 @@ class GlobeDemo {
             // The key's quota is shared by every visitor: each takes a modest share,
             // and keeps its session so a revisit is answered from the browser's cache.
             requestsPerSecond: GOOGLE_REQUESTS_PER_SECOND,
+            requestBurst: GOOGLE_REQUEST_BURST,
             sessionKey: "babylonjs-mapping google 3d session",
             maximumRadius: GOOGLE_RADIUS,
             // Full detail around the view, easing off into the haze: a stop
@@ -170,10 +187,13 @@ class GlobeDemo {
     private frame(): void {
         const view = this.controls.getView();
         // Load the end of a flight on the way there.
-        const ahead = this.controls.flightDestination;
+        const ahead = this.controls.flightDestination ?? this.nextStop;
         this.surface.prefetchCamera = ahead;
         if (this.google) {
             this.google.enabled = this.show3D && this.wants3D(view.height);
+            // Sharpness in CSS pixels: a high-density screen would otherwise
+            // ask for several times the tiles, and wait for them, to look the same.
+            this.google.maximumScreenSpaceError = GOOGLE_ERROR * Math.min(3, Math.max(1, window.devicePixelRatio || 1));
             const end = ahead ? this.globe.getSurfaceCoordinates(ahead!.position).elevation / this.globe.metresToWorld : NaN;
             this.google.prefetchCamera = this.show3D && this.wants3D(end) ? ahead : undefined;
             // Beneath Google's tiles the surface only needs to be a fallback.
@@ -201,7 +221,7 @@ class GlobeDemo {
             this.caption();
             if (!await this.controls.flyTo(stop) || !alive()) break;
             this.caption(stop.title, stop.text);
-            if (!await this.linger(stop, 14_000, alive)) break;
+            if (!await this.linger(stop, 14_000, alive, TOUR[(i + 1) % TOUR.length])) break;
             if (i === TOUR.length - 1 && alive()) {
                 this.caption();
                 if (!await this.controls.flyTo(SPACE_VIEW, 7000) || !await this.linger(undefined, 3000, alive)) break;
@@ -210,15 +230,33 @@ class GlobeDemo {
         if (alive()) this.stopTour();
     }
 
-    /** Orbit slowly around a stop. Resolves false if interrupted. */
-    private linger(stop: TourStop | undefined, ms: number, alive: () => boolean): Promise<boolean> {
+    /**
+     * Orbit slowly around a stop for at least `ms`, and on until its 3D
+     * tiles have loaded (within reason). Once they have, the next stop
+     * loads in the background. Resolves false if interrupted.
+     */
+    private linger(stop: TourStop | undefined, ms: number, alive: () => boolean, next?: TourStop): Promise<boolean> {
         return new Promise(resolve => {
             const start = performance.now();
+            const finish = (done: boolean) => {
+                this.scene.onBeforeRenderObservable.remove(observer);
+                this.nextStop?.dispose();
+                this.nextStop = undefined;
+                resolve(done);
+            };
             const observer = this.scene.onBeforeRenderObservable.add(() => {
-                if (!alive()) { this.scene.onBeforeRenderObservable.remove(observer); resolve(false); return; }
+                if (!alive()) { finish(false); return; }
                 const t = performance.now() - start;
                 if (stop) this.controls.setView({ ...stop, heading: stop.heading + (stop.orbit ?? 2) * t / 1000 });
-                if (t >= ms) { this.scene.onBeforeRenderObservable.remove(observer); resolve(true); }
+                // The orbit keeps bringing a little new ground into view: nearly all loaded is loaded.
+                const loaded = !this.google?.enabled || (t > 2000 && this.google.viewPending <= LOADED_PENDING);
+                if (loaded && next && !this.nextStop) {
+                    this.nextStop = new TargetCamera("tour next stop", Vector3.Zero(), this.scene, false);
+                    this.controls.placeCamera(next, this.nextStop);
+                }
+                // And on while the next stop loads, so the tour arrives to a finished view.
+                const ready = loaded && (!this.nextStop || !this.google?.prefetchCamera || this.google.prefetchPending <= LOADED_PENDING);
+                if (t >= ms && (ready || t >= ms + MAX_LOAD_WAIT_MS)) finish(true);
             });
         });
     }
