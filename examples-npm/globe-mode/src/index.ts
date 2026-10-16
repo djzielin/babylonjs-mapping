@@ -241,9 +241,11 @@ class GlobeDemo {
         });
         $("photoButton").addEventListener("click", () => {
             this.show3D = !this.show3D;
+            // Ships come and go with the 3D view.
+            if (this.ships) this.ships.enabled = this.show3D;
             this.setPressed("photoButton", this.show3D);
         });
-        const toggles: [string, { enabled: boolean } | undefined][] = [["roadsButton", this.traffic], ["airButton", this.aircraft], ["seaButton", this.ships]];
+        const toggles: [string, { enabled: boolean } | undefined][] = [["roadsButton", this.traffic], ["airButton", this.aircraft]];
         for (const [id, layer] of toggles) {
             $(id).hidden = !layer;
             $(id).addEventListener("click", () => {

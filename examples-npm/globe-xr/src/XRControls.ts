@@ -156,7 +156,7 @@ interface Settle {
  */
 export class GlobeXRControls {
     public readonly rig: GlobeXRRig;
-    /** Allow the floor below sea level, for dives such as to the Mariana Trench. */
+    /** Allow the floor below sea level, for dives beneath the sea. */
     public diving = false;
     public enabled = true;
     /** Placed at the end of a flight, for loading ahead. */

@@ -33,10 +33,6 @@ export const TOUR: TourStop[] = [
         latitude: 35.6586, longitude: 139.7454, height: 150, heading: 330, pitch: -22, range: 2600, orbit: 2.5,
     },
     {
-        title: "Mariana Trench", text: "Challenger Deep, nearly 11 km beneath the Pacific",
-        latitude: 11.3733, longitude: 142.5917, height: -10850, heading: 90, pitch: -8, range: 2500, orbit: 2,
-    },
-    {
         title: "Sydney", text: "The Opera House and Harbour Bridge",
         latitude: -33.8568, longitude: 151.2153, height: 30, heading: 140, pitch: -20, range: 2000, orbit: 2.5,
     },
