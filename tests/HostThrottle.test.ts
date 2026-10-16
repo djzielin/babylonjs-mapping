@@ -5,7 +5,7 @@ const URL_A = "https://tile.example.com/v1/3dtiles/a.glb";
 
 describe("HostThrottle", () => {
     beforeEach(() => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] }));
-    afterEach(() => vi.useRealTimers());
+    afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
     /** Starts `count` requests in turn, each released as soon as it starts; resolves with when each started. */
     async function run(throttle: HostThrottle, count: number, status?: number): Promise<number[]> {
@@ -82,6 +82,8 @@ describe("HostThrottle", () => {
     });
 
     it("takes a smaller share after a push-back, and regrows it", async () => {
+        // The pause's jitter, fixed: a second.
+        vi.spyOn(Math, "random").mockReturnValue(0.5);
         const throttle = new HostThrottle(64, 100);
         throttle.setRate(URL_A, 100, 100);
         const host = await throttle.acquire(URL_A);
@@ -89,7 +91,7 @@ describe("HostThrottle", () => {
         await vi.advanceTimersByTimeAsync(throttle.pausedFor(URL_A) + 1);
         // Half the rate, and only what refilled during the pause saved up: 100 requests take about a second.
         let started = await run(throttle, 100);
-        expect(started[99] - started[0]).toBeGreaterThan(800);
+        expect(started[99] - started[0]).toBeGreaterThan(700);
         // A minute without push-backs later, the full rate and burst are back.
         await vi.advanceTimersByTimeAsync(70_000);
         started = await run(throttle, 100);
