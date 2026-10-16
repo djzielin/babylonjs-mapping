@@ -41,6 +41,9 @@ jobs:
           OSMB_ACCESS_TOKEN: ${{ secrets.OSMB_ACCESS_TOKEN }}
           MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          # Live aircraft: the traffic proxy's URL (examples-npm/traffic-proxy). Unset, the
+          # demos leave aircraft out, since a static site cannot reach adsb.lol itself.
+          DEMO_AIRCRAFT_URL: ${{ vars.DEMO_AIRCRAFT_URL }}
         run: |
           set -euo pipefail
           mkdir -p site

@@ -18,8 +18,10 @@ import {
     GlobeControls,
     GlobeSet,
     GlobeSurface,
+    GlobeTraffic,
     GlobeVehicles,
     adsbAircraftFeed,
+    digitrafficShipFeed,
     Google3DTiles,
     MapLayerRenderer,
     RasterGoogleSatellite,
@@ -30,7 +32,7 @@ import {
     type GlobeImagery,
     type VehicleReport,
 } from "babylonjs-mapping";
-import { aircraftModelUrl, MODEL_AUTHORS, modelKey } from "../../globe-mode/src/Models";
+import { aircraftModelUrl, MODEL_AUTHORS, modelKey, shipModelUrl } from "../../globe-mode/src/Models";
 import { TOUR, type TourStop } from "../../globe-mode/src/Tour";
 import { EYE_HEIGHT, GlobeXRControls } from "./XRControls";
 import { createCaption, createCreditLine, createWristPanel, type TextPanel } from "./XRPanels";
@@ -60,6 +62,7 @@ const HELP = [
     "Trigger: point, click to zoom in",
     "A / B: next / previous place · X: life size",
     "Y: hide help · left stick click: overview",
+    "Right stick click: live traffic on / off",
 ];
 
 class GlobeXRDemo {
@@ -78,6 +81,8 @@ class GlobeXRDemo {
     private surface!: GlobeSurface;
     private google?: Google3DTiles;
     private aircraft?: GlobeVehicles;
+    private ships?: GlobeVehicles;
+    private traffic?: GlobeTraffic;
     private xr?: WebXRDefaultExperience;
     private xrControls?: GlobeXRControls;
     private governor?: QualityGovernor;
@@ -135,6 +140,19 @@ class GlobeXRDemo {
             modelFor: (report: VehicleReport) => aircraftModelUrl(report)?.replace(/^models\//, DEMO_MODELS_URL),
             // Fewer, larger models: each is drawn twice, once per eye.
             detailedModels: 12, detailPixels: 40,
+        });
+        this.ships = new GlobeVehicles(this.globe, {
+            kind: "ship", feed: digitrafficShipFeed("babylonjs-mapping globe xr demo"), earthFrame: this.google,
+            modelFor: (report: VehicleReport) => shipModelUrl(report)?.replace(/^models\//, DEMO_MODELS_URL),
+            detailedModels: 12, detailPixels: 40,
+        });
+        // Live congestion on the roads near the head, over the ground and bridges.
+        if (DEMO_MAPBOX_TOKEN) this.traffic = new GlobeTraffic(this.globe, {
+            accessToken: DEMO_MAPBOX_TOKEN,
+            heightAt,
+            deckHeightAt: (latitude, longitude) => this.google?.enabled
+                ? this.google.surfaceHeight(latitude, longitude, (this.surface.getHeight(latitude, longitude) ?? 0) + 300) : undefined,
+            earthFrame: this.google,
         });
         this.scene.onBeforeRenderObservable.add(() => this.frame());
         this.updateAttribution();
@@ -363,9 +381,12 @@ class GlobeXRDemo {
                 void controls.overview();
                 break;
             }
-            case "stick-right":
-                if (this.aircraft) this.aircraft.enabled = !this.aircraft.enabled;
+            case "stick-right": {
+                const layers = [this.aircraft, this.ships, this.traffic].filter(layer => layer !== undefined);
+                const enabled = !layers.some(layer => layer.enabled);
+                for (const layer of layers) layer.enabled = enabled;
                 break;
+            }
         }
     }
 
@@ -485,7 +506,7 @@ class GlobeXRDemo {
         const sources: string[] = [];
         if (this.google?.enabled) sources.push(...this.google.getAttributions());
         if (this.surface?.attribution) sources.push(this.surface.attribution);
-        const authors = [...new Set((this.aircraft?.drawnModels ?? []).map(url => MODEL_AUTHORS[modelKey(url)]).filter(Boolean))];
+        const authors = [...new Set([...this.aircraft?.drawnModels ?? [], ...this.ships?.drawnModels ?? []].map(url => MODEL_AUTHORS[modelKey(url)]).filter(Boolean))];
         if (authors.length) sources.push(`Models: ${authors.join(", ")} (CC BY)`);
         return [...new Set(sources)].join(" · ");
     }
