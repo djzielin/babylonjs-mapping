@@ -214,6 +214,8 @@ export default class GlobeSurface {
     /** The imagery source in use. */
     get currentImagery(): GlobeImagery;
     get stats(): GlobeSurfaceStats;
+    /** Tiles the prefetch camera wants that have not loaded, as of the last selection. */
+    get prefetchPending(): number;
     /** True once everything the current view needs is drawn. */
     get isIdle(): boolean;
     /** Resolve once the current view has finished loading. */

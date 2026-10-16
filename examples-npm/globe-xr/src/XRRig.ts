@@ -65,6 +65,20 @@ export class GlobeXRRig implements RigPose {
         this.node.computeWorldMatrix(true);
     }
 
+    /**
+     * Places the node directly, for flights: `rotation` from the rig's frame
+     * to the world, the head (rig-local `head`, physical metres) at `eye`
+     * in world units. The pose fields are left for the caller to keep.
+     */
+    public applyFrame(rotation: Quaternion, eye: Vector3, head: Vector3, scale: number): void {
+        const m = this.globe.metresToWorld;
+        this.node.rotationQuaternion!.copyFrom(rotation);
+        this.node.scaling.setAll(scale * m);
+        const offset = head.scale(scale * m).applyRotationQuaternionInPlace(rotation);
+        this.node.position.copyFrom(eye).subtractInPlace(offset);
+        this.node.computeWorldMatrix(true);
+    }
+
     /** World axes of the rig: right, the local vertical, and forward along `heading`. */
     public axes(): { right: Vector3; up: Vector3; forward: Vector3 } {
         const lat = this.latitude * DEGREES, lon = this.longitude * DEGREES, h = this.heading * DEGREES;

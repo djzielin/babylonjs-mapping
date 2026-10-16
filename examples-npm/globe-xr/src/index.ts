@@ -226,6 +226,8 @@ class GlobeXRDemo {
                 return tiles !== undefined && (surface === undefined || tiles < surface) ? tiles : surface ?? sphereHit(ray, this.globe.radius);
             },
             onButton: button => this.button(button),
+            // Descents wait a little for the place to load, rather than arriving at a blur.
+            destinationReady: () => this.surface.prefetchPending === 0 && (!this.google || this.google.prefetchPending === 0),
         }, overlay);
 
         const handsLight = new HemisphericLight("xr hands light", new Vector3(0, 1, 0), this.scene);
@@ -258,8 +260,16 @@ class GlobeXRDemo {
         this.governor = new QualityGovernor(() => TARGET_HZ, held === null ? INITIAL_LEVEL : Number(held), (_, index) => {
             if (this.google) Object.assign(this.google, googleQuality(index));
         });
-        if (held === null) xr.baseExperience.sessionManager.onXRFrameObservable.add(() => this.governor!.frame(performance.now()));
-        else xr.baseExperience.sessionManager.onXRFrameObservable.add(() => this.governor!.measure(performance.now()));
+        // A flight loads as it goes: its frames say nothing of the detail the
+        // place can hold, so the level is judged afresh after landing.
+        let flew = false;
+        xr.baseExperience.sessionManager.onXRFrameObservable.add(() => {
+            const now = performance.now(), flying = !!this.xrControls?.isTilted;
+            if (flew && !flying) this.governor!.reset();
+            flew = flying;
+            if (held === null && !flying) this.governor!.frame(now);
+            else this.governor!.measure(now);
+        });
 
         // Babylon starts the headset at the desktop camera; here the rig places
         // it, so the head starts at the rig's origin instead.
@@ -349,9 +359,8 @@ class GlobeXRDemo {
             case "y": this.help = !this.help; break;
             case "stick-left": {
                 // Out to see the whole globe.
-                const head = controls.headPose;
                 controls.diving = false;
-                void controls.flyTo({ ...head, scale: 4e6 }, 3500);
+                void controls.overview();
                 break;
             }
             case "stick-right":

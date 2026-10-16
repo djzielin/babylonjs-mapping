@@ -238,6 +238,8 @@ export default class Google3DTiles {
     private get globe();
     /** Current streaming counters. */
     get stats(): Google3DTilesStats;
+    /** Tiles the prefetch camera wants that have not loaded, as of the last selection. */
+    get prefetchPending(): number;
     /** True when every tile wanted by the current view is drawn. */
     get isIdle(): boolean;
     /** Resolve once the current view has finished loading. */

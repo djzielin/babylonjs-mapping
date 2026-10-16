@@ -593,6 +593,11 @@ export default class GlobeSurface {
         };
     }
 
+    /** Tiles the prefetch camera wants that have not loaded, as of the last selection. */
+    public get prefetchPending(): number {
+        return this.wanted.reduce((count, node) => count + (node.wantedBy === Pass.Prefetch ? 1 : 0), 0);
+    }
+
     /** True once everything the current view needs is drawn. */
     public get isIdle(): boolean {
         return this.updateId > 0 && !this.wanted.length && !this.uploads.length;
