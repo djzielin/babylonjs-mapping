@@ -40,6 +40,11 @@
                 font-size: 10px; color: rgba(255, 255, 255, .55); text-shadow: 0 0 3px #000;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
+            #diagnostics {
+                position: absolute; left: 10px; top: 10px; max-width: min(92vw, 720px); max-height: 45vh; overflow: auto; margin: 0;
+                padding: 10px 12px; border-radius: 10px; background: rgba(60, 8, 8, .85); color: #ffd9d9;
+                font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap;
+            }
             #attribution:hover { white-space: normal; color: rgba(255, 255, 255, .8); }
             @media (max-width: 560px) { #intro { bottom: 28px; } #attribution { max-width: 70vw; } }
         </style>
@@ -54,5 +59,6 @@
             <div id="xrStatus" aria-live="polite">Checking for a headset…</div>
         </section>
         <div id="attribution"></div>
+        <pre id="diagnostics" hidden></pre>
     </body>
 </html>

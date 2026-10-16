@@ -17,9 +17,10 @@ import type MapLayerRenderer from "./MapLayerRenderer.js";
 import { TileBatch, supportsTileBatch, type TileDrawable } from "../shared/TileBatch.js";
 import { globeWaterShader, WATER_COLOR } from "./GlobeWaterShader.js";
 import { DEEPEST_DARKENING } from "./GlobeAtmosphere.js";
-import { MotionTracker, widenedViewProjection } from "../shared/ViewMargin.js";
+import { MotionTracker, selectionViewProjection, VIEW_MARGIN, ViewChange, type ViewTolerance, widenedViewProjection } from "../shared/ViewMargin.js";
 import { createDecodedTexture, supportsBC1, type DecodedImage } from "../shared/TileTextures.js";
 import { TileWorkerPool, type HeightFormat } from "../shared/TileWorkerPool.js";
+import { gridTriangles, RayMesh } from "../shared/RayMesh.js";
 
 /** A Web Mercator (XYZ) imagery source. */
 export interface GlobeImagery {
@@ -314,6 +315,8 @@ const MARGIN_PRIORITY = 50;
  * the drawn tiles alone instead of swapping those near a threshold.
  */
 const REFINE_DRAWN = 2;
+/** Least time between selections redone only because tiles arrived. */
+const CONTENT_TRAVERSAL_MS = 100;
 const COARSEN_REFINED = 0.35;
 /**
  * Traversals: the view itself; the margin around it, loaded but not drawn
@@ -420,6 +423,15 @@ export default class GlobeSurface {
      */
     public prefetchCamera?: Camera;
     /**
+     * How far the view may turn (degrees) or move (fraction of its height)
+     * before tiles are selected again; meanwhile the view is drawn widened
+     * by the angle. Default 0: every change. For a headset, whose pose
+     * changes every frame, a few degrees saves most of the selection work.
+     */
+    public get viewTolerance(): ViewTolerance { return this.viewChange.tolerance; }
+    public set viewTolerance(tolerance: ViewTolerance) { this.viewChange.tolerance = tolerance; }
+    private readonly viewChange = new ViewChange();
+    /**
      * Colour of the sea. Imagery of water differs between levels of detail
      * and sources, so water at sea level is drawn in this colour, reflecting
      * the sky toward the horizon, instead.
@@ -462,6 +474,9 @@ export default class GlobeSurface {
     private residentBytes = 0;
     private totals = { requests: 0, bytes: 0, failures: 0, shown: 0 };
     private lastViewKey = "";
+    private abandonedAt = 0;
+    private traversedForContentAt = 0;
+    private readonly gridTriangles = gridTriangles(GRID);
     private contentChanged = true;
     private disposed = false;
 
@@ -610,21 +625,14 @@ export default class GlobeSurface {
     /** Nearest intersection of a world-space ray with the drawn surface, in world units. */
     public intersectRay(ray: Ray): number | undefined {
         let nearest: number | undefined;
-        const local = ray.origin.clone(), a = new Vector3(), b = new Vector3(), c = new Vector3();
+        const local = ray.origin.clone();
         for (const node of this.rendered) {
             if (!ray.intersectsSphere({ center: node.center, radius: node.radius } as never)) continue;
-            const positions = node.drawable!.localPositions!;
             node.center.scaleToRef(-1, local).addInPlace(ray.origin);
             const originalOrigin = ray.origin;
             ray.origin = local;
-            for (let row = 0; row < GRID; row++) for (let column = 0; column < GRID; column++) {
-                const i = row * (GRID + 1) + column;
-                for (const [p, q, r] of [[i, i + GRID + 1, i + 1], [i + 1, i + GRID + 1, i + GRID + 2]]) {
-                    a.fromArray(positions, p * 3); b.fromArray(positions, q * 3); c.fromArray(positions, r * 3);
-                    const hit = ray.intersectsTriangle(a, b, c);
-                    if (hit && (nearest === undefined || hit.distance < nearest)) nearest = hit.distance;
-                }
-            }
+            const hit = RayMesh.for(node.drawable!.localPositions!, this.gridTriangles).intersect(ray);
+            if (hit !== undefined && (nearest === undefined || hit < nearest)) nearest = hit;
             ray.origin = originalOrigin;
         }
         return nearest;
@@ -660,12 +668,16 @@ export default class GlobeSurface {
         if (!this.enabled && !ahead) return;
         this.uploadDecoded();
         const engine = this.scene.getEngine();
-        const viewKey = `${this.enabled}/${camera.getViewMatrix().updateFlag}/${camera.getProjectionMatrix().updateFlag}`
+        const viewKey = `${this.enabled}/${this.viewChange.update(camera, Math.abs(position.length() - this.globe.radius))}/${this.viewChange.projection(camera)}`
             + `/${ahead?.uniqueId}/${ahead?.getViewMatrix().updateFlag}/${engine.getRenderWidth()}x${engine.getRenderHeight()}`
             + `/${this.maximumScreenSpaceError}/${this.coverage?.radius}/${this.coverage?.maxZoom}`;
-        if (viewKey !== this.lastViewKey || this.contentChanged) {
+        // A new view at once; new content (tiles arriving every frame while
+        // loading) at most ten times a second.
+        const now = performance.now();
+        if (viewKey !== this.lastViewKey || this.contentChanged && now - this.traversedForContentAt > CONTENT_TRAVERSAL_MS) {
             this.lastViewKey = viewKey;
             this.contentChanged = false;
+            this.traversedForContentAt = now;
             this.traverse(this.enabled ? camera : undefined, ahead);
         } else if (this.leaving.some(node => performance.now() - (node.drawable?.fadeStart ?? -Infinity) >= this.batch.fadeDuration)) {
             // Retire tiles whose fade has finished.
@@ -685,7 +697,7 @@ export default class GlobeSurface {
             this.visit(this.root, render);
             this.show(render);
             // Load, without drawing, what lies just beyond the edges of the view.
-            this.planes = Frustum.GetPlanes(widenedViewProjection(camera));
+            this.planes = Frustum.GetPlanes(widenedViewProjection(camera, VIEW_MARGIN * (1 + 2 * this.viewChange.widening * Math.PI / 180 / camera.fov)));
             this.pass = Pass.Margin;
             this.visit(this.root, []);
             this.pass = Pass.View;
@@ -719,7 +731,7 @@ export default class GlobeSurface {
         // The sea surface hides everything below it, except from beneath.
         this.occluderRadius = radius * (1 - 1e-7);
         this.horizonDistance = dc > this.occluderRadius ? Math.sqrt(dc * dc - this.occluderRadius ** 2) : Infinity;
-        this.planes = Frustum.GetPlanes(camera.getViewMatrix().multiply(camera.getProjectionMatrix()));
+        this.planes = Frustum.GetPlanes(selectionViewProjection(camera, this.viewChange.widening));
     }
 
     /**
@@ -744,14 +756,25 @@ export default class GlobeSurface {
         // drawn parent's, exceed the target on screen (lower loads sooner).
         if (!seen) node.priority = Math.log2(this.maximumScreenSpaceError * distance / (texel * this.sseFactor)) + PASS_PRIORITY[this.pass];
         const hysteresis = this.band(node, sticky);
-        let refine = node.z < BASE_ZOOM
-            || texel * this.sseFactor / distance > this.maximumScreenSpaceError * hysteresis;
-        if (node.z >= this.imagery.maxZoom) refine = false;
+        const error = texel * this.sseFactor / distance;
+        let finest = node.z >= this.imagery.maxZoom;
         // The sea floor has no imagery: refine only as far as its elevation has detail.
-        if (this.underwater && node.z >= Math.min(UNDERWATER_MAX_ZOOM, (this.elevation?.maxZoom ?? 0) + 3)) refine = false;
-        if (refine && this.coverage && node.z >= this.coverage.maxZoom
-            && Vector3.Distance(node.center, this.ground) + node.radius < this.coverage.radius * this.globe.metresToWorld) refine = false;
+        if (this.underwater && node.z >= Math.min(UNDERWATER_MAX_ZOOM, (this.elevation?.maxZoom ?? 0) + 3)) finest = true;
+        if (!finest && this.coverage && node.z >= this.coverage.maxZoom
+            && Vector3.Distance(node.center, this.ground) + node.radius < this.coverage.radius * this.globe.metresToWorld) finest = true;
+        const refine = !finest && (node.z < BASE_ZOOM || error > this.maximumScreenSpaceError * hysteresis);
         if (this.pass === Pass.View) node.refined = refine;
+        // Held in the dead band, a drawn tile stays while its children load:
+        // once they are all here the band closes and they replace it, rather
+        // than the coarse tile staying until the view changes.
+        if (!refine && !finest && this.pass === Pass.View && error > this.maximumScreenSpaceError) {
+            node.children ??= this.split(node);
+            for (const child of node.children) {
+                if (child.state !== State.None || child.wantedIn === this.updateId) continue;
+                child.priority = node.priority + PASS_PRIORITY[Pass.Margin];
+                this.want(child, Pass.Margin);
+            }
+        }
 
         if (refine) {
             node.children ??= this.split(node);
@@ -788,9 +811,13 @@ export default class GlobeSurface {
      * False when nothing beneath it was drawn: an ancestor covered it then.
      */
     /** The dead band: what multiple of the target error `node` must exceed to refine. */
-    private band(node: { drawnIn: number }, sticky: boolean): number {
+    private band(node: SurfaceNode, sticky: boolean): number {
         if (sticky) return COARSEN_REFINED;
-        return node.drawnIn === this.updateId - 1 ? REFINE_DRAWN : 1;
+        if (node.drawnIn !== this.updateId - 1) return 1;
+        // With the finer tiles already here, holding the coarse one only
+        // leaves a blurred patch among sharp neighbours.
+        const ready = !!node.children?.length && node.children.every(child => child.state === State.Ready);
+        return ready ? 1 : REFINE_DRAWN;
     }
 
     private keepDrawn(node: SurfaceNode, render: SurfaceNode[]): boolean {
@@ -963,17 +990,20 @@ export default class GlobeSurface {
             if (this.requestsInFlight >= this.maxConcurrentRequests) break;
             void this.load(node);
         }
-        // Abandon downloads the camera has moved away from.
-        if (this.updateId % 30 === 0) for (const node of this.loadingNodes())
-            if (node.lastVisit < this.updateId - 60) node.abort?.abort();
+        // Abandon downloads the camera has moved away from, once a second.
+        if (now - this.abandonedAt > 1000) {
+            this.abandonedAt = now;
+            for (const node of this.loadingNodes()) if (node.lastVisit < this.updateId - 60) node.abort?.abort();
+        }
     }
 
+    /** Loading tiles, among the recently visited: what the camera left long ago has nothing loading. */
     private *loadingNodes(): Generator<SurfaceNode> {
         const stack = [this.root];
         while (stack.length) {
             const node = stack.pop()!;
             if (node.state === State.Loading) yield node;
-            if (node.children) stack.push(...node.children);
+            if (node.children && node.lastVisit >= this.updateId - 120) stack.push(...node.children);
         }
     }
 

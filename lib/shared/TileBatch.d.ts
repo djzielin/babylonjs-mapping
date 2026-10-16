@@ -28,9 +28,20 @@ export interface TileDrawable {
     fadeOut?: boolean;
     /** Further per-vertex attributes for custom shaders, by attribute name. */
     attributes?: Record<string, VertexBuffer>;
-    /** CPU copies for ray queries. */
+    /** CPU copies for ray queries, and for culling by camera. */
     localPositions?: Float32Array;
     localIndices?: Uint16Array | Uint32Array;
+    /** World bounding sphere for culling, kept by `TileBatch`. */
+    bounds?: TileBounds;
+}
+/** A drawable's bounding sphere, tile-local and as last placed in the world. */
+interface TileBounds {
+    local: Vector3;
+    localRadius: number;
+    center: Vector3;
+    radius: number;
+    world?: Matrix;
+    flag: number;
 }
 /** True where tiles can be drawn by `TileBatch` (WebGL engines). */
 export declare function supportsTileBatch(scene: Scene): boolean;
@@ -62,6 +73,17 @@ export declare class TileBatch extends Mesh {
     /** The shader with FADE defined, compiled on first use: discarding costs early depth testing, so only fading tiles pay for it. */
     private fadeEffect?;
     private readonly createFadeEffect?;
+    /**
+     * Skip tiles outside the rendering camera's own frustum. Layers select
+     * tiles for the view as a whole, a little widened; each eye of a headset
+     * sees only part of that.
+     */
+    cullByCamera: boolean;
+    /** Tiles drawn by the last render, for diagnostics. */
+    drawnCount: number;
+    private readonly planes;
+    /** The planes as (normal, d) quadruples, for the per-tile test. */
+    private readonly planeValues;
     /** Milliseconds over which tiles that change level cross-fade; 0 swaps them at once. */
     fadeDuration: number;
     /**
@@ -77,7 +99,9 @@ export declare class TileBatch extends Mesh {
     render(subMesh: SubMesh, _enableAlphaMode: boolean): Mesh;
     /** True while any tile is cross-fading, so the layer keeps redrawing. */
     get isFading(): boolean;
+    private inView;
     private draw;
     /** Release a drawable's GPU resources (its texture is owned by the tile). */
     static release(engine: ThinEngine, item: TileDrawable, shared?: boolean): void;
 }
+export {};

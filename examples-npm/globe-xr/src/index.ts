@@ -11,6 +11,8 @@ import { WebXRState } from "@babylonjs/core/XR/webXRTypes";
 import "@babylonjs/core/XR/motionController/webXROculusTouchMotionController";
 // The generic controller mesh, used when a headset's glTF profile cannot load, is a .babylon file.
 import "@babylonjs/core/Loading/Plugins/babylonFileLoader";
+// The Touch Plus controllers' own models are glTF.
+import "@babylonjs/loaders/glTF/2.0";
 import {
     GlobeAtmosphere,
     GlobeControls,
@@ -32,7 +34,8 @@ import { aircraftModelUrl, MODEL_AUTHORS, modelKey } from "../../globe-mode/src/
 import { TOUR, type TourStop } from "../../globe-mode/src/Tour";
 import { EYE_HEIGHT, GlobeXRControls } from "./XRControls";
 import { createCaption, createCreditLine, createWristPanel, type TextPanel } from "./XRPanels";
-import { QualityGovernor, QUALITY_LEVELS } from "./XRQuality";
+import { Diagnostics } from "./XRDiagnostics";
+import { INITIAL_LEVEL, QualityGovernor, QUALITY_LEVELS } from "./XRQuality";
 import type { RigPose } from "./XRRig";
 
 declare const DEMO_GOOGLE_KEY: string;
@@ -66,6 +69,7 @@ class GlobeXRDemo {
         adaptToDeviceRatio: true, powerPreference: "high-performance", xrCompatible: true,
     });
     private readonly scene = new Scene(this.engine);
+    private readonly diagnostics = new Diagnostics(this.engine, this.scene);
     private readonly globe = new GlobeSet(this.scene, this.engine, { radius: 60, backingSurface: false, attribution: false });
     private readonly layers = new MapLayerRenderer(this.scene, GOOGLE_LEVEL);
     private readonly camera = new TargetCamera("desktop", this.globe.getSurfacePosition(0, 0, 1), this.scene);
@@ -94,7 +98,10 @@ class GlobeXRDemo {
         this.scene.skipPointerMovePicking = true;
         this.scene.constantlyUpdateMeshUnderPointer = false;
         this.camera.fov = 0.8;
-        this.controls = new GlobeControls(this.globe, this.camera, this.canvas, { heightAt: (lat, lon) => this.groundHeight(lat, lon) });
+        this.controls = new GlobeControls(this.globe, this.camera, this.canvas, {
+            // In the headset the desktop camera idles: it needs no rooftops, and asking would evict the head's.
+            heightAt: (lat, lon) => this.inXR ? this.surface?.getHeight(lat, lon) ?? 0 : this.groundHeight(lat, lon),
+        });
         this.controls.setView(TOUR[0]);
         this.engine.runRenderLoop(() => this.scene.render());
         addEventListener("resize", () => this.engine.resize());
@@ -110,9 +117,10 @@ class GlobeXRDemo {
         if (DEMO_GOOGLE_KEY) {
             this.google = new Google3DTiles(this.globe, {
                 apiKey: DEMO_GOOGLE_KEY,
-                ...googleQuality(1),
-                distantErrorScale: 2.5,
-                memoryBudgetMB: 420,
+                ...googleQuality(INITIAL_LEVEL),
+                // Everything around the head at full detail; more than this risks
+                // the Quest closing the tab.
+                memoryBudgetMB: 500,
                 maxConcurrentRequests: 12,
                 // Uploads share an 11 ms frame with two eyes' rendering.
                 uploadBudgetMs: 2,
@@ -188,10 +196,13 @@ class GlobeXRDemo {
             disableNearInteraction: true,
             disableHandTracking: true,
             optionalFeatures: false,
+            // Babylon's own layer options (alpha included): on Quest 3, an
+            // opaque layer leaves the eyes' framebuffer without attachments,
+            // so nothing draws. ?alpha=0 and ?resolution=<scale> to test.
             outputCanvasOptions: {
                 canvasOptions: {
-                    antialias: true, alpha: false, depth: true, stencil: true,
-                    // The headset's native resolution unless asked otherwise.
+                    antialias: params.get("aa") !== "0", depth: true, stencil: true,
+                    alpha: params.get("alpha") !== "0",
                     framebufferScaleFactor: Number(params.get("resolution")) || 1,
                 },
             },
@@ -242,13 +253,13 @@ class GlobeXRDemo {
         this.caption = createCaption(this.scene, overlay, () => this.captionText);
         this.caption.alpha = 0;
 
-        this.governor = new QualityGovernor(() => TARGET_HZ, 1, level => {
-            if (!this.google) return;
-            this.google.maximumScreenSpaceError = level.error;
-            this.google.detailRadius = level.detailRadius;
-            this.google.maximumRadius = level.radius;
+        // ?level=<n> holds a quality level, for measuring one.
+        const held = params.get("level");
+        this.governor = new QualityGovernor(() => TARGET_HZ, held === null ? INITIAL_LEVEL : Number(held), (_, index) => {
+            if (this.google) Object.assign(this.google, googleQuality(index));
         });
-        xr.baseExperience.sessionManager.onXRFrameObservable.add(() => this.governor!.frame(performance.now()));
+        if (held === null) xr.baseExperience.sessionManager.onXRFrameObservable.add(() => this.governor!.frame(performance.now()));
+        else xr.baseExperience.sessionManager.onXRFrameObservable.add(() => this.governor!.measure(performance.now()));
 
         // Babylon starts the headset at the desktop camera; here the rig places
         // it, so the head starts at the rig's origin instead.
@@ -276,12 +287,30 @@ class GlobeXRDemo {
     /** In the headset: at the desktop's view, at the refresh rate, foveated. */
     private async entered(): Promise<void> {
         const session = this.xr!.baseExperience.sessionManager;
+        // A framebuffer without attachments draws nothing, silently: say so.
+        session.onXRFrameObservable.addOnce(() => {
+            const gl = (this.engine as unknown as { _gl: WebGL2RenderingContext })._gl;
+            const layer = session.session.renderState.baseLayer;
+            if (!layer) return;
+            const bound = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+            const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, bound);
+            if (status !== gl.FRAMEBUFFER_COMPLETE) this.diagnostics.add(`Headset framebuffer incomplete (0x${status.toString(16)}): nothing will draw.`);
+        });
         // Fewer pixels at the edges of the lenses, where they are not seen sharply.
         if (session.fixedFoveation !== null) session.fixedFoveation = Number(params.get("foveation") ?? 1);
         const rates = session.supportedFrameRates;
         if (rates && Array.from(rates).includes(TARGET_HZ)) await session.updateTargetFrameRate(TARGET_HZ).catch(() => undefined);
         this.controls.enabled = false;
         this.governor!.reset();
+        // The head turns anywhere at once: everything around it, at the view's detail.
+        if (this.google) { this.google.surroundErrorScale = 1; this.google.alwaysLoadSurroundings = true; }
+        // The head's pose changes every frame: reselect tiles only once it has
+        // turned or moved appreciably, drawing a little wider meanwhile.
+        const tolerance = { degrees: 4, distance: 0.02 };
+        this.surface.viewTolerance = tolerance;
+        if (this.google) this.google.viewTolerance = tolerance;
         const view = this.controls.getView();
         const ground = this.groundHeight(view.latitude, view.longitude);
         this.xrControls!.diving = view.height < 0;
@@ -293,6 +322,9 @@ class GlobeXRDemo {
     /** Back on the desktop, where the head was. */
     private exited(): void {
         this.controls.enabled = true;
+        if (this.google) { this.google.surroundErrorScale = 2; this.google.alwaysLoadSurroundings = false; }
+        this.surface.viewTolerance = { degrees: 0, distance: 0 };
+        if (this.google) this.google.viewTolerance = { degrees: 0, distance: 0 };
         const controls = this.xrControls;
         if (controls) {
             const head = controls.headPose;
@@ -375,10 +407,12 @@ class GlobeXRDemo {
         const height = head.height - this.xrControls!.rig.floor;
         const eye = height < 1000 ? `${Math.round(height)} m` : `${(height / 1000).toFixed(height < 10_000 ? 1 : 0)} km`;
         const governor = this.governor!;
-        const lines = this.help ? HELP : [];
+        const errors = this.diagnostics.errors;
+        // Errors first: in the headset there is nowhere else to read them.
+        const lines = errors.length ? [`${errors.length} error${errors.length > 1 ? "s" : ""}:`, ...errors.slice(0, 3)] : this.help ? HELP : [];
         return {
             title: this.place || `${head.latitude.toFixed(3)}°, ${head.longitude.toFixed(3)}°`,
-            detail: `Eye ${eye} · ${Math.round(governor.fps)} fps · detail ${QUALITY_LEVELS.length - governor.level}/${QUALITY_LEVELS.length}`,
+            detail: `Eye ${eye} · ${Math.round(governor.fps)} fps · ${this.diagnostics.summary} · detail ${QUALITY_LEVELS.length - governor.level}/${QUALITY_LEVELS.length}`,
             lines,
         };
     }
@@ -408,7 +442,7 @@ class GlobeXRDemo {
         if (this.google) {
             this.google.enabled = height > 0 && height < GOOGLE_CEILING;
             this.google.prefetchCamera = ahead;
-            this.surface.coverage = { radius: QUALITY_LEVELS[this.governor?.level ?? 1].radius * 0.9, maxZoom: 15 };
+            this.surface.coverage = { radius: QUALITY_LEVELS[this.governor?.level ?? INITIAL_LEVEL].radius * 0.9, maxZoom: 16 };
         }
     }
 
@@ -465,8 +499,8 @@ function sphereHit(ray: { origin: Vector3; direction: Vector3 }, radius: number)
 }
 
 function googleQuality(level: number) {
-    const { error, detailRadius, radius } = QUALITY_LEVELS[level];
-    return { maximumScreenSpaceError: error, detailRadius, maximumRadius: radius };
+    const { error, detailRadius, distantErrorScale, radius } = QUALITY_LEVELS[level];
+    return { maximumScreenSpaceError: error, detailRadius, distantErrorScale, maximumRadius: radius };
 }
 
 const demo = new GlobeXRDemo();

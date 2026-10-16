@@ -4,6 +4,7 @@ import { Ray } from "@babylonjs/core/Culling/ray.js";
 import { Observable } from "@babylonjs/core/Misc/observable.js";
 import type TileSet from "../core/TileSet.js";
 import { type GeodeticPosition } from "./GoogleTileFrame.js";
+import { type ViewTolerance } from "../shared/ViewMargin.js";
 import type MapLayerRenderer from "../core/MapLayerRenderer.js";
 /** Google Maps Platform Map Tiles API Photorealistic 3D Tiles endpoint. */
 export declare const GOOGLE_3D_TILES_ROOT_URL = "https://tile.googleapis.com/v1/3dtiles/root.json";
@@ -64,6 +65,18 @@ export interface Google3DTilesOptions {
     distantErrorScale?: number;
     /** Ground distance in metres beyond which no tiles are drawn. Default: unlimited. */
     maximumRadius?: number;
+    /**
+     * Error scale for the surroundings out of view (default 2: coarser). In
+     * a headset, where the head turns anywhere at once, 1 loads them at the
+     * view's detail.
+     */
+    surroundErrorScale?: number;
+    /**
+     * Load the surroundings every traversal, after the view, instead of only
+     * once the view has settled (default false). For headsets, whose view
+     * never quite settles.
+     */
+    alwaysLoadSurroundings?: boolean;
     /**
      * Approximate GPU memory for cached tiles, in megabytes. Default: no
      * limit. Either way, tiles nothing has needed for `cacheSeconds` are released.
@@ -138,6 +151,8 @@ export default class Google3DTiles {
     detailRadius: number;
     distantErrorScale: number;
     maximumRadius: number;
+    surroundErrorScale: number;
+    alwaysLoadSurroundings: boolean;
     memoryBudgetMB: number;
     cacheSeconds: number;
     maxConcurrentRequests: number;
@@ -159,6 +174,15 @@ export default class Google3DTiles {
      * It is never drawn from.
      */
     prefetchCamera?: Camera;
+    /**
+     * How far the view may turn (degrees) or move (fraction of its height)
+     * before tiles are selected again; meanwhile the view is drawn widened
+     * by the angle. Default 0: every change. For a headset, whose pose
+     * changes every frame, a few degrees saves most of the selection work.
+     */
+    get viewTolerance(): ViewTolerance;
+    set viewTolerance(tolerance: ViewTolerance);
+    private readonly viewChange;
     /** Fires after each traversal with the number of tiles drawn. */
     readonly onUpdatedObservable: Observable<Google3DTiles>;
     /** Fires when the set of attribution sources changes. */
@@ -198,6 +222,8 @@ export default class Google3DTiles {
     private evictedIn;
     private traversedAt;
     private readonly motion;
+    private abandonedAt;
+    private traversedForContentAt;
     private sweptAt;
     /** Tiles replaced by others, drawn until those have faded in. */
     private leaving;

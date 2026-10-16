@@ -4,6 +4,7 @@ import { Observable } from "@babylonjs/core/Misc/observable.js";
 import type GlobeSet from "./GlobeSet.js";
 import type MapLayerRenderer from "./MapLayerRenderer.js";
 import { TileBatch } from "../shared/TileBatch.js";
+import { type ViewTolerance } from "../shared/ViewMargin.js";
 import { type HeightFormat } from "../shared/TileWorkerPool.js";
 /** A Web Mercator (XYZ) imagery source. */
 export interface GlobeImagery {
@@ -136,6 +137,15 @@ export default class GlobeSurface {
      */
     prefetchCamera?: Camera;
     /**
+     * How far the view may turn (degrees) or move (fraction of its height)
+     * before tiles are selected again; meanwhile the view is drawn widened
+     * by the angle. Default 0: every change. For a headset, whose pose
+     * changes every frame, a few degrees saves most of the selection work.
+     */
+    get viewTolerance(): ViewTolerance;
+    set viewTolerance(tolerance: ViewTolerance);
+    private readonly viewChange;
+    /**
      * Colour of the sea. Imagery of water differs between levels of detail
      * and sources, so water at sea level is drawn in this colour, reflecting
      * the sky toward the horizon, instead.
@@ -177,6 +187,9 @@ export default class GlobeSurface {
     private residentBytes;
     private totals;
     private lastViewKey;
+    private abandonedAt;
+    private traversedForContentAt;
+    private readonly gridTriangles;
     private contentChanged;
     private disposed;
     private readonly eye;
@@ -250,6 +263,7 @@ export default class GlobeSurface {
     private position;
     /** Start the most important wanted requests that fit the concurrency limit. */
     private schedule;
+    /** Loading tiles, among the recently visited: what the camera left long ago has nothing loading. */
     private loadingNodes;
     private load;
     /** Move to the next imagery source; tiles that failed retry from it at once. */

@@ -22,7 +22,8 @@ import { createGoogleTileMaterial } from "./GoogleTileMaterial.js";
 import { TileWorkerPool } from "../shared/TileWorkerPool.js";
 import { supportsBC1 } from "../shared/TileTextures.js";
 import { TileBatch, supportsTileBatch, type TileDrawable } from "../shared/TileBatch.js";
-import { MotionTracker, widenedViewProjection } from "../shared/ViewMargin.js";
+import { MotionTracker, selectionViewProjection, VIEW_MARGIN, ViewChange, type ViewTolerance, widenedViewProjection } from "../shared/ViewMargin.js";
+import { RayMesh } from "../shared/RayMesh.js";
 import { globeWaterShader, WATER_COLOR } from "../core/GlobeWaterShader.js";
 import type MapLayerRenderer from "../core/MapLayerRenderer.js";
 import type { ThinEngine } from "@babylonjs/core/Engines/thinEngine.js";
@@ -89,6 +90,18 @@ export interface Google3DTilesOptions {
     distantErrorScale?: number;
     /** Ground distance in metres beyond which no tiles are drawn. Default: unlimited. */
     maximumRadius?: number;
+    /**
+     * Error scale for the surroundings out of view (default 2: coarser). In
+     * a headset, where the head turns anywhere at once, 1 loads them at the
+     * view's detail.
+     */
+    surroundErrorScale?: number;
+    /**
+     * Load the surroundings every traversal, after the view, instead of only
+     * once the view has settled (default false). For headsets, whose view
+     * never quite settles.
+     */
+    alwaysLoadSurroundings?: boolean;
     /**
      * Approximate GPU memory for cached tiles, in megabytes. Default: no
      * limit. Either way, tiles nothing has needed for `cacheSeconds` are released.
@@ -235,6 +248,8 @@ const MARGIN_PRIORITY = 50;
  * the drawn tiles alone instead of swapping those near a threshold.
  */
 const REFINE_DRAWN = 2;
+/** Least time between selections redone only because tiles arrived. */
+const CONTENT_TRAVERSAL_MS = 100;
 const COARSEN_REFINED = 0.35;
 /**
  * Traversals: the view itself; the margin around it, loaded but not drawn
@@ -256,6 +271,7 @@ const AROUND_BUDGET = 0.6;
  * view's, so turning needs at most one more level, while memory stays near
  * that of the view itself.
  */
+/** Default error scale for the surroundings: coarser than the view. */
 const AROUND_ERROR_SCALE = 2;
 /** Fraction of the concurrent requests the surroundings may use, keeping the rest free for the view. */
 const AROUND_REQUESTS = 0.5;
@@ -279,6 +295,8 @@ export default class Google3DTiles {
     public detailRadius: number;
     public distantErrorScale: number;
     public maximumRadius: number;
+    public surroundErrorScale: number;
+    public alwaysLoadSurroundings: boolean;
     public memoryBudgetMB: number;
     public cacheSeconds: number;
     public maxConcurrentRequests: number;
@@ -300,6 +318,15 @@ export default class Google3DTiles {
      * It is never drawn from.
      */
     public prefetchCamera?: Camera;
+    /**
+     * How far the view may turn (degrees) or move (fraction of its height)
+     * before tiles are selected again; meanwhile the view is drawn widened
+     * by the angle. Default 0: every change. For a headset, whose pose
+     * changes every frame, a few degrees saves most of the selection work.
+     */
+    public get viewTolerance(): ViewTolerance { return this.viewChange.tolerance; }
+    public set viewTolerance(tolerance: ViewTolerance) { this.viewChange.tolerance = tolerance; }
+    private readonly viewChange = new ViewChange();
     /** Fires after each traversal with the number of tiles drawn. */
     public readonly onUpdatedObservable = new Observable<Google3DTiles>();
     /** Fires when the set of attribution sources changes. */
@@ -340,6 +367,8 @@ export default class Google3DTiles {
     private evictedIn = -1;
     private traversedAt = 0;
     private readonly motion = new MotionTracker();
+    private abandonedAt = 0;
+    private traversedForContentAt = 0;
     private sweptAt = 0;
     /** Tiles replaced by others, drawn until those have faded in. */
     private leaving: TileNode[] = [];
@@ -359,6 +388,8 @@ export default class Google3DTiles {
         this.detailRadius = options.detailRadius ?? Infinity;
         this.distantErrorScale = options.distantErrorScale ?? 1;
         this.maximumRadius = options.maximumRadius ?? Infinity;
+        this.surroundErrorScale = options.surroundErrorScale ?? AROUND_ERROR_SCALE;
+        this.alwaysLoadSurroundings = options.alwaysLoadSurroundings ?? false;
         this.memoryBudgetMB = options.memoryBudgetMB ?? Infinity;
         this.cacheSeconds = options.cacheSeconds ?? 300;
         this.maxConcurrentRequests = options.maxConcurrentRequests ?? 32;
@@ -466,15 +497,10 @@ export default class Google3DTiles {
                 const local = Ray.Transform(ray, inverse);
                 // Ray.Transform normalises the direction: local distances are in tile units.
                 const unitsPerWorld = Vector3.TransformNormal(ray.direction, inverse).length() / ray.direction.length();
-                const p = drawable!.localPositions!, indices = drawable!.localIndices!;
-                const a = new Vector3(), b = new Vector3(), c = new Vector3();
-                for (let i = 0; i < indices.length; i += 3) {
-                    a.fromArray(p, indices[i] * 3); b.fromArray(p, indices[i + 1] * 3); c.fromArray(p, indices[i + 2] * 3);
-                    const hit = local.intersectsTriangle(a, b, c);
-                    if (!hit) continue;
-                    const distance = hit.distance / unitsPerWorld;
-                    if (nearest === undefined || distance < nearest) nearest = distance;
-                }
+                const hit = RayMesh.for(drawable!.localPositions!, drawable!.localIndices!).intersect(local);
+                if (hit === undefined) continue;
+                const distance = hit / unitsPerWorld;
+                if (nearest === undefined || distance < nearest) nearest = distance;
             }
         }
         return nearest;
@@ -852,13 +878,16 @@ export default class Google3DTiles {
         if (this.enabled || this.frame.revision === 0) this.followCamera(camera);
         if (this.frame.revision === 0) this.setOrigin(this.fixedOrigin ?? { latitude: this.tileSet.centerCoords.y, longitude: this.tileSet.centerCoords.x });
 
-        const view = camera.getViewMatrix();
         const engine = this.scene.getEngine();
-        const viewKey = `${this.enabled}/${view.updateFlag}/${camera.getProjectionMatrix().updateFlag}/${this.frame.revision}`
+        const viewKey = `${this.enabled}/${this.viewChange.update(camera, this.globe ? position.length() - this.globe.radius : position.y)}/${this.viewChange.projection(camera)}/${this.frame.revision}`
             + `/${ahead?.uniqueId}/${ahead?.getViewMatrix().updateFlag}/${engine.getRenderWidth()}x${engine.getRenderHeight()}`;
-        if (viewKey !== this.lastViewKey || this.contentChanged) {
+        // A new view at once; new content (tiles arriving every frame while
+        // loading) at most ten times a second.
+        const now = performance.now();
+        if (viewKey !== this.lastViewKey || this.contentChanged && now - this.traversedForContentAt > CONTENT_TRAVERSAL_MS) {
             this.lastViewKey = viewKey;
             this.contentChanged = false;
+            this.traversedForContentAt = now;
             this.traverse(this.enabled ? camera : undefined, ahead);
         } else if (this.leaving.length && performance.now() - this.leavingSince() >= this.batch!.fadeDuration) {
             // Retire tiles whose fade has finished.
@@ -895,7 +924,7 @@ export default class Google3DTiles {
             // Once the view is complete, its surroundings in every direction.
             // (Wanted tiles are those not yet ready; only failures may remain.)
             const settled = this.uploads.length === 0 && this.wanted.every(node => node.contentState === State.Failed || node.tilesetState === State.Failed);
-            if (settled && !ahead) {
+            if ((settled || this.alwaysLoadSurroundings) && !ahead) {
                 this.prepareCamera(camera, this.frame, "around");
                 this.pass = Pass.Around;
                 this.visit(this.root!, []);
@@ -935,7 +964,10 @@ export default class Google3DTiles {
         this.horizonDistance = dc > HORIZON_RADIUS ? Math.sqrt(dc * dc - HORIZON_RADIUS * HORIZON_RADIUS) : Infinity;
         // World-space frustum planes expressed in ECEF: n' = L n, d' = n.t + d.
         if (extent === "around") { this.planes = []; return; }
-        const transform = extent === "margin" ? widenedViewProjection(camera) : camera.getViewMatrix().multiply(camera.getProjectionMatrix());
+        const widening = this.viewChange.widening;
+        const transform = extent === "margin"
+            ? widenedViewProjection(camera, VIEW_MARGIN * (1 + 2 * widening * Math.PI / 180 / camera.fov))
+            : selectionViewProjection(camera, widening);
         const m = frame.matrix.m;
         this.planes = Frustum.GetPlanes(transform).map((plane: Plane) => {
             const n = plane.normal;
@@ -967,18 +999,31 @@ export default class Google3DTiles {
         if (!this.isVisible(box, distance)) { node.culledIn = this.updateId; return true; }
         const error = node.geometricError * this.sseFactor / distance;
         const target = this.maximumScreenSpaceError * Math.min(this.distantErrorScale, Math.max(1, ground / this.detailRadius))
-            * (this.pass === Pass.Around ? AROUND_ERROR_SCALE : 1);
+            * (this.pass === Pass.Around ? this.surroundErrorScale : 1);
         // The blurriest first: how far this tile's error, and so roughly its
         // drawn parent's, exceeds the target on screen (lower loads sooner).
         if (!seen) node.priority = Math.log2(target / Math.max(error, 1e-6)) + PASS_PRIORITY[this.pass];
 
-        let refine = error > target * this.band(node, sticky);
+        // A tile without content of its own (often the link to another
+        // tileset) has its detail in its children: always pass through it.
+        let refine = error > target * this.band(node, sticky) || node.contentState === State.Empty;
         if (refine && node.tilesetUri && node.tilesetState !== State.Ready) {
             this.want(node, "tileset");
             refine = node.children.length > 0;
         }
         if (refine && !node.children.length) refine = false;
         if (this.pass === Pass.View) node.refined = refine;
+        // Held in the dead band, a drawn tile stays while its children load:
+        // once they are all here the band closes and they replace it, rather
+        // than the coarse tile staying until the view changes.
+        if (!refine && this.pass === Pass.View && error > target) {
+            if (node.tilesetUri && node.tilesetState !== State.Ready) this.want(node, "tileset", Pass.Margin);
+            for (const child of node.children) {
+                if (child.contentState !== State.None || child.wantedIn === this.updateId) continue;
+                child.priority = node.priority + PASS_PRIORITY[Pass.Margin];
+                this.want(child, "content", Pass.Margin);
+            }
+        }
 
         if (refine) {
             const start = render.length;
@@ -994,10 +1039,13 @@ export default class Google3DTiles {
             }
             if (covered || node.contentState === State.Empty) return covered;
             // Part of the area is still loading, typically a tile just come
-            // into view. Finer tiles already drawn stay, leaving that part
-            // briefly empty, rather than the whole area dropping back to
-            // this coarse level until it arrives.
-            if (this.pass === Pass.View && render.length > start && node.drawnIn !== this.updateId - 1) return true;
+            // into view. With this level here it covers the area until the
+            // rest arrives; without, finer tiles already drawn stay, leaving
+            // that part briefly empty rather than dropping further back.
+            if (this.pass === Pass.View && render.length > start && node.drawnIn !== this.updateId - 1 && node.contentState !== State.Ready) {
+                this.want(node, "content");
+                return true;
+            }
             // Children are still loading: draw this level meanwhile.
             this.want(node, "content");
             if (node.contentState !== State.Ready) return this.keepDrawn(node, render);
@@ -1018,9 +1066,14 @@ export default class Google3DTiles {
      * False when nothing beneath it was drawn: an ancestor covered it then.
      */
     /** The dead band: what multiple of the target error `node` must exceed to refine. */
-    private band(node: { drawnIn: number }, sticky: boolean): number {
+    private band(node: TileNode, sticky: boolean): number {
         if (sticky) return COARSEN_REFINED;
-        return node.drawnIn === this.updateId - 1 ? REFINE_DRAWN : 1;
+        if (node.drawnIn !== this.updateId - 1) return 1;
+        // The band spares loading near the threshold. With the finer tiles
+        // already here, holding the coarse one only leaves a blurred patch
+        // among sharp neighbours, for as long as the view stays put.
+        const ready = node.children.length > 0 && node.children.every(child => child.contentState === State.Ready || child.contentState === State.Empty);
+        return ready ? 1 : REFINE_DRAWN;
     }
 
     private keepDrawn(node: TileNode, render: TileNode[]): boolean {
@@ -1135,9 +1188,10 @@ export default class Google3DTiles {
             if (needsTileset(node)) void this.loadTileset(node);
             else void this.loadContent(node);
         }
-        // Abandon downloads the camera has moved away from.
-        if (this.updateId % 30 === 0) for (const node of this.loadingNodes()) {
-            if (node.lastVisit < this.updateId - 60) node.abort?.abort();
+        // Abandon downloads the camera has moved away from, once a second.
+        if (now - this.abandonedAt > 1000) {
+            this.abandonedAt = now;
+            for (const node of this.loadingNodes()) if (node.lastVisit < this.updateId - 60) node.abort?.abort();
         }
     }
 
@@ -1168,7 +1222,11 @@ export default class Google3DTiles {
         const budget = this.memoryBudgetMB * 1024 * 1024;
         if (this.residentBytes <= budget || this.evictedIn === this.updateId) return;
         this.evictedIn = this.updateId;
-        const candidates = [...this.resident].filter(node => !node.rendered)
+        // Never what the visible view needs, drawn or about to be: evicting a
+        // tile that fills a gap only to request it again leaves a lasting
+        // hole. Past the budget, rather exceed it; first go tiles nothing
+        // needs, then the surroundings and prefetch, oldest first.
+        const candidates = [...this.resident].filter(node => !node.rendered && !(node.viewedIn === this.updateId && node.culledIn !== this.updateId))
             .sort((a, b) => Number(a.lastVisit === this.updateId) - Number(b.lastVisit === this.updateId) || a.lastUsed - b.lastUsed);
         for (const node of candidates) {
             if (this.residentBytes <= budget * 0.9) break;

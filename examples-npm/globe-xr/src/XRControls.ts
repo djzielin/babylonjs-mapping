@@ -23,6 +23,8 @@ const ZOOM_RATE = 1.5;
 const SNAP_TURN = 30;
 /** Each click toward the ground brings the user this much closer to it. */
 const CLICK_ZOOM = 0.35;
+/** Highest a flight climbs: the whole globe in view, as the rig allows. */
+const MAX_CRUISE_SCALE = 4e6;
 /** Physical eye height assumed when matching a view's altitude. */
 export const EYE_HEIGHT = 1.6;
 
@@ -53,7 +55,8 @@ interface Flight {
     from: RigPose;
     to: RigPose;
     /** Extra log-scale at mid-flight, to rise over long distances. */
-    lift: number;
+    /** Scale at the top of the flight. */
+    cruise: number;
     start: number;
     duration: number;
     resolve: (done: boolean) => void;
@@ -126,18 +129,22 @@ export class GlobeXRControls {
         this.rig.apply();
     }
 
-    /** Glides the head to `pose`: rising over long distances, eased at both ends. */
+    /**
+     * Flies the head to `pose` as the flat globe's camera does: rising to a
+     * height that holds both ends, gliding across, and dropping in, in
+     * overlapping phases. Short hops just ease between the two.
+     */
     public flyTo(pose: RigPose, durationMs?: number): Promise<boolean> {
         this.cancelFlight();
         const from = this.headPose;
         const distance = greatCircle(from.latitude, from.longitude, pose.latitude, pose.longitude);
-        // High enough at mid-flight to see the way: a tenth of the distance as eye height.
-        const peak = Math.log(Math.max(1, distance / 10 / EYE_HEIGHT));
-        const lift = Math.max(0, peak - Math.max(Math.log(from.scale), Math.log(pose.scale)));
-        const duration = durationMs ?? Math.min(9000, 1200 + 1400 * Math.log10(1 + distance / 1000));
+        // Eye height at cruise: the flat camera's range over both ends.
+        const near = Math.max(from.scale, pose.scale);
+        const cruise = Math.min(MAX_CRUISE_SCALE, Math.max(near, distance * 1.1 / EYE_HEIGHT));
+        const duration = durationMs ?? Math.min(6500, 2400 + Math.log10(1 + distance / 1000) * 800);
         this.placeDestination(pose);
         return new Promise(resolve => {
-            this.flight = { from, to: pose, lift, start: performance.now(), duration, resolve };
+            this.flight = { from, to: pose, cruise, start: performance.now(), duration, resolve };
         });
     }
 
@@ -315,20 +322,24 @@ export class GlobeXRControls {
     private fly(now: number): void {
         const flight = this.flight!;
         const t = Math.min(1, (now - flight.start) / flight.duration);
-        const e = t * t * t * (t * (t * 6 - 15) + 10);
         const { from, to } = flight;
-        const [latitude, longitude] = slerp(from.latitude, from.longitude, to.latitude, to.longitude, e);
-        const scale = Math.exp(Math.log(from.scale) * (1 - e) + Math.log(to.scale) * e + flight.lift * Math.sin(Math.PI * e));
+        // As the flat camera: rise, glide, drop, overlapping; turn mid-way.
+        const phase = (a: number, b: number) => smootherstep(Math.max(0, Math.min(1, (t - a) / (b - a))));
+        const rise = phase(0, 0.45), glide = phase(0.2, 0.8), drop = phase(0.55, 1), turnPhase = phase(0.25, 0.75);
+        const lerp = (a: number, b: number, e: number) => a + (b - a) * e;
+        const [latitude, longitude] = slerp(from.latitude, from.longitude, to.latitude, to.longitude, glide);
+        // Scale in log space, so the climb and the fall feel even at every height.
+        const scale = Math.exp(lerp(lerp(Math.log(from.scale), Math.log(flight.cruise), rise), Math.log(to.scale), drop));
         const turn = ((to.heading - from.heading + 540) % 360) - 180;
-        this.rig.set({ latitude, longitude, heading: from.heading + turn * e, scale });
-        this.centreHead(from.heading + turn * e);
+        const heading = from.heading + turn * turnPhase;
+        this.rig.set({ latitude, longitude, heading, scale });
+        this.centreHead(heading);
         if (t >= 1) {
             this.flight = undefined;
             flight.resolve(true);
         }
     }
 
-    /** The floor eases to the ground under the head: terrain and rooftops at life size, the land when large. */
     private followGround(dt: number): void {
         if (++this.groundAge > 5) {
             this.groundAge = 0;
@@ -394,7 +405,8 @@ export class GlobeXRControls {
         const zoom = Math.abs(Math.log(this.rig.scale / before.scale)) / dt;
         const turn = Math.abs(((this.rig.heading - before.heading + 540) % 360) - 180);
         // Snap turns are instant: no vignette needed.
-        const target = Math.min(1, linear / 6 + zoom / 2.5 + (turn > 5 ? 0 : turn / dt / 120));
+        // A scripted flight is expected and steady: a light frame, so the way stays in view.
+        const target = Math.min(this.flight ? 0.3 : 1, linear / 6 + zoom / 2.5 + (turn > 5 ? 0 : turn / dt / 120));
         this.comfort += (target - this.comfort) * (1 - Math.exp(-dt * (target > this.comfort ? 10 : 3)));
         const visible = this.comfort > 0.04;
         this.vignette.setEnabled(visible);
@@ -456,6 +468,10 @@ export class GlobeXRControls {
         material.fogEnabled = false;
         return material;
     }
+}
+
+function smootherstep(x: number): number {
+    return x * x * x * (x * (x * 6 - 15) + 10);
 }
 
 function value(hand: Hand, id: string): number {
