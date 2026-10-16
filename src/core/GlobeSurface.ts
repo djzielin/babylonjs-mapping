@@ -315,6 +315,13 @@ const MARGIN_PRIORITY = 50;
  * the drawn tiles alone instead of swapping those near a threshold.
  */
 const REFINE_DRAWN = 2;
+/**
+ * Levels a tile may refine below the deepest one whose heights are known.
+ * Below that its bounds come from a guess (the root's covers Everest), so
+ * every tile near the eye would seem to touch it and refine to the finest
+ * level, tens of thousands of them, before any had loaded.
+ */
+const BLIND_LEVELS = 4;
 /** Least time between selections redone only because tiles arrived. */
 const CONTENT_TRAVERSAL_MS = 100;
 const COARSEN_REFINED = 0.35;
@@ -341,6 +348,8 @@ class SurfaceNode {
     public floorMin: number;
     public minHeight: number;
     public maxHeight: number;
+    /** Level of the tile whose heights gave this one's height range. */
+    public rangeZ: number;
     /** Cosine of the tile's latitude nearest the equator: the scale of its widest texels. */
     public readonly widestCos: number;
     public distance = 0;
@@ -381,6 +390,7 @@ class SurfaceNode {
         this.minHeight = parent?.minHeight ?? 0;
         this.maxHeight = parent?.maxHeight ?? 0;
         this.floorMin = parent?.floorMin ?? 0;
+        this.rangeZ = parent?.rangeZ ?? 0;
         const north = tileLatitude(y, z), south = tileLatitude(y + 1, z);
         this.widestCos = north > 0 && south < 0 ? 1 : Math.cos(Math.min(Math.abs(north), Math.abs(south)) * DEGREES);
     }
@@ -711,6 +721,7 @@ export default class GlobeSurface {
             this.visit(this.root, []);
             this.pass = Pass.View;
         }
+        this.wanted.sort((a, b) => a.priority - b.priority);
         // What this traversal needs; everything else resident may be evicted.
         this.neededBytes = 0;
         for (const node of this.resident) if (node.lastVisit === this.updateId) this.neededBytes += node.bytes;
@@ -757,7 +768,7 @@ export default class GlobeSurface {
         if (!seen) node.priority = Math.log2(this.maximumScreenSpaceError * distance / (texel * this.sseFactor)) + PASS_PRIORITY[this.pass];
         const hysteresis = this.band(node, sticky);
         const error = texel * this.sseFactor / distance;
-        let finest = node.z >= this.imagery.maxZoom;
+        let finest = node.z >= this.imagery.maxZoom || node.z - node.rangeZ >= BLIND_LEVELS;
         // The sea floor has no imagery: refine only as far as its elevation has detail.
         if (this.underwater && node.z >= Math.min(UNDERWATER_MAX_ZOOM, (this.elevation?.maxZoom ?? 0) + 3)) finest = true;
         if (!finest && this.coverage && node.z >= this.coverage.maxZoom
@@ -983,12 +994,10 @@ export default class GlobeSurface {
         // wanted tile, which would be loaded again, forever.
         const budget = this.memoryBudgetMB * 1024 * 1024;
         const allowed = [true, this.neededBytes < budget * MARGIN_BUDGET, this.neededBytes < budget * PREFETCH_BUDGET];
-        const candidates = this.wanted.filter(node => (node.state === State.None || node.state === State.Failed && node.retryAt <= now)
-            && allowed[node.wantedBy]);
-        candidates.sort((a, b) => a.priority - b.priority);
-        for (const node of candidates) {
+        // Sorted once per traversal; started tiles drop out by their state.
+        for (const node of this.wanted) {
             if (this.requestsInFlight >= this.maxConcurrentRequests) break;
-            void this.load(node);
+            if ((node.state === State.None || node.state === State.Failed && node.retryAt <= now) && allowed[node.wantedBy]) void this.load(node);
         }
         // Abandon downloads the camera has moved away from, once a second.
         if (now - this.abandonedAt > 1000) {
@@ -1186,6 +1195,25 @@ export default class GlobeSurface {
     }
 
     /**
+     * Give the descendants still on a coarser guess the height range of
+     * `node`, just loaded, widened for peaks its grid passes between.
+     */
+    private narrowDescendants(node: SurfaceNode): void {
+        const margin = Math.max(50, (node.maxHeight - node.minHeight) / 4);
+        const stack = [...node.children ?? []];
+        while (stack.length) {
+            const child = stack.pop()!;
+            if (child.rangeZ >= node.z) continue;
+            child.minHeight = node.minHeight - margin;
+            child.maxHeight = node.maxHeight + margin;
+            child.floorMin = node.floorMin - margin;
+            child.rangeZ = node.z;
+            this.bound(child);
+            if (child.children) stack.push(...child.children);
+        }
+    }
+
+    /**
      * Grid vertices relative to the tile's centre, followed by a skirt that
      * hangs from each edge to hide cracks between tiles of different levels.
      * Fixes the node's exact bounds and height range.
@@ -1198,7 +1226,9 @@ export default class GlobeSurface {
             node.floorMin = Math.min(...raw);
             node.minHeight = min;
             node.maxHeight = max;
+            node.rangeZ = node.z;
             this.position(node, 0.5, 0.5, (min + max) / 2, node.center);
+            this.narrowDescendants(node);
         }
         const center = node.center;
         const positions = new Float32Array(VERTICES * 3);

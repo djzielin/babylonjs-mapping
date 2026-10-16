@@ -280,6 +280,11 @@ export default class GlobeSurface {
     /** Create GPU resources for decoded tiles, within the frame's upload budget. */
     private uploadDecoded;
     /**
+     * Give the descendants still on a coarser guess the height range of
+     * `node`, just loaded, widened for peaks its grid passes between.
+     */
+    private narrowDescendants;
+    /**
      * Grid vertices relative to the tile's centre, followed by a skirt that
      * hangs from each edge to hide cracks between tiles of different levels.
      * Fixes the node's exact bounds and height range.

@@ -225,6 +225,8 @@ export default class Google3DTiles {
     private abandonedAt;
     private traversedForContentAt;
     private sweptAt;
+    /** The last selection of the surroundings: when, what it visited, and what it wanted. */
+    private around;
     /** Tiles replaced by others, drawn until those have faded in. */
     private leaving;
     private readonly eye;
@@ -307,6 +309,8 @@ export default class Google3DTiles {
     /** An exact frame anchored beneath a camera, e.g. one far from the drawn view. */
     private frameAt;
     private prepareCamera;
+    /** Want the tiles all around the camera, reusing a recent selection of them. */
+    private surroundings;
     /**
      * Select what to draw beneath `node`. Returns true when the node's area is
      * fully drawable (or needs nothing), so its parent may be replaced.

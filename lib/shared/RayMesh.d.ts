@@ -13,7 +13,11 @@ export declare class RayMesh {
     private constructor();
     /** The query structure for a mesh, built on first use and kept with its positions. */
     static for(positions: ArrayLike<number>, indices: ArrayLike<number>): RayMesh;
-    /** Distance along `ray` (in its direction's units) to the nearest triangle, either face, or undefined. */
+    /**
+     * Distance along `ray` (in its direction's units) to the nearest triangle,
+     * either face, or undefined. Like Babylon's, the test accepts hits within
+     * `ray.epsilon` (barycentric) of a triangle's edges, so none fall between triangles.
+     */
     intersect(ray: Ray, maximum?: number): number | undefined;
 }
 /** Indices of a (grid + 1)² vertex grid's triangles, in the order GlobeSurface draws them. */

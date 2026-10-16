@@ -275,6 +275,11 @@ const AROUND_BUDGET = 0.6;
 const AROUND_ERROR_SCALE = 2;
 /** Fraction of the concurrent requests the surroundings may use, keeping the rest free for the view. */
 const AROUND_REQUESTS = 0.5;
+/**
+ * Least time between selections of the surroundings, half of a selection's
+ * work: in between, the last one's tiles stay needed and keep loading.
+ */
+const AROUND_INTERVAL_MS = 400;
 /** Subtree JSON outranks content this many levels deeper: each subtree gates everything beneath it. */
 const TILESET_PRIORITY_BOOST = 4;
 
@@ -370,6 +375,8 @@ export default class Google3DTiles {
     private abandonedAt = 0;
     private traversedForContentAt = 0;
     private sweptAt = 0;
+    /** The last selection of the surroundings: when, what it visited, and what it wanted. */
+    private around = { at: -Infinity, visited: [] as TileNode[], wanted: [] as TileNode[] };
     /** Tiles replaced by others, drawn until those have faded in. */
     private leaving: TileNode[] = [];
 
@@ -924,12 +931,7 @@ export default class Google3DTiles {
             // Once the view is complete, its surroundings in every direction.
             // (Wanted tiles are those not yet ready; only failures may remain.)
             const settled = this.uploads.length === 0 && this.wanted.every(node => node.contentState === State.Failed || node.tilesetState === State.Failed);
-            if ((settled || this.alwaysLoadSurroundings) && !ahead) {
-                this.prepareCamera(camera, this.frame, "around");
-                this.pass = Pass.Around;
-                this.visit(this.root!, []);
-                this.pass = Pass.View;
-            }
+            if ((settled || this.alwaysLoadSurroundings) && !ahead) this.surroundings(camera);
         }
         if (ahead) {
             // Wanted after the visible view; drawn nowhere.
@@ -938,6 +940,9 @@ export default class Google3DTiles {
             this.visit(this.root!, []);
             this.pass = Pass.View;
         }
+        // The blurriest first; subtrees gate everything beneath them, so they go before.
+        const rank = (node: TileNode) => node.priority - (node.tilesetUri && node.tilesetState === State.None && !node.children.length ? TILESET_PRIORITY_BOOST : 0);
+        this.wanted.sort((a, b) => rank(a) - rank(b));
         // What this traversal needs; everything else resident may be evicted.
         this.neededBytes = 0;
         for (const node of this.resident) if (node.lastVisit === this.updateId) this.neededBytes += node.content!.byteLength;
@@ -978,6 +983,25 @@ export default class Google3DTiles {
         });
     }
 
+    /** Want the tiles all around the camera, reusing a recent selection of them. */
+    private surroundings(camera: Camera): void {
+        const around = this.around;
+        if (this.traversedAt - around.at >= AROUND_INTERVAL_MS) {
+            around.at = this.traversedAt;
+            around.visited = [];
+            const start = this.wanted.length;
+            this.prepareCamera(camera, this.frame, "around");
+            this.pass = Pass.Around;
+            this.visit(this.root!, []);
+            this.pass = Pass.View;
+            around.wanted = this.wanted.slice(start);
+            return;
+        }
+        for (const node of around.visited) node.lastVisit = this.updateId;
+        for (const node of around.wanted)
+            this.want(node, node.tilesetUri && node.tilesetState === State.None && !node.children.length ? "tileset" : "content", Pass.Around);
+    }
+
     /**
      * Select what to draw beneath `node`. Returns true when the node's area is
      * fully drawable (or needs nothing), so its parent may be replaced.
@@ -985,6 +1009,7 @@ export default class Google3DTiles {
     private visit(node: TileNode, render: TileNode[]): boolean {
         // The visible view's distance and priority win over a prefetch's.
         const seen = this.pass !== Pass.View && node.lastVisit === this.updateId;
+        if (this.pass === Pass.Around && !seen) this.around.visited.push(node);
         node.lastVisit = this.updateId;
         node.seenAt = this.traversedAt;
         const sticky = node.refined && node.viewedIn >= this.updateId - 1;
@@ -1178,15 +1203,12 @@ export default class Google3DTiles {
         const budget = this.memoryBudgetMB * 1024 * 1024;
         const allowed = [true, this.neededBytes < budget * MARGIN_BUDGET, this.neededBytes < budget * PREFETCH_BUDGET,
             this.neededBytes < budget * AROUND_BUDGET && this.requestsInFlight < this.maxConcurrentRequests * AROUND_REQUESTS];
-        const candidates = this.wanted.filter(node => node.retryAt <= now && (needsTileset(node) || node.contentState === State.None)
-            && allowed[node.wantedBy]);
-        // Subtrees gate everything beneath them, so they go first.
-        const rank = (node: TileNode) => node.priority - (needsTileset(node) ? TILESET_PRIORITY_BOOST : 0);
-        candidates.sort((a, b) => rank(a) - rank(b));
-        for (const node of candidates) {
+        // Sorted once per traversal; started tiles drop out by their state.
+        for (const node of this.wanted) {
             if (this.requestsInFlight >= this.maxConcurrentRequests) break;
+            if (node.retryAt > now || !allowed[node.wantedBy]) continue;
             if (needsTileset(node)) void this.loadTileset(node);
-            else void this.loadContent(node);
+            else if (node.contentState === State.None) void this.loadContent(node);
         }
         // Abandon downloads the camera has moved away from, once a second.
         if (now - this.abandonedAt > 1000) {

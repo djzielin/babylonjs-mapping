@@ -31,17 +31,20 @@ describe("RayMesh", () => {
   const indices = gridTriangles(grid);
 
   it("finds the same nearest hit as testing every triangle", () => {
+    // Seeded, so a failure reproduces.
+    let seed = 7;
+    const random = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
     let hits = 0;
-    for (let k = 0; k < 200; k++) {
-      const origin = new Vector3(Math.random() * 40 - 4, 5 + Math.random() * 5, Math.random() * 40 - 4);
-      const direction = new Vector3(Math.random() - 0.5, -1, Math.random() - 0.5).normalize();
+    for (let k = 0; k < 2000; k++) {
+      const origin = new Vector3(random() * 40 - 4, 5 + random() * 5, random() * 40 - 4);
+      const direction = new Vector3(random() - 0.5, -1, random() - 0.5).normalize();
       const ray = new Ray(origin, direction);
       const expected = bruteForce(ray, positions, indices);
       const actual = RayMesh.for(positions, indices).intersect(ray);
       if (expected === undefined) expect(actual).toBeUndefined();
       else { hits++; expect(actual).toBeCloseTo(expected, 4); }
     }
-    expect(hits).toBeGreaterThan(50);
+    expect(hits).toBeGreaterThan(500);
   });
 
   it("finds vertical hits, whose direction has zero components", () => {
