@@ -892,7 +892,9 @@ export default class Google3DTiles {
 
         const engine = this.scene.getEngine();
         const viewKey = `${this.enabled}/${this.viewChange.update(camera, this.globe ? position.length() - this.globe.radius : position.y)}/${this.viewChange.projection(camera)}/${this.frame.revision}`
-            + `/${ahead?.uniqueId}/${ahead?.getViewMatrix().updateFlag}/${engine.getRenderWidth()}x${engine.getRenderHeight()}`;
+            + `/${ahead?.uniqueId}/${ahead?.getViewMatrix().updateFlag}/${engine.getRenderWidth()}x${engine.getRenderHeight()}`
+            // Quality changes too: a governor may change them while the view holds still.
+            + `/${this.maximumScreenSpaceError}/${this.detailRadius}/${this.distantErrorScale}/${this.maximumRadius}/${this.surroundErrorScale}/${this.alwaysLoadSurroundings}`;
         // A new view at once; new content (tiles arriving every frame while
         // loading) at most ten times a second.
         const now = performance.now();

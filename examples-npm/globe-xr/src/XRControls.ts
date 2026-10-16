@@ -55,10 +55,8 @@ export const EYE_HEIGHT = 1.6;
 export interface XRControlsOptions {
     /** Ground height in metres above sea level, for following terrain and buildings. */
     groundAt: (latitude: number, longitude: number) => number;
-    /** Distance in world units to the first surface along a ray: cheap, called while pointing. */
+    /** Distance in world units to the first surface along a ray, buildings included: called while pointing, and for the click. */
     hover: (ray: Ray) => number | undefined;
-    /** As `hover`, but exact, for the click itself. */
-    pick: (ray: Ray) => number | undefined;
     /** Called for the controller buttons not used for moving. */
     onButton?: (button: "a" | "b" | "x" | "y" | "stick-left" | "stick-right") => void;
     /** Called whenever the user moves themselves, such as to end a tour. */
@@ -86,6 +84,10 @@ interface Hand {
     held?: Vector3;
     pressed: Set<string>;
     laser: Mesh;
+    /** True while the trigger is touched or pressed. */
+    aiming: boolean;
+    /** True while the hand's stick moves the user: its trigger speeds that instead of pointing. */
+    gliding: boolean;
 }
 
 /** What a flight looks at, as the flat globe's camera orbits it. */
@@ -172,9 +174,13 @@ export class GlobeXRControls {
     /** The view's current tilt, degrees: how far the world is turned to bring the globe into view. */
     private tilt = 0;
     private comfort = 0;
+    private comfortFrom?: { matrix: Matrix; rotation: Quaternion; scale: number };
+    private placed = false;
     private last = performance.now();
     private hoverAt = 0;
     private hoverHit?: Vector3;
+    /** The hand that last began pointing: it keeps the laser, so either hand may be the pointing one. */
+    private pointer?: Hand;
     private turned = false;
     private groundAge = 0;
     private ground = 0;
@@ -222,6 +228,7 @@ export class GlobeXRControls {
         this.rig.floor = this.ground;
         this.centreHead(pose.heading);
         this.rig.apply();
+        this.placed = true;
     }
 
     /**
@@ -325,7 +332,7 @@ export class GlobeXRControls {
         laser.renderingGroupId = this.overlayGroup;
         laser.isPickable = false;
         laser.setEnabled(false);
-        const hand: Hand = { source, handedness: source.inputSource.handedness, pressed: new Set(), laser };
+        const hand: Hand = { source, handedness: source.inputSource.handedness, pressed: new Set(), laser, aiming: false, gliding: false };
         this.hands.set(source, hand);
         laser.parent = source.pointer;
         source.onMotionControllerInitObservable.addOnce(controller => {
@@ -334,7 +341,9 @@ export class GlobeXRControls {
     }
 
     public removeController(source: WebXRInputSource): void {
-        this.hands.get(source)?.laser.dispose();
+        const hand = this.hands.get(source);
+        if (hand === this.pointer) this.pointer = undefined;
+        hand?.laser.dispose();
         this.hands.delete(source);
     }
 
@@ -342,7 +351,6 @@ export class GlobeXRControls {
     public update(): void {
         const now = performance.now(), dt = Math.min(0.1, (now - this.last) / 1000);
         this.last = now;
-        const before = { latitude: this.rig.latitude, longitude: this.rig.longitude, heading: this.rig.heading, scale: this.rig.scale };
         if (this.enabled) this.input(dt, now);
         if (this.flight) this.fly(now, dt);
         else if (this.settle) this.settling(now);
@@ -351,7 +359,35 @@ export class GlobeXRControls {
             this.followGround(dt);
             this.rig.apply();
         }
-        this.updateComfort(before, dt);
+        // The ground beneath the eyes while the world is turned, for what reads `floor`.
+        if (this.isTilted && ++this.groundAge > 5) {
+            this.groundAge = 0;
+            const head = this.headPose;
+            this.ground = this.floorAt(head.latitude, head.longitude);
+        }
+        this.updateComfort(dt);
+    }
+
+    /** Ground height beneath the eyes in metres: the rig's floor, or while the world is turned, the ground below. */
+    public get floor(): number {
+        return this.isTilted ? this.ground : this.rig.floor;
+    }
+
+    /** Ends any flight and lets go of everything, as on leaving the headset. */
+    public reset(): void {
+        this.stopFlight();
+        this.held = this.settle = undefined;
+        this.tilt = this.comfort = 0;
+        this.vignette.setEnabled(false);
+        this.marker.hide();
+        this.hoverHit = undefined;
+        this.comfortFrom = undefined;
+        for (const hand of this.hands.values()) {
+            hand.held = undefined;
+            hand.pressed.clear();
+            hand.aiming = hand.gliding = false;
+            hand.laser.setEnabled(false);
+        }
     }
 
     // ------------------------------------------------------------------ input
@@ -367,7 +403,7 @@ export class GlobeXRControls {
                 return deadzone(stick?.axes.x ?? 0) !== 0 || deadzone(stick?.axes.y ?? 0) !== 0;
             });
             if ((squeezing.length || sticks) && !this.settle) this.userMoved();
-            for (const hand of hands) hand.held = undefined;
+            for (const hand of hands) { hand.held = undefined; hand.gliding = false; }
             for (const hand of hands) this.buttons(hand);
             this.pointing(hands, now);
             return;
@@ -390,7 +426,8 @@ export class GlobeXRControls {
         for (const hand of hands) {
             const stick = hand.controller!.getComponent("xr-standard-thumbstick");
             const x = deadzone(stick?.axes.x ?? 0), y = deadzone(stick?.axes.y ?? 0);
-            if (hand.handedness === "left" && (x || y)) {
+            hand.gliding = hand.handedness === "left" && !!(x || y);
+            if (hand.gliding) {
                 // Where the head looks, level.
                 const yaw = Math.atan2(this.headForward().x, this.headForward().z);
                 const speed = WALK_SPEED * (1 + 2 * value(hand, "xr-standard-trigger")) * dt;
@@ -437,21 +474,36 @@ export class GlobeXRControls {
             ? [["a-button", "a"], ["b-button", "b"], ["xr-standard-thumbstick", "stick-right"]]
             : [["x-button", "x"], ["y-button", "y"], ["xr-standard-thumbstick", "stick-left"]];
         for (const [id, button] of names) {
-            const pressed = !!hand.controller!.getComponent(id)?.pressed;
-            if (pressed && !hand.pressed.has(id)) this.options.onButton?.(button);
+            const component = hand.controller!.getComponent(id);
+            const pressed = !!component?.pressed;
+            // A stick pressed while pushed hard is a push, not a click.
+            const centred = id !== "xr-standard-thumbstick" || Math.hypot(component?.axes.x ?? 0, component?.axes.y ?? 0) < 0.5;
+            if (pressed && !hand.pressed.has(id) && centred) this.options.onButton?.(button);
             if (pressed) hand.pressed.add(id); else hand.pressed.delete(id);
         }
     }
 
     /** The laser of the hand whose trigger is touched, and a click to zoom along it. */
     private pointing(hands: Hand[], now: number): void {
-        let active: Hand | undefined;
+        const clicks = new Set<Hand>();
         for (const hand of hands) {
             const trigger = hand.controller!.getComponent("xr-standard-trigger");
-            // An open panel keeps the right hand's laser up, to show what it points at.
-            const aiming = !!trigger && (trigger.touched || trigger.value > 0.02 || (!!this.options.ui?.isOpen && hand.handedness === "right")) && !hand.held;
-            if (aiming && (!active || hand.handedness === "right")) active = hand;
+            const pressed = !!trigger?.pressed;
+            // A press only counts from a released trigger, whichever hand it is in.
+            if (pressed && !hand.pressed.has("trigger")) clicks.add(hand);
+            if (pressed) hand.pressed.add("trigger"); else hand.pressed.delete("trigger");
+            const aiming = !!trigger && (trigger.touched || trigger.value > 0.02);
+            if (aiming && !hand.aiming) this.pointer = hand;
+            hand.aiming = aiming;
         }
+        // The hand last raised to point; an open panel keeps its laser up, to show what it points at.
+        const usable = (hand: Hand) => !hand.held && !hand.gliding;
+        const candidates = hands.filter(hand => usable(hand) && (hand.aiming || !!this.options.ui?.isOpen));
+        const active = candidates.find(hand => hand === this.pointer && hand.aiming)
+            ?? candidates.find(hand => hand.aiming)
+            ?? candidates.find(hand => hand === this.pointer)
+            ?? candidates.find(hand => hand.handedness === "right")
+            ?? candidates[0];
         for (const hand of hands) hand.laser.setEnabled(hand === active);
         if (!active) { this.marker.hide(); this.hoverHit = undefined; return; }
 
@@ -465,10 +517,7 @@ export class GlobeXRControls {
             active.laser.scaling.z = distance === undefined ? 2 : Math.min(30, distance / physical);
             this.marker.hide();
             this.hoverHit = undefined;
-            const trigger = active.controller!.getComponent("xr-standard-trigger")!;
-            const clicked = trigger.pressed && !active.pressed.has("trigger");
-            if (trigger.pressed) active.pressed.add("trigger"); else active.pressed.delete("trigger");
-            if (clicked) ui.click(ray);
+            if (clicks.has(active)) ui.click(ray);
             return;
         }
         if (now - this.hoverAt > 66) {
@@ -482,14 +531,14 @@ export class GlobeXRControls {
         active.laser.scaling.z = 2;
         if (this.hoverHit) {
             const arrival = clickScale(this.headPose.scale);
-            this.marker.show(ray.origin, this.hoverHit, this.levelForward(), arrival * this.globe.metresToWorld, EYE_HEIGHT, this.camera.globalPosition);
+            // The eyes will stand as high above the ground as they now stand above the floor.
+            const eyeHeight = Math.min(2.2, Math.max(0.5, this.isTilted ? this.flightHead.y : this.camera.position.y));
+            this.marker.show(ray.origin, this.hoverHit, this.levelForward(), arrival * this.globe.metresToWorld, eyeHeight, this.camera.globalPosition);
         } else this.marker.hide();
 
-        const trigger = active.controller!.getComponent("xr-standard-trigger")!;
-        const clicked = trigger.pressed && !active.pressed.has("trigger");
-        if (trigger.pressed) active.pressed.add("trigger"); else active.pressed.delete("trigger");
-        if (!clicked) return;
-        const distance = this.options.pick(ray) ?? (this.hoverHit ? Vector3.Distance(ray.origin, this.hoverHit) : undefined);
+        if (!clicks.has(active)) return;
+        // Where the marker shows, measured afresh along the ray as it is now.
+        const distance = this.options.hover(ray);
         if (distance === undefined) return;
         const target = this.globe.getSurfaceCoordinates(ray.origin.add(ray.direction.scale(distance)));
         this.userMoved();
@@ -566,6 +615,8 @@ export class GlobeXRControls {
         const current = this.currentFrame();
         this.stopFlight();
         this.held = undefined;
+        // About the head as it is now: it may have moved since the flight began.
+        this.flightHead.copyFrom(this.camera.position);
         const m = this.globe.metresToWorld;
         const { latitude, longitude, elevation } = this.globe.getSurfaceCoordinates(current.eye);
         const floor = this.floorAt(latitude, longitude);
@@ -770,16 +821,35 @@ export class GlobeXRControls {
     // ---------------------------------------------------------------- comfort
 
     /** Narrows the view while the world moves, in proportion to how fast it moves. */
-    private updateComfort(before: RigPose, dt: number): void {
-        if (dt <= 0) return;
-        const [east, north] = [(this.rig.longitude - before.longitude) * Math.cos(this.rig.latitude * DEGREES), this.rig.latitude - before.latitude];
-        const metres = Math.hypot(east, north) * DEGREES * this.globe.radius / this.globe.metresToWorld;
-        const linear = metres / this.rig.scale / dt;
-        const zoom = Math.abs(Math.log(this.rig.scale / before.scale)) / dt;
-        const turn = Math.abs(((this.rig.heading - before.heading + 540) % 360) - 180);
-        // Snap turns are instant: no vignette needed.
-        // A scripted flight is expected and steady: a light frame, so the way stays in view.
-        const target = Math.min(this.flight ? 0.3 : 1, linear / 6 + zoom / 2.5 + (turn > 5 ? 0 : turn / dt / 120));
+    private updateComfort(dt: number): void {
+        // How the world moved about the eyes since the last frame: where the
+        // point the head is at now went, how far it turned, how much it grew.
+        const node = this.rig.node;
+        node.computeWorldMatrix(true);
+        const rotation = node.rotationQuaternion!, scale = this.rig.scale;
+        const from = this.comfortFrom;
+        if (!from) {
+            this.comfortFrom = { matrix: node.getWorldMatrix().clone(), rotation: rotation.clone(), scale };
+            return;
+        }
+        let linear = 0, zoom = 0, turn = 0;
+        if (dt > 0) {
+            const head = this.camera.position;
+            const moved = Vector3.Distance(Vector3.TransformCoordinates(head, from.matrix), Vector3.TransformCoordinates(head, node.getWorldMatrix()));
+            linear = moved / (scale * this.globe.metresToWorld) / dt;
+            zoom = Math.abs(Math.log(scale / from.scale)) / dt;
+            const dot = Math.min(1, Math.abs(Quaternion.Dot(from.rotation, rotation)));
+            const degrees = 2 * Math.acos(dot) / DEGREES;
+            // Snap turns are instant: no vignette needed.
+            turn = degrees > 5 ? 0 : degrees / dt;
+        }
+        from.matrix.copyFrom(node.getWorldMatrix());
+        from.rotation.copyFrom(rotation);
+        from.scale = scale;
+        // Placing anew is a cut, not a motion.
+        if (this.placed) { this.placed = false; linear = zoom = 0; }
+        // A scripted flight is expected and steady: a lighter frame, so the way stays in view.
+        const target = Math.min(this.flight ? 0.45 : 1, linear / 6 + zoom / 2.5 + turn / 120);
         this.comfort += (target - this.comfort) * (1 - Math.exp(-dt * (target > this.comfort ? 10 : 3)));
         const visible = this.comfort > 0.04;
         this.vignette.setEnabled(visible);
@@ -883,6 +953,12 @@ function angles(position: Vector3, direction: Vector3): { heading: number; pitch
 function slerpDirection(a: Vector3, b: Vector3, t: number): Vector3 {
     const angle = Math.acos(Math.max(-1, Math.min(1, Vector3.Dot(a, b))));
     if (angle < 1e-9) return b.clone();
+    if (Math.PI - angle < 1e-6) {
+        // Opposite ends of the globe: any great circle will do.
+        const axis = Vector3.Cross(a, Math.abs(a.y) < 0.9 ? Vector3.Up() : Vector3.Right()).normalize();
+        const half = Quaternion.RotationAxis(axis, angle * t);
+        return a.applyRotationQuaternion(half);
+    }
     const s = Math.sin(angle);
     return a.scale(Math.sin((1 - t) * angle) / s).addInPlace(b.scale(Math.sin(t * angle) / s));
 }

@@ -12,7 +12,9 @@ const FONT = "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-s
 const WIDTH = 0.56, HEIGHT = 0.42, PIXELS_PER_METRE = 1500;
 const W = Math.round(WIDTH * PIXELS_PER_METRE), H = Math.round(HEIGHT * PIXELS_PER_METRE);
 const PAD = 28;
-const KEY_ROWS = ["qwertyuiop", "asdfghjkl'", "zxcvbnm,.-"];
+const KEY_ROWS = ["1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.-"];
+/** Texels per pixel drawn: the menu is read at arm's length. */
+const SUPERSAMPLE = 1.6;
 /** Typing pauses this long before a search is sent. */
 const SEARCH_DELAY_MS = 350;
 
@@ -54,7 +56,7 @@ export class XRMenu implements XRPointerUI {
     private readonly inverse = new Matrix();
 
     public constructor(scene: Scene, group: number, private readonly actions: XRMenuActions) {
-        this.panel = new TextPanel("xr menu", scene, WIDTH, HEIGHT, PIXELS_PER_METRE, group, ctx => this.draw(ctx));
+        this.panel = new TextPanel("xr menu", scene, WIDTH, HEIGHT, PIXELS_PER_METRE, group, ctx => this.draw(ctx), SUPERSAMPLE);
         this.panel.alpha = 0;
     }
 
@@ -86,8 +88,12 @@ export class XRMenu implements XRPointerUI {
         this.cancelSearch();
     }
 
+    /** Opens, or closes if open where it can be seen; open but out of sight (turned away from), it comes back in front. */
     public toggle(rig: TransformNode, head: Vector3, forward: Vector3): void {
-        if (this.open) this.hide(); else this.show(rig, head, forward);
+        if (!this.open) { this.show(rig, head, forward); return; }
+        const toPanel = this.panel.mesh.position.subtract(head);
+        const seen = Vector3.Dot(toPanel.normalize(), forward.normalizeToNew()) > Math.cos(55 * Math.PI / 180);
+        if (seen) this.hide(); else this.show(rig, head, forward, this.page);
     }
 
     /** Redraws what may have changed elsewhere, such as the tour ending. */
@@ -128,7 +134,14 @@ export class XRMenu implements XRPointerUI {
         else if (id === "close") this.hide();
         else if (id.startsWith("result:")) {
             const result = this.results[Number(id.slice(7))];
-            if (result) { this.hide(); a.goTo(result); }
+            if (result) {
+                // Done with: the next search starts afresh.
+                this.query = "";
+                this.results = [];
+                this.page = "main";
+                this.hide();
+                a.goTo(result);
+            }
         } else if (id.startsWith("key:")) this.type(id.slice(4));
         this.redraw();
     }
@@ -155,10 +168,14 @@ export class XRMenu implements XRPointerUI {
         try {
             // Landmarks and places (Photon) first, then street addresses (Mapbox), each place once.
             const token = this.actions.searchToken;
+            // Either alone will do: only both failing is an error.
+            let failed = 0;
+            const attempt = (search: Promise<AddressResult[]>) => search.catch(error => { failed++; console.warn(error); return [] as AddressResult[]; });
             const [places, addresses] = await Promise.all([
-                findAddresses(query, request.signal, ""),
-                token ? findAddresses(query, request.signal, token).catch(() => []) : Promise.resolve([]),
+                attempt(findAddresses(query, request.signal, "")),
+                token ? attempt(findAddresses(query, request.signal, token)) : Promise.resolve([]),
             ]);
+            if (failed === (token ? 2 : 1)) throw new Error("No place search answered");
             const results: AddressResult[] = [];
             for (const result of [...places.slice(0, 2), ...addresses, ...places.slice(2)])
                 if (!results.some(r => Math.abs(r.latitude - result.latitude) + Math.abs(r.longitude - result.longitude) < 0.02)) results.push(result);
@@ -209,10 +226,10 @@ export class XRMenu implements XRPointerUI {
         // Search: back, the field, three results, then the keys.
         const targets: Target[] = [{ id: "back", x: PAD, y: 18, w: 96, h: 56 }];
         this.results.forEach((_, i) => targets.push({ id: `result:${i}`, x: PAD, y: 140 + i * 50, w: inner, h: 46 }));
-        const keyW = (inner - 9 * 6) / 10, keyH = 54, keysTop = 300;
+        const keyW = (inner - 9 * 6) / 10, keyH = 52, keysTop = 296;
         KEY_ROWS.forEach((row, r) => [...row].forEach((key, k) =>
             targets.push({ id: `key:${key}`, x: PAD + k * (keyW + 6), y: keysTop + r * (keyH + 6), w: keyW, h: keyH })));
-        const last = keysTop + 3 * (keyH + 6);
+        const last = keysTop + KEY_ROWS.length * (keyH + 6);
         targets.push({ id: "key:clear", x: PAD, y: last, w: keyW * 2 + 6, h: keyH });
         targets.push({ id: "key:space", x: PAD + 2 * (keyW + 6), y: last, w: keyW * 6 + 30, h: keyH });
         targets.push({ id: "key:delete", x: PAD + 8 * (keyW + 6), y: last, w: keyW * 2 + 6, h: keyH });

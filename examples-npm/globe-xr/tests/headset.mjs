@@ -146,6 +146,58 @@ try {
     assert.ok(pinched.scale > 300 ? zoomed.scale < pinched.scale : Math.abs(zoomed.scale / pinched.scale - 1) < 0.01, 'click keeps a good viewing height');
     console.log('Point and click moves', pinched.scale.toFixed(0), '->', zoomed.scale.toFixed(0));
 
+    // The left trigger while gliding speeds the glide: it neither points nor clicks, then or after.
+    await hand('right', "c.updateButtonTouch('trigger', false)");
+    await hand('left', "c.updateAxes('thumbstick', 0, -1)");
+    await frames(5);
+    await hand('left', "c.updateButtonTouch('trigger', true); c.updateButtonValue('trigger', 1)");
+    await frames(10);
+    assert.equal(await page.evaluate(() => demo.xrControls.isFlying), false, 'the glide boost is not a click');
+    await hand('left', "c.updateAxes('thumbstick', 0, 0)");
+    await frames(10);
+    assert.equal(await page.evaluate(() => demo.xrControls.isFlying), false, 'a trigger held from gliding is not a click');
+    await hand('left', "c.updateButtonValue('trigger', 0); c.updateButtonTouch('trigger', false)");
+    await frames(3);
+    console.log('Left trigger while gliding: no click');
+
+    // Either hand points: the left, raised alone, has the laser and the click.
+    await page.evaluate(() => {
+        const c = headset.controllers.left;
+        c.position.set(-0.2, 1.2, -0.3);
+        c.quaternion.set(-0.5, 0, 0, 0.866);
+        c.updateButtonTouch('trigger', true);
+    });
+    await frames(10);
+    assert.equal(await page.evaluate(() => demo.xrControls.marker.isShown), true, 'the left hand marks a destination');
+    await hand('left', "c.updateButtonValue('trigger', 1)");
+    await frames(3);
+    await hand('left', "c.updateButtonValue('trigger', 0); c.updateButtonTouch('trigger', false)");
+    assert.equal(await page.evaluate(() => demo.xrControls.isFlying), true, 'the left hand clicks to move');
+    await page.waitForFunction(() => !demo.xrControls.isFlying);
+    console.log('Left hand points and clicks');
+
+    // Settling out of a flight after the head has moved: no jump.
+    await page.evaluate(() => { void demo.xrControls.flyTo({ ...demo.xrControls.headPose, latitude: demo.xrControls.headPose.latitude + 0.5 }, 6000); });
+    await frames(5);
+    await page.evaluate(() => headset.position.set(0.5, 1.6, 0.3));
+    await frames(10);
+    const jump = await page.evaluate(() => new Promise(done => {
+        const c = demo.xrControls, cam = demo.xr.baseExperience.camera, m = demo.globe.metresToWorld;
+        let last = cam.globalPosition.clone(), steps = [];
+        const o = demo.scene.onAfterRenderObservable.add(() => {
+            const eye = cam.globalPosition.clone();
+            steps.push(eye.subtract(last).length() / m / c.rig.scale);
+            last = eye;
+            if (steps.length === 4) headset.controllers.right.updateAxes('thumbstick', 0, -0.6);
+            if (steps.length === 10) { demo.scene.onAfterRenderObservable.remove(o); headset.controllers.right.updateAxes('thumbstick', 0, 0); done(steps); }
+        });
+    }));
+    // Physical metres the eyes moved per frame: the flight's own slow start, never the head's offset.
+    assert.ok(Math.max(...jump.slice(4, 7)) < 0.1, `no jump settling after a head move (${jump.map(x => x.toFixed(3)).join(' ')})`);
+    await page.waitForFunction(() => !demo.xrControls.isTilted);
+    await page.evaluate(() => headset.position.set(0, 1.6, 0));
+    console.log('Settling after a head move: largest step', Math.max(...jump.slice(4, 7)).toFixed(3), 'm');
+
     // A: on to the next stop, Duke University.
     await hand('right', "c.updateButtonValue('a-button', 1)");
     await frames(3);

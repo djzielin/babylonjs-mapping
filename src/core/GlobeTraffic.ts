@@ -169,6 +169,8 @@ export interface GlobeTrafficOptions {
      * width on screen: for headsets, where roads are seen at their true size. Default false.
      */
     worldWidths?: boolean;
+    /** Milliseconds per frame spent turning loaded tiles into roads. Default 3; less for headsets, whose frames are short. */
+    buildBudgetMs?: number;
 }
 
 interface TrafficTile {
@@ -225,6 +227,7 @@ export default class GlobeTraffic {
     private readonly maximumHeight: number;
     private readonly refreshMs: number;
     private readonly worldWidths: boolean;
+    private readonly buildBudgetMs: number;
     private readonly tiles = new Map<string, TrafficTile>();
     private readonly observer: Observer<Scene>;
     private wanted: TrafficTile[] = [];
@@ -246,6 +249,7 @@ export default class GlobeTraffic {
         this.maximumHeight = options.maximumHeight ?? 30_000;
         this.refreshMs = (options.refreshSeconds ?? 120) * 1000;
         this.worldWidths = options.worldWidths ?? false;
+        this.buildBudgetMs = options.buildBudgetMs ?? BUILD_BUDGET_MS;
         const engine = this.scene.getEngine() as ThinEngine;
         this.batch = new TileBatch("globe traffic", this.scene, {
             name: NAME,
@@ -301,7 +305,7 @@ export default class GlobeTraffic {
         if (height > this.maximumHeight || height < 0) { this.batch.items = []; return; }
         const now = performance.now();
         if (now - this.plannedAt > 500) { this.plannedAt = now; this.plan(position, now); }
-        this.buildFor(now + BUILD_BUDGET_MS);
+        this.buildFor(now + this.buildBudgetMs);
         // Through the shared frame as it is now, so roads move with the content they lie on.
         const ecefToWorld = this.earthFrame?.ecefToWorld;
         const items: TileDrawable[] = [];

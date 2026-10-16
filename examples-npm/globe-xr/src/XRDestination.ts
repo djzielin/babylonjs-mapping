@@ -94,7 +94,7 @@ export class DestinationMarker {
     public show(hand: Vector3, hit: Vector3, facing: Vector3, metre: number, eyeHeight: number, eye: Vector3): void {
         const up = hit.normalizeToNew();
         const forward = facing.subtract(up.scale(Vector3.Dot(facing, up)));
-        if (forward.lengthSquared() < 1e-12) forward.copyFrom(Vector3.Cross(up, Vector3.Right()));
+        if (forward.lengthSquared() < 1e-12) forward.copyFrom(Vector3.Cross(up, Math.abs(up.x) < 0.9 ? Vector3.Right() : Vector3.Forward()));
         forward.normalize();
         this.root.position.copyFrom(hit);
         Quaternion.FromLookDirectionLHToRef(forward, up, this.root.rotationQuaternion!);

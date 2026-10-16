@@ -20,6 +20,8 @@ export interface TileDrawable {
     vao?: WebGLVertexArrayObject;
     /** The vertex array for the cross-fading variant of the shader. */
     fadeVao?: WebGLVertexArrayObject;
+    /** For a clipping batch's tiles wholly inside the clip, drawn without it. */
+    insideVao?: WebGLVertexArrayObject;
     /**
      * When the tile started to fade in (`performance.now()`), or out with
      * `fadeOut`. Tiles fade over `TileBatch.fadeDuration`.
@@ -73,6 +75,9 @@ export declare class TileBatch extends Mesh {
     /** The shader with FADE defined, compiled on first use: discarding costs early depth testing, so only fading tiles pay for it. */
     private fadeEffect?;
     private readonly createFadeEffect?;
+    /** A clipping batch's shader without the clip, for tiles wholly inside it: they keep early depth testing. */
+    private insideEffect?;
+    private readonly createInsideEffect?;
     /**
      * Skip tiles outside the rendering camera's own frustum. Layers select
      * tiles for the view as a whole, a little widened; each eye of a headset

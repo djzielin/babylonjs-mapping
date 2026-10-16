@@ -71,6 +71,8 @@ const HELP = [
 ];
 /** Seconds the tour stays at each place. */
 const TOUR_LINGER_MS = 14_000;
+/** After a flight, the quality governor waits up to this long for the place to load before judging. */
+const SETTLE_JUDGE_MS = 3000;
 
 class GlobeXRDemo {
     private readonly canvas = $<HTMLCanvasElement>("renderCanvas");
@@ -99,6 +101,7 @@ class GlobeXRDemo {
     private captionText = { title: "", text: "" };
     private captionShownAt = -Infinity;
     private place = TOUR[0].title;
+    private placeAt?: { latitude: number; longitude: number } = TOUR[0];
     /** The tour stop the user is at or last flew to; the desktop view starts at the first. */
     private stop = 0;
     private menu?: XRMenu;
@@ -163,6 +166,8 @@ class GlobeXRDemo {
             accessToken: DEMO_MAPBOX_TOKEN,
             // As wide as the lanes: in the headset, roads are seen at their true size.
             worldWidths: true,
+            // An 11 ms frame shares its spare time with the tiles: roads build a little at a time.
+            buildBudgetMs: 1,
             heightAt,
             deckHeightAt: (latitude, longitude) => this.google?.enabled
                 ? this.google.surfaceHeight(latitude, longitude, (this.surface.getHeight(latitude, longitude) ?? 0) + 300) : undefined,
@@ -242,7 +247,8 @@ class GlobeXRDemo {
         const camera = xr.baseExperience.camera;
         // Level of detail from the eyes' field of view (Quest 3: about 96 degrees vertically).
         camera.fov = 1.68;
-        camera.minZ = 0.05;
+        // Near enough for the controllers in hand, no nearer: depth precision is spent on the world.
+        camera.minZ = 0.1;
 
         // Overlays and hands: after every globe layer, over a cleared depth buffer.
         const overlay = RenderingManager.MAX_RENDERINGGROUPS;
@@ -263,8 +269,7 @@ class GlobeXRDemo {
         const demo = this;
         const controls = this.xrControls = new GlobeXRControls(this.globe, camera, {
             groundAt: (lat, lon) => this.groundHeight(lat, lon),
-            hover: ray => this.surface.intersectRay(ray) ?? sphereHit(ray, this.globe.radius),
-            pick: ray => {
+            hover: ray => {
                 const surface = this.surface.intersectRay(ray);
                 const tiles = this.google?.enabled ? this.google.intersectRay(ray, 60) : undefined;
                 return tiles !== undefined && (surface === undefined || tiles < surface) ? tiles : surface ?? sphereHit(ray, this.globe.radius);
@@ -308,12 +313,14 @@ class GlobeXRDemo {
         });
         // A flight loads as it goes: its frames say nothing of the detail the
         // place can hold, so the level is judged afresh after landing.
-        let flew = false;
+        // Judging waits until the place has loaded, or a few seconds at most.
+        let flew = false, landedAt = -Infinity;
         xr.baseExperience.sessionManager.onXRFrameObservable.add(() => {
             const now = performance.now(), flying = !!this.xrControls?.isTilted;
-            if (flew && !flying) this.governor!.reset();
+            if (flew && !flying) { this.governor!.reset(); landedAt = now; }
             flew = flying;
-            if (held === null && !flying) this.governor!.frame(now);
+            const loading = now - landedAt < SETTLE_JUDGE_MS && !(this.surface.isIdle && (!this.google?.enabled || this.google.isIdle));
+            if (held === null && !flying && !loading) this.governor!.frame(now);
             else this.governor!.measure(now);
         });
 
@@ -386,6 +393,8 @@ class GlobeXRDemo {
 
     /** Back on the desktop, where the head was. */
     private exited(): void {
+        this.stopTour();
+        this.menu?.hide();
         this.controls.enabled = true;
         if (this.google) { this.google.surroundErrorScale = 2; this.google.alwaysLoadSurroundings = false; }
         this.surface.viewTolerance = { degrees: 0, distance: 0 };
@@ -393,6 +402,8 @@ class GlobeXRDemo {
         const controls = this.xrControls;
         if (controls) {
             const head = controls.headPose;
+            // Mid-flight or not, the headset's motion ends here.
+            controls.reset();
             this.controls.setView({ latitude: head.latitude, longitude: head.longitude, height: head.height, heading: head.heading, pitch: -25 });
         }
         if (this.credits) this.credits.alpha = 0;
@@ -406,6 +417,7 @@ class GlobeXRDemo {
             case "b": this.stopTour(); void this.goToStop(this.stop - 1); break;
             case "x": {
                 // Life size and back.
+                this.stopTour();
                 const head = controls.headPose;
                 if (head.scale > 1.5) { this.lifeSizeFrom = head.scale; void controls.flyTo({ ...head, scale: 1 }, 1400); }
                 else void controls.flyTo({ ...head, scale: this.lifeSizeFrom ?? 300 }, 1400);
@@ -515,6 +527,7 @@ class GlobeXRDemo {
         caption.mesh.rotation.set(0, Math.atan2(forward.x, forward.z), 0);
         this.captionShownAt = performance.now();
         this.place = stop.title;
+        this.placeAt = { latitude: stop.latitude, longitude: stop.longitude };
     }
 
     private hideCaption(): void {
@@ -524,7 +537,7 @@ class GlobeXRDemo {
 
     private wristState(): { title: string; detail: string; lines: string[] } {
         const head = this.xrControls!.headPose;
-        const height = head.height - this.xrControls!.rig.floor;
+        const height = head.height - this.xrControls!.floor;
         const eye = height < 1000 ? `${Math.round(height)} m` : `${(height / 1000).toFixed(height < 10_000 ? 1 : 0)} km`;
         const governor = this.governor!;
         const errors = this.diagnostics.errors;
@@ -550,11 +563,12 @@ class GlobeXRDemo {
             const head = controls.headPose;
             height = head.height;
             ahead = controls.isFlying ? controls.destination : undefined;
-            if (!controls.isFlying && this.place && this.stop >= 0) {
-                const stop = TOUR[this.stop];
-                if (Math.abs(head.latitude - stop.latitude) + Math.abs(head.longitude - stop.longitude) > 0.5) this.place = "";
+            // The place's name, until the user has left it.
+            if (!controls.isFlying && this.place && this.placeAt) {
+                const away = Math.abs(head.latitude - this.placeAt.latitude) + Math.abs(head.longitude - this.placeAt.longitude);
+                if (away > Math.max(0.05, 0.5 * Math.min(1, head.height / 50_000))) this.place = "";
             }
-            this.updateClipping(height - controls.rig.floor);
+            this.updateClipping(height - controls.floor);
             this.updatePanels();
         } else {
             height = this.controls.getView().height;
@@ -582,7 +596,7 @@ class GlobeXRDemo {
         const now = performance.now();
         if (this.wrist && Math.floor(now / 500) !== Math.floor((now - this.engine.getDeltaTime()) / 500)) {
             const s = this.wristState();
-            this.wrist.refresh(`${s.title}|${s.detail}|${s.lines.length}`);
+            this.wrist.refresh(`${s.title}|${s.detail}|${s.lines.join("|")}`);
             this.credits?.refresh(this.creditText());
         }
         if (this.caption) {

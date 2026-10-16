@@ -20,9 +20,12 @@ export class TextPanel {
     private drawn = "";
 
     public constructor(name: string, scene: Scene, private readonly widthMetres: number, private readonly heightMetres: number,
-        pixelsPerMetre: number, group: number, private readonly draw: (ctx: CanvasRenderingContext2D, width: number, height: number) => void) {
+        pixelsPerMetre: number, group: number, private readonly draw: (ctx: CanvasRenderingContext2D, width: number, height: number) => void,
+        /** Texels per drawn pixel: sharper text for a panel read up close, drawn in the same coordinates. */
+        private readonly supersample = 1) {
         this.mesh = CreatePlane(name, { width: widthMetres, height: heightMetres }, scene);
-        this.texture = new DynamicTexture(name, { width: Math.round(widthMetres * pixelsPerMetre), height: Math.round(heightMetres * pixelsPerMetre) }, scene, true);
+        const size = (metres: number) => Math.round(metres * pixelsPerMetre * supersample);
+        this.texture = new DynamicTexture(name, { width: size(widthMetres), height: size(heightMetres) }, scene, true);
         this.texture.hasAlpha = true;
         const material = this.material = new StandardMaterial(name, scene);
         material.disableLighting = true;
@@ -44,8 +47,10 @@ export class TextPanel {
         this.drawn = key;
         const ctx = this.texture.getContext() as unknown as CanvasRenderingContext2D;
         const { width, height } = this.texture.getSize();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, width, height);
-        this.draw(ctx, width, height);
+        ctx.setTransform(this.supersample, 0, 0, this.supersample, 0, 0);
+        this.draw(ctx, width / this.supersample, height / this.supersample);
         this.texture.update(true);
     }
 

@@ -29,6 +29,8 @@ export interface GlobeTrafficOptions {
      * width on screen: for headsets, where roads are seen at their true size. Default false.
      */
     worldWidths?: boolean;
+    /** Milliseconds per frame spent turning loaded tiles into roads. Default 3; less for headsets, whose frames are short. */
+    buildBudgetMs?: number;
 }
 export interface GlobeTrafficStats {
     /** Tiles around the camera. */
@@ -56,6 +58,7 @@ export default class GlobeTraffic {
     private readonly maximumHeight;
     private readonly refreshMs;
     private readonly worldWidths;
+    private readonly buildBudgetMs;
     private readonly tiles;
     private readonly observer;
     private wanted;

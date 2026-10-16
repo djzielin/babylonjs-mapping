@@ -83,6 +83,8 @@ export interface TileDrawable {
     vao?: WebGLVertexArrayObject;
     /** The vertex array for the cross-fading variant of the shader. */
     fadeVao?: WebGLVertexArrayObject;
+    /** For a clipping batch's tiles wholly inside the clip, drawn without it. */
+    insideVao?: WebGLVertexArrayObject;
     /**
      * When the tile started to fade in (`performance.now()`), or out with
      * `fadeOut`. Tiles fade over `TileBatch.fadeDuration`.
@@ -145,6 +147,9 @@ export class TileBatch extends Mesh {
     /** The shader with FADE defined, compiled on first use: discarding costs early depth testing, so only fading tiles pay for it. */
     private fadeEffect?: Effect;
     private readonly createFadeEffect?: () => Effect;
+    /** A clipping batch's shader without the clip, for tiles wholly inside it: they keep early depth testing. */
+    private insideEffect?: Effect;
+    private readonly createInsideEffect?: () => Effect;
 
     /**
      * Skip tiles outside the rendering camera's own frustum. Layers select
@@ -191,6 +196,10 @@ export class TileBatch extends Mesh {
             attributes, uniformsNames: [...uniforms, "fade"], samplers: ["albedo"],
             defines: [...defines, "#define FADE"].join("\n"), fallbacks: null, onCompiled: null, onError: null, indexParameters: null,
         }, scene.getEngine());
+        if (clip) this.createInsideEffect = () => scene.getEngine().createEffect(shaderName, {
+            attributes, uniformsNames: uniforms, samplers: ["albedo"],
+            defines: "", fallbacks: null, onCompiled: null, onError: null, indexParameters: null,
+        }, scene.getEngine());
         this.bindShader = shader?.bind;
         // Tile transforms mirror geometry (ECEF is right-handed, Babylon's world
         // left-handed), which reverses the winding, and the proxy's default
@@ -227,17 +236,29 @@ export class TileBatch extends Mesh {
         this.bindShader?.(effect);
 
         const now = performance.now();
-        const fading: TileDrawable[] = [];
+        const fading: TileDrawable[] = [], inside: TileDrawable[] = [];
         if (this.cullByCamera) {
             Frustum.GetPlanesToRef(camera.getTransformationMatrix(), this.planes);
             this.planes.forEach(({ normal, d }, i) => this.planeValues.set([normal.x, normal.y, normal.z, d], i * 4));
         }
+        // Only tiles the clip's edge crosses need it.
+        const plain = this.createInsideEffect && Number.isFinite(this.clipRadius) ? this.insideEffect ??= this.createInsideEffect() : undefined;
+        const unclipped = plain?.isReady() ? plain : undefined;
         this.drawnCount = 0;
         for (const item of this.items) {
             if (this.cullByCamera && !this.inView(item)) continue;
             if (item.fadeStart !== undefined && now - item.fadeStart < this.fadeDuration) { fading.push(item); continue; }
             if (item.fadeOut) continue;
+            if (unclipped && item.bounds && Vector3.Distance(item.bounds.center, this.clipCenter) + item.bounds.radius < this.clipRadius) { inside.push(item); continue; }
             this.draw(engine, effect, item, false);
+        }
+        if (inside.length) {
+            engine.enableEffect(unclipped!);
+            gl.uniformMatrix4fv(unclipped!.getUniform("tileViewProjection"), false, this.viewProjection32);
+            unclipped!.setColor3("fogColor", scene.fogColor);
+            unclipped!.setFloat("fogDensity", scene.fogEnabled && scene.fogMode === Scene.FOGMODE_EXP2 ? scene.fogDensity : 0);
+            this.bindShader?.(unclipped!);
+            for (const item of inside) this.draw(engine, unclipped!, item, false, true);
         }
         if (!fading.length) return this;
 
@@ -298,7 +319,7 @@ export class TileBatch extends Mesh {
         return true;
     }
 
-    private draw(engine: ThinEngine, effect: Effect, item: TileDrawable, fading: boolean): void {
+    private draw(engine: ThinEngine, effect: Effect, item: TileDrawable, fading: boolean, unclipped = false): void {
         this.drawnCount++;
         const gl = engine._gl;
         const m = item.world.m, relative = this.relativeWorld, eye = this.getScene().activeCamera!.globalPosition;
@@ -308,12 +329,13 @@ export class TileBatch extends Mesh {
         relative[14] = m[14] - eye.z;
         relative[15] = m[15];
         gl.uniformMatrix4fv(effect.getUniform("tileWorld"), false, relative);
-        let vao = fading ? item.fadeVao : item.vao;
+        let vao = fading ? item.fadeVao : unclipped ? item.insideVao : item.vao;
         if (!vao) {
             const buffers: Record<string, VertexBuffer> = { position: item.positions, ...item.attributes };
             if (item.uvs) buffers.uv = item.uvs;
             vao = engine.recordVertexArrayObject(buffers, item.indexBuffer, effect);
             if (fading) item.fadeVao = vao;
+            else if (unclipped) item.insideVao = vao;
             else item.vao = vao;
         }
         engine.bindVertexArrayObject(vao, item.indexBuffer);
@@ -325,6 +347,7 @@ export class TileBatch extends Mesh {
     public static release(engine: ThinEngine, item: TileDrawable, shared = false): void {
         if (item.vao) engine.releaseVertexArrayObject(item.vao);
         if (item.fadeVao) engine.releaseVertexArrayObject(item.fadeVao);
+        if (item.insideVao) engine.releaseVertexArrayObject(item.insideVao);
         item.positions.dispose();
         if (item.attributes) for (const buffer of Object.values(item.attributes)) buffer.dispose();
         // Shared uv and index buffers belong to the layer that made them.
