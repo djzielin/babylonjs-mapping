@@ -141,20 +141,22 @@ try {
     await hand('right', "c.updateButtonValue('trigger', 0)");
     await page.waitForFunction(() => !demo.xrControls.isFlying);
     const zoomed = await rig();
-    assert.ok(zoomed.scale < pinched.scale * 0.5, 'click zooms in');
-    console.log('Point and click zooms');
+    // Up to a good viewing height, a click keeps it; from higher, it comes down toward it.
+    assert.ok(Math.abs(zoomed.latitude - pinched.latitude) + Math.abs(zoomed.longitude - pinched.longitude) > 1e-5, 'click moves to the point');
+    assert.ok(pinched.scale > 300 ? zoomed.scale < pinched.scale : Math.abs(zoomed.scale / pinched.scale - 1) < 0.01, 'click keeps a good viewing height');
+    console.log('Point and click moves', pinched.scale.toFixed(0), '->', zoomed.scale.toFixed(0));
 
-    // A: on to the next stop, the Grand Canyon.
+    // A: on to the next stop, Duke University.
     await hand('right', "c.updateButtonValue('a-button', 1)");
     await frames(3);
     await hand('right', "c.updateButtonValue('a-button', 0)");
     await page.waitForFunction(() => demo.xrControls.isFlying);
     await page.waitForFunction(() => !demo.xrControls.isFlying, null, { timeout: 30000 });
-    const canyon = await rig();
-    assert.ok(Math.abs(canyon.latitude - 36.1) < 0.3 && Math.abs(canyon.longitude + 112.1) < 0.3, 'A flies to the next stop');
-    console.log('Tour button flies to', canyon);
+    const duke = await rig();
+    assert.ok(Math.abs(duke.latitude - 36.0) < 0.1 && Math.abs(duke.longitude + 78.94) < 0.1, 'A flies to the next stop');
+    console.log('Tour button flies to', duke);
     await page.waitForTimeout(10000);
-    await page.screenshot({ path: resolve(results, 'xr-grand-canyon.png') });
+    await page.screenshot({ path: resolve(results, 'xr-duke.png') });
     console.log('fps', await page.evaluate(() => demo.governor.fps.toFixed(1)), 'quality level', await page.evaluate(() => demo.governor.level));
 
     await page.evaluate(() => demo.xr.baseExperience.exitXRAsync());

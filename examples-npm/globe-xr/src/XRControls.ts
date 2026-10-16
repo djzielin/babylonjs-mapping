@@ -22,7 +22,12 @@ const WALK_SPEED = 2.2;
 const ZOOM_RATE = 1.5;
 const SNAP_TURN = 30;
 /** Each click toward the ground brings the user this much closer to it. */
-const CLICK_ZOOM = 0.35;
+/**
+ * A click keeps the user's height up to this scale, where the world looks
+ * its best; from higher, each click comes down toward it by `CLICK_DESCENT`.
+ */
+const VIEW_SCALE = 300;
+const CLICK_DESCENT = 0.15;
 /** Farthest a flight pulls back from what it looks at, in metres: the whole globe in view. */
 const MAX_CRUISE_RANGE = 1.2e7;
 /** Degrees below the level the eyes rest at: where a flight keeps what it looks at. */
@@ -476,7 +481,7 @@ export class GlobeXRControls {
         active.laser.setEnabled(!this.hoverHit);
         active.laser.scaling.z = 2;
         if (this.hoverHit) {
-            const arrival = Math.max(1, this.headPose.scale * CLICK_ZOOM);
+            const arrival = clickScale(this.headPose.scale);
             this.marker.show(ray.origin, this.hoverHit, this.levelForward(), arrival * this.globe.metresToWorld, EYE_HEIGHT, this.camera.globalPosition);
         } else this.marker.hide();
 
@@ -489,8 +494,8 @@ export class GlobeXRControls {
         const target = this.globe.getSurfaceCoordinates(ray.origin.add(ray.direction.scale(distance)));
         this.userMoved();
         const head = this.headPose;
-        // Toward the point, and closer: the eye height shrinks with each click.
-        void this.flyTo({ latitude: target.latitude, longitude: target.longitude, heading: head.heading, scale: Math.max(1, head.scale * CLICK_ZOOM) }, 1100);
+        // To the point, keeping a good viewing height: the right stick goes lower on purpose.
+        void this.flyTo({ latitude: target.latitude, longitude: target.longitude, heading: head.heading, scale: clickScale(head.scale) }, 1100);
     }
 
     private userMoved(): void {
@@ -828,6 +833,11 @@ export class GlobeXRControls {
 }
 
 const EARTH_RADIUS = 6_371_008;
+
+/** The scale a click arrives at from `scale`: the same, unless higher than the view looks best from. */
+function clickScale(scale: number): number {
+    return scale <= VIEW_SCALE ? scale : Math.max(VIEW_SCALE, scale * CLICK_DESCENT);
+}
 
 function smoothstep(a: number, b: number, x: number): number {
     const t = Math.max(0, Math.min(1, (x - a) / (b - a)));

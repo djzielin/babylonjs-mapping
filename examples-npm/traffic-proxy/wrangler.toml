@@ -1,7 +1,0 @@
-name = "babylonjs-mapping-traffic"
-main = "worker.js"
-compatibility_date = "2025-09-01"
-
-[vars]
-# Sites allowed to call the proxy (comma-separated); localhost is always allowed.
-ALLOWED_ORIGINS = "https://djzielin.github.io"

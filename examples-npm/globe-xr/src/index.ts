@@ -60,10 +60,10 @@ const TARGET_HZ = Number(params.get("hz")) || 90;
 const ROOFTOP_SCALE = 40;
 /** The controls, as the menu explains them. */
 const HELP = [
-    "Trigger: point at the ground, click to go there. The ring is",
-    "    where you will stand, the arrow the way you will face",
+    "Trigger: point at the ground, click to fly there, staying high.",
+    "    The ring is where you will be, the arrow the way you will face",
     "Grip: hold and pull to drag the world · both grips: zoom, turn",
-    "Left stick: walk · right stick: up and down to grow and shrink,",
+    "Left stick: glide · right stick: forward to rise, back to sink,",
     "    left and right to turn",
     "A / B: next / previous place · X: life size and back",
     "Y: this menu · left stick click: the whole globe",
