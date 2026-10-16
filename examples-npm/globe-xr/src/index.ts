@@ -36,6 +36,8 @@ import { aircraftModelUrl, MODEL_AUTHORS, modelKey, shipModelUrl } from "../../g
 import { TOUR, type TourStop } from "../../globe-mode/src/Tour";
 import { EYE_HEIGHT, GlobeXRControls } from "./XRControls";
 import { createCaption, createCreditLine, createWristPanel, type TextPanel } from "./XRPanels";
+import { XRMenu } from "./XRMenu";
+import { type AddressResult } from "../../globe-mode/src/AddressSearch";
 import { Diagnostics } from "./XRDiagnostics";
 import { INITIAL_LEVEL, QualityGovernor, QUALITY_LEVELS } from "./XRQuality";
 import type { RigPose } from "./XRRig";
@@ -56,14 +58,19 @@ const GOOGLE_CEILING = 60_000;
 const TARGET_HZ = Number(params.get("hz")) || 90;
 /** Above this scale, rooftops are too small to stand on: the floor follows the terrain alone. */
 const ROOFTOP_SCALE = 40;
+/** The controls, as the menu explains them. */
 const HELP = [
-    "Grip: drag the world · both grips: zoom and turn",
-    "Left stick: move · right stick: rise, sink, turn",
-    "Trigger: point, click to zoom in",
-    "A / B: next / previous place · X: life size",
-    "Y: hide help · left stick click: overview",
-    "Right stick click: live traffic on / off",
+    "Trigger: point at the ground, click to go there. The ring is",
+    "    where you will stand, the arrow the way you will face",
+    "Grip: hold and pull to drag the world · both grips: zoom, turn",
+    "Left stick: walk · right stick: up and down to grow and shrink,",
+    "    left and right to turn",
+    "A / B: next / previous place · X: life size and back",
+    "Y: this menu · left stick click: the whole globe",
+    "Right stick click: live traffic on or off",
 ];
+/** Seconds the tour stays at each place. */
+const TOUR_LINGER_MS = 14_000;
 
 class GlobeXRDemo {
     private readonly canvas = $<HTMLCanvasElement>("renderCanvas");
@@ -94,7 +101,12 @@ class GlobeXRDemo {
     private place = TOUR[0].title;
     /** The tour stop the user is at or last flew to; the desktop view starts at the first. */
     private stop = 0;
-    private help = true;
+    private menu?: XRMenu;
+    /** Counts tours begun; a tour runs while its number is the latest and `touring` holds. */
+    private tourRun = 0;
+    private touring = false;
+    /** The first time in the headset, the menu opens on the controls. */
+    private introduced = false;
     private lifeSizeFrom?: number;
     private roof = { at: -Infinity, latitude: NaN, longitude: NaN, height: -Infinity };
 
@@ -149,6 +161,8 @@ class GlobeXRDemo {
         // Live congestion on the roads near the head, over the ground and bridges.
         if (DEMO_MAPBOX_TOKEN) this.traffic = new GlobeTraffic(this.globe, {
             accessToken: DEMO_MAPBOX_TOKEN,
+            // As wide as the lanes: in the headset, roads are seen at their true size.
+            worldWidths: true,
             heightAt,
             deckHeightAt: (latitude, longitude) => this.google?.enabled
                 ? this.google.surfaceHeight(latitude, longitude, (this.surface.getHeight(latitude, longitude) ?? 0) + 300) : undefined,
@@ -235,6 +249,18 @@ class GlobeXRDemo {
         RenderingManager.MAX_RENDERINGGROUPS = overlay + 1;
         this.scene.setRenderingAutoClearDepthStencil(overlay, true, true, false);
 
+        const menu = this.menu = new XRMenu(this.scene, overlay, {
+            get tourOn() { return demo.touring; },
+            get trafficOn() { return demo.liveLayers.some(layer => layer.enabled); },
+            get hasTraffic() { return demo.liveLayers.length > 0; },
+            toggleTour: () => { if (this.touring) this.stopTour(); else void this.tour(); },
+            toggleTraffic: () => this.toggleTraffic(),
+            overview: () => { this.stopTour(); this.xrControls!.diving = false; void this.xrControls!.overview(); },
+            goTo: result => { this.stopTour(); void this.goToPlace(result); },
+            searchToken: DEMO_MAPBOX_TOKEN,
+            help: HELP,
+        });
+        const demo = this;
         const controls = this.xrControls = new GlobeXRControls(this.globe, camera, {
             groundAt: (lat, lon) => this.groundHeight(lat, lon),
             hover: ray => this.surface.intersectRay(ray) ?? sphereHit(ray, this.globe.radius),
@@ -244,6 +270,8 @@ class GlobeXRDemo {
                 return tiles !== undefined && (surface === undefined || tiles < surface) ? tiles : surface ?? sphereHit(ray, this.globe.radius);
             },
             onButton: button => this.button(button),
+            onUserMove: () => this.stopTour(),
+            ui: menu,
             // Descents wait a little for the place to load, rather than arriving at a blur.
             destinationReady: () => this.surface.prefetchPending === 0 && (!this.google || this.google.prefetchPending === 0),
         }, overlay);
@@ -344,7 +372,16 @@ class GlobeXRDemo {
         this.xrControls!.diving = view.height < 0;
         this.xrControls!.place({ latitude: view.latitude, longitude: view.longitude, heading: view.heading, scale: Math.max(1, (view.height - ground) / EYE_HEIGHT) });
         this.credits!.alpha = 1;
-        this.help = true;
+        // The first time, the controls, once the head's pose has settled.
+        if (!this.introduced) {
+            this.introduced = true;
+            setTimeout(() => {
+                if (!this.inXR) return;
+                const camera = this.xr!.baseExperience.camera;
+                const forward = new Vector3(0, 0, 1).rotateByQuaternionToRef(camera.rotationQuaternion, new Vector3());
+                this.menu!.show(this.xrControls!.rig.node, camera.position, forward, "help");
+            }, 1500);
+        }
     }
 
     /** Back on the desktop, where the head was. */
@@ -365,8 +402,8 @@ class GlobeXRDemo {
     private button(button: "a" | "b" | "x" | "y" | "stick-left" | "stick-right"): void {
         const controls = this.xrControls!;
         switch (button) {
-            case "a": void this.goToStop(this.stop + 1); break;
-            case "b": void this.goToStop(this.stop - 1); break;
+            case "a": this.stopTour(); void this.goToStop(this.stop + 1); break;
+            case "b": this.stopTour(); void this.goToStop(this.stop - 1); break;
             case "x": {
                 // Life size and back.
                 const head = controls.headPose;
@@ -374,23 +411,74 @@ class GlobeXRDemo {
                 else void controls.flyTo({ ...head, scale: this.lifeSizeFrom ?? 300 }, 1400);
                 break;
             }
-            case "y": this.help = !this.help; break;
+            case "y": {
+                const camera = this.xr!.baseExperience.camera;
+                const forward = new Vector3(0, 0, 1).rotateByQuaternionToRef(camera.rotationQuaternion, new Vector3());
+                this.menu!.toggle(controls.rig.node, camera.position, forward);
+                break;
+            }
             case "stick-left": {
                 // Out to see the whole globe.
+                this.stopTour();
                 controls.diving = false;
                 void controls.overview();
                 break;
             }
-            case "stick-right": {
-                const layers = [this.aircraft, this.ships, this.traffic].filter(layer => layer !== undefined);
-                const enabled = !layers.some(layer => layer.enabled);
-                for (const layer of layers) layer.enabled = enabled;
-                break;
-            }
+            case "stick-right": this.toggleTraffic(); break;
         }
     }
 
-    private async goToStop(index: number): Promise<void> {
+    /** Aircraft, ships and road congestion: whichever this build has. */
+    private get liveLayers(): { enabled: boolean }[] {
+        return [this.aircraft, this.ships, this.traffic].filter(layer => layer !== undefined);
+    }
+
+    private toggleTraffic(): void {
+        const layers = this.liveLayers, enabled = !layers.some(layer => layer.enabled);
+        for (const layer of layers) layer.enabled = enabled;
+        this.menu?.refresh();
+    }
+
+    // ------------------------------------------------------------------ tour
+
+    /** From the next place on, each in turn, lingering at each, until the user moves. */
+    private async tour(): Promise<void> {
+        const run = ++this.tourRun;
+        this.touring = true;
+        this.menu?.refresh();
+        const alive = () => run === this.tourRun && this.touring;
+        for (let i = this.stop + 1; alive(); i++) {
+            if (!await this.goToStop(i) || !alive()) break;
+            const start = performance.now();
+            while (alive() && performance.now() - start < TOUR_LINGER_MS) await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        if (run === this.tourRun) this.stopTour();
+    }
+
+    private stopTour(): void {
+        if (!this.touring) return;
+        this.touring = false;
+        this.tourRun++;
+        this.menu?.refresh();
+    }
+
+    /** To a place found by search: standing over it, as high as the flat demo would look from. */
+    private async goToPlace(result: AddressResult): Promise<void> {
+        const [title, ...rest] = result.label.split(", ");
+        const stop: TourStop = {
+            title, text: rest.join(", "),
+            latitude: result.latitude, longitude: result.longitude,
+            height: this.surface.getHeight(result.latitude, result.longitude) ?? 0,
+            heading: this.xrControls!.headPose.heading, pitch: result.zoom <= 7 ? -80 : -35,
+            range: Math.max(800, 40_000_000 / 2 ** result.zoom),
+        };
+        this.stop = -1;
+        this.hideCaption();
+        this.xrControls!.diving = false;
+        if (await this.xrControls!.flyTo(this.stopPose(stop))) this.showCaption(stop);
+    }
+
+    private async goToStop(index: number): Promise<boolean> {
         const controls = this.xrControls!;
         const count = TOUR.length;
         this.stop = ((index % count) + count) % count;
@@ -398,7 +486,9 @@ class GlobeXRDemo {
         this.hideCaption();
         const pose = this.stopPose(stop);
         controls.diving = stop.height !== undefined && stop.height < 0;
-        if (await controls.flyTo(pose)) this.showCaption(stop);
+        if (!await controls.flyTo(pose)) return false;
+        this.showCaption(stop);
+        return true;
     }
 
     /**
@@ -439,10 +529,12 @@ class GlobeXRDemo {
         const governor = this.governor!;
         const errors = this.diagnostics.errors;
         // Errors first: in the headset there is nowhere else to read them.
-        const lines = errors.length ? [`${errors.length} error${errors.length > 1 ? "s" : ""}:`, ...errors.slice(0, 3)] : this.help ? HELP : [];
+        const lines = errors.length ? [`${errors.length} error${errors.length > 1 ? "s" : ""}:`, ...errors.slice(0, 3)] : ["Y  menu"];
+        // Only where you are, unless ?stats asks for how it is running.
+        const stats = params.has("stats") ? ` · ${Math.round(governor.fps)} fps · ${this.diagnostics.summary} · detail ${QUALITY_LEVELS.length - governor.level}/${QUALITY_LEVELS.length}` : "";
         return {
             title: this.place || `${head.latitude.toFixed(3)}°, ${head.longitude.toFixed(3)}°`,
-            detail: `Eye ${eye} · ${Math.round(governor.fps)} fps · ${this.diagnostics.summary} · detail ${QUALITY_LEVELS.length - governor.level}/${QUALITY_LEVELS.length}`,
+            detail: `${this.touring ? "Tour · " : ""}Eye ${eye}${stats}`,
             lines,
         };
     }

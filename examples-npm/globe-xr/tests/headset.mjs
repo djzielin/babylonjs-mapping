@@ -64,6 +64,15 @@ try {
     await frames(30);
     const start = await rig();
     console.log('In VR at', start);
+
+    // The first time, the menu opens on the controls; Y puts it away.
+    await page.waitForFunction(() => demo.menu.isOpen, null, { timeout: 10000 });
+    await hand('left', "c.updateButtonValue('y-button', 1)");
+    await frames(3);
+    await hand('left', "c.updateButtonValue('y-button', 0)");
+    await frames(3);
+    assert.equal(await page.evaluate(() => demo.menu.isOpen), false, 'Y closes the menu');
+    console.log('Controls shown on entry; Y closes the menu');
     assert.ok(Math.abs(start.latitude - 40.73) < 0.1 && start.scale > 100, 'starts above New York, large');
     await page.waitForTimeout(8000);
     await page.screenshot({ path: resolve(results, 'xr-new-york.png') });
@@ -126,7 +135,7 @@ try {
         c.updateButtonTouch('trigger', true);
     });
     await frames(10);
-    assert.equal(await page.evaluate(() => demo.xrControls.reticle.isEnabled()), true, 'reticle on the ground');
+    assert.equal(await page.evaluate(() => demo.xrControls.marker.isShown), true, 'destination marked on the ground');
     await hand('right', "c.updateButtonValue('trigger', 1)");
     await frames(3);
     await hand('right', "c.updateButtonValue('trigger', 0)");

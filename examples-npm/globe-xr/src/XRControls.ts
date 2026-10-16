@@ -5,9 +5,9 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Ray } from "@babylonjs/core/Culling/ray";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
-import { CreateDisc } from "@babylonjs/core/Meshes/Builders/discBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
+import { DestinationMarker } from "./XRDestination";
 import type { Scene } from "@babylonjs/core/scene";
 import type { WebXRCamera } from "@babylonjs/core/XR/webXRCamera";
 import type { WebXRInputSource } from "@babylonjs/core/XR/webXRInputSource";
@@ -60,6 +60,17 @@ export interface XRControlsOptions {
     onUserMove?: () => void;
     /** True once the flight's destination (see `destination`) has loaded; descents slow until it has. */
     destinationReady?: () => boolean;
+    /** A panel the laser works, such as a menu: while it is open, the trigger is its. */
+    ui?: XRPointerUI;
+}
+
+/** Something drawn in front of the world that the laser points at and clicks. */
+export interface XRPointerUI {
+    readonly isOpen: boolean;
+    /** Distance in world units along `ray` to the panel, or undefined if it misses; also shows what is pointed at. */
+    hover(ray: Ray): number | undefined;
+    /** A trigger click along `ray`, which may miss the panel. */
+    click(ray: Ray): void;
 }
 
 interface Hand {
@@ -145,7 +156,7 @@ export class GlobeXRControls {
     public readonly destination: TargetCamera;
     private readonly hands = new Map<WebXRInputSource, Hand>();
     private readonly vignette: Mesh;
-    private readonly reticle: Mesh;
+    private readonly marker: DestinationMarker;
     private flight?: Flight;
     /** A frame held after a flight that ends looking at the globe, until the user moves. */
     private held?: Frame & { tilt: number };
@@ -172,7 +183,7 @@ export class GlobeXRControls {
         this.destination.rotationQuaternion = new Quaternion();
         this.destination.fov = 1.6;
         this.vignette = this.createVignette();
-        this.reticle = this.createReticle();
+        this.marker = new DestinationMarker(this.scene, this.overlayGroup, (name, color, alpha) => this.overlayMaterial(name, color, alpha));
     }
 
     /** Where the user's head is, as a rig pose with the head at its origin. */
@@ -302,10 +313,10 @@ export class GlobeXRControls {
     }
 
     public addController(source: WebXRInputSource): void {
-        const laser = CreateBox("xr laser", { width: 0.0025, height: 0.0025, depth: 1 }, this.scene);
+        const laser = CreateBox("xr laser", { width: 0.0014, height: 0.0014, depth: 1 }, this.scene);
         // From the controller forward.
         laser.bakeTransformIntoVertices(Matrix.Translation(0, 0, 0.5));
-        laser.material = this.overlayMaterial("xr laser", new Color3(0.55, 0.85, 1), 0.65);
+        laser.material = this.overlayMaterial("xr laser", new Color3(0.8, 0.9, 1), 0.45);
         laser.renderingGroupId = this.overlayGroup;
         laser.isPickable = false;
         laser.setEnabled(false);
@@ -432,32 +443,42 @@ export class GlobeXRControls {
         let active: Hand | undefined;
         for (const hand of hands) {
             const trigger = hand.controller!.getComponent("xr-standard-trigger");
-            const aiming = !!trigger && (trigger.touched || trigger.value > 0.02) && !hand.held;
+            // An open panel keeps the right hand's laser up, to show what it points at.
+            const aiming = !!trigger && (trigger.touched || trigger.value > 0.02 || (!!this.options.ui?.isOpen && hand.handedness === "right")) && !hand.held;
             if (aiming && (!active || hand.handedness === "right")) active = hand;
         }
         for (const hand of hands) hand.laser.setEnabled(hand === active);
-        if (!active) { this.reticle.setEnabled(false); this.hoverHit = undefined; return; }
+        if (!active) { this.marker.hide(); this.hoverHit = undefined; return; }
 
         const ray = new Ray(Vector3.Zero(), Vector3.Forward(), 1e9);
         active.source.getWorldPointerRayToRef(ray);
         ray.length = 1e9;
+        const ui = this.options.ui;
+        if (ui?.isOpen) {
+            const distance = ui.hover(ray);
+            const physical = this.rig.scale * this.globe.metresToWorld;
+            active.laser.scaling.z = distance === undefined ? 2 : Math.min(30, distance / physical);
+            this.marker.hide();
+            this.hoverHit = undefined;
+            const trigger = active.controller!.getComponent("xr-standard-trigger")!;
+            const clicked = trigger.pressed && !active.pressed.has("trigger");
+            if (trigger.pressed) active.pressed.add("trigger"); else active.pressed.delete("trigger");
+            if (clicked) ui.click(ray);
+            return;
+        }
         if (now - this.hoverAt > 66) {
             this.hoverAt = now;
             const distance = this.options.hover(ray);
             this.hoverHit = distance === undefined ? undefined : ray.origin.add(ray.direction.scale(distance));
         }
-        const physical = this.rig.scale * this.globe.metresToWorld;
-        const length = this.hoverHit ? Vector3.Distance(ray.origin, this.hoverHit) / physical : 30;
-        active.laser.scaling.z = Math.min(30, length);
-        this.reticle.setEnabled(!!this.hoverHit);
+        // Pointing at the ground: an arc to where a click lands, and how you will
+        // stand there. At the sky: a short laser, going nowhere.
+        active.laser.setEnabled(!this.hoverHit);
+        active.laser.scaling.z = 2;
         if (this.hoverHit) {
-            this.reticle.position.copyFrom(this.hoverHit);
-            const eye = this.camera.globalPosition;
-            const toEye = eye.subtract(this.hoverHit);
-            // A constant size on screen, facing the eye.
-            this.reticle.scaling.setAll(toEye.length() * 0.012);
-            Quaternion.FromLookDirectionLHToRef(toEye.normalize().negate(), Vector3.Up(), this.reticle.rotationQuaternion!);
-        }
+            const arrival = Math.max(1, this.headPose.scale * CLICK_ZOOM);
+            this.marker.show(ray.origin, this.hoverHit, this.levelForward(), arrival * this.globe.metresToWorld, EYE_HEIGHT, this.camera.globalPosition);
+        } else this.marker.hide();
 
         const trigger = active.controller!.getComponent("xr-standard-trigger")!;
         const clicked = trigger.pressed && !active.pressed.has("trigger");
@@ -790,17 +811,6 @@ export class GlobeXRControls {
         mesh.alwaysSelectAsActiveMesh = true;
         mesh.setEnabled(false);
         return mesh;
-    }
-
-    private createReticle(): Mesh {
-        const disc = CreateDisc("xr reticle", { radius: 1, tessellation: 32 }, this.scene);
-        disc.material = this.overlayMaterial("xr reticle", new Color3(0.85, 0.95, 1), 0.85);
-        disc.rotationQuaternion = new Quaternion();
-        disc.renderingGroupId = this.overlayGroup;
-        disc.isPickable = false;
-        disc.alwaysSelectAsActiveMesh = true;
-        disc.setEnabled(false);
-        return disc;
     }
 
     private overlayMaterial(name: string, color: Color3, alpha: number): StandardMaterial {

@@ -88,27 +88,26 @@ export interface WristState {
     lines: string[];
 }
 
-/** On the left wrist: where you are, and the controls when asked. */
+/** On the left wrist: where you are, quietly; errors, when there are any. */
 export function createWristPanel(scene: Scene, group: number, state: () => WristState): TextPanel {
-    const panel = new TextPanel("xr wrist panel", scene, 0.17, 0.11, 4200, group, (ctx, w, h) => {
+    const panel = new TextPanel("xr wrist panel", scene, 0.15, 0.1, 4200, group, (ctx, w) => {
         const s = state();
-        ctx.fillStyle = "rgba(14, 18, 24, 0.82)";
-        roundRect(ctx, 4, 4, w - 8, h - 8, 34);
+        const pad = 30, lineHeight = 36;
+        // Only as tall as what it says.
+        const height = 132 + s.lines.length * lineHeight;
+        ctx.fillStyle = "rgba(12, 15, 20, 0.72)";
+        roundRect(ctx, 4, 4, w - 8, height, 30);
         ctx.fill();
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        const pad = 34;
         ctx.fillStyle = "#f2f5f8";
-        ctx.font = `600 52px ${FONT}`;
-        ctx.fillText(fitText(ctx, s.title, w - pad * 2), pad, 82);
-        ctx.fillStyle = "rgba(242, 245, 248, 0.7)";
-        ctx.font = `400 30px ${FONT}`;
-        ctx.fillText(fitText(ctx, s.detail, w - pad * 2), pad, 126);
-        ctx.font = `400 27px ${FONT}`;
+        ctx.font = `600 46px ${FONT}`;
+        ctx.fillText(fitText(ctx, s.title, w - pad * 2), pad, 72);
+        ctx.fillStyle = "rgba(242, 245, 248, 0.6)";
+        ctx.font = `400 28px ${FONT}`;
+        ctx.fillText(fitText(ctx, s.detail, w - pad * 2), pad, 114);
+        ctx.font = `400 26px ${FONT}`;
         s.lines.forEach((line, i) => {
-            ctx.fillStyle = i === s.lines.length - 1 ? "rgba(156, 201, 255, 0.85)" : "rgba(242, 245, 248, 0.82)";
-            ctx.fillText(fitText(ctx, line, w - pad * 2), pad, 186 + i * 38);
+            ctx.fillStyle = s.lines.length === 1 ? "rgba(156, 201, 255, 0.75)" : "rgba(255, 190, 170, 0.9)";
+            ctx.fillText(fitText(ctx, line, w - pad * 2), pad, 160 + i * lineHeight);
         });
     });
     // Above the back of the left hand, tilted toward the eyes.

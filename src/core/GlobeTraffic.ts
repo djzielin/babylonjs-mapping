@@ -19,13 +19,14 @@ import type GlobeSet from "./GlobeSet.js";
 const NAME = "globeTraffic";
 
 // Each road segment is a quad whose corners are pushed sideways in screen
-// space, so roads keep a constant width in pixels at any distance. Both
-// ends are projected to find the segment's direction on screen.
+// space, so roads keep a constant width in pixels at any distance (or, with
+// world widths, the width in metres of the lanes they mark). Both ends are
+// projected to find the segment's direction on screen.
 Effect.ShadersStore[`${NAME}VertexShader`] = `
 precision highp float;
 attribute vec3 position;
 attribute vec3 other;
-// side (-1 or 1), end (0 start, 1 end), metres along the road, width in pixels
+// side (-1 or 1), end (0 start, 1 end), metres along the road, width in pixels (or metres)
 attribute vec4 shape;
 // colour and pulse speed in metres per second
 attribute vec4 style;
@@ -34,11 +35,14 @@ uniform mat4 tileViewProjection;
 uniform vec2 viewport;
 uniform float unitMetres;
 uniform float focal;
+uniform float worldWidths;
 varying vec4 vStyle;
 varying float vAlong;
 varying float vAcross;
 varying float vDistance;
 varying float vWidth;
+varying float vReach;
+varying float vCoverage;
 void main(void) {
     // Lifted a little toward the eye, so roads stay above the ground they lie on.
     vec3 here = (tileWorld * vec4(position, 1.0)).xyz;
@@ -54,7 +58,16 @@ void main(void) {
     // No wider than about half the carriageway it marks, so the road and
     // what is on it stay visible up close.
     float pixelsPerMetre = focal * viewport.y / max(a.w, 1e-6) / unitMetres;
-    float width = max(1.5, min(shape.w, shape.w * 2.0 * pixelsPerMetre));
+    float width;
+    vCoverage = 1.0;
+    if (worldWidths > 0.5) {
+        // As wide as the lanes; once thinner than a pixel and a half, held
+        // there and faded instead, so distant roads thin away without shimmering.
+        float exact = shape.w * pixelsPerMetre;
+        width = max(1.5, exact);
+        vCoverage = min(1.0, exact / 1.5);
+    } else width = max(1.5, min(shape.w, shape.w * 2.0 * pixelsPerMetre));
+    vReach = (worldWidths > 0.5 ? shape.w * 0.75 : width) * 1500.0;
     // Each direction of travel keeps to its own side of the road, and the
     // ends overlap the next segment so joints have no gaps.
     vec2 offset = normal * (shape.x * width * 0.5 - width * 0.6) + forward * (shape.y < 0.5 ? -0.5 : 0.5) * width;
@@ -77,6 +90,8 @@ varying float vAlong;
 varying float vAcross;
 varying float vDistance;
 varying float vWidth;
+varying float vReach;
+varying float vCoverage;
 void main(void) {
     // Antialiased edges, a pixel wide.
     float edge = clamp((1.0 - abs(vAcross)) * vWidth * 0.5, 0.0, 1.0);
@@ -87,10 +102,9 @@ void main(void) {
     float pulse = pow(phase, 8.0);
     vec3 color = vStyle.rgb * (0.7 + 0.9 * pulse);
     // Minor roads fade out with distance before they become clutter.
-    float reach = vWidth * 1500.0;
-    float fade = 1.0 - smoothstep(reach * 0.6, reach, vDistance);
+    float fade = 1.0 - smoothstep(vReach * 0.6, vReach, vDistance);
     float fog = clamp(exp(-pow(fogDensity * vDistance / unitMetres, 2.0)), 0.0, 1.0);
-    float alpha = edge * fade * fog * 0.8;
+    float alpha = edge * fade * fog * vCoverage * 0.8;
     if (alpha < 0.01) discard;
     gl_FragColor = vec4(color, alpha);
 }`;
@@ -103,8 +117,20 @@ const CONGESTION: Record<string, { color: [number, number, number]; speed: numbe
     severe: { color: [0.6, 0.05, 0.1], speed: 1.5 },
 };
 
-/** Width in CSS pixels by road class; undefined for minor streets. */
-function roadWidth(roadClass: unknown): number | undefined {
+/**
+ * Width by road class, undefined for minor streets: in CSS pixels, or with
+ * `metres`, the width of the band marking one direction of travel, a little
+ * narrower than its lanes so the road shows at the edges.
+ */
+function roadWidth(roadClass: unknown, metres = false): number | undefined {
+    if (metres) switch (roadClass) {
+        case "motorway": case "trunk": return 6;
+        case "primary": return 4.5;
+        case "secondary": return 4;
+        case "tertiary": return 3.5;
+        case "motorway_link": case "trunk_link": case "primary_link": return 3.5;
+        default: return undefined;
+    }
     switch (roadClass) {
         case "motorway": case "trunk": return 4.5;
         case "primary": return 3.6;
@@ -138,6 +164,11 @@ export interface GlobeTrafficOptions {
     maximumHeight?: number;
     /** Seconds between refreshes of each tile; Mapbox updates congestion every few minutes. Default 120. */
     refreshSeconds?: number;
+    /**
+     * Draw each road as wide as its lanes in metres rather than at a constant
+     * width on screen: for headsets, where roads are seen at their true size. Default false.
+     */
+    worldWidths?: boolean;
 }
 
 interface TrafficTile {
@@ -193,6 +224,7 @@ export default class GlobeTraffic {
     private readonly radius: number;
     private readonly maximumHeight: number;
     private readonly refreshMs: number;
+    private readonly worldWidths: boolean;
     private readonly tiles = new Map<string, TrafficTile>();
     private readonly observer: Observer<Scene>;
     private wanted: TrafficTile[] = [];
@@ -213,18 +245,27 @@ export default class GlobeTraffic {
         this.radius = options.radius ?? 7000;
         this.maximumHeight = options.maximumHeight ?? 30_000;
         this.refreshMs = (options.refreshSeconds ?? 120) * 1000;
+        this.worldWidths = options.worldWidths ?? false;
         const engine = this.scene.getEngine() as ThinEngine;
         this.batch = new TileBatch("globe traffic", this.scene, {
             name: NAME,
             attributes: ["other", "shape", "style"],
-            uniforms: ["viewport", "unitMetres", "time", "focal"],
+            uniforms: ["viewport", "unitMetres", "time", "focal", "worldWidths"],
             bind: effect => {
-                // Widths are in CSS pixels; the shader works in render-target pixels.
-                const scale = engine.getRenderHeight() / Math.max(1, engine.getRenderingCanvasClientRect()?.height ?? engine.getRenderHeight());
-                effect.setFloat2("viewport", engine.getRenderWidth() / 2 / scale, engine.getRenderHeight() / 2 / scale);
+                const camera = this.scene.activeCamera;
+                if (this.worldWidths) {
+                    // Device pixels of the eye being drawn: its viewport, a part of a headset's framebuffer.
+                    const viewport = camera?.viewport;
+                    effect.setFloat2("viewport", engine.getRenderWidth() * (viewport?.width ?? 1) / 2, engine.getRenderHeight() * (viewport?.height ?? 1) / 2);
+                } else {
+                    // Widths are in CSS pixels; the shader works in render-target pixels.
+                    const scale = engine.getRenderHeight() / Math.max(1, engine.getRenderingCanvasClientRect()?.height ?? engine.getRenderHeight());
+                    effect.setFloat2("viewport", engine.getRenderWidth() / 2 / scale, engine.getRenderHeight() / 2 / scale);
+                }
+                effect.setFloat("worldWidths", this.worldWidths ? 1 : 0);
                 effect.setFloat("unitMetres", 1 / globe.metresToWorld);
                 effect.setFloat("time", performance.now() / 1000 % 3600);
-                effect.setFloat("focal", this.scene.activeCamera?.getProjectionMatrix().m[5] ?? 1);
+                effect.setFloat("focal", camera?.getProjectionMatrix().m[5] ?? 1);
                 engine.setAlphaMode(Constants.ALPHA_COMBINE);
             },
         });
@@ -390,7 +431,7 @@ export default class GlobeTraffic {
             if (!congestion || feature.properties.structure === "tunnel") continue;
             // Minor streets only where traffic is slow, as on a traffic map: a
             // city's every free street in green hides what matters.
-            const width = roadWidth(feature.properties.class) ?? (congestion.speed < 20 ? 2 : 0);
+            const width = roadWidth(feature.properties.class, this.worldWidths) ?? (congestion.speed < 20 ? (this.worldWidths ? 3 : 2) : 0);
             if (!width) continue;
             const marked = feature.properties.structure === "bridge";
             const extent = feature.extent;

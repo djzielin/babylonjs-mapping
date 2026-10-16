@@ -24,6 +24,11 @@ export interface GlobeTrafficOptions {
     maximumHeight?: number;
     /** Seconds between refreshes of each tile; Mapbox updates congestion every few minutes. Default 120. */
     refreshSeconds?: number;
+    /**
+     * Draw each road as wide as its lanes in metres rather than at a constant
+     * width on screen: for headsets, where roads are seen at their true size. Default false.
+     */
+    worldWidths?: boolean;
 }
 export interface GlobeTrafficStats {
     /** Tiles around the camera. */
@@ -50,6 +55,7 @@ export default class GlobeTraffic {
     private readonly radius;
     private readonly maximumHeight;
     private readonly refreshMs;
+    private readonly worldWidths;
     private readonly tiles;
     private readonly observer;
     private wanted;
