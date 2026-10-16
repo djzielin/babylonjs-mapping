@@ -71,9 +71,10 @@ void main(void) {
     // are coarser and approximate the sea surface less closely, which only
     // unmistakably blue water may make up for.
     float distance = vFogDistance * unitMetres;
-    float near = 1.5 + 0.0004 * distance, far = 4.0 + 0.002 * distance;
-    float level = 1.0 - smoothstep(near, 1.5 * near, abs(vHeight));
-    float roughLevel = 1.0 - smoothstep(far, 2.5 * far, abs(vHeight));
+    // Tight bands: low-lying land (paddies, polders, deltas) lies only a metre or two above the sea.
+    float near = 0.5 + 0.0002 * distance, far = 1.5 + 0.001 * distance;
+    float level = 1.0 - smoothstep(near, 1.6 * near, abs(vHeight));
+    float roughLevel = 1.0 - smoothstep(far, 2.0 * far, abs(vHeight));
     // Blue or teal, or dark and grey like a river's silt; sand, vegetation,
     // foam and boats keep their imagery.
     float luma = dot(color, vec3(0.3, 0.55, 0.15));

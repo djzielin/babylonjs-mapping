@@ -11,18 +11,20 @@ export interface QualityLevel {
 }
 
 /**
- * Detail near the head comes first, then the extent of that detail; range
- * goes first. Each step costs roughly a sixth fewer tiles.
+ * Every level draws 3D tiles out to the same range, so the view never falls
+ * back to flat imagery nearby: levels trade detail, near and far, instead.
+ * Measured on a Quest 3, the range costs little once distant tiles are
+ * coarse; fine detail costs most (tile textures fill its memory).
  */
 export const QUALITY_LEVELS: QualityLevel[] = [
-    { error: 7, detailRadius: 1500, distantErrorScale: 5, radius: 9_000 },
-    { error: 8, detailRadius: 1800, distantErrorScale: 4, radius: 10_000 },
-    { error: 10, detailRadius: 2000, distantErrorScale: 4, radius: 10_000 },
-    { error: 12, detailRadius: 1800, distantErrorScale: 4, radius: 10_000 },
-    { error: 14, detailRadius: 1500, distantErrorScale: 4, radius: 9_000 },
-    { error: 18, detailRadius: 1200, distantErrorScale: 4, radius: 8_000 },
-    { error: 24, detailRadius: 1000, distantErrorScale: 3, radius: 7_000 },
-    { error: 32, detailRadius: 800, distantErrorScale: 3, radius: 6_000 },
+    { error: 12, detailRadius: 1000, distantErrorScale: 6, radius: 10_000 },
+    { error: 16, detailRadius: 800, distantErrorScale: 6, radius: 10_000 },
+    { error: 20, detailRadius: 800, distantErrorScale: 6, radius: 10_000 },
+    { error: 24, detailRadius: 800, distantErrorScale: 6, radius: 10_000 },
+    { error: 28, detailRadius: 700, distantErrorScale: 8, radius: 10_000 },
+    { error: 32, detailRadius: 600, distantErrorScale: 8, radius: 10_000 },
+    { error: 40, detailRadius: 500, distantErrorScale: 10, radius: 10_000 },
+    { error: 48, detailRadius: 400, distantErrorScale: 12, radius: 10_000 },
 ];
 
 /** The level the headset starts at, before the governor has measured anything. */
@@ -32,7 +34,7 @@ export const INITIAL_LEVEL = 3;
  * Holds the headset's refresh rate by trading detail: frames that miss the
  * display's interval step the level down quickly; a long run of frames on
  * time steps it back up, but never to a level that has already failed in
- * the last minute, so it settles instead of oscillating.
+ * the last half minute, so it settles instead of oscillating.
  */
 export class QualityGovernor {
     public level: number;
@@ -40,6 +42,8 @@ export class QualityGovernor {
     private last = 0;
     private changedAt = 0;
     private readonly failedAt: number[] = [];
+    /** When a second last missed too many frames, waiting to see if the next does too. */
+    private overAt = -Infinity;
 
     public constructor(private readonly targetHz: () => number, initial = INITIAL_LEVEL, private readonly onChange: (level: QualityLevel, index: number) => void) {
         this.level = initial;
@@ -73,10 +77,16 @@ export class QualityGovernor {
         const missed = this.missed;
         // Holding the 95th percentile at the refresh rate allows about one
         // frame in 25 to miss; stepping up wants a clear margin below that.
+        // A single bad second is often a burst of tiles arriving: only two in
+        // a row step down.
         if (missed > 0.04 && this.level < QUALITY_LEVELS.length - 1) {
+            if (now - this.overAt > 2500) { this.overAt = now; this.intervals = []; return; }
+            // The second second, measured afresh.
+            if (now - this.overAt < 1000) return;
+            this.overAt = -Infinity;
             this.failedAt[this.level] = now;
             this.set(this.level + 1, now);
-        } else if (missed <= 0.01 && now - this.changedAt > 6000 && this.level > 0 && !(now - (this.failedAt[this.level - 1] ?? -Infinity) < 60_000)) {
+        } else if (missed <= 0.01 && now - this.changedAt > 6000 && this.level > 0 && !(now - (this.failedAt[this.level - 1] ?? -Infinity) < 30_000)) {
             this.set(this.level - 1, now);
         }
     }
