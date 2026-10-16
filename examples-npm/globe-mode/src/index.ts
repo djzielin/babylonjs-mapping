@@ -35,6 +35,8 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 
 /** Map layers, finest first: Google's 3D tiles cover the surface, which covers the sky. */
 const GOOGLE_LEVEL = 2;
+/** Map Tiles API requests a second per visitor: a city in well under a minute, leaving the shared quota for others. */
+const GOOGLE_REQUESTS_PER_SECOND = 60;
 const SURFACE_LEVEL = 1;
 /** Google's 3D tiles load within this many metres of the point beneath the camera (20 miles). */
 const GOOGLE_RADIUS = 32_187;
@@ -133,6 +135,10 @@ class GlobeDemo {
         const { meanSeaLevel } = await import("egm96-universal");
         this.google = new Google3DTiles(this.globe, {
             apiKey: DEMO_GOOGLE_KEY,
+            // The key's quota is shared by every visitor: each takes a modest share,
+            // and keeps its session so a revisit is answered from the browser's cache.
+            requestsPerSecond: GOOGLE_REQUESTS_PER_SECOND,
+            sessionKey: "babylonjs-mapping google 3d session",
             maximumRadius: GOOGLE_RADIUS,
             // Full detail around the view, easing off into the haze: a stop
             // loads in a few seconds instead of sharpening throughout.

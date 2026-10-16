@@ -51,6 +51,8 @@ const params = new URLSearchParams(location.search);
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const GOOGLE_LEVEL = 2;
+/** Map Tiles API requests a second per visitor: a city in well under a minute, leaving the shared quota for others. */
+const GOOGLE_REQUESTS_PER_SECOND = 60;
 const SURFACE_LEVEL = 1;
 /** Google's 3D tiles show below this eye height; satellite imagery looks better above. */
 const GOOGLE_CEILING = 60_000;
@@ -137,6 +139,10 @@ class GlobeXRDemo {
         if (DEMO_GOOGLE_KEY) {
             this.google = new Google3DTiles(this.globe, {
                 apiKey: DEMO_GOOGLE_KEY,
+                // The key's quota is shared by every visitor: each takes a modest share,
+                // and keeps its session so a revisit is answered from the browser's cache.
+                requestsPerSecond: GOOGLE_REQUESTS_PER_SECOND,
+                sessionKey: "babylonjs-mapping google 3d session",
                 ...googleQuality(INITIAL_LEVEL),
                 // Everything around the head at full detail; more than this risks
                 // the Quest closing the tab.

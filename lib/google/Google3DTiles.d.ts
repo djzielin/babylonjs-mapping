@@ -87,6 +87,20 @@ export interface Google3DTilesOptions {
     /** Concurrent network requests. Default 32. */
     maxConcurrentRequests?: number;
     /**
+     * Requests per second this client makes to the Map Tiles API at most.
+     * The API's per-minute quota is the key's project's, shared by every
+     * client: a page that loads a city in a burst can spend it for all.
+     * Default 100.
+     */
+    requestsPerSecond?: number;
+    /**
+     * A localStorage key under which to keep the API session for a few hours,
+     * so a reload or a later visit asks for the very same tile URLs and the
+     * browser's HTTP cache (Google allows four hours) answers them instead of
+     * the API. Only the session token is stored, never content. Default: none.
+     */
+    sessionKey?: string;
+    /**
      * Compress textures to BC1 in the streaming workers where the GPU supports
      * it: an eighth of the memory and upload bandwidth, so far more detail fits
      * in the budget. Default true.
@@ -201,6 +215,9 @@ export default class Google3DTiles {
     private root?;
     private rootState;
     private session?;
+    /** True while using a session kept from an earlier page: tile URLs are rewritten to it. */
+    private keptSession;
+    private readonly sessionKey?;
     /** Visiting for `prefetchCamera`. */
     private pass;
     /** Resident bytes the last traversal visited. */
@@ -289,6 +306,8 @@ export default class Google3DTiles {
      */
     private followCamera;
     private authenticate;
+    /** A kept session the API refuses has expired: forget it, and use this page's own from now on. */
+    private checkSession;
     private loadRoot;
     private buildNode;
     private loadTileset;

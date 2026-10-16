@@ -112,6 +112,20 @@ export interface Google3DTilesOptions {
     /** Concurrent network requests. Default 32. */
     maxConcurrentRequests?: number;
     /**
+     * Requests per second this client makes to the Map Tiles API at most.
+     * The API's per-minute quota is the key's project's, shared by every
+     * client: a page that loads a city in a burst can spend it for all.
+     * Default 100.
+     */
+    requestsPerSecond?: number;
+    /**
+     * A localStorage key under which to keep the API session for a few hours,
+     * so a reload or a later visit asks for the very same tile URLs and the
+     * browser's HTTP cache (Google allows four hours) answers them instead of
+     * the API. Only the session token is stored, never content. Default: none.
+     */
+    sessionKey?: string;
+    /**
      * Compress textures to BC1 in the streaming workers where the GPU supports
      * it: an eighth of the memory and upload bandwidth, so far more detail fits
      * in the budget. Default true.
@@ -351,6 +365,9 @@ export default class Google3DTiles {
     private root?: TileNode;
     private rootState = State.None;
     private session?: string;
+    /** True while using a session kept from an earlier page: tile URLs are rewritten to it. */
+    private keptSession = false;
+    private readonly sessionKey?: string;
     /** Visiting for `prefetchCamera`. */
     private pass = Pass.View;
     /** Resident bytes the last traversal visited. */
@@ -391,6 +408,8 @@ export default class Google3DTiles {
         if (!options.apiKey?.trim()) throw new Error("Google3DTiles requires an API key.");
         this.apiKey = options.apiKey.trim();
         this.rootUrl = options.rootUrl ?? GOOGLE_3D_TILES_ROOT_URL;
+        this.sessionKey = options.sessionKey;
+        TileWorkerPool.throttle.setRate(this.rootUrl, options.requestsPerSecond ?? 100);
         this.maximumScreenSpaceError = options.maximumScreenSpaceError ?? 8;
         this.detailRadius = options.detailRadius ?? Infinity;
         this.distantErrorScale = options.distantErrorScale ?? 1;
@@ -653,7 +672,8 @@ export default class Google3DTiles {
 
     private authenticate(uri: string, base: string): string {
         const url = new URL(uri, base);
-        const session = url.searchParams.get("session") ?? new URL(base).searchParams.get("session") ?? this.session;
+        const session = this.keptSession ? this.session
+            : url.searchParams.get("session") ?? new URL(base).searchParams.get("session") ?? this.session;
         if (session) {
             this.session ??= session;
             url.searchParams.set("session", session);
@@ -662,12 +682,29 @@ export default class Google3DTiles {
         return url.toString();
     }
 
+    /** A kept session the API refuses has expired: forget it, and use this page's own from now on. */
+    private checkSession(error: unknown): void {
+        if (!this.keptSession || !/HTTP 40[0-3]\b/.test(String((error as Error)?.message ?? error))) return;
+        this.keptSession = false;
+        this.session = undefined;
+        writeSession(this.sessionKey, undefined);
+    }
+
     private async loadRoot(): Promise<void> {
         this.rootState = State.Loading;
         try {
+            const kept = readSession(this.sessionKey);
             const url = this.authenticate(this.rootUrl, this.rootUrl);
             const tileset = await this.fetchJSON(url);
             if (this.disposed) return;
+            if (kept) {
+                this.session = kept;
+                this.keptSession = true;
+            } else {
+                // The session the root began, kept for the next page.
+                this.session = sessionOf(tileset) ?? this.session;
+                writeSession(this.sessionKey, this.session);
+            }
             this.root = this.buildNode(tileset.root, undefined, 0, url, Matrix.Identity());
             this.rootState = State.Ready;
             this.contentChanged = true;
@@ -706,6 +743,7 @@ export default class Google3DTiles {
             node.tilesetState = State.None;
             node.retryAt = performance.now() + 2000;
             this.totals.failures++;
+            this.checkSession(error);
             if (!isAbort(error)) console.warn("Google 3D Tiles subtree failed:", redact(error));
         } finally {
             this.requestsInFlight--;
@@ -798,6 +836,7 @@ export default class Google3DTiles {
         this.totals.failures++;
         node.contentState = State.None;
         node.retryAt = performance.now() + Math.max(3000, TileWorkerPool.throttle.pausedFor(this.rootUrl));
+        this.checkSession(error);
         console.warn("Google 3D tile failed:", redact(error));
     }
 
@@ -1316,6 +1355,45 @@ function distanceToBox(box: TileBox, point: Vector3): number {
 }
 
 /** Worker pools shared by every tile set on the page. */
+
+/** How long a kept session is used: within the lifetime Google gives its tiles' cache entries. */
+const SESSION_KEEP_MS = 3 * 3600_000;
+
+function readSession(key?: string): string | undefined {
+    if (!key) return undefined;
+    try {
+        const kept = JSON.parse(globalThis.localStorage?.getItem(key) ?? "null") as { session?: string; at?: number } | null;
+        return kept?.session && typeof kept.at === "number" && Date.now() - kept.at < SESSION_KEEP_MS ? kept.session : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function writeSession(key: string | undefined, session: string | undefined): void {
+    if (!key) return;
+    try {
+        if (session) globalThis.localStorage?.setItem(key, JSON.stringify({ session, at: Date.now() }));
+        else globalThis.localStorage?.removeItem(key);
+    } catch {
+        // Storage unavailable (private mode, blocked): tiles just are not reused across pages.
+    }
+}
+
+/** The session in the first content URI of a tile set, if any. */
+function sessionOf(tileset: Google3DTileset): string | undefined {
+    const stack: Google3DTile[] = [tileset.root];
+    while (stack.length) {
+        const tile = stack.pop()!;
+        for (const content of [tile.content, ...(tile.contents ?? [])]) {
+            const uri = content?.uri ?? content?.url;
+            if (typeof uri !== "string") continue;
+            const session = new URL(uri, "https://x/").searchParams.get("session");
+            if (session) return session;
+        }
+        stack.push(...(tile.children ?? []));
+    }
+    return undefined;
+}
 
 function isAbort(error: unknown): boolean {
     return error instanceof DOMException && error.name === "AbortError";
