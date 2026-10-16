@@ -251,6 +251,8 @@ const SURFACE_QUERY_RANGE = 30_000;
 // Coarsest geometric error, in metres, of tiles surfaceHeight() measures: coarser ones are not where the ground is.
 const SURFACE_QUERY_ERROR = 100;
 const TRANSIENT_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+/** How many times the view's target error a tile may be and still stand in while its children load. */
+const COARSE_FALLBACK = 8;
 /** Added to prefetched tiles' priority: they load after every visible tile (lower is sooner). */
 const PREFETCH_PRIORITY = 100;
 /** Added to the priority of tiles just beyond the view: after everything visible, before prefetches. */
@@ -1119,6 +1121,10 @@ export default class Google3DTiles {
             }
             // Children are still loading: draw this level meanwhile.
             this.want(node, "content");
+            // Unless it is far too coarse: a tile many levels short of the view
+            // is a pale, lumpy shell cut off at the layer's edge, and the
+            // surface beneath shows the place better until the detail arrives.
+            if (error > target * COARSE_FALLBACK) { this.keepDrawn(node, render); return false; }
             if (node.contentState !== State.Ready) return this.keepDrawn(node, render);
             render.length = start;
             this.draw(node, render);
